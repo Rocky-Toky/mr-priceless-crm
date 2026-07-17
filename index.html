@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mr Priceless — CRM</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ───────── Auth screen ───────── -->
+<div id="auth-screen">
+  <div class="auth-box">
+    <div class="auth-brand">
+      <div class="brand-mark">MP</div>
+      <h1>Mr Priceless</h1>
+      <p>Client CRM</p>
+    </div>
+    <div id="auth-error" class="auth-error"></div>
+    <button type="button" id="google-signin-btn" class="btn gold" style="width:100%;justify-content:center;gap:10px;">
+      <svg width="17" height="17" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.69 28.18A13.98 13.98 0 0 1 10.95 24c0-1.45.25-2.86.74-4.18v-5.7H4.34A21.99 21.99 0 0 0 2 24c0 3.55.85 6.91 2.34 9.88l7.35-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/></svg>
+      Sign in with Google
+    </button>
+    <p class="auth-hint">Shared workspace for you and your business partner.<br>Each of you signs in with your own Google account — this also connects your calendar for follow-up syncing.</p>
+  </div>
+</div>
+
+<!-- ───────── Not authorized screen ───────── -->
+<div id="unauthorized-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;background:var(--black);padding:20px;">
+  <div class="auth-box" style="text-align:center;">
+    <div class="auth-brand">
+      <div class="brand-mark">MP</div>
+      <h1>Mr Priceless</h1>
+      <p>Client CRM</p>
+    </div>
+    <p class="auth-hint" style="margin-top:0;font-size:13px;">
+      <b style="color:var(--gold-bright);">You're signed in, but not on the team yet.</b><br><br>
+      Signed in as <span id="unauthorized-email" style="color:var(--text-inverse);"></span>.<br>
+      Ask a teammate to invite this email from the Team page, then sign in again.
+    </p>
+    <button type="button" id="unauthorized-signout-btn" class="btn ghost" style="width:100%;justify-content:center;margin-top:16px;color:var(--text-inverse);border-color:var(--line-dark);">Sign out</button>
+  </div>
+</div>
+
+<!-- ───────── App shell ───────── -->
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">MP</div>
+      <div class="brand-text">
+        <h1>Mr Priceless</h1>
+        <p>CRM</p>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-page="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        <span>Dashboard</span>
+      </button>
+      <button class="nav-item" data-page="cold-calls">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+        <span>Cold Calls</span>
+      </button>
+      <button class="nav-item" data-page="deals">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        <span>Deals</span>
+      </button>
+      <button class="nav-item" data-page="contacts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
+        <span>Contacts</span>
+      </button>
+      <button class="nav-item" data-page="notes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+        <span>Notes</span>
+      </button>
+      <button class="nav-item" data-page="team">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+        <span>Team</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="user-avatar" id="user-initial">?</div>
+        <div class="user-email" id="user-email">—</div>
+      </div>
+      <button class="signout" id="signout-btn">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="demo-banner" class="demo-banner" style="display:none;">
+      ★ Demo mode — connect Supabase (see README.md) to save real, shared data.
+    </div>
+
+    <!-- Dashboard -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-header">
+        <div><h2>Dashboard</h2><p>Your pipeline at a glance.</p></div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Total Contacts</div><div class="stat-value" id="stat-contacts">0</div></div>
+        <div class="stat-card"><div class="stat-label">Calls This Week</div><div class="stat-value" id="stat-calls">0</div></div>
+        <div class="stat-card"><div class="stat-label">Open Pipeline</div><div class="stat-value" id="stat-pipeline">$0</div></div>
+        <div class="stat-card"><div class="stat-label">Won This Month</div><div class="stat-value" id="stat-won">$0</div></div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header"><h3>Recent Activity</h3></div>
+          <div class="card-body" id="activity-list"></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Upcoming Follow-Ups</h3></div>
+          <div class="card-body" id="followup-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cold Calls -->
+    <section class="page" id="page-cold-calls">
+      <div class="page-header">
+        <div><h2>Cold Calls</h2><p>Log every dial and its outcome.</p></div>
+        <button class="btn gold" id="add-call-btn">+ Log Call</button>
+      </div>
+      <div class="toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="call-search" placeholder="Search by contact name...">
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Contact</th><th>Date</th><th>Outcome</th><th>Follow Up</th><th>Notes</th><th></th></tr></thead>
+            <tbody id="calls-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Team -->
+    <section class="page" id="page-team">
+      <div class="page-header">
+        <div><h2>Team</h2><p>Invite your business partner and manage who has access.</p></div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header"><h3>Invite a Teammate</h3></div>
+          <div class="card-body" style="padding-top:14px;">
+            <form id="invite-form" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+              <div class="field" style="flex:1;min-width:200px;">
+                <label>Email address</label>
+                <input type="email" id="invite-email" required placeholder="partner@example.com">
+              </div>
+              <button type="submit" class="btn gold" id="invite-submit">+ Invite</button>
+            </form>
+            <div id="invite-message" style="font-size:12.5px;margin-top:12px;"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Current Team</h3></div>
+          <div class="card-body" id="team-list" style="padding-top:6px;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Deals -->
+    <section class="page" id="page-deals">
+      <div class="page-header">
+        <div><h2>Deals</h2><p>Drag cards between stages as they move.</p></div>
+        <button class="btn gold" id="add-deal-btn">+ New Deal</button>
+      </div>
+      <div class="kanban" id="kanban-board"></div>
+    </section>
+
+    <!-- Contacts -->
+    <section class="page" id="page-contacts">
+      <div class="page-header">
+        <div><h2>Contacts</h2><p>Every client and lead in one place.</p></div>
+        <button class="btn gold" id="add-contact-btn">+ Add Contact</button>
+      </div>
+      <div class="toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="contact-search" placeholder="Search name, company, email...">
+        </div>
+        <select class="filter-select" id="contact-status-filter">
+          <option value="">All statuses</option>
+          <option value="lead">Lead</option>
+          <option value="active">Active</option>
+          <option value="client">Client</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Status</th><th></th></tr></thead>
+            <tbody id="contacts-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Notes -->
+    <section class="page" id="page-notes">
+      <div class="page-header">
+        <div><h2>Notes</h2><p>Quick notes for you and your partner.</p></div>
+        <button class="btn gold" id="add-note-btn">+ Add Note</button>
+      </div>
+      <div class="notes-grid" id="notes-grid"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ───────── Modal: Contact ───────── -->
+<div class="overlay" id="contact-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="contact-modal-title">Add Contact</h3><button class="modal-close" data-close="contact-modal">&times;</button></div>
+    <form id="contact-form" class="modal-body">
+      <input type="hidden" id="contact-form-id">
+      <div class="field"><label>Name</label><input type="text" id="contact-name" required></div>
+      <div class="field"><label>Company</label><input type="text" id="contact-company"></div>
+      <div class="field-row">
+        <div class="field"><label>Email</label><input type="email" id="contact-email"></div>
+        <div class="field"><label>Phone</label><input type="tel" id="contact-phone"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Status</label>
+          <select id="contact-status">
+            <option value="lead">Lead</option>
+            <option value="active">Active</option>
+            <option value="client">Client</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+        <div class="field"><label>Tags</label><input type="text" id="contact-tags" placeholder="e.g. Real Estate"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="contact-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Contact</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Cold Call ───────── -->
+<div class="overlay" id="call-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Log Cold Call</h3><button class="modal-close" data-close="call-modal">&times;</button></div>
+    <form id="call-form" class="modal-body">
+      <div class="field"><label>Contact (optional)</label><select id="call-contact-select"></select></div>
+      <div class="field"><label>Or type a name</label><input type="text" id="call-manual-name" placeholder="e.g. Marlon Reeve — Reeve Builders"></div>
+      <div class="field"><label>Phone</label><input type="tel" id="call-phone"></div>
+      <div class="field-row">
+        <div class="field"><label>Call Date</label><input type="date" id="call-date"></div>
+        <div class="field"><label>Follow-Up Date</label><input type="date" id="call-followup"></div>
+      </div>
+      <div class="field"><label>Outcome</label>
+        <select id="call-outcome">
+          <option value="no_answer">No Answer</option>
+          <option value="call_back">Call Back</option>
+          <option value="not_interested">Not Interested</option>
+          <option value="interested">Interested</option>
+          <option value="booked_meeting">Booked Meeting</option>
+        </select>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="call-notes" placeholder="What was said..."></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="call-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Call</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Deal ───────── -->
+<div class="overlay" id="deal-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>New Deal</h3><button class="modal-close" data-close="deal-modal">&times;</button></div>
+    <form id="deal-form" class="modal-body">
+      <div class="field"><label>Deal Title</label><input type="text" id="deal-title" required placeholder="e.g. Acme Co — SEO Retainer"></div>
+      <div class="field"><label>Contact (optional)</label><select id="deal-contact-select"></select></div>
+      <div class="field-row">
+        <div class="field"><label>Value (NZD)</label><input type="number" id="deal-value" min="0" step="1"></div>
+        <div class="field"><label>Stage</label>
+          <select id="deal-stage">
+            <option value="new">New Lead</option>
+            <option value="contacted">Contacted</option>
+            <option value="proposal">Proposal Sent</option>
+            <option value="negotiation">Negotiation</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="deal-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Deal</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Note ───────── -->
+<div class="overlay" id="note-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Add Note</h3><button class="modal-close" data-close="note-modal">&times;</button></div>
+    <form id="note-form" class="modal-body">
+      <div class="field"><label>Title</label><input type="text" id="note-title" placeholder="Optional"></div>
+      <div class="field"><label>Note</label><textarea id="note-body" required placeholder="Write your note..." style="min-height:110px;"></textarea></div>
+      <div class="field"><label>Link to contact (optional)</label><select id="note-contact-select"></select></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="note-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Note</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/config.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
