@@ -246,6 +246,39 @@ function setupGoogleAuth(){
   });
 }
 
+/* ───────── Auth (email/password — quick-start alternative to Google) ───────── */
+function setupEmailAuth(){
+  let mode = "signin";
+  $$(".auth-tab").forEach(tab => tab.addEventListener("click", () => {
+    mode = tab.dataset.mode;
+    $$(".auth-tab").forEach(t => t.classList.toggle("active", t === tab));
+    $("#auth-submit").textContent = mode === "signin" ? "Sign In" : "Create Account";
+  }));
+  $("#auth-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!IS_CONFIGURED) return;
+    const email = $("#auth-email").value.trim();
+    const password = $("#auth-password").value;
+    const errBox = $("#auth-error");
+    errBox.classList.remove("visible");
+    try {
+      if (mode === "signin"){
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        errBox.textContent = "Account created. Check your email if confirmation is required, then sign in.";
+        errBox.classList.add("visible");
+        return;
+      }
+    } catch (err){
+      errBox.textContent = err.message || "Something went wrong.";
+      errBox.classList.add("visible");
+    }
+  });
+}
+
 /* ───────── Navigation ───────── */
 function setupNav(){
   $$(".nav-item").forEach(btn => {
@@ -666,6 +699,7 @@ function setupSearchFilters(){
 
 document.addEventListener("DOMContentLoaded", () => {
   setupGoogleAuth();
+  setupEmailAuth();
   setupNav();
   setupModals();
   setupSearchFilters();
