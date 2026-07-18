@@ -183,17 +183,20 @@ tbody tr:hover{background:rgba(212,175,55,0.05);}
 
 /* ───────── Kanban (Deals) ───────── */
 .kanban{display:grid;grid-auto-flow:column;grid-auto-columns:260px;gap:14px;overflow-x:auto;padding-bottom:12px;}
-.kanban-col{background:#f2f0ea;border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:10px;min-height:120px;}
+.kanban-col{background:#f2f0ea;border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:10px;min-height:120px;transition:background .15s,box-shadow .15s;}
 .kanban-col-head{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 4px;}
 .kanban-col-head h4{font-size:12.5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;color:var(--text2);}
 .kanban-count{font-size:11px;background:var(--white);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--text2);}
-.kanban-col.dragover{outline:2px dashed var(--gold-border);outline-offset:2px;}
+.kanban-col.dragover{background:var(--gold-soft);box-shadow:inset 0 0 0 2px var(--gold-border);}
 
 .deal-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
   padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,0.04);cursor:grab;
+  transition:box-shadow .15s,transform .15s,opacity .15s;
 }
+.deal-card:hover{box-shadow:0 4px 14px rgba(0,0,0,0.1);transform:translateY(-1px);}
 .deal-card:active{cursor:grabbing;}
+.deal-card.dragging{opacity:0.4;box-shadow:0 12px 28px rgba(0,0,0,0.22);transform:scale(1.03) rotate(-1deg);cursor:grabbing;}
 .deal-card h5{font-size:13.5px;font-weight:700;margin-bottom:4px;}
 .deal-card .deal-contact{font-size:11.5px;color:var(--text2);margin-bottom:8px;}
 .deal-card .deal-value{font-size:15px;font-weight:700;color:var(--gold);font-family:'Cormorant Garamond',serif;}
@@ -227,6 +230,22 @@ tbody tr:hover{background:rgba(212,175,55,0.05);}
 .field textarea{resize:vertical;min-height:70px;}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+
+/* ───────── Meeting qualification popup ───────── */
+#qualify-modal{background:rgba(11,11,12,0.72);z-index:100;}
+.qualify-modal{
+  max-width:420px;padding:38px 32px 30px;text-align:center;
+  border:1px solid var(--gold-border);
+  animation:qualify-pop .35s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes qualify-pop{from{opacity:0;transform:scale(.9) translateY(8px);}to{opacity:1;transform:none;}}
+.qualify-icon{
+  width:56px;height:56px;margin:0 auto 16px;border-radius:50%;
+  background:linear-gradient(145deg,var(--gold-bright),var(--gold));
+  display:flex;align-items:center;justify-content:center;color:var(--black);
+  box-shadow:0 0 0 8px var(--gold-soft);
+}
+.qualify-icon svg{width:28px;height:28px;}
 
 /* ───────── Auth screen ───────── */
 #auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--black);padding:20px;}

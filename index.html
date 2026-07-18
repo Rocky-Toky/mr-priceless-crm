@@ -82,6 +82,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         <span>Cold Calls</span>
       </button>
+      <button class="nav-item" data-page="calendar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        <span>Calendar</span>
+      </button>
       <button class="nav-item" data-page="deals">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         <span>Deals</span>
@@ -155,6 +159,17 @@
             <tbody id="calls-tbody"></tbody>
           </table>
         </div>
+      </div>
+    </section>
+
+    <!-- Calendar -->
+    <section class="page" id="page-calendar">
+      <div class="page-header">
+        <div><h2>Calendar</h2><p>Your own Google Calendar, pulled into the CRM.</p></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Next 3 Weeks</h3></div>
+        <div class="card-body" id="calendar-list"></div>
       </div>
     </section>
 
@@ -306,6 +321,8 @@
         <div class="field"><label>Stage</label>
           <select id="deal-stage">
             <option value="new">New Lead</option>
+            <option value="qualified">Qualified</option>
+            <option value="disqualified">Disqualified</option>
             <option value="contacted">Contacted</option>
             <option value="proposal">Proposal Sent</option>
             <option value="negotiation">Negotiation</option>
@@ -335,6 +352,29 @@
         <button type="submit" class="btn gold">Save Note</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Meeting Qualification ───────── -->
+<div class="overlay" id="qualify-modal">
+  <div class="modal qualify-modal">
+    <div class="qualify-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+    </div>
+    <h3 style="text-align:center;font-size:24px;margin-bottom:6px;">Was this person qualified?</h3>
+    <p style="text-align:center;color:var(--text2);font-size:13.5px;margin-bottom:4px;">
+      Meeting: <b id="qualify-title" style="color:var(--text);">—</b>
+    </p>
+    <p style="text-align:center;color:var(--text2);font-size:13px;margin-bottom:22px;">
+      External attendee(s): <span id="qualify-attendees">—</span>
+    </p>
+    <div class="modal-actions" style="justify-content:center;gap:14px;">
+      <button type="button" class="btn ghost" id="qualify-no" style="min-width:110px;justify-content:center;">No</button>
+      <button type="button" class="btn gold" id="qualify-yes" style="min-width:110px;justify-content:center;">Yes</button>
+    </div>
+    <p style="text-align:center;color:var(--text2);font-size:11.5px;margin-top:18px;">
+      Either answer creates a $1,500 MRR deal — Yes moves it to Qualified, No to Disqualified.
+    </p>
   </div>
 </div>
 

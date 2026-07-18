@@ -6,6 +6,8 @@ const { supabase, IS_CONFIGURED } = window.CRM_DB;
 
 const STAGES = [
   { key: "new", label: "New Lead" },
+  { key: "qualified", label: "Qualified" },
+  { key: "disqualified", label: "Disqualified" },
   { key: "contacted", label: "Contacted" },
   { key: "proposal", label: "Proposal Sent" },
   { key: "negotiation", label: "Negotiation" },
@@ -38,6 +40,7 @@ const state = {
   contactSearch: "",
   callSearch: "",
   googleAccessToken: null,
+  calendarEvents: [],
 };
 
 const SUPABASE_URL = window.CRM_CONFIG.SUPABASE_URL;
@@ -74,6 +77,10 @@ function seedDemo(){
     { id:uid(), contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri — Full funnel rebuild", value:8500, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental — Meta Ads retainer", value:2200, stage:"won", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal — SEO + Ads", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+  ];
+  state.calendarEvents = [
+    { id:"demo-1", summary:"Discovery call — Reeve Builders", start:{ dateTime:new Date(Date.now()+3600e3*3).toISOString() }, end:{ dateTime:new Date(Date.now()+3600e3*3.5).toISOString() }, attendees:[{ email:"marlon@reevebuilders.co.nz" }] },
+    { id:"demo-2", summary:"Internal pipeline review", start:{ dateTime:new Date(Date.now()+86400e3*1).toISOString() }, end:{ dateTime:new Date(Date.now()+86400e3*1+3600e3).toISOString() }, attendees:[{ email:"rockyoneill02@gmail.com" }] },
   ];
   state.notes = [
     { id:uid(), title:"Q3 outreach plan", body:"Focus cold calls on trades + legal this month. Aim for 20 dials/day between us.", contact_id:null, deal_id:null, created_at:new Date(Date.now()-86400e3*5).toISOString() },
@@ -145,6 +152,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"cold_calls" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"deals" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
 
@@ -155,6 +163,8 @@ async function initAuth(){
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
     showApp();
+    reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call — Reeve Builders", external_emails:["marlon@reevebuilders.co.nz"] }];
+    showNextReview();
     return;
   }
   const { data:{ session } } = await supabase.auth.getSession();
@@ -195,6 +205,8 @@ async function handleSignedIn(session, freshLogin){
   await fetchTeam();
   subscribeRealtime();
   showApp();
+  await checkPendingMeetingReviews();
+  loadCalendarEvents();
 }
 
 async function isAllowlisted(email){
@@ -417,8 +429,12 @@ function renderDeals(){
 function setupDragDrop(){
   let draggedId = null;
   $$(".deal-card").forEach(card => {
-    card.addEventListener("dragstart", () => { draggedId = card.dataset.id; card.style.opacity = "0.5"; });
-    card.addEventListener("dragend", () => { card.style.opacity = "1"; });
+    card.addEventListener("dragstart", (e) => {
+      draggedId = card.dataset.id;
+      card.classList.add("dragging");
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragend", () => card.classList.remove("dragging"));
   });
   $$(".kanban-col").forEach(col => {
     col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
@@ -454,6 +470,7 @@ function renderAll(){
   renderDeals();
   renderNotes();
   renderTeam();
+  renderCalendar();
   fillContactDropdowns();
 }
 
@@ -573,6 +590,105 @@ function postCalendarEvent(token, event){
     body: JSON.stringify(event),
   });
 }
+
+/* ───────── Calendar page: pull in this user's own Google Calendar ───────── */
+async function loadCalendarEvents(){
+  if (!IS_CONFIGURED) return;
+  try {
+    const timeMin = new Date(Date.now() - 7*86400e3).toISOString();
+    const timeMax = new Date(Date.now() + 21*86400e3).toISOString();
+    let token = await getValidGoogleToken();
+    let resp = await fetchCalendarEvents(token, timeMin, timeMax);
+    if (resp.status === 401){
+      token = await refreshGoogleToken();
+      resp = await fetchCalendarEvents(token, timeMin, timeMax);
+    }
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error?.message || "Couldn't load your calendar.");
+    state.calendarEvents = (data.items || []).filter(ev => ev.start);
+    renderCalendar();
+  } catch (err){
+    state.calendarEvents = [];
+    renderCalendar(err.message);
+  }
+}
+function fetchCalendarEvents(token, timeMin, timeMax){
+  const params = new URLSearchParams({ timeMin, timeMax, singleEvents: "true", orderBy: "startTime", maxResults: "50" });
+  return fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+function renderCalendar(errorMsg){
+  const list = $("#calendar-list");
+  if (!list) return;
+  if (errorMsg){ list.innerHTML = emptyState(errorMsg); return; }
+  if (!state.calendarEvents.length){ list.innerHTML = emptyState("No events in the next 3 weeks."); return; }
+  const now = Date.now();
+  list.innerHTML = state.calendarEvents.map(ev => {
+    const start = ev.start.dateTime || ev.start.date;
+    const isPast = new Date(ev.end?.dateTime || ev.end?.date || start).getTime() < now;
+    const attendees = (ev.attendees || []).filter(a => !a.resource).map(a => a.email);
+    return `
+      <div class="activity-row">
+        <div class="activity-dot" style="${isPast ? "background:var(--text2);" : ""}"></div>
+        <div>
+          <div class="activity-text"><b>${escapeHtml(ev.summary || "Untitled meeting")}</b></div>
+          <div class="activity-time">${fmtDateTime(start)}${attendees.length ? " · " + escapeHtml(attendees.join(", ")) : ""}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+function fmtDateTime(iso){
+  const d = new Date(iso);
+  const hasTime = iso.includes("T");
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + (hasTime ? ", " + d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}) : "");
+}
+
+/* ───────── Meeting qualification popup ───────── */
+let reviewQueue = [];
+async function checkPendingMeetingReviews(){
+  if (!IS_CONFIGURED || !state.user) return;
+  const { data } = await supabase
+    .from("meeting_reviews")
+    .select("*")
+    .eq("user_id", state.user.id)
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
+  reviewQueue = data || [];
+  showNextReview();
+}
+function showNextReview(){
+  if (!reviewQueue.length) { closeModal("qualify-modal"); return; }
+  const review = reviewQueue[0];
+  $("#qualify-title").textContent = review.meeting_title || "Untitled meeting";
+  $("#qualify-attendees").textContent = (review.external_emails || []).join(", ");
+  openModal("qualify-modal");
+}
+async function resolveMeetingReview(qualified){
+  const review = reviewQueue[0];
+  if (!review) return;
+  const attendee = (review.external_emails || [])[0] || "Unknown";
+  const dealRow = {
+    title: `${review.meeting_title || "Meeting"} — ${attendee}`,
+    value: 1500,
+    stage: qualified ? "qualified" : "disqualified",
+    contact_id: null,
+    contact_name: attendee,
+    notes: `MRR deal auto-created from a calendar meeting with an external attendee (${attendee}).`,
+    updated_at: new Date().toISOString(),
+  };
+  const deal = await DataLayer.insert("deals", dealRow);
+  if (IS_CONFIGURED){
+    await supabase.from("meeting_reviews").update({
+      status: qualified ? "qualified" : "disqualified",
+      deal_id: deal ? deal.id : null,
+    }).eq("id", review.id);
+  }
+  reviewQueue.shift();
+  if (IS_CONFIGURED) { await DataLayer.fetchAll(); renderAll(); }
+  showNextReview();
+}
 function fillContactDropdowns(){
   const opts = `<option value="">— No contact —</option>` + state.contacts.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   ["call-contact-select","deal-contact-select","note-contact-select"].forEach(id => {
@@ -593,7 +709,10 @@ function openModal(id){ $("#"+id).classList.add("visible"); }
 function closeModal(id){ $("#"+id).classList.remove("visible"); }
 function setupModals(){
   $$("[data-close]").forEach(btn => btn.addEventListener("click", () => closeModal(btn.dataset.close)));
-  $$(".overlay").forEach(ov => ov.addEventListener("click", (e) => { if (e.target === ov) ov.classList.remove("visible"); }));
+  $$(".overlay").forEach(ov => {
+    if (ov.id === "qualify-modal") return; // requires an explicit Yes/No answer
+    ov.addEventListener("click", (e) => { if (e.target === ov) ov.classList.remove("visible"); });
+  });
 
   $("#add-contact-btn").addEventListener("click", () => { $("#contact-form").reset(); $("#contact-form-id").value=""; $("#contact-modal-title").textContent="Add Contact"; openModal("contact-modal"); });
   $("#contact-form").addEventListener("submit", async (e) => {
@@ -699,6 +818,11 @@ function setupSearchFilters(){
   $("#call-search").addEventListener("input", (e) => { state.callSearch = e.target.value; renderColdCalls(); });
 }
 
+function setupQualifyModal(){
+  $("#qualify-yes")?.addEventListener("click", () => resolveMeetingReview(true));
+  $("#qualify-no")?.addEventListener("click", () => resolveMeetingReview(false));
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   setupGoogleAuth();
   setupEmailAuth();
@@ -706,6 +830,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupModals();
   setupSearchFilters();
   setupTeam();
+  setupQualifyModal();
   initAuth();
 });
 })();
