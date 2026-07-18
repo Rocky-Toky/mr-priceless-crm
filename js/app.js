@@ -136,8 +136,10 @@ function stateArray(table){
 }
 
 /* ───────── Realtime ───────── */
+let realtimeSubscribed = false;
 function subscribeRealtime(){
-  if (!IS_CONFIGURED) return;
+  if (!IS_CONFIGURED || realtimeSubscribed) return;
+  realtimeSubscribed = true;
   supabase.channel("crm-live")
     .on("postgres_changes", { event:"*", schema:"public", table:"contacts" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"cold_calls" }, async () => { await DataLayer.fetchAll(); renderAll(); })
