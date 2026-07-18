@@ -189,10 +189,13 @@ async function handleSignedIn(session, freshLogin){
   // stash it server-side so we can mint fresh access tokens later without
   // asking this person to sign in again.
   if (freshLogin && session.provider_refresh_token){
-    await supabase.from("google_tokens").upsert({
+    const { error } = await supabase.from("google_tokens").upsert({
       user_id: session.user.id,
       refresh_token: session.provider_refresh_token,
     });
+    if (error) console.error("Couldn't save Google refresh token:", error.message);
+  } else if (freshLogin){
+    console.warn("Google sign-in didn't return a refresh token — use the Calendar page's Connect button to retry.");
   }
 
   const allowed = await isAllowlisted(session.user.email);
@@ -237,17 +240,20 @@ function showApp(){
   renderAll();
 }
 
+function startGoogleOAuth(){
+  return supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      scopes: "https://www.googleapis.com/auth/calendar.events",
+      queryParams: { access_type: "offline", prompt: "consent" },
+      redirectTo: window.location.origin + window.location.pathname,
+    },
+  });
+}
 function setupGoogleAuth(){
   $("#google-signin-btn").addEventListener("click", async () => {
     if (!IS_CONFIGURED) return;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        scopes: "https://www.googleapis.com/auth/calendar.events",
-        queryParams: { access_type: "offline", prompt: "consent" },
-        redirectTo: window.location.origin + window.location.pathname,
-      },
-    });
+    const { error } = await startGoogleOAuth();
     if (error){
       const errBox = $("#auth-error");
       errBox.textContent = error.message;
@@ -257,6 +263,10 @@ function setupGoogleAuth(){
   $("#unauthorized-signout-btn").addEventListener("click", async () => {
     if (IS_CONFIGURED) await supabase.auth.signOut();
     else location.reload();
+  });
+  $("#connect-calendar-btn")?.addEventListener("click", async () => {
+    if (!IS_CONFIGURED){ alert("Connect Supabase first (see README.md)."); return; }
+    await startGoogleOAuth();
   });
 }
 
