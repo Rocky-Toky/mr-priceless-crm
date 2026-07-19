@@ -90,6 +90,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         <span>Deals</span>
       </button>
+      <button class="nav-item" data-page="prospecting">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <span>Prospecting</span>
+      </button>
       <button class="nav-item" data-page="contacts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
         <span>Contacts</span>
@@ -125,8 +129,8 @@
       <div class="stat-grid">
         <div class="stat-card"><div class="stat-label">Total Contacts</div><div class="stat-value" id="stat-contacts">0</div></div>
         <div class="stat-card"><div class="stat-label">Calls This Week</div><div class="stat-value" id="stat-calls">0</div></div>
-        <div class="stat-card"><div class="stat-label">Open Pipeline</div><div class="stat-value" id="stat-pipeline">$0</div></div>
-        <div class="stat-card"><div class="stat-label">Won This Month</div><div class="stat-value" id="stat-won">$0</div></div>
+        <div class="stat-card"><div class="stat-label">Total Pipeline</div><div class="stat-value" id="stat-pipeline">$0</div></div>
+        <div class="stat-card"><div class="stat-label">Qualified This Month</div><div class="stat-value" id="stat-won">$0</div></div>
       </div>
       <div class="two-col">
         <div class="card">
@@ -165,12 +169,22 @@
     <!-- Calendar -->
     <section class="page" id="page-calendar">
       <div class="page-header">
-        <div><h2>Calendar</h2><p>Your own Google Calendar, pulled into the CRM.</p></div>
+        <div><h2>Calendar</h2><p>Your own Google Calendar — drag a meeting to reschedule it.</p></div>
         <button class="btn ghost" id="connect-calendar-btn">Connect / Reconnect Google Calendar</button>
       </div>
       <div class="card">
-        <div class="card-header"><h3>Next 3 Weeks</h3></div>
-        <div class="card-body" id="calendar-list"></div>
+        <div class="calendar-toolbar">
+          <div class="calendar-toolbar-nav">
+            <button type="button" id="calendar-prev-btn" title="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <div class="calendar-range-label" id="calendar-range-label">—</div>
+            <button type="button" id="calendar-next-btn" title="Next week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
+          <button type="button" class="calendar-today-btn" id="calendar-today-btn">Today</button>
+        </div>
+        <div class="calendar-grid-wrap">
+          <div class="calendar-grid" id="calendar-grid"></div>
+        </div>
+        <div id="calendar-empty"></div>
       </div>
     </section>
 
@@ -203,10 +217,26 @@
     <!-- Deals -->
     <section class="page" id="page-deals">
       <div class="page-header">
-        <div><h2>Deals</h2><p>Drag cards between stages as they move.</p></div>
+        <div><h2>Deals</h2><p>Total pipeline value: <b id="pipeline-total" style="color:var(--gold);">$0</b></p></div>
         <button class="btn gold" id="add-deal-btn">+ New Deal</button>
       </div>
       <div class="kanban" id="kanban-board"></div>
+    </section>
+
+    <!-- Prospecting -->
+    <section class="page" id="page-prospecting">
+      <div class="page-header">
+        <div><h2>Prospecting</h2><p>Track cold-calling activity and meetings booked, region by region.</p></div>
+        <button class="btn gold" id="add-region-btn">+ Add Region</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Region</th><th>Calls Made</th><th>Meetings Booked</th><th>Conversion</th><th>Notes</th><th></th></tr></thead>
+            <tbody id="regions-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <!-- Contacts -->
@@ -321,14 +351,10 @@
         <div class="field"><label>Value (NZD)</label><input type="number" id="deal-value" min="0" step="1"></div>
         <div class="field"><label>Stage</label>
           <select id="deal-stage">
-            <option value="new">New Lead</option>
+            <option value="not_qualified">Not Qualified</option>
             <option value="qualified">Qualified</option>
-            <option value="disqualified">Disqualified</option>
-            <option value="contacted">Contacted</option>
-            <option value="proposal">Proposal Sent</option>
+            <option value="proposal">Proposal Meeting</option>
             <option value="negotiation">Negotiation</option>
-            <option value="won">Won</option>
-            <option value="lost">Lost</option>
           </select>
         </div>
       </div>
@@ -356,6 +382,26 @@
   </div>
 </div>
 
+<!-- ───────── Modal: Prospecting Region ───────── -->
+<div class="overlay" id="region-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="region-modal-title">Add Region</h3><button class="modal-close" data-close="region-modal">&times;</button></div>
+    <form id="region-form" class="modal-body">
+      <input type="hidden" id="region-form-id">
+      <div class="field"><label>Region</label><input type="text" id="region-name" required placeholder="e.g. Auckland CBD"></div>
+      <div class="field-row">
+        <div class="field"><label>Calls Made</label><input type="number" id="region-calls" min="0" step="1" value="0"></div>
+        <div class="field"><label>Meetings Booked</label><input type="number" id="region-meetings" min="0" step="1" value="0"></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="region-notes" placeholder="Which streets/lists called through, contacts to follow up..."></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="region-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Region</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ───────── Modal: Meeting Qualification ───────── -->
 <div class="overlay" id="qualify-modal">
   <div class="modal qualify-modal">
@@ -367,14 +413,15 @@
       Meeting: <b id="qualify-title" style="color:var(--text);">—</b>
     </p>
     <p style="text-align:center;color:var(--text2);font-size:13px;margin-bottom:22px;">
-      External attendee(s): <span id="qualify-attendees">—</span>
+      Attendee(s): <span id="qualify-attendees">—</span>
     </p>
-    <div class="modal-actions" style="justify-content:center;gap:14px;">
-      <button type="button" class="btn ghost" id="qualify-no" style="min-width:110px;justify-content:center;">No</button>
-      <button type="button" class="btn gold" id="qualify-yes" style="min-width:110px;justify-content:center;">Yes</button>
+    <div class="modal-actions" style="justify-content:center;gap:10px;flex-wrap:wrap;">
+      <button type="button" class="btn ghost" id="qualify-no" style="min-width:100px;justify-content:center;">No</button>
+      <button type="button" class="btn ghost" id="qualify-internal" style="justify-content:center;">Internal Meeting</button>
+      <button type="button" class="btn gold" id="qualify-yes" style="min-width:100px;justify-content:center;">Yes</button>
     </div>
     <p style="text-align:center;color:var(--text2);font-size:11.5px;margin-top:18px;">
-      Either answer creates a $1,500 MRR deal — Yes moves it to Qualified, No to Disqualified.
+      Yes / No each create a $1,500 MRR deal (Qualified / Not Qualified). Internal Meeting creates no deal.
     </p>
   </div>
 </div>

@@ -1,9 +1,9 @@
 // Edge Function: scan-meetings
 // Called on a schedule (see sql/003_meeting_qualification.sql cron job).
 // For every user who has connected Google Calendar, looks at meetings that
-// ended in the last ~40 minutes. If any attendee's email is outside the
-// internal domain, queues a "was this person qualified?" review row for
-// that user to answer next time they open the CRM.
+// ended in the last ~40 minutes. Any meeting with at least one other
+// attendee (i.e. not just a personal calendar block) queues a review row —
+// the person decides Yes / Internal Meeting / No next time they open the CRM.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -21,7 +21,6 @@ Deno.serve(async (req) => {
   const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_CLIENT_ID")!;
   const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-  const INTERNAL_DOMAIN = (Deno.env.get("INTERNAL_DOMAIN") || "").toLowerCase();
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -58,12 +57,11 @@ Deno.serve(async (req) => {
         const endTime = new Date(endStr);
         if (endTime > now) continue; // still ongoing / not finished yet
 
-        const attendees = ev.attendees || [];
-        const externalEmails = attendees
-          .filter((a: any) => !a.resource && a.email && !a.email.toLowerCase().endsWith("@" + INTERNAL_DOMAIN))
+        const attendees = (ev.attendees || [])
+          .filter((a: any) => !a.resource && a.email && !a.self)
           .map((a: any) => a.email);
 
-        if (externalEmails.length === 0) continue;
+        if (attendees.length === 0) continue; // personal block, not a real meeting
 
         const { error: insErr } = await admin.from("meeting_reviews").insert({
           user_id: row.user_id,
@@ -71,7 +69,7 @@ Deno.serve(async (req) => {
           meeting_title: ev.summary || "Untitled meeting",
           meeting_start: ev.start?.dateTime || null,
           meeting_end: endStr,
-          external_emails: externalEmails,
+          attendees: attendees,
           status: "pending",
         });
         // Unique constraint on (user_id, google_event_id) means duplicates just no-op with an error we can ignore.

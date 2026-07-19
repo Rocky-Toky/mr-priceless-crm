@@ -5,14 +5,10 @@
 const { supabase, IS_CONFIGURED } = window.CRM_DB;
 
 const STAGES = [
-  { key: "new", label: "New Lead" },
+  { key: "not_qualified", label: "Not Qualified" },
   { key: "qualified", label: "Qualified" },
-  { key: "disqualified", label: "Disqualified" },
-  { key: "contacted", label: "Contacted" },
-  { key: "proposal", label: "Proposal Sent" },
+  { key: "proposal", label: "Proposal Meeting" },
   { key: "negotiation", label: "Negotiation" },
-  { key: "won", label: "Won" },
-  { key: "lost", label: "Lost" },
 ];
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
@@ -35,13 +31,26 @@ const state = {
   coldCalls: [],
   deals: [],
   notes: [],
+  regions: [],
   team: [],
   contactFilter: "",
   contactSearch: "",
   callSearch: "",
   googleAccessToken: null,
   calendarEvents: [],
+  calendarWeekStart: startOfWeek(new Date()),
 };
+
+const CAL_HOUR_START = 7;
+const CAL_HOUR_END = 21;
+const CAL_ROW_H = 48;
+function startOfWeek(d){
+  const dt = new Date(d);
+  const dayIdx = (dt.getDay() + 6) % 7; // Monday = 0
+  dt.setDate(dt.getDate() - dayIdx);
+  dt.setHours(0,0,0,0);
+  return dt;
+}
 
 const SUPABASE_URL = window.CRM_CONFIG.SUPABASE_URL;
 const SUPABASE_ANON_KEY = window.CRM_CONFIG.SUPABASE_ANON_KEY;
@@ -75,7 +84,7 @@ function seedDemo(){
   ];
   state.deals = [
     { id:uid(), contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri — Full funnel rebuild", value:8500, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental — Meta Ads retainer", value:2200, stage:"won", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental — Meta Ads retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal — SEO + Ads", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.calendarEvents = [
@@ -85,22 +94,28 @@ function seedDemo(){
   state.notes = [
     { id:uid(), title:"Q3 outreach plan", body:"Focus cold calls on trades + legal this month. Aim for 20 dials/day between us.", contact_id:null, deal_id:null, created_at:new Date(Date.now()-86400e3*5).toISOString() },
   ];
+  state.regions = [
+    { id:uid(), region:"Auckland CBD", calls_made:64, meetings_booked:6, notes:"Worked through the Queen St + Britomart lists.", created_at:new Date(Date.now()-86400e3*12).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), region:"North Shore", calls_made:38, meetings_booked:2, notes:"Started this week, more to go.", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+  ];
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, n] = await Promise.all([
+    const [c, cc, d, n, r] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
       supabase.from("notes").select("*").order("created_at",{ascending:false}),
+      supabase.from("prospecting_regions").select("*").order("region",{ascending:true}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
     state.deals = d.data || [];
     state.notes = n.data || [];
+    state.regions = r.data || [];
   },
   async insert(table, row){
     row.created_by = state.user ? state.user.email : "demo";
@@ -139,7 +154,7 @@ const DataLayer = {
   }
 };
 function stateArray(table){
-  return { contacts: state.contacts, cold_calls: state.coldCalls, deals: state.deals, notes: state.notes }[table];
+  return { contacts: state.contacts, cold_calls: state.coldCalls, deals: state.deals, notes: state.notes, prospecting_regions: state.regions }[table];
 }
 
 /* ───────── Realtime ───────── */
@@ -152,6 +167,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"cold_calls" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"deals" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"prospecting_regions" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -163,7 +179,7 @@ async function initAuth(){
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
     showApp();
-    reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call — Reeve Builders", external_emails:["marlon@reevebuilders.co.nz"] }];
+    reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call — Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
     return;
   }
@@ -209,7 +225,7 @@ async function handleSignedIn(session, freshLogin){
   subscribeRealtime();
   showApp();
   await checkPendingMeetingReviews();
-  loadCalendarEvents();
+  loadCalendarWeek();
 }
 
 async function isAllowlisted(email){
@@ -320,15 +336,14 @@ function setupNav(){
 
 /* ───────── Render: Dashboard ───────── */
 function renderDashboard(){
-  const openDeals = state.deals.filter(d => d.stage !== "won" && d.stage !== "lost");
-  const wonThisMonth = state.deals.filter(d => d.stage === "won" && sameMonth(d.updated_at || d.created_at));
+  const qualifiedThisMonth = state.deals.filter(d => d.stage === "qualified" && sameMonth(d.updated_at || d.created_at));
   const callsThisWeek = state.coldCalls.filter(c => withinDays(c.created_at, 7));
-  const pipelineValue = openDeals.reduce((s,d) => s + Number(d.value||0), 0);
+  const pipelineValue = state.deals.reduce((s,d) => s + Number(d.value||0), 0);
 
   $("#stat-contacts").textContent = state.contacts.length;
   $("#stat-calls").textContent = callsThisWeek.length;
   $("#stat-pipeline").textContent = fmtMoney(pipelineValue);
-  $("#stat-won").textContent = fmtMoney(wonThisMonth.reduce((s,d)=>s+Number(d.value||0),0));
+  $("#stat-won").textContent = fmtMoney(qualifiedThisMonth.reduce((s,d)=>s+Number(d.value||0),0));
 
   const events = [
     ...state.coldCalls.map(c => ({ t:c.created_at, text:`Cold call logged with <b>${escapeHtml(c.contact_name)}</b> — ${OUTCOMES[c.outcome]?.label||c.outcome}` })),
@@ -413,14 +428,18 @@ function renderColdCalls(){
 /* ───────── Render: Deals (Kanban) ───────── */
 function renderDeals(){
   const board = $("#kanban-board");
+  const totalEl = $("#pipeline-total");
+  if (totalEl) totalEl.textContent = fmtMoney(state.deals.reduce((s,d) => s + Number(d.value||0), 0));
   board.innerHTML = STAGES.map(stage => {
     const deals = state.deals.filter(d => d.stage === stage.key);
+    const stageValue = deals.reduce((s,d) => s + Number(d.value||0), 0);
     return `
       <div class="kanban-col" data-stage="${stage.key}">
         <div class="kanban-col-head">
           <h4>${stage.label}</h4>
           <span class="kanban-count">${deals.length}</span>
         </div>
+        <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
         ${deals.map(d => `
           <div class="deal-card" draggable="true" data-id="${d.id}">
             <h5>${escapeHtml(d.title)}</h5>
@@ -473,14 +492,41 @@ function renderNotes(){
 }
 function contactName(id){ return state.contacts.find(c => c.id === id)?.name || ""; }
 
+/* ───────── Render: Prospecting (by region) ───────── */
+function renderRegions(){
+  const tbody = $("#regions-tbody");
+  if (!tbody) return;
+  if (!state.regions.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No regions yet. Add the first region you're calling through.")}</td></tr>`; return; }
+  const sorted = [...state.regions].sort((a,b) => (a.region||"").localeCompare(b.region||""));
+  tbody.innerHTML = sorted.map(r => {
+    const calls = Number(r.calls_made||0);
+    const meetings = Number(r.meetings_booked||0);
+    const conversion = calls > 0 ? Math.round((meetings/calls)*100) + "%" : "—";
+    return `
+    <tr data-id="${r.id}">
+      <td><div class="row-name">${escapeHtml(r.region)}</div></td>
+      <td>${calls.toLocaleString()}</td>
+      <td>${meetings.toLocaleString()}</td>
+      <td>${conversion}</td>
+      <td style="max-width:260px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);">${escapeHtml(r.notes||"")}</span></td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="icon-btn" data-action="edit-region" data-id="${r.id}" title="Edit">${ICONS.edit}</button>
+        <button class="icon-btn" data-action="delete-region" data-id="${r.id}" title="Delete">${ICONS.trash}</button>
+      </td>
+    </tr>
+  `;
+  }).join("");
+}
+
 function renderAll(){
   renderDashboard();
   renderContacts();
   renderColdCalls();
   renderDeals();
   renderNotes();
+  renderRegions();
   renderTeam();
-  renderCalendar();
+  renderCalendarGrid();
   fillContactDropdowns();
 }
 
@@ -601,12 +647,14 @@ function postCalendarEvent(token, event){
   });
 }
 
-/* ───────── Calendar page: pull in this user's own Google Calendar ───────── */
-async function loadCalendarEvents(){
-  if (!IS_CONFIGURED) return;
+/* ───────── Calendar page: Google-Calendar-style week grid ───────── */
+async function loadCalendarWeek(){
+  if (!IS_CONFIGURED){ renderCalendarGrid(); return; }
+  const timeMin = state.calendarWeekStart.toISOString();
+  const weekEnd = new Date(state.calendarWeekStart);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const timeMax = weekEnd.toISOString();
   try {
-    const timeMin = new Date(Date.now() - 7*86400e3).toISOString();
-    const timeMax = new Date(Date.now() + 21*86400e3).toISOString();
     let token = await getValidGoogleToken();
     let resp = await fetchCalendarEvents(token, timeMin, timeMax);
     if (resp.status === 401){
@@ -615,11 +663,11 @@ async function loadCalendarEvents(){
     }
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error?.message || "Couldn't load your calendar.");
-    state.calendarEvents = (data.items || []).filter(ev => ev.start);
-    renderCalendar();
+    state.calendarEvents = (data.items || []).filter(ev => ev.start?.dateTime);
+    renderCalendarGrid();
   } catch (err){
     state.calendarEvents = [];
-    renderCalendar(err.message);
+    renderCalendarGrid(err.message);
   }
 }
 function fetchCalendarEvents(token, timeMin, timeMax){
@@ -628,31 +676,166 @@ function fetchCalendarEvents(token, timeMin, timeMax){
     headers: { Authorization: `Bearer ${token}` },
   });
 }
-function renderCalendar(errorMsg){
-  const list = $("#calendar-list");
-  if (!list) return;
-  if (errorMsg){ list.innerHTML = emptyState(errorMsg); return; }
-  if (!state.calendarEvents.length){ list.innerHTML = emptyState("No events in the next 3 weeks."); return; }
-  const now = Date.now();
-  list.innerHTML = state.calendarEvents.map(ev => {
-    const start = ev.start.dateTime || ev.start.date;
-    const isPast = new Date(ev.end?.dateTime || ev.end?.date || start).getTime() < now;
-    const attendees = (ev.attendees || []).filter(a => !a.resource).map(a => a.email);
-    return `
-      <div class="activity-row">
-        <div class="activity-dot" style="${isPast ? "background:var(--text2);" : ""}"></div>
-        <div>
-          <div class="activity-text"><b>${escapeHtml(ev.summary || "Untitled meeting")}</b></div>
-          <div class="activity-time">${fmtDateTime(start)}${attendees.length ? " · " + escapeHtml(attendees.join(", ")) : ""}</div>
-        </div>
-      </div>
-    `;
-  }).join("");
+function patchCalendarEvent(token, eventId, patch){
+  return fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
 }
-function fmtDateTime(iso){
-  const d = new Date(iso);
-  const hasTime = iso.includes("T");
-  return d.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + (hasTime ? ", " + d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}) : "");
+
+function fmtHourLabel(h){
+  const period = h < 12 ? "AM" : "PM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return hour12 + " " + period;
+}
+function fmtEventTime(ev){
+  const s = new Date(ev.start.dateTime), e = new Date(ev.end?.dateTime || s);
+  return s.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}) + " – " + e.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+}
+function formatWeekRange(start, end){
+  const sameMonth = start.getMonth() === end.getMonth();
+  const startStr = start.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+  const endStr = sameMonth ? end.getDate() : end.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+  return `${startStr} – ${endStr}, ${end.getFullYear()}`;
+}
+function calEventStyle(ev){
+  const start = new Date(ev.start.dateTime);
+  const end = new Date(ev.end?.dateTime || start);
+  const startMins = Math.max(start.getHours()*60 + start.getMinutes(), CAL_HOUR_START*60);
+  const endMins = Math.min(Math.max(end.getHours()*60 + end.getMinutes(), startMins+15), CAL_HOUR_END*60);
+  const top = (startMins - CAL_HOUR_START*60) / 60 * CAL_ROW_H;
+  const height = Math.max((endMins - startMins) / 60 * CAL_ROW_H, 20);
+  return `top:${top}px;height:${height}px;`;
+}
+
+function renderCalendarGrid(errorMsg){
+  const grid = $("#calendar-grid");
+  if (!grid) return;
+  const weekStart = state.calendarWeekStart;
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
+  const label = $("#calendar-range-label");
+  if (label) label.textContent = formatWeekRange(weekStart, weekEnd);
+
+  const days = [...Array(7)].map((_,i) => { const d = new Date(weekStart); d.setDate(d.getDate()+i); return d; });
+  const todayStr = new Date().toDateString();
+  const now = Date.now();
+
+  let html = `<div class="calendar-grid-corner"></div>`;
+  days.forEach(d => {
+    html += `<div class="calendar-day-head ${d.toDateString()===todayStr?"today":""}">
+      <div class="dow">${d.toLocaleDateString(undefined,{weekday:"short"})}</div>
+      <div class="dom">${d.getDate()}</div>
+    </div>`;
+  });
+
+  html += `<div class="calendar-hours-col">`;
+  for (let h = CAL_HOUR_START; h < CAL_HOUR_END; h++){
+    html += `<div class="calendar-hour-label">${fmtHourLabel(h)}</div>`;
+  }
+  html += `</div>`;
+
+  const colHeight = (CAL_HOUR_END - CAL_HOUR_START) * CAL_ROW_H;
+  days.forEach(d => {
+    const dayEvents = state.calendarEvents.filter(ev => new Date(ev.start.dateTime).toDateString() === d.toDateString());
+    html += `<div class="calendar-day-col" data-date="${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}" style="height:${colHeight}px;">`;
+    dayEvents.forEach(ev => {
+      const isPast = new Date(ev.end?.dateTime || ev.start.dateTime).getTime() < now;
+      html += `<div class="calendar-event ${isPast?"past":""}" draggable="true" data-id="${ev.id}" style="${calEventStyle(ev)}" title="${escapeHtml(ev.summary||"Untitled meeting")}">
+        <div class="ce-title">${escapeHtml(ev.summary || "Untitled meeting")}</div>
+        <div class="ce-time">${fmtEventTime(ev)}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+
+  grid.innerHTML = html;
+
+  const emptyBox = $("#calendar-empty");
+  if (emptyBox){
+    if (errorMsg) emptyBox.innerHTML = emptyState(errorMsg);
+    else if (!state.calendarEvents.length) emptyBox.innerHTML = emptyState("No events this week.");
+    else emptyBox.innerHTML = "";
+  }
+
+  setupCalendarDragDrop();
+}
+
+function setupCalendarNav(){
+  $("#calendar-prev-btn")?.addEventListener("click", () => {
+    state.calendarWeekStart.setDate(state.calendarWeekStart.getDate() - 7);
+    loadCalendarWeek();
+  });
+  $("#calendar-next-btn")?.addEventListener("click", () => {
+    state.calendarWeekStart.setDate(state.calendarWeekStart.getDate() + 7);
+    loadCalendarWeek();
+  });
+  $("#calendar-today-btn")?.addEventListener("click", () => {
+    state.calendarWeekStart = startOfWeek(new Date());
+    loadCalendarWeek();
+  });
+}
+
+function setupCalendarDragDrop(){
+  let draggedId = null, grabOffsetPx = 0, durationMs = 30*60000;
+  $$(".calendar-event").forEach(evEl => {
+    evEl.addEventListener("dragstart", (e) => {
+      draggedId = evEl.dataset.id;
+      grabOffsetPx = e.clientY - evEl.getBoundingClientRect().top;
+      const ev = state.calendarEvents.find(x => x.id === draggedId);
+      durationMs = ev ? (new Date(ev.end.dateTime) - new Date(ev.start.dateTime)) : 30*60000;
+      evEl.classList.add("dragging");
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    });
+    evEl.addEventListener("dragend", () => evEl.classList.remove("dragging"));
+  });
+  $$(".calendar-day-col").forEach(col => {
+    col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
+    col.addEventListener("dragleave", () => col.classList.remove("dragover"));
+    col.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      col.classList.remove("dragover");
+      if (!draggedId) return;
+      const rect = col.getBoundingClientRect();
+      const dropY = e.clientY - rect.top - grabOffsetPx;
+      let mins = CAL_HOUR_START*60 + (dropY / CAL_ROW_H) * 60;
+      mins = Math.round(mins / 15) * 15;
+      mins = Math.max(CAL_HOUR_START*60, Math.min(mins, CAL_HOUR_END*60 - 15));
+      const newStart = new Date(col.dataset.date + "T00:00:00");
+      newStart.setMinutes(mins);
+      const newEnd = new Date(newStart.getTime() + durationMs);
+      await rescheduleCalendarEvent(draggedId, newStart, newEnd);
+      draggedId = null;
+    });
+  });
+}
+
+async function rescheduleCalendarEvent(eventId, newStart, newEnd){
+  const ev = state.calendarEvents.find(x => x.id === eventId);
+  if (!ev) return;
+  if (!IS_CONFIGURED){
+    ev.start = { dateTime: newStart.toISOString() };
+    ev.end = { dateTime: newEnd.toISOString() };
+    renderCalendarGrid();
+    return;
+  }
+  const patch = { start: { dateTime: newStart.toISOString() }, end: { dateTime: newEnd.toISOString() } };
+  try {
+    let token = await getValidGoogleToken();
+    let resp = await patchCalendarEvent(token, eventId, patch);
+    if (resp.status === 401){
+      token = await refreshGoogleToken();
+      resp = await patchCalendarEvent(token, eventId, patch);
+    }
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error?.message || "Google Calendar rejected the change.");
+    ev.start = result.start;
+    ev.end = result.end;
+    renderCalendarGrid();
+  } catch (err){
+    alert("Couldn't reschedule: " + err.message);
+    renderCalendarGrid();
+  }
 }
 
 /* ───────── Meeting qualification popup ───────── */
@@ -672,26 +855,37 @@ function showNextReview(){
   if (!reviewQueue.length) { closeModal("qualify-modal"); return; }
   const review = reviewQueue[0];
   $("#qualify-title").textContent = review.meeting_title || "Untitled meeting";
-  $("#qualify-attendees").textContent = (review.external_emails || []).join(", ");
+  $("#qualify-attendees").textContent = (review.attendees || []).join(", ") || "—";
   openModal("qualify-modal");
 }
-async function resolveMeetingReview(qualified){
+async function resolveMeetingReview(answer){
+  // answer is "qualified", "internal", or "not_qualified"
   const review = reviewQueue[0];
   if (!review) return;
-  const attendee = (review.external_emails || [])[0] || "Unknown";
+
+  if (answer === "internal"){
+    if (IS_CONFIGURED){
+      await supabase.from("meeting_reviews").update({ status: "internal" }).eq("id", review.id);
+    }
+    reviewQueue.shift();
+    showNextReview();
+    return;
+  }
+
+  const attendee = (review.attendees || [])[0] || "Unknown";
   const dealRow = {
     title: `${review.meeting_title || "Meeting"} — ${attendee}`,
     value: 1500,
-    stage: qualified ? "qualified" : "disqualified",
+    stage: answer,
     contact_id: null,
     contact_name: attendee,
-    notes: `MRR deal auto-created from a calendar meeting with an external attendee (${attendee}).`,
+    notes: `MRR deal auto-created from a calendar meeting (${attendee}).`,
     updated_at: new Date().toISOString(),
   };
   const deal = await DataLayer.insert("deals", dealRow);
   if (IS_CONFIGURED){
     await supabase.from("meeting_reviews").update({
-      status: qualified ? "qualified" : "disqualified",
+      status: answer,
       deal_id: deal ? deal.id : null,
     }).eq("id", review.id);
   }
@@ -781,6 +975,24 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#add-region-btn")?.addEventListener("click", () => { $("#region-form").reset(); $("#region-form-id").value=""; $("#region-modal-title").textContent="Add Region"; openModal("region-modal"); });
+  $("#region-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#region-form-id").value;
+    const row = {
+      region: $("#region-name").value.trim(),
+      calls_made: Number($("#region-calls").value || 0),
+      meetings_booked: Number($("#region-meetings").value || 0),
+      notes: $("#region-notes").value.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    if (!row.region) return;
+    if (id) await DataLayer.update("prospecting_regions", id, row);
+    else await DataLayer.insert("prospecting_regions", row);
+    closeModal("region-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   $("#add-note-btn").addEventListener("click", () => { $("#note-form").reset(); openModal("note-modal"); });
   $("#note-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -804,7 +1016,19 @@ function setupModals(){
     if (action === "delete-call" && confirm("Delete this call log?")) await DataLayer.remove("cold_calls", id);
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
     if (action === "delete-note" && confirm("Delete this note?")) await DataLayer.remove("notes", id);
+    if (action === "delete-region" && confirm("Delete this region?")) await DataLayer.remove("prospecting_regions", id);
     if (action === "sync-calendar") await syncCallToCalendar(id);
+    if (action === "edit-region"){
+      const r = state.regions.find(x => x.id === id);
+      if (!r) return;
+      $("#region-form-id").value = r.id;
+      $("#region-name").value = r.region||"";
+      $("#region-calls").value = r.calls_made||0;
+      $("#region-meetings").value = r.meetings_booked||0;
+      $("#region-notes").value = r.notes||"";
+      $("#region-modal-title").textContent = "Edit Region";
+      openModal("region-modal");
+    }
     if (action === "edit-contact"){
       const c = state.contacts.find(x => x.id === id);
       if (!c) return;
@@ -829,8 +1053,9 @@ function setupSearchFilters(){
 }
 
 function setupQualifyModal(){
-  $("#qualify-yes")?.addEventListener("click", () => resolveMeetingReview(true));
-  $("#qualify-no")?.addEventListener("click", () => resolveMeetingReview(false));
+  $("#qualify-yes")?.addEventListener("click", () => resolveMeetingReview("qualified"));
+  $("#qualify-internal")?.addEventListener("click", () => resolveMeetingReview("internal"));
+  $("#qualify-no")?.addEventListener("click", () => resolveMeetingReview("not_qualified"));
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -841,6 +1066,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupSearchFilters();
   setupTeam();
   setupQualifyModal();
+  setupCalendarNav();
   initAuth();
 });
 })();
