@@ -51,6 +51,13 @@ Deno.serve(async (req) => {
     });
     const tokenData = await resp.json();
     if (!resp.ok) {
+      // invalid_grant means Google has revoked/expired this refresh token (commonly
+      // because the OAuth consent screen is still in "Testing" mode, which caps
+      // refresh tokens for sensitive scopes like calendar at 7 days). Only a fresh
+      // consent flow via the Calendar page's "Connect / Reconnect" button fixes it.
+      if (tokenData.error === "invalid_grant") {
+        return json({ error: "Your Google Calendar connection has expired. Click \"Connect / Reconnect Google Calendar\" on the Calendar page to reconnect." }, 401);
+      }
       return json({ error: tokenData.error_description || tokenData.error || "Google token refresh failed." }, 500);
     }
 

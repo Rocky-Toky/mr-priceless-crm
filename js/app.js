@@ -680,7 +680,7 @@ function renderCalendarGrid(errorMsg){
     html += `<div class="calendar-day-col" data-date="${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}" style="height:${colHeight}px;">`;
     dayEvents.forEach(ev => {
       const isPast = new Date(ev.end?.dateTime || ev.start.dateTime).getTime() < now;
-      html += `<div class="calendar-event ${isPast?"past":""}" draggable="true" data-id="${ev.id}" style="${calEventStyle(ev)}" title="${escapeHtml(ev.summary||"Untitled meeting")}">
+      html += `<div class="calendar-event ${isPast?"past":""}" draggable="true" data-id="${ev.id}" style="${calEventStyle(ev)}" title="Click to edit · drag to reschedule">
         <div class="ce-title">${escapeHtml(ev.summary || "Untitled meeting")}</div>
         <div class="ce-time">${fmtEventTime(ev)}</div>
       </div>`;
@@ -716,17 +716,23 @@ function setupCalendarNav(){
 }
 
 function setupCalendarDragDrop(){
-  let draggedId = null, grabOffsetPx = 0, durationMs = 30*60000;
+  let draggedId = null, grabOffsetPx = 0, durationMs = 30*60000, dragMoved = false;
   $$(".calendar-event").forEach(evEl => {
     evEl.addEventListener("dragstart", (e) => {
       draggedId = evEl.dataset.id;
+      dragMoved = false;
       grabOffsetPx = e.clientY - evEl.getBoundingClientRect().top;
       const ev = state.calendarEvents.find(x => x.id === draggedId);
       durationMs = ev ? (new Date(ev.end.dateTime) - new Date(ev.start.dateTime)) : 30*60000;
       evEl.classList.add("dragging");
       if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
     });
+    evEl.addEventListener("drag", () => { dragMoved = true; });
     evEl.addEventListener("dragend", () => evEl.classList.remove("dragging"));
+    evEl.addEventListener("click", () => {
+      if (dragMoved) return;
+      openEventModal(evEl.dataset.id);
+    });
   });
   $$(".calendar-day-col").forEach(col => {
     col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
@@ -750,15 +756,20 @@ function setupCalendarDragDrop(){
 }
 
 async function rescheduleCalendarEvent(eventId, newStart, newEnd){
+  await applyCalendarEventPatch(eventId, {
+    start: { dateTime: newStart.toISOString() },
+    end: { dateTime: newEnd.toISOString() },
+  }, "reschedule");
+}
+
+async function applyCalendarEventPatch(eventId, patch, failVerb){
   const ev = state.calendarEvents.find(x => x.id === eventId);
   if (!ev) return;
   if (!IS_CONFIGURED){
-    ev.start = { dateTime: newStart.toISOString() };
-    ev.end = { dateTime: newEnd.toISOString() };
+    Object.assign(ev, patch);
     renderCalendarGrid();
     return;
   }
-  const patch = { start: { dateTime: newStart.toISOString() }, end: { dateTime: newEnd.toISOString() } };
   try {
     let token = await getValidGoogleToken();
     let resp = await patchCalendarEvent(token, eventId, patch);
@@ -768,13 +779,26 @@ async function rescheduleCalendarEvent(eventId, newStart, newEnd){
     }
     const result = await resp.json();
     if (!resp.ok) throw new Error(result.error?.message || "Google Calendar rejected the change.");
-    ev.start = result.start;
-    ev.end = result.end;
+    Object.assign(ev, result);
     renderCalendarGrid();
   } catch (err){
-    alert("Couldn't reschedule: " + err.message);
+    alert(`Couldn't ${failVerb || "update"} this meeting: ` + err.message);
     renderCalendarGrid();
   }
+}
+
+function openEventModal(eventId){
+  const ev = state.calendarEvents.find(x => x.id === eventId);
+  if (!ev) return;
+  const start = new Date(ev.start.dateTime);
+  const end = new Date(ev.end?.dateTime || start);
+  const pad = (n) => String(n).padStart(2, "0");
+  $("#event-form-id").value = eventId;
+  $("#event-title").value = ev.summary || "";
+  $("#event-date").value = `${start.getFullYear()}-${pad(start.getMonth()+1)}-${pad(start.getDate())}`;
+  $("#event-start").value = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
+  $("#event-end").value = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
+  openModal("event-modal");
 }
 
 /* ───────── Meeting qualification popup ───────── */
@@ -911,6 +935,24 @@ function setupModals(){
     else await DataLayer.insert("prospecting_regions", row);
     closeModal("region-modal");
     if (!IS_CONFIGURED) return; renderAll();
+  });
+
+  $("#event-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const eventId = $("#event-form-id").value;
+    const dateStr = $("#event-date").value;
+    const startStr = $("#event-start").value;
+    const endStr = $("#event-end").value;
+    if (!dateStr || !startStr || !endStr) return;
+    const newStart = new Date(`${dateStr}T${startStr}:00`);
+    const newEnd = new Date(`${dateStr}T${endStr}:00`);
+    if (newEnd <= newStart){ alert("End time must be after the start time."); return; }
+    closeModal("event-modal");
+    await applyCalendarEventPatch(eventId, {
+      summary: $("#event-title").value.trim(),
+      start: { dateTime: newStart.toISOString() },
+      end: { dateTime: newEnd.toISOString() },
+    }, "save");
   });
 
   $("#add-note-btn").addEventListener("click", () => { $("#note-form").reset(); openModal("note-modal"); });

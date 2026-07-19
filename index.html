@@ -365,7 +365,7 @@
     <!-- Calendar -->
     <section class="page" id="page-calendar">
       <div class="page-header">
-        <div><h2>Calendar</h2><p>Your own Google Calendar — drag a meeting to reschedule it.</p></div>
+        <div><h2>Calendar</h2><p>Your own Google Calendar — drag a meeting to reschedule it, or click it to edit the exact time and length.</p></div>
         <button class="btn ghost" id="connect-calendar-btn">Connect / Reconnect Google Calendar</button>
       </div>
       <div class="card">
@@ -563,6 +563,26 @@
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="region-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Region</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Edit Calendar Event ───────── -->
+<div class="overlay" id="event-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Edit Meeting</h3><button class="modal-close" data-close="event-modal">&times;</button></div>
+    <form id="event-form" class="modal-body">
+      <input type="hidden" id="event-form-id">
+      <div class="field"><label>Title</label><input type="text" id="event-title" required></div>
+      <div class="field"><label>Date</label><input type="date" id="event-date" required></div>
+      <div class="field-row">
+        <div class="field"><label>Start Time</label><input type="time" id="event-start" required></div>
+        <div class="field"><label>End Time</label><input type="time" id="event-end" required></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="event-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Changes</button>
       </div>
     </form>
   </div>

@@ -30,8 +30,8 @@
   --sky-glow:rgba(56,189,248,0.15);
   --sky-border:rgba(56,189,248,0.35);
   --r:14px;--r-sm:10px;--r-xs:7px;
-  min-height:100vh;background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden;
-  display:flex;justify-content:center;padding:3rem 1.25rem 6rem;position:relative;
+  background:var(--bg);border-radius:20px;font-family:'Inter',-apple-system,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden;
+  display:flex;justify-content:center;padding:2rem 1.25rem 2.5rem;position:relative;
 }
 
 /* ambient bg glow that intensifies with progress */
