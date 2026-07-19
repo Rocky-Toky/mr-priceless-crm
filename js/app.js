@@ -35,7 +35,6 @@ const state = {
   team: [],
   contactFilter: "",
   contactSearch: "",
-  callSearch: "",
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
@@ -401,30 +400,6 @@ function renderContacts(){
   `).join("");
 }
 
-/* ───────── Render: Cold Calls ───────── */
-function renderColdCalls(){
-  const q = state.callSearch.toLowerCase();
-  const filtered = state.coldCalls.filter(c => !q || (c.contact_name||"").toLowerCase().includes(q));
-  const tbody = $("#calls-tbody");
-  if (!filtered.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No calls logged yet. Log your first cold call.")}</td></tr>`; return; }
-  tbody.innerHTML = filtered.map(c => `
-    <tr data-id="${c.id}">
-      <td><div class="row-name">${escapeHtml(c.contact_name)}</div><div class="row-sub">${escapeHtml(c.phone||"")}</div></td>
-      <td>${fmtDate(c.call_date)}</td>
-      <td><span class="badge ${OUTCOMES[c.outcome]?.cls||"gray"}">${OUTCOMES[c.outcome]?.label||c.outcome}</span></td>
-      <td>${c.follow_up_date ? fmtDate(c.follow_up_date) : "—"}</td>
-      <td style="max-width:220px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);">${escapeHtml(c.notes||"")}</span></td>
-      <td style="text-align:right;white-space:nowrap;">
-        ${c.follow_up_date ? (c.calendar_event_id
-          ? `<button class="icon-btn cal-btn synced" title="Synced to Google Calendar" disabled>${ICONS.calendarCheck}</button>`
-          : `<button class="icon-btn cal-btn" data-action="sync-calendar" data-id="${c.id}" title="Add to Google Calendar">${ICONS.calendar}</button>`
-        ) : ""}
-        <button class="icon-btn" data-action="delete-call" data-id="${c.id}" title="Delete">${ICONS.trash}</button>
-      </td>
-    </tr>
-  `).join("");
-}
-
 /* ───────── Render: Deals (Kanban) ───────── */
 function renderDeals(){
   const board = $("#kanban-board");
@@ -521,7 +496,6 @@ function renderRegions(){
 function renderAll(){
   renderDashboard();
   renderContacts();
-  renderColdCalls();
   renderDeals();
   renderNotes();
   renderRegions();
@@ -612,41 +586,6 @@ async function refreshGoogleToken(){
   state.googleAccessToken = result.access_token;
   return state.googleAccessToken;
 }
-async function syncCallToCalendar(callId){
-  const call = state.coldCalls.find(c => c.id === callId);
-  if (!call || !call.follow_up_date) return;
-  if (!IS_CONFIGURED){ alert("Connect Supabase + Google (see README.md) to sync to your calendar."); return; }
-
-  const event = {
-    summary: `Follow up: ${call.contact_name}`,
-    description: call.notes || "",
-    start: { date: call.follow_up_date },
-    end: { date: call.follow_up_date },
-  };
-
-  try {
-    let token = await getValidGoogleToken();
-    let resp = await postCalendarEvent(token, event);
-    if (resp.status === 401){
-      token = await refreshGoogleToken();
-      resp = await postCalendarEvent(token, event);
-    }
-    const result = await resp.json();
-    if (!resp.ok) throw new Error(result.error?.message || "Google Calendar rejected the event.");
-    await DataLayer.update("cold_calls", callId, { calendar_event_id: result.id });
-    renderColdCalls();
-  } catch (err){
-    alert("Couldn't add to Google Calendar: " + err.message);
-  }
-}
-function postCalendarEvent(token, event){
-  return fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(event),
-  });
-}
-
 /* ───────── Calendar page: Google-Calendar-style week grid ───────── */
 async function loadCalendarWeek(){
   if (!IS_CONFIGURED){ renderCalendarGrid(); return; }
@@ -895,7 +834,7 @@ async function resolveMeetingReview(answer){
 }
 function fillContactDropdowns(){
   const opts = `<option value="">— No contact —</option>` + state.contacts.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-  ["call-contact-select","deal-contact-select","note-contact-select"].forEach(id => {
+  ["deal-contact-select","note-contact-select"].forEach(id => {
     const el = $("#"+id);
     if (el) el.innerHTML = opts;
   });
@@ -934,25 +873,6 @@ function setupModals(){
     if (id) await DataLayer.update("contacts", id, row);
     else await DataLayer.insert("contacts", row);
     closeModal("contact-modal");
-    if (!IS_CONFIGURED) return; renderAll();
-  });
-
-  $("#add-call-btn").addEventListener("click", () => { $("#call-form").reset(); $("#call-date").value = new Date().toISOString().slice(0,10); openModal("call-modal"); });
-  $("#call-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const contactId = $("#call-contact-select").value || null;
-    const manualName = $("#call-manual-name").value.trim();
-    const row = {
-      contact_id: contactId,
-      contact_name: contactId ? contactName(contactId) : (manualName || "Unknown contact"),
-      phone: $("#call-phone").value.trim(),
-      call_date: $("#call-date").value || new Date().toISOString().slice(0,10),
-      outcome: $("#call-outcome").value,
-      follow_up_date: $("#call-followup").value || null,
-      notes: $("#call-notes").value.trim(),
-    };
-    await DataLayer.insert("cold_calls", row);
-    closeModal("call-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
 
@@ -1013,11 +933,9 @@ function setupModals(){
     if (!btn) return;
     const { action, id } = btn.dataset;
     if (action === "delete-contact" && confirm("Delete this contact?")) await DataLayer.remove("contacts", id);
-    if (action === "delete-call" && confirm("Delete this call log?")) await DataLayer.remove("cold_calls", id);
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
     if (action === "delete-note" && confirm("Delete this note?")) await DataLayer.remove("notes", id);
     if (action === "delete-region" && confirm("Delete this region?")) await DataLayer.remove("prospecting_regions", id);
-    if (action === "sync-calendar") await syncCallToCalendar(id);
     if (action === "edit-region"){
       const r = state.regions.find(x => x.id === id);
       if (!r) return;
@@ -1049,7 +967,6 @@ function setupModals(){
 function setupSearchFilters(){
   $("#contact-search").addEventListener("input", (e) => { state.contactSearch = e.target.value; renderContacts(); });
   $("#contact-status-filter").addEventListener("change", (e) => { state.contactFilter = e.target.value; renderContacts(); });
-  $("#call-search").addEventListener("input", (e) => { state.callSearch = e.target.value; renderColdCalls(); });
 }
 
 function setupQualifyModal(){
