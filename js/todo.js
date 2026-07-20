@@ -198,11 +198,14 @@ function todoRenderItem(idx){
       if (el.classList.contains('editing') || e.target.closest('.mtr-edit-btn')) return;
       todoToggle(idx, el, e);
     });
-    const buttons = el.querySelectorAll('.mtr-edit-btn');
-    buttons[0].addEventListener('click', e => { e.stopPropagation(); todoStartEdit(idx, el); });
-    buttons[1].addEventListener('click', e => { e.stopPropagation(); todoDeleteTask(idx); });
     list.appendChild(el);
   }
+  // el.innerHTML is rebuilt on every call (even when existing), which destroys
+  // and recreates these buttons - so their listeners must be re-attached every
+  // time, not just on first creation like the row's own click listener above.
+  const buttons = el.querySelectorAll('.mtr-edit-btn');
+  buttons[0].addEventListener('click', e => { e.stopPropagation(); todoStartEdit(idx, el); });
+  buttons[1].addEventListener('click', e => { e.stopPropagation(); todoDeleteTask(idx); });
 }
 
 function todoToggle(idx, el, e){

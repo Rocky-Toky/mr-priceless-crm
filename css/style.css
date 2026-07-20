@@ -94,7 +94,7 @@ a{color:inherit;text-decoration:none;}
 .signout{font-size:11px;color:var(--text2-inverse);background:none;border:none;padding:6px 8px;text-decoration:underline;text-underline-offset:2px;}
 .signout:hover{color:var(--gold-bright);}
 
-.main{padding:38px 46px;max-width:1220px;width:100%;}
+.main{padding:38px 46px;max-width:1220px;width:100%;min-width:0;overflow-x:hidden;}
 .page{display:none;}
 .page.active{display:block;animation:fadein .3s cubic-bezier(.22,1,.36,1);}
 @keyframes fadein{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
@@ -223,8 +223,17 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .deal-card.dragging{opacity:0.4;box-shadow:0 12px 28px rgba(0,0,0,0.22);transform:scale(1.03) rotate(-1deg);cursor:grabbing;}
 .deal-card h5{font-size:13.5px;font-weight:700;margin-bottom:4px;letter-spacing:-0.005em;}
 .deal-card .deal-contact{font-size:11.5px;color:var(--text2);margin-bottom:9px;}
+.deal-card .deal-extra-contacts{font-size:10.5px;color:var(--text2);margin-top:-6px;margin-bottom:9px;line-height:1.4;}
 .deal-card .deal-value{font-size:16px;font-weight:700;color:var(--gold);font-family:var(--font-display);}
 .deal-card-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
+
+.deal-contact-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center;}
+.deal-contact-row input{
+  flex:1 1 110px;min-width:0;padding:9px 12px;border-radius:9px;border:1px solid var(--line);background:#faf9f5;
+  font-size:13px;color:var(--text);
+}
+.deal-contact-row input:focus{outline:none;border-color:var(--gold-border);background:var(--white);}
+.deal-contact-row .dc-remove{flex:0 0 auto;}
 
 /* ───────── Content cards (Clients) ───────── */
 .content-card{

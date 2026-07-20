@@ -868,11 +868,14 @@ function renderItem(idx){
       if(el.classList.contains('editing')||e.target.closest('.mtr-edit-btn'))return;
       toggle(idx,el,e);
     });
-    el.querySelector('.mtr-edit-btn').addEventListener('click',e=>{
-      e.stopPropagation(); startEdit(idx,el);
-    });
     list.appendChild(el);
   }
+  // el.innerHTML is rebuilt on every call (even when existing), which destroys
+  // and recreates this button - so its listener must be re-attached every time,
+  // not just on first creation like the row's own click listener above.
+  el.querySelector('.mtr-edit-btn').addEventListener('click',e=>{
+    e.stopPropagation(); startEdit(idx,el);
+  });
 }
 
 /* ══════════════════════════════════════════

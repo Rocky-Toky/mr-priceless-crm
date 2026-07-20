@@ -27,6 +27,11 @@ const AD_RESULTS = {
   winner: { label: "Winner", cls: "green" },
   killed: { label: "Killed", cls: "red" },
 };
+const CAMPAIGN_STATUSES = {
+  active: { label: "Active", cls: "green" },
+  paused: { label: "Paused", cls: "gray" },
+  ended: { label: "Ended", cls: "red" },
+};
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
@@ -52,6 +57,8 @@ const state = {
   clients: [],
   clientContent: [],
   adCreatives: [],
+  campaigns: [],
+  dealContacts: [],
   selectedClientId: null,
   team: [],
   contactFilter: "",
@@ -136,13 +143,20 @@ function seedDemo(){
     { id:uid(), client_id:cl1, name:"Static \"just sold\" carousel", result:"killed", notes:"CTR too low, paused after 3 days.", created_at:new Date(Date.now()-86400e3*15).toISOString() },
     { id:uid(), client_id:cl2, name:"Before/after smile carousel", result:"testing", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString() },
   ];
+  state.campaigns = [
+    { id:uid(), client_id:cl1, name:"Auckland listings - lead gen", platform:"Meta", status:"active", cost_per_lead:35, notes:"", created_at:new Date(Date.now()-86400e3*18).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), client_id:cl1, name:"Retargeting - open home visitors", platform:"Meta", status:"active", cost_per_lead:22, notes:"", created_at:new Date(Date.now()-86400e3*9).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), client_id:cl1, name:"Google Search - suburb keywords", platform:"Google", status:"paused", cost_per_lead:58, notes:"Paused, CPL too high vs Meta.", created_at:new Date(Date.now()-86400e3*30).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), client_id:cl2, name:"Whitening promo - lead gen", platform:"Meta", status:"active", cost_per_lead:19, notes:"", created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date().toISOString() },
+  ];
+  state.dealContacts = [];
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -151,6 +165,8 @@ const DataLayer = {
       supabase.from("clients").select("*").order("name",{ascending:true}),
       supabase.from("client_content").select("*").order("created_at",{ascending:false}),
       supabase.from("client_ad_creatives").select("*").order("created_at",{ascending:false}),
+      supabase.from("client_campaigns").select("*").order("created_at",{ascending:false}),
+      supabase.from("deal_contacts").select("*").order("created_at",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -160,6 +176,8 @@ const DataLayer = {
     state.clients = cl.data || [];
     state.clientContent = ccon.data || [];
     state.adCreatives = cad.data || [];
+    state.campaigns = camp.data || [];
+    state.dealContacts = dc.data || [];
   },
   async insert(table, row){
     row.created_by = state.user ? state.user.email : "demo";
@@ -193,6 +211,10 @@ const DataLayer = {
       if (table === "clients"){
         state.clientContent = state.clientContent.filter(x => x.client_id !== id);
         state.adCreatives = state.adCreatives.filter(x => x.client_id !== id);
+        state.campaigns = state.campaigns.filter(x => x.client_id !== id);
+      }
+      if (table === "deals"){
+        state.dealContacts = state.dealContacts.filter(x => x.deal_id !== id);
       }
       renderAll();
       return;
@@ -206,6 +228,7 @@ function stateArray(table){
     contacts: state.contacts, cold_calls: state.coldCalls, deals: state.deals,
     prospecting_regions: state.regions, dial_prospects: state.prospects,
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
+    client_campaigns: state.campaigns, deal_contacts: state.dealContacts,
   }[table];
 }
 
@@ -223,6 +246,8 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"clients" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"client_content" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"client_ad_creatives" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"client_campaigns" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"deal_contacts" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -470,16 +495,19 @@ function renderDeals(){
           <span class="kanban-count">${deals.length}</span>
         </div>
         <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
-        ${deals.map(d => `
+        ${deals.map(d => {
+          const extraContacts = dealContactsFor(d.id);
+          return `
           <div class="deal-card" draggable="true" data-id="${d.id}">
             <h5>${escapeHtml(d.title)}</h5>
             <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}</div>
+            ${extraContacts.length ? `<div class="deal-extra-contacts">${extraContacts.map(dc => `${escapeHtml(dc.role||"Contact")}: ${escapeHtml(dc.name)}`).join(", ")}</div>` : ""}
             <div class="deal-card-foot">
               <span class="deal-value">${fmtMoney(d.value)}</span>
               <button class="icon-btn" data-action="delete-deal" data-id="${d.id}" title="Delete">${ICONS.trash}</button>
             </div>
           </div>
-        `).join("")}
+        `;}).join("")}
       </div>
     `;
   }).join("");
@@ -508,6 +536,36 @@ function setupDragDrop(){
 }
 
 function contactName(id){ return state.contacts.find(c => c.id === id)?.name || ""; }
+function dealContactsFor(dealId){
+  return state.dealContacts.filter(dc => dc.deal_id === dealId).map(dc => ({
+    ...dc, name: contactName(dc.contact_id) || "(deleted contact)",
+  }));
+}
+function addDealContactRow(){
+  const rows = $("#deal-contacts-rows");
+  if (!rows) return;
+  const row = document.createElement("div");
+  row.className = "deal-contact-row";
+  row.innerHTML = `
+    <input type="text" class="dc-name" placeholder="Name">
+    <input type="tel" class="dc-phone" placeholder="Phone">
+    <input type="text" class="dc-role" placeholder="Role (e.g. Decision Maker)">
+    <button type="button" class="icon-btn dc-remove" title="Remove">${ICONS.trash}</button>
+  `;
+  rows.appendChild(row);
+}
+async function saveDealContactRows(dealId){
+  const rows = $$(".deal-contact-row", $("#deal-contacts-rows"));
+  for (const row of rows){
+    const name = row.querySelector(".dc-name").value.trim();
+    const phone = row.querySelector(".dc-phone").value.trim();
+    const role = row.querySelector(".dc-role").value.trim();
+    if (!name) continue;
+    const contact = await DataLayer.insert("contacts", { name, phone, company: "", email: "", status: "lead", tags: "" });
+    if (!contact) continue;
+    await DataLayer.insert("deal_contacts", { deal_id: dealId, contact_id: contact.id, role });
+  }
+}
 
 /* ───────── Render: Dialer (power dialing prospect list) ───────── */
 const OUTCOME_BUTTONS = [
@@ -676,6 +734,8 @@ function clientAvgCPL(){
   if (!withCpl.length) return null;
   return withCpl.reduce((s,c) => s + Number(c.cost_per_lead||0), 0) / withCpl.length;
 }
+function campaignsFor(clientId){ return state.campaigns.filter(x => x.client_id === clientId); }
+function runningCampaignsFor(clientId){ return campaignsFor(clientId).filter(x => x.status === "active"); }
 function renderClients(){
   const listView = $("#clients-list-view");
   const detailView = $("#clients-detail-view");
@@ -698,15 +758,16 @@ function renderClientsList(){
   $("#clients-stat-total").textContent = state.clients.length;
   $("#clients-stat-cpl").textContent = avg != null ? fmtMoney(avg) : "-";
   $("#clients-stat-content").textContent = state.clientContent.length;
-  $("#clients-stat-posted").textContent = state.clientContent.filter(c => c.status === "posted").length;
+  $("#clients-stat-campaigns").textContent = state.campaigns.filter(c => c.status === "active").length;
 
   const grid = $("#clients-grid");
   if (!state.clients.length){ grid.innerHTML = emptyState("No clients yet. Add your first client to start planning their content."); return; }
   const sorted = [...state.clients].sort((a,b) => (a.name||"").localeCompare(b.name||""));
   grid.innerHTML = sorted.map(c => {
     const pieces = state.clientContent.filter(x => x.client_id === c.id);
-    const posted = pieces.filter(x => x.status === "posted").length;
     const creatives = state.adCreatives.filter(x => x.client_id === c.id);
+    const running = runningCampaignsFor(c.id).length;
+    const totalCampaigns = campaignsFor(c.id).length;
     return `
       <div class="client-card" data-action="view-client" data-id="${c.id}">
         <div class="client-card-head">
@@ -715,8 +776,8 @@ function renderClientsList(){
         </div>
         ${c.notes ? `<div class="client-card-notes">${escapeHtml(c.notes)}</div>` : ""}
         <div class="client-card-stats">
+          <span>${running} of ${totalCampaigns} campaign${totalCampaigns===1?"":"s"} running</span>
           <span>${pieces.length} content piece${pieces.length===1?"":"s"}</span>
-          <span>${posted} posted</span>
           <span>${creatives.length} ad creative${creatives.length===1?"":"s"}</span>
         </div>
       </div>
@@ -727,6 +788,27 @@ function renderClientDetail(c){
   $("#client-detail-name").textContent = c.name;
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   $("#client-detail-notes").textContent = c.notes || "No notes yet.";
+
+  const campaigns = campaignsFor(c.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
+  const running = campaigns.filter(x => x.status === "active");
+  $("#client-detail-campaigns-running").textContent = running.length;
+  $("#client-detail-campaigns-total").textContent = campaigns.length;
+  const campTbody = $("#campaigns-tbody");
+  if (!campaigns.length){ campTbody.innerHTML = `<tr><td colspan="5">${emptyState("No campaigns yet. Add one to start tracking CPL.")}</td></tr>`; }
+  else {
+    campTbody.innerHTML = campaigns.map(camp => `
+      <tr data-id="${camp.id}">
+        <td><div class="row-name">${escapeHtml(camp.name)}</div>${camp.notes?`<div class="row-sub">${escapeHtml(camp.notes)}</div>`:""}</td>
+        <td>${escapeHtml(camp.platform||"-")}</td>
+        <td><span class="badge ${CAMPAIGN_STATUSES[camp.status]?.cls||'gray'}">${CAMPAIGN_STATUSES[camp.status]?.label||camp.status}</span></td>
+        <td>${camp.cost_per_lead!=null ? fmtMoney(camp.cost_per_lead) : "-"}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="icon-btn" data-action="edit-campaign" data-id="${camp.id}" title="Edit">${ICONS.edit}</button>
+          <button class="icon-btn" data-action="delete-campaign" data-id="${camp.id}" title="Delete">${ICONS.trash}</button>
+        </td>
+      </tr>
+    `).join("");
+  }
 
   const pieces = state.clientContent.filter(x => x.client_id === c.id);
   const board = $("#content-kanban-board");
@@ -1222,7 +1304,17 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
-  $("#add-deal-btn").addEventListener("click", () => { $("#deal-form").reset(); openModal("deal-modal"); });
+  $("#add-deal-btn").addEventListener("click", () => {
+    $("#deal-form").reset();
+    $("#deal-contacts-rows").innerHTML = "";
+    addDealContactRow();
+    openModal("deal-modal");
+  });
+  $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
+  $("#deal-contacts-rows")?.addEventListener("click", (e) => {
+    const removeBtn = e.target.closest(".dc-remove");
+    if (removeBtn) removeBtn.closest(".deal-contact-row")?.remove();
+  });
   $("#deal-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const contactId = $("#deal-contact-select").value || null;
@@ -1236,7 +1328,8 @@ function setupModals(){
       updated_at: new Date().toISOString(),
     };
     if (!row.title) return;
-    await DataLayer.insert("deals", row);
+    const deal = await DataLayer.insert("deals", row);
+    if (deal) await saveDealContactRows(deal.id);
     closeModal("deal-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
@@ -1352,6 +1445,29 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#add-campaign-btn")?.addEventListener("click", () => {
+    $("#campaign-form").reset(); $("#campaign-form-id").value=""; $("#campaign-modal-title").textContent="Add Campaign";
+    openModal("campaign-modal");
+  });
+  $("#campaign-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#campaign-form-id").value;
+    const row = {
+      client_id: state.selectedClientId,
+      name: $("#campaign-name").value.trim(),
+      platform: $("#campaign-platform").value.trim(),
+      status: $("#campaign-status").value,
+      cost_per_lead: $("#campaign-cpl").value !== "" ? Number($("#campaign-cpl").value) : null,
+      notes: $("#campaign-notes").value.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    if (!row.name) return;
+    if (id) await DataLayer.update("client_campaigns", id, row);
+    else await DataLayer.insert("client_campaigns", row);
+    closeModal("campaign-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   document.body.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
@@ -1394,6 +1510,19 @@ function setupModals(){
     }
     if (action === "delete-content" && confirm("Delete this content piece?")) await DataLayer.remove("client_content", id);
     if (action === "delete-ad-creative" && confirm("Delete this ad creative?")) await DataLayer.remove("client_ad_creatives", id);
+    if (action === "edit-campaign"){
+      const camp = state.campaigns.find(x => x.id === id);
+      if (!camp) return;
+      $("#campaign-form-id").value = camp.id;
+      $("#campaign-name").value = camp.name||"";
+      $("#campaign-platform").value = camp.platform||"";
+      $("#campaign-status").value = camp.status||"active";
+      $("#campaign-cpl").value = camp.cost_per_lead != null ? camp.cost_per_lead : "";
+      $("#campaign-notes").value = camp.notes||"";
+      $("#campaign-modal-title").textContent = "Edit Campaign";
+      openModal("campaign-modal");
+    }
+    if (action === "delete-campaign" && confirm("Delete this campaign?")) await DataLayer.remove("client_campaigns", id);
     if (action === "edit-region"){
       const r = state.regions.find(x => x.id === id);
       if (!r) return;

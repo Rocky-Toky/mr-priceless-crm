@@ -478,7 +478,7 @@
           <div class="stat-card"><div class="stat-label">Clients</div><div class="stat-value" id="clients-stat-total">0</div></div>
           <div class="stat-card"><div class="stat-label">Avg Cost Per Lead</div><div class="stat-value" id="clients-stat-cpl">-</div></div>
           <div class="stat-card"><div class="stat-label">Content Pieces</div><div class="stat-value" id="clients-stat-content">0</div></div>
-          <div class="stat-card"><div class="stat-label">Posted</div><div class="stat-value" id="clients-stat-posted">0</div></div>
+          <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="clients-stat-campaigns">0</div></div>
         </div>
         <div class="client-grid" id="clients-grid"></div>
       </div>
@@ -497,14 +497,26 @@
           </div>
         </div>
 
-        <div class="two-col" style="grid-template-columns:1fr 1fr;">
-          <div class="card">
-            <div class="card-header"><h3>Cost Per Lead</h3></div>
-            <div class="card-body"><div class="stat-value" id="client-detail-cpl" style="font-size:28px;">-</div></div>
-          </div>
-          <div class="card">
-            <div class="card-header"><h3>Notes</h3></div>
-            <div class="card-body" id="client-detail-notes" style="font-size:13.5px;color:var(--text2);padding-bottom:16px;">-</div>
+        <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);">
+          <div class="stat-card"><div class="stat-label">Cost Per Lead</div><div class="stat-value" id="client-detail-cpl">-</div></div>
+          <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="client-detail-campaigns-running">0</div></div>
+          <div class="stat-card"><div class="stat-label">Total Campaigns</div><div class="stat-value" id="client-detail-campaigns-total">0</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Notes</h3></div>
+          <div class="card-body" id="client-detail-notes" style="font-size:13.5px;color:var(--text2);padding-bottom:16px;">-</div>
+        </div>
+
+        <div class="page-header" style="margin-top:8px;">
+          <div><h3>Campaigns</h3><p>Every campaign running for this client and its cost per lead.</p></div>
+          <button class="btn gold" id="add-campaign-btn">+ Add Campaign</button>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Campaign</th><th>Platform</th><th>Status</th><th>CPL</th><th></th></tr></thead>
+              <tbody id="campaigns-tbody"></tbody>
+            </table>
           </div>
         </div>
 
@@ -657,6 +669,11 @@
           </select>
         </div>
       </div>
+      <div class="field">
+        <label>Additional Contacts</label>
+        <div id="deal-contacts-rows"></div>
+        <button type="button" class="btn ghost" id="deal-add-contact-row-btn" style="margin-top:8px;align-self:flex-start;">+ Add Contact</button>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="deal-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Deal</button>
@@ -775,6 +792,33 @@
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="ad-creative-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Ad Creative</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Campaign ───────── -->
+<div class="overlay" id="campaign-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="campaign-modal-title">Add Campaign</h3><button class="modal-close" data-close="campaign-modal">&times;</button></div>
+    <form id="campaign-form" class="modal-body">
+      <input type="hidden" id="campaign-form-id">
+      <div class="field"><label>Campaign Name</label><input type="text" id="campaign-name" required placeholder="e.g. Auckland listings - lead gen"></div>
+      <div class="field-row">
+        <div class="field"><label>Platform</label><input type="text" id="campaign-platform" placeholder="e.g. Meta, Google"></div>
+        <div class="field"><label>Status</label>
+          <select id="campaign-status">
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="ended">Ended</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Cost Per Lead (NZD)</label><input type="number" id="campaign-cpl" min="0" step="0.01" placeholder="e.g. 25"></div>
+      <div class="field"><label>Notes</label><textarea id="campaign-notes" placeholder="Budget, targeting, anything worth knowing..."></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="campaign-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Campaign</button>
       </div>
     </form>
   </div>
