@@ -1,19 +1,28 @@
-/* To Do - gamified daily priority list.
+/* To Do - gamified WEEKLY priority list.
    Not wrapped in an IIFE (matches meetings-tracker.js), and reuses that
    script's shared celebration engine directly: getAudio, playTick,
    playGoalFanfare, playUncheck, spawnRipple, spawnParticles, flash,
-   shakeEl, popVal, startConfetti, openModal/closeModal, getToday,
-   formatDate. Every name declared here is prefixed "todo"/"td" so
-   nothing collides with meetings-tracker.js's own globals. */
+   shakeEl, popVal, startConfetti, openModal/closeModal, startClouds,
+   stopClouds, playInsaneSound, showInsane. Every name declared here is
+   prefixed "todo"/"td" so nothing collides with meetings-tracker.js's
+   own globals. */
 
-const TODO_STORAGE_KEY = 'td_v1';
+const TODO_STORAGE_KEY = 'td_v2';
 const TODO_MAX = 5;
 const TODO_MIN_FOR_WIN = 3;
 
-function todoGetToday(){ return new Date().toISOString().slice(0,10); }
+function todoLocalDateKey(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function todoGetWeekStart(){
+  const d = new Date();
+  const dayIdx = (d.getDay() + 6) % 7; // Monday = 0
+  d.setDate(d.getDate() - dayIdx);
+  return todoLocalDateKey(d);
+}
 
 function todoDefaultState(){
-  return { today: todoGetToday(), tasks: [], history: {}, log: [] };
+  return { weekStart: todoGetWeekStart(), tasks: [], history: {}, log: [] };
 }
 
 let todoState;
@@ -23,11 +32,11 @@ try {
   if (!todoState.tasks) todoState.tasks = [];
   if (!todoState.history) todoState.history = {};
   if (!todoState.log) todoState.log = [];
-  if (todoState.today !== todoGetToday()){
+  if (todoState.weekStart !== todoGetWeekStart()){
     const prevDone = todoState.tasks.filter(t=>t.done).length;
     const prevTotal = todoState.tasks.length;
-    if (todoState.today) todoState.history[todoState.today] = { done: prevDone, total: prevTotal };
-    todoState.today = todoGetToday();
+    if (todoState.weekStart) todoState.history[todoState.weekStart] = { done: prevDone, total: prevTotal };
+    todoState.weekStart = todoGetWeekStart();
     todoState.tasks = [];
     todoState.log = [];
   }
@@ -46,7 +55,7 @@ function todoAddLog(text){
 function todoRenderLog(){
   const el = document.getElementById('td-activity-log');
   if (!el) return;
-  if (!todoState.log.length){ el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No activity yet today.</p></div>'; return; }
+  if (!todoState.log.length){ el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No activity yet this week.</p></div>'; return; }
   el.innerHTML = todoState.log.slice(0,6).map(l => `
     <div class="activity-row">
       <div class="activity-dot"></div>
@@ -59,21 +68,21 @@ function todoRenderLog(){
 
 function todoCalcStreak(){
   let streak = 0;
-  const today = todoGetToday();
-  const todayDone = todoState.tasks.filter(t=>t.done).length;
-  const todayTotal = todoState.tasks.length;
-  let d = new Date();
+  const curKey = todoGetWeekStart();
+  const curDone = todoState.tasks.filter(t=>t.done).length;
+  const curTotal = todoState.tasks.length;
+  let d = new Date(curKey);
   while (true){
-    const key = d.toISOString().slice(0,10);
+    const key = todoLocalDateKey(d);
     let win;
-    if (key === today) win = todayTotal >= TODO_MIN_FOR_WIN && todayDone === todayTotal;
+    if (key === curKey) win = curTotal >= TODO_MIN_FOR_WIN && curDone === curTotal;
     else {
       const rec = todoState.history[key];
       win = rec ? (rec.total >= TODO_MIN_FOR_WIN && rec.done === rec.total) : false;
     }
     if (win) streak++;
     else break;
-    d.setDate(d.getDate() - 1);
+    d.setDate(d.getDate() - 7);
   }
   return streak;
 }
@@ -82,23 +91,27 @@ function todoRenderWeekGrid(){
   const grid = document.getElementById('td-week-grid');
   if (!grid) return;
   grid.innerHTML = '';
-  const today = new Date(); const dw = today.getDay();
-  const monday = new Date(today); monday.setDate(today.getDate() - (dw===0?6:dw-1));
-  const todayKey = todoGetToday();
-  for (let i=0;i<7;i++){
-    const d = new Date(monday); d.setDate(monday.getDate()+i);
-    const key = d.toISOString().slice(0,10);
-    const el = document.createElement('div'); el.className = 'mtr-week-day'; el.textContent = d.getDate();
-    if (key === todayKey){
+  const curKey = todoGetWeekStart();
+  const weeks = [];
+  for (let i=7;i>=0;i--){
+    const d = new Date(curKey); d.setDate(d.getDate() - i*7);
+    weeks.push(todoLocalDateKey(d));
+  }
+  weeks.forEach(key => {
+    const d = new Date(key);
+    const el = document.createElement('div'); el.className = 'mtr-week-day';
+    el.textContent = d.getDate();
+    el.title = 'Week of ' + d.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'});
+    if (key === curKey){
       el.classList.add('today');
       const done = todoState.tasks.filter(t=>t.done).length, total = todoState.tasks.length;
       if (total >= TODO_MIN_FOR_WIN && done === total) el.classList.add('goal');
-    } else if (key < todayKey){
+    } else {
       const rec = todoState.history[key];
       if (rec && rec.total >= TODO_MIN_FOR_WIN && rec.done === rec.total) el.classList.add('goal');
-    } else el.classList.add('future');
+    }
     grid.appendChild(el);
-  }
+  });
 }
 
 function todoUpdateStats(){
@@ -123,10 +136,10 @@ function todoUpdateStats(){
   const banner = document.getElementById('td-banner');
   banner.className = 'mtr-banner';
   if (total >= TODO_MIN_FOR_WIN && done === total){
-    banner.textContent = '🎯 Every priority done. That is a winning day.';
+    banner.textContent = '👑 Every priority for the week, crushed.';
     banner.classList.add('show','cloud9');
   } else if (total > 0 && done > 0){
-    banner.textContent = `Keep going - ${total-done} to go.`;
+    banner.textContent = `Keep going - ${total-done} to go this week.`;
     banner.classList.add('show');
   }
 
@@ -148,7 +161,7 @@ function todoRenderList(){
   const list = document.getElementById('td-list');
   if (!list) return;
   if (!todoState.tasks.length){
-    list.innerHTML = '<div class="empty-state"><p>Add your 3-5 most important things for today.</p></div>';
+    list.innerHTML = '<div class="empty-state"><p>Add your 3-5 most important things for this week.</p></div>';
     return;
   }
   list.innerHTML = '';
@@ -161,7 +174,7 @@ function todoRenderItem(idx){
   if (!t) return;
   const existing = list.children[idx];
   const el = existing || document.createElement('div');
-  const timeStr = t.time ? new Date(t.time).toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit',hour12:true}) : '';
+  const timeStr = t.time ? new Date(t.time).toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short'}) : '';
   el.className = 'mtr-row' + (t.done ? ' done' : '');
   el.innerHTML = `
     <div class="mtr-check">${TODO_CHECK_SVG}</div>
@@ -174,7 +187,7 @@ function todoRenderItem(idx){
       </div>
       <div class="mtr-row-meta">
         <span>Priority ${idx+1} of ${todoState.tasks.length}</span>
-        ${timeStr?`<span>· ${timeStr}</span>`:''}
+        ${timeStr?`<span>· done ${timeStr}</span>`:''}
       </div>
     </div>
     <button class="mtr-edit-btn" title="Rename">${TODO_EDIT_SVG}</button>
@@ -201,12 +214,13 @@ function todoToggle(idx, el, e){
 
   const done = todoState.tasks.filter(x=>x.done).length;
   const total = todoState.tasks.length;
+  const justWonWeek = wasNot && total >= TODO_MIN_FOR_WIN && done === total && !todoCelebrated;
 
   if (t.done){
-    if (total >= TODO_MIN_FOR_WIN && done === total) playGoalFanfare();
+    if (justWonWeek) playGoalFanfare();
     else playTick(done-1);
     spawnRipple(el, e, false);
-    spawnParticles(e.clientX, e.clientY, 'normal');
+    spawnParticles(e.clientX, e.clientY, justWonWeek ? 'gold' : 'normal');
     flash('rgba(232,196,104,0.1)');
     popVal('td-kpi-done');
     el.classList.remove('just-checked'); void el.offsetWidth; el.classList.add('just-checked');
@@ -219,7 +233,7 @@ function todoToggle(idx, el, e){
 
   todoRenderItem(idx);
 
-  if (wasNot && total >= TODO_MIN_FOR_WIN && done === total && !todoCelebrated){
+  if (justWonWeek){
     todoCelebrated = true;
     setTimeout(() => {
       startConfetti(['#e8c468','#b8912c','#8a6a1a','#ffffff','#f6ecd2'], false, false);
@@ -231,6 +245,18 @@ function todoToggle(idx, el, e){
       const p = document.getElementById('td-pct'); let c = 0;
       const iv = setInterval(()=>{ c += Math.floor(Math.random()*6)+4; if(c>=100){c=100;clearInterval(iv);} p.textContent = c+'%'; }, 25);
       openModal('modal-todo-done');
+
+      /* EXTREME tier - a full week clean sweep is rarer than a single day's
+         meetings goal, so it earns the same "insane" overlay as Meetings
+         Booked's 5/5 day, plus mega confetti and a few seconds of clouds,
+         layered on top of the reward modal above for maximum payoff. */
+      setTimeout(() => {
+        playInsaneSound();
+        startConfetti(['#e8c468','#f3dca0','#b8912c','#ffffff','#8a6a1a','#fff6df'], true, true);
+        startClouds();
+        showInsane('WEEK', '👑 WEEK CRUSHED 👑', `${total}/${total} priorities · every single one · this is how empires are built`);
+        setTimeout(stopClouds, 6000);
+      }, 900);
     }, 350);
   }
 
@@ -270,19 +296,20 @@ function todoDeleteTask(idx){
   todoAddLog('Priority removed');
 }
 
-function todoResetDay(){
+function todoResetWeek(){
   const done = todoState.tasks.filter(t=>t.done).length;
   const total = todoState.tasks.length;
-  if (total > 0) todoState.history[todoGetToday()] = { done, total };
+  if (total > 0) todoState.history[todoGetWeekStart()] = { done, total };
   todoState.tasks = [];
   todoState.log = [];
   todoCelebrated = false;
   closeModal('modal-todo-done');
+  closeInsane();
   document.getElementById('td-ring-fill').classList.remove('animate');
   document.getElementById('td-pct').textContent = '0%';
   todoSave();
   todoRenderList(); todoUpdateStats(); todoRenderLog();
-  todoAddLog('Day reset - fresh slate');
+  todoAddLog('Week reset - fresh slate');
 }
 
 function todoRenderAll(){

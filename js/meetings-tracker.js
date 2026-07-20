@@ -346,10 +346,14 @@ function playInsaneSound(){
 }
 
 const INSANE_EMOJIS = ['⚡','🔥','👑','💥','🌟','💫','🎯','🏆','✨','🚀','💎','🎉'];
+const INSANE_DEFAULTS = { num:'5/5', label:'⚡ ABSOLUTE LEGEND ⚡', sub:'5 meetings booked · unstoppable · untouchable · unreal' };
 
-function showInsane(){
+function showInsane(numText, labelText, subText){
   const el = document.getElementById('insane');
   el.classList.add('active');
+  document.getElementById('insane-num').textContent = numText || INSANE_DEFAULTS.num;
+  document.getElementById('insane-label').textContent = labelText || INSANE_DEFAULTS.label;
+  document.getElementById('insane-sub2').textContent = subText || INSANE_DEFAULTS.sub;
 
   // Shake the whole page
   document.body.classList.remove('mtr-body-shake');
@@ -448,7 +452,10 @@ function stopClouds(){
 const GOAL=2, CLOUD9=3, TOTAL=5;
 const STORAGE_KEY='mb_v7';
 
-function getToday(){ return new Date().toISOString().slice(0,10); }
+function localDateKey(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function getToday(){ return localDateKey(new Date()); }
 function defaultState(){
   return{today:getToday(),calls:0,convos:0,meetings:[
     {name:'Meeting booked 1',done:false,time:null},
@@ -648,7 +655,7 @@ function formatDate(){
 function calcStreak(){
   let streak=0; const today=getToday(); let d=new Date();
   while(true){
-    const key=d.toISOString().slice(0,10);
+    const key=localDateKey(d);
     const ct = key===today ? state.meetings.filter(m=>m.done).length : (state.history[key]??-1);
     if(ct>=GOAL) streak++;
     else if(key===today && ct<GOAL) break;
@@ -663,7 +670,7 @@ function renderWeekGrid(){
   const monday=new Date(today); monday.setDate(today.getDate()-(dw===0?6:dw-1));
   for(let i=0;i<7;i++){
     const d=new Date(monday); d.setDate(monday.getDate()+i);
-    const key=d.toISOString().slice(0,10); const todayKey=getToday();
+    const key=localDateKey(d); const todayKey=getToday();
     const el=document.createElement('div'); el.className='mtr-week-day'; el.textContent=d.getDate();
     if(key===todayKey){
       el.classList.add('today');

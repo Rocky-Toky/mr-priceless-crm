@@ -10,6 +10,23 @@ const STAGES = [
   { key: "proposal", label: "Proposal Meeting" },
   { key: "negotiation", label: "Negotiation" },
 ];
+const CONTENT_STATUSES = [
+  { key: "idea", label: "Idea" },
+  { key: "scripting", label: "Scripting" },
+  { key: "filming", label: "Filming / Editing" },
+  { key: "posted", label: "Posted" },
+];
+const CONTENT_TYPES = {
+  video: { label: "Video", cls: "gold" },
+  script: { label: "Script", cls: "gray" },
+  post: { label: "Post", cls: "green" },
+  other: { label: "Other", cls: "gray" },
+};
+const AD_RESULTS = {
+  testing: { label: "Testing", cls: "gray" },
+  winner: { label: "Winner", cls: "green" },
+  killed: { label: "Killed", cls: "red" },
+};
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
@@ -32,6 +49,10 @@ const state = {
   deals: [],
   regions: [],
   prospects: [],
+  clients: [],
+  clientContent: [],
+  adCreatives: [],
+  selectedClientId: null,
   team: [],
   contactFilter: "",
   contactSearch: "",
@@ -99,24 +120,46 @@ function seedDemo(){
     { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", calls_made:0, last_called_at:null, last_outcome:null, notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", calls_made:0, last_called_at:null, last_outcome:null, notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
   ];
+  const cl1 = uid(), cl2 = uid();
+  state.clients = [
+    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString() },
+    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString() },
+  ];
+  state.clientContent = [
+    { id:uid(), client_id:cl1, type:"video", status:"idea", title:"Listing walkthrough - 14 Marama Rd", directions:"Golden hour, drone opening shot, 45-60s.", script:"", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), client_id:cl1, type:"script", status:"scripting", title:"\"5 signs it's time to sell\" talking-head", directions:"", script:"Hook: Most people wait too long to sell. Here's how to know...", notes:"", created_at:new Date(Date.now()-86400e3*5).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), client_id:cl1, type:"video", status:"posted", title:"Open home recap - Britomart apartment", directions:"", script:"", notes:"Posted to IG + FB, did well.", created_at:new Date(Date.now()-86400e3*12).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), client_id:cl2, type:"video", status:"filming", title:"Patient testimonial - Whitening results", directions:"Shoot in the new chair, natural light near window.", script:"", notes:"", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+  ];
+  state.adCreatives = [
+    { id:uid(), client_id:cl1, name:"Drone listing reel v1", result:"winner", notes:"Lowest CPL so far, keep scaling.", created_at:new Date(Date.now()-86400e3*20).toISOString() },
+    { id:uid(), client_id:cl1, name:"Static \"just sold\" carousel", result:"killed", notes:"CTR too low, paused after 3 days.", created_at:new Date(Date.now()-86400e3*15).toISOString() },
+    { id:uid(), client_id:cl2, name:"Before/after smile carousel", result:"testing", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString() },
+  ];
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
       supabase.from("prospecting_regions").select("*").order("region",{ascending:true}),
       supabase.from("dial_prospects").select("*").order("last_called_at",{ascending:true,nullsFirst:true}),
+      supabase.from("clients").select("*").order("name",{ascending:true}),
+      supabase.from("client_content").select("*").order("created_at",{ascending:false}),
+      supabase.from("client_ad_creatives").select("*").order("created_at",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
     state.deals = d.data || [];
     state.regions = r.data || [];
     state.prospects = p.data || [];
+    state.clients = cl.data || [];
+    state.clientContent = ccon.data || [];
+    state.adCreatives = cad.data || [];
   },
   async insert(table, row){
     row.created_by = state.user ? state.user.email : "demo";
@@ -147,6 +190,10 @@ const DataLayer = {
       const arr = stateArray(table);
       const idx = arr.findIndex(x => x.id === id);
       if (idx > -1) arr.splice(idx,1);
+      if (table === "clients"){
+        state.clientContent = state.clientContent.filter(x => x.client_id !== id);
+        state.adCreatives = state.adCreatives.filter(x => x.client_id !== id);
+      }
       renderAll();
       return;
     }
@@ -155,7 +202,11 @@ const DataLayer = {
   }
 };
 function stateArray(table){
-  return { contacts: state.contacts, cold_calls: state.coldCalls, deals: state.deals, prospecting_regions: state.regions, dial_prospects: state.prospects }[table];
+  return {
+    contacts: state.contacts, cold_calls: state.coldCalls, deals: state.deals,
+    prospecting_regions: state.regions, dial_prospects: state.prospects,
+    clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
+  }[table];
 }
 
 /* ───────── Realtime ───────── */
@@ -169,6 +220,9 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"deals" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"prospecting_regions" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"dial_prospects" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"clients" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"client_content" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"client_ad_creatives" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -616,6 +670,124 @@ function setupDialerImport(){
   });
 }
 
+/* ───────── Render: Clients (retention workspace) ───────── */
+function clientAvgCPL(){
+  const withCpl = state.clients.filter(c => c.cost_per_lead != null && c.cost_per_lead !== "");
+  if (!withCpl.length) return null;
+  return withCpl.reduce((s,c) => s + Number(c.cost_per_lead||0), 0) / withCpl.length;
+}
+function renderClients(){
+  const listView = $("#clients-list-view");
+  const detailView = $("#clients-detail-view");
+  if (!listView || !detailView) return;
+
+  const selected = state.clients.find(c => c.id === state.selectedClientId);
+  if (!selected){
+    state.selectedClientId = null;
+    listView.style.display = "";
+    detailView.style.display = "none";
+    renderClientsList();
+  } else {
+    listView.style.display = "none";
+    detailView.style.display = "";
+    renderClientDetail(selected);
+  }
+}
+function renderClientsList(){
+  const avg = clientAvgCPL();
+  $("#clients-stat-total").textContent = state.clients.length;
+  $("#clients-stat-cpl").textContent = avg != null ? fmtMoney(avg) : "-";
+  $("#clients-stat-content").textContent = state.clientContent.length;
+  $("#clients-stat-posted").textContent = state.clientContent.filter(c => c.status === "posted").length;
+
+  const grid = $("#clients-grid");
+  if (!state.clients.length){ grid.innerHTML = emptyState("No clients yet. Add your first client to start planning their content."); return; }
+  const sorted = [...state.clients].sort((a,b) => (a.name||"").localeCompare(b.name||""));
+  grid.innerHTML = sorted.map(c => {
+    const pieces = state.clientContent.filter(x => x.client_id === c.id);
+    const posted = pieces.filter(x => x.status === "posted").length;
+    const creatives = state.adCreatives.filter(x => x.client_id === c.id);
+    return `
+      <div class="client-card" data-action="view-client" data-id="${c.id}">
+        <div class="client-card-head">
+          <h3>${escapeHtml(c.name)}</h3>
+          <span class="badge ${c.cost_per_lead!=null ? 'gold':'gray'}">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</span>
+        </div>
+        ${c.notes ? `<div class="client-card-notes">${escapeHtml(c.notes)}</div>` : ""}
+        <div class="client-card-stats">
+          <span>${pieces.length} content piece${pieces.length===1?"":"s"}</span>
+          <span>${posted} posted</span>
+          <span>${creatives.length} ad creative${creatives.length===1?"":"s"}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+function renderClientDetail(c){
+  $("#client-detail-name").textContent = c.name;
+  $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
+  $("#client-detail-notes").textContent = c.notes || "No notes yet.";
+
+  const pieces = state.clientContent.filter(x => x.client_id === c.id);
+  const board = $("#content-kanban-board");
+  board.innerHTML = CONTENT_STATUSES.map(st => {
+    const items = pieces.filter(p => p.status === st.key);
+    return `
+      <div class="kanban-col content-kanban-col" data-status="${st.key}">
+        <div class="kanban-col-head">
+          <h4>${st.label}</h4>
+          <span class="kanban-count">${items.length}</span>
+        </div>
+        ${items.map(p => `
+          <div class="content-card" draggable="true" data-id="${p.id}" data-action="edit-content">
+            <span class="badge ${CONTENT_TYPES[p.type]?.cls||'gray'}" style="margin-bottom:6px;">${CONTENT_TYPES[p.type]?.label||p.type}</span>
+            <h5>${escapeHtml(p.title)}</h5>
+            <div class="content-card-foot">
+              <button class="icon-btn" data-action="delete-content" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }).join("");
+  setupContentDragDrop();
+
+  const creatives = state.adCreatives.filter(x => x.client_id === c.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
+  const tbody = $("#ad-creatives-tbody");
+  if (!creatives.length){ tbody.innerHTML = `<tr><td colspan="4">${emptyState("No ad creatives tried yet.")}</td></tr>`; }
+  else {
+    tbody.innerHTML = creatives.map(a => `
+      <tr data-id="${a.id}">
+        <td><div class="row-name">${escapeHtml(a.name)}</div>${a.notes?`<div class="row-sub">${escapeHtml(a.notes)}</div>`:""}</td>
+        <td><span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span></td>
+        <td>${fmtDate(a.created_at)}</td>
+        <td style="text-align:right;"><button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button></td>
+      </tr>
+    `).join("");
+  }
+}
+function setupContentDragDrop(){
+  let draggedId = null;
+  $$(".content-card").forEach(card => {
+    card.addEventListener("dragstart", (e) => {
+      draggedId = card.dataset.id;
+      card.classList.add("dragging");
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragend", () => card.classList.remove("dragging"));
+  });
+  $$(".content-kanban-col").forEach(col => {
+    col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
+    col.addEventListener("dragleave", () => col.classList.remove("dragover"));
+    col.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      col.classList.remove("dragover");
+      if (!draggedId) return;
+      await DataLayer.update("client_content", draggedId, { status: col.dataset.status, updated_at: new Date().toISOString() });
+    });
+  });
+}
+
 /* ───────── Render: Prospecting (by region) ───────── */
 function renderRegions(){
   const tbody = $("#regions-tbody");
@@ -648,6 +820,7 @@ function renderAll(){
   renderDeals();
   renderRegions();
   renderDialer();
+  renderClients();
   renderTeam();
   renderCalendarGrid();
   fillContactDropdowns();
@@ -1123,6 +1296,62 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#add-client-btn")?.addEventListener("click", () => { $("#client-form").reset(); $("#client-form-id").value=""; $("#client-modal-title").textContent="Add Client"; openModal("client-modal"); });
+  $("#client-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#client-form-id").value;
+    const row = {
+      name: $("#client-name").value.trim(),
+      cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
+      notes: $("#client-notes").value.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    if (!row.name) return;
+    if (id) await DataLayer.update("clients", id, row);
+    else await DataLayer.insert("clients", row);
+    closeModal("client-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
+  $("#add-content-btn")?.addEventListener("click", () => {
+    $("#content-form").reset(); $("#content-form-id").value=""; $("#content-modal-title").textContent="Add Content";
+    openModal("content-modal");
+  });
+  $("#content-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#content-form-id").value;
+    const row = {
+      client_id: state.selectedClientId,
+      title: $("#content-title").value.trim(),
+      type: $("#content-type").value,
+      status: $("#content-status").value,
+      directions: $("#content-directions").value.trim(),
+      script: $("#content-script").value.trim(),
+      notes: $("#content-notes").value.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    if (!row.title) return;
+    if (id) await DataLayer.update("client_content", id, row);
+    else await DataLayer.insert("client_content", row);
+    closeModal("content-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
+  $("#add-ad-creative-btn")?.addEventListener("click", () => { $("#ad-creative-form").reset(); openModal("ad-creative-modal"); });
+  $("#ad-creative-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const row = {
+      client_id: state.selectedClientId,
+      name: $("#ad-creative-name").value.trim(),
+      result: $("#ad-creative-result").value,
+      notes: $("#ad-creative-notes").value.trim(),
+    };
+    if (!row.name) return;
+    await DataLayer.insert("client_ad_creatives", row);
+    closeModal("ad-creative-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   document.body.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
@@ -1133,6 +1362,38 @@ function setupModals(){
     if (action === "delete-prospect" && confirm("Delete this prospect?")) await DataLayer.remove("dial_prospects", id);
     if (action === "dial-tel") await logDialOutcome(id, "dialed");
     if (action === "dial-outcome") await logDialOutcome(id, outcome);
+    if (action === "view-client"){ state.selectedClientId = id; renderClients(); }
+    if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
+    if (action === "edit-client-header"){
+      const c = state.clients.find(x => x.id === state.selectedClientId);
+      if (!c) return;
+      $("#client-form-id").value = c.id;
+      $("#client-name").value = c.name||"";
+      $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
+      $("#client-notes").value = c.notes||"";
+      $("#client-modal-title").textContent = "Edit Client";
+      openModal("client-modal");
+    }
+    if (action === "delete-client" && confirm("Delete this client and all their content pieces / ad creatives?")) {
+      await DataLayer.remove("clients", state.selectedClientId);
+      state.selectedClientId = null;
+      renderClients();
+    }
+    if (action === "edit-content"){
+      const p = state.clientContent.find(x => x.id === id);
+      if (!p) return;
+      $("#content-form-id").value = p.id;
+      $("#content-title").value = p.title||"";
+      $("#content-type").value = p.type||"video";
+      $("#content-status").value = p.status||"idea";
+      $("#content-directions").value = p.directions||"";
+      $("#content-script").value = p.script||"";
+      $("#content-notes").value = p.notes||"";
+      $("#content-modal-title").textContent = "Edit Content";
+      openModal("content-modal");
+    }
+    if (action === "delete-content" && confirm("Delete this content piece?")) await DataLayer.remove("client_content", id);
+    if (action === "delete-ad-creative" && confirm("Delete this ad creative?")) await DataLayer.remove("client_ad_creatives", id);
     if (action === "edit-region"){
       const r = state.regions.find(x => x.id === id);
       if (!r) return;

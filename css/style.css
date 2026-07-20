@@ -226,6 +226,30 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .deal-card .deal-value{font-size:16px;font-weight:700;color:var(--gold);font-family:var(--font-display);}
 .deal-card-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
 
+/* ───────── Content cards (Clients) ───────── */
+.content-card{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:13px 14px;box-shadow:0 1px 2px rgba(0,0,0,0.04);cursor:grab;
+  transition:box-shadow .15s,transform .15s,opacity .15s;
+}
+.content-card:hover{box-shadow:0 6px 18px rgba(20,15,5,0.1);transform:translateY(-2px);}
+.content-card:active{cursor:grabbing;}
+.content-card.dragging{opacity:0.4;box-shadow:0 12px 28px rgba(0,0,0,0.22);transform:scale(1.03) rotate(-1deg);cursor:grabbing;}
+.content-card h5{font-size:13.5px;font-weight:700;letter-spacing:-0.005em;line-height:1.35;}
+.content-card-foot{display:flex;justify-content:flex-end;align-items:center;margin-top:8px;}
+
+/* ───────── Clients ───────── */
+.client-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;}
+.client-card{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px 20px;box-shadow:var(--shadow);cursor:pointer;transition:box-shadow .15s,transform .15s;
+}
+.client-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px);}
+.client-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;}
+.client-card-head h3{font-size:16.5px;font-weight:700;letter-spacing:-0.01em;}
+.client-card-notes{font-size:12.5px;color:var(--text2);margin-bottom:12px;line-height:1.4;}
+.client-card-stats{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--text2);border-top:1px solid var(--line);padding-top:10px;}
+
 /* ───────── Modal ───────── */
 .overlay{
   position:fixed;inset:0;background:rgba(9,9,10,0.6);backdrop-filter:blur(3px);

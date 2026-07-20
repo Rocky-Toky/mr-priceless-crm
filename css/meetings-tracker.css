@@ -74,10 +74,10 @@
 .mtr-row.editing .mtr-check{pointer-events:none;opacity:.4;}
 .mtr-row-meta{font-size:11.5px;color:var(--text2);margin-top:2px;display:flex;align-items:center;gap:8px;}
 
-.mtr-edit-btn{width:26px;height:26px;border-radius:6px;background:transparent;border:1px solid transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:all .15s;flex-shrink:0;color:var(--text2);}
-.mtr-row:hover .mtr-edit-btn{opacity:.55;}
-.mtr-edit-btn:hover{opacity:1 !important;background:#f1eee6;border-color:var(--line);}
-.mtr-edit-btn svg{width:13px;height:13px;pointer-events:none;}
+.mtr-edit-btn{width:30px;height:30px;border-radius:7px;background:#faf9f5;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.7;transition:all .15s;flex-shrink:0;color:var(--text2);}
+.mtr-row:hover .mtr-edit-btn{opacity:1;}
+.mtr-edit-btn:hover{opacity:1 !important;background:#f1eee6;border-color:var(--gold-border);color:var(--gold-deep);}
+.mtr-edit-btn svg{width:14px;height:14px;pointer-events:none;}
 
 /* ─── Sidebar: ring ─── */
 .mtr-ring-body{display:flex;align-items:center;justify-content:center;padding:22px;}
