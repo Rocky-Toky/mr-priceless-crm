@@ -352,19 +352,19 @@ function showInsane(){
   el.classList.add('active');
 
   // Shake the whole page
-  document.body.classList.remove('body-shake');
+  document.body.classList.remove('mtr-body-shake');
   void document.body.offsetWidth;
   document.body.style.setProperty('--sd','0.5s');
-  document.body.classList.add('body-shake');
-  setTimeout(()=>{ document.body.classList.remove('body-shake'); }, 500);
+  document.body.classList.add('mtr-body-shake');
+  setTimeout(()=>{ document.body.classList.remove('mtr-body-shake'); }, 500);
 
   // Second shake
   setTimeout(()=>{
-    document.body.classList.remove('body-shake');
+    document.body.classList.remove('mtr-body-shake');
     void document.body.offsetWidth;
     document.body.style.setProperty('--sd','0.35s');
-    document.body.classList.add('body-shake');
-    setTimeout(()=>{ document.body.classList.remove('body-shake'); }, 350);
+    document.body.classList.add('mtr-body-shake');
+    setTimeout(()=>{ document.body.classList.remove('mtr-body-shake'); }, 350);
   }, 600);
 
   // Glitch the number
@@ -420,12 +420,12 @@ const CLOUD_EMOJIS = ['☁️','⛅','🌤️','☁️','☁️','⛅'];
 function spawnCloud(delay){
   const wrap = document.getElementById('clouds');
   const el = document.createElement('div');
-  el.className = 'cloud';
+  el.className = 'mtr-cloud';
   const top = 8 + Math.random() * 78;
   const dur = 18 + Math.random() * 22;
   const bobOffset = Math.random() * 4;
   el.style.cssText = `top:${top}%;animation-duration:${dur}s;animation-delay:${delay}s;`;
-  el.innerHTML = `<div class="cloud-body" style="animation-delay:${bobOffset}s;font-size:${40+Math.random()*28}px">${CLOUD_EMOJIS[Math.floor(Math.random()*CLOUD_EMOJIS.length)]}</div><div class="cloud-label">Cloud 9</div>`;
+  el.innerHTML = `<div class="mtr-cloud-body" style="animation-delay:${bobOffset}s;font-size:${40+Math.random()*28}px">${CLOUD_EMOJIS[Math.floor(Math.random()*CLOUD_EMOJIS.length)]}</div><div class="mtr-cloud-label">Cloud 9</div>`;
   wrap.appendChild(el);
   el.addEventListener('animationend', ()=>{ el.remove(); if(cloudsActive) spawnCloud(0); });
 }
@@ -541,7 +541,7 @@ function spawnParticles(x,y,type){
   const big = type==='god';
   for(let i=0;i<n;i++){
     setTimeout(()=>{
-      const el=document.createElement('div'); el.className='pt';
+      const el=document.createElement('div'); el.className='mtr-pt';
       el.textContent=arr[Math.floor(Math.random()*arr.length)];
       const angle=Math.random()*Math.PI*2;
       const dist=big?(130+Math.random()*230):type==='gold'?(90+Math.random()*150):(55+Math.random()*100);
@@ -554,7 +554,7 @@ function spawnParticles(x,y,type){
 
 function spawnRipple(el,e,gold){
   const r=document.createElement('div');
-  r.className='ripple '+(gold?'rip-amber':'rip-green');
+  r.className='mtr-ripple';
   const rect=el.getBoundingClientRect();
   const sz=Math.max(rect.width,rect.height)*2.5;
   r.style.cssText=`width:${sz}px;height:${sz}px;left:${e.clientX-rect.left-sz/2}px;top:${e.clientY-rect.top-sz/2}px`;
@@ -563,21 +563,21 @@ function spawnRipple(el,e,gold){
 
 function spawnScorePop(x, y, isBonus){
   const el = document.createElement('div');
-  el.className = 'score-pop';
+  el.className = 'mtr-score-pop';
   el.textContent = isBonus ? '☁️ CLOUD 9!' : '+BOOKED!';
-  el.style.cssText = `left:${x-60}px;top:${y-20}px;color:${isBonus?'var(--sky)':'var(--green)'};text-shadow:0 0 20px ${isBonus?'rgba(56,189,248,0.8)':'rgba(0,230,118,0.7)'};`;
+  el.style.cssText = `left:${x-60}px;top:${y-20}px;`;
   document.body.appendChild(el);
   setTimeout(()=>el.remove(), 1100);
 }
 
 function flash(color){
-  const f=document.createElement('div'); f.className='flash'; f.style.background=color;
+  const f=document.createElement('div'); f.className='mtr-flash'; f.style.background=color;
   document.body.appendChild(f); setTimeout(()=>f.remove(),650);
 }
 
 function shakeEl(el){
-  el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
-  setTimeout(()=>el.classList.remove('shake'),500);
+  el.classList.remove('mtr-shake'); void el.offsetWidth; el.classList.add('mtr-shake');
+  setTimeout(()=>el.classList.remove('mtr-shake'),500);
 }
 
 function popVal(id){
@@ -591,14 +591,14 @@ function popVal(id){
 function updateAmbient(done){
   const g = document.getElementById('amb-g');
   if(done>=CLOUD9){
-    g.style.background='radial-gradient(ellipse 100% 65% at 50% 0%,rgba(56,189,248,0.12) 0%,rgba(0,230,118,0.04) 55%,transparent 75%)';
+    g.style.background='radial-gradient(ellipse 100% 65% at 50% 0%,rgba(184,145,44,0.1) 0%,rgba(232,196,104,0.04) 55%,transparent 75%)';
   } else if(done>=GOAL){
-    g.style.background='radial-gradient(ellipse 85% 55% at 50% 0%,rgba(0,230,118,0.1) 0%,rgba(56,189,248,0.03) 50%,transparent 72%)';
+    g.style.background='radial-gradient(ellipse 85% 55% at 50% 0%,rgba(232,196,104,0.08) 0%,rgba(184,145,44,0.03) 50%,transparent 72%)';
   } else if(done>0){
     const intensity = done/GOAL;
-    g.style.background=`radial-gradient(ellipse ${60+intensity*20}% ${40+intensity*15}% at 50% 0%,rgba(0,230,118,${0.04+intensity*0.06}) 0%,transparent 70%)`;
+    g.style.background=`radial-gradient(ellipse ${60+intensity*20}% ${40+intensity*15}% at 50% 0%,rgba(232,196,104,${0.03+intensity*0.05}) 0%,transparent 70%)`;
   } else {
-    g.style.background='radial-gradient(ellipse 70% 50% at 50% 0%,rgba(0,230,118,0.04) 0%,transparent 70%)';
+    g.style.background='radial-gradient(ellipse 70% 50% at 50% 0%,rgba(232,196,104,0.03) 0%,transparent 70%)';
   }
 }
 
@@ -607,19 +607,19 @@ function updateAmbient(done){
 ══════════════════════════════════════════ */
 let goalShown=false, godShown=false, megaShown=false, insaneShown=false;
 function openModal(id){
-  document.getElementById(id).classList.add('open');
+  document.getElementById(id).classList.add('visible');
   if(id==='modal-goal'){
     setTimeout(()=>{
       document.getElementById('mg-ring-fill').classList.add('animate');
       const p=document.getElementById('mg-pct'); let c=0;
       const iv=setInterval(()=>{c+=Math.floor(Math.random()*6)+4; if(c>=100){c=100;clearInterval(iv);} p.textContent=c+'%';},25);
     },700);
-    startConfetti(['#00e676','#00c864','#00a854','#f4f4f0','#80ffbc'],false,false);
-    flash('rgba(0,230,118,0.15)');
-    setTimeout(()=>flash('rgba(255,255,255,0.08)'),180);
-    setTimeout(()=>flash('rgba(0,230,118,0.1)'),380);
-    shakeEl(document.querySelector('#modal-goal .modal-card'));
-    setTimeout(()=>shakeEl(document.querySelector('#modal-goal .modal-card')),900);
+    startConfetti(['#e8c468','#b8912c','#8a6a1a','#ffffff','#f6ecd2'],false,false);
+    flash('rgba(232,196,104,0.18)');
+    setTimeout(()=>flash('rgba(255,255,255,0.1)'),180);
+    setTimeout(()=>flash('rgba(232,196,104,0.12)'),380);
+    shakeEl(document.querySelector('#modal-goal .modal'));
+    setTimeout(()=>shakeEl(document.querySelector('#modal-goal .modal')),900);
     if(navigator.vibrate)navigator.vibrate([150,40,150,40,400,60,800]);
   }
   if(id==='modal-god'){
@@ -628,14 +628,14 @@ function openModal(id){
       const p=document.getElementById('mnuc-pct'); let c=0;
       const iv=setInterval(()=>{c+=Math.floor(Math.random()*5)+4; if(c>=100){c=100;clearInterval(iv);} p.textContent=c+'%';},22);
     },700);
-    startConfetti(['#38bdf8','#7dd3fc','#0ea5e9','#bae6fd','#fff','#00e676','#ffab00'],true,true);
-    ['rgba(56,189,248,0.25)','rgba(56,189,248,0.18)','rgba(0,230,118,0.15)','rgba(255,255,255,0.12)','rgba(56,189,248,0.2)'].forEach((c,i)=>setTimeout(()=>flash(c),i*200));
-    [800,1700,2800].forEach(t=>setTimeout(()=>shakeEl(document.querySelector('#modal-god .modal-card')),t));
+    startConfetti(['#e8c468','#f3dca0','#b8912c','#ffffff','#8a6a1a','#fff6df'],true,true);
+    ['rgba(232,196,104,0.28)','rgba(232,196,104,0.2)','rgba(184,145,44,0.18)','rgba(255,255,255,0.14)','rgba(232,196,104,0.22)'].forEach((c,i)=>setTimeout(()=>flash(c),i*200));
+    [800,1700,2800].forEach(t=>setTimeout(()=>shakeEl(document.querySelector('#modal-god .modal')),t));
     if(navigator.vibrate)navigator.vibrate([200,50,200,50,500,80,1000,100,500,60,300]);
   }
 }
 function closeModal(id){
-  document.getElementById(id).classList.remove('open');
+  document.getElementById(id).classList.remove('visible');
   if(id==='modal-god'){ cfRunning=false; ctx.clearRect(0,0,canvas.width,canvas.height); }
 }
 
@@ -664,15 +664,15 @@ function renderWeekGrid(){
   for(let i=0;i<7;i++){
     const d=new Date(monday); d.setDate(monday.getDate()+i);
     const key=d.toISOString().slice(0,10); const todayKey=getToday();
-    const el=document.createElement('div'); el.className='streak-day'; el.textContent=d.getDate();
+    const el=document.createElement('div'); el.className='mtr-week-day'; el.textContent=d.getDate();
     if(key===todayKey){
-      el.classList.add('sd-today');
+      el.classList.add('today');
       const ct=state.meetings.filter(m=>m.done).length;
-      if(ct>=CLOUD9) el.classList.add('sd-godmode'); else if(ct>=GOAL) el.classList.add('sd-goal');
+      if(ct>=CLOUD9) el.classList.add('cloud9'); else if(ct>=GOAL) el.classList.add('goal');
     } else if(key<todayKey){
       const ct=state.history[key]??0;
-      if(ct>=CLOUD9) el.classList.add('sd-godmode'); else if(ct>=GOAL) el.classList.add('sd-goal');
-    } else el.classList.add('sd-future');
+      if(ct>=CLOUD9) el.classList.add('cloud9'); else if(ct>=GOAL) el.classList.add('goal');
+    } else el.classList.add('future');
     grid.appendChild(el);
   }
 }
@@ -688,12 +688,14 @@ function addLog(text,type){
 }
 function renderLog(){
   const el=document.getElementById('activity-log');
-  if(!state.log.length){ el.innerHTML='<div style="font-size:12px;color:var(--text3);text-align:center;padding:12px 0;">No activity yet today</div>'; return; }
+  if(!state.log.length){ el.innerHTML='<div class="empty-state" style="padding:20px 0;"><p>No activity yet today.</p></div>'; return; }
   el.innerHTML=state.log.slice(0,6).map(l=>`
-    <div class="log-item">
-      <div class="log-dot ld-${l.type}"></div>
-      <div class="log-text">${l.text}</div>
-      <div class="log-time">${l.time}</div>
+    <div class="activity-row">
+      <div class="activity-dot"></div>
+      <div>
+        <div class="activity-text">${l.text}</div>
+        <div class="activity-time">${l.time}</div>
+      </div>
     </div>`).join('');
 }
 
@@ -718,33 +720,29 @@ function updateStats(){
   document.getElementById('bonus-count').textContent=`${bonusDone} / 3`;
   document.getElementById('prog-count').textContent=`${done} / ${TOTAL}`;
 
-  document.getElementById('kpi-done-card').classList.toggle('lit', done>0);
-
   // progress bar
   const fill=document.getElementById('prog-fill');
   fill.style.width=(done/TOTAL*100)+'%';
-  fill.className='progress-fill '+(done>=CLOUD9?'pf-sky':done>=GOAL?'pf-amber':'pf-green');
+  fill.className='mtr-progress-fill'+(done>=CLOUD9?' cloud9':'');
 
   // milestones — m3 at 40% (2/5), m5 at 60% (3/5)
   const m3=document.getElementById('m3'), m5=document.getElementById('m5');
-  m3.style.background=goalDone>=GOAL?'var(--green)':'var(--surface3)';
-  m3.style.boxShadow=goalDone>=GOAL?'0 0 10px rgba(0,230,118,0.7)':'none';
-  m5.style.background=done>=CLOUD9?'var(--sky)':'var(--surface3)';
-  m5.style.boxShadow=done>=CLOUD9?'0 0 12px rgba(56,189,248,0.8)':'none';
+  m3.classList.toggle('hit', goalDone>=GOAL);
+  m5.classList.toggle('hit', done>=CLOUD9);
 
   // sidebar ring
-  const circumference=2*Math.PI*45;
+  const circumference=2*Math.PI*43;
   const ring=document.getElementById('sidebar-ring');
   ring.style.strokeDashoffset=circumference*(1-pct/100);
-  ring.style.stroke=done>=CLOUD9?'var(--sky)':done>=GOAL?'var(--amber)':'var(--green)';
+  ring.style.stroke=done>=CLOUD9?'var(--gold-deep)':'var(--gold)';
   document.getElementById('ring-pct-text').textContent=pct+'%';
   document.getElementById('ring-sub-text').textContent=done>=CLOUD9?'CLOUD 9':done>=GOAL?'GOAL HIT':'OF GOAL';
 
   // banner
   const banner=document.getElementById('banner');
-  banner.className='banner';
-  if(done>=CLOUD9){ banner.textContent='☁️ Cloud 9 unlocked — you are floating right now.'; banner.classList.add('b-show-sky'); }
-  else if(goalDone>=GOAL){ banner.textContent='🏆 Goal hit! 2/2 booked. One more for Cloud 9 ☁️'; banner.classList.add('b-show-green'); }
+  banner.className='mtr-banner';
+  if(done>=CLOUD9){ banner.textContent='☁️ Cloud 9 unlocked — you are floating right now.'; banner.classList.add('show','cloud9'); }
+  else if(goalDone>=GOAL){ banner.textContent='🏆 Goal hit! 2/2 booked. One more for Cloud 9 ☁️'; banner.classList.add('show'); }
 
   // clouds
   if(done>=CLOUD9) startClouds(); else stopClouds();
@@ -813,7 +811,7 @@ function toggle(idx, el, e){
 ══════════════════════════════════════════ */
 function startEdit(idx,el){
   el.classList.add('editing');
-  const input=el.querySelector('.item-name-edit');
+  const input=el.querySelector('.mtr-row-name-edit');
   input.value=state.meetings[idx].name;
   setTimeout(()=>{input.focus();input.select();},10);
   input.onkeydown=e=>{if(e.key==='Enter'||e.key==='Escape')finishEdit(idx,el);};
@@ -821,7 +819,7 @@ function startEdit(idx,el){
 }
 function finishEdit(idx,el){
   if(!el.classList.contains('editing'))return;
-  const val=el.querySelector('.item-name-edit').value.trim();
+  const val=el.querySelector('.mtr-row-name-edit').value.trim();
   if(val) state.meetings[idx].name=val;
   el.classList.remove('editing'); save(); renderItem(idx);
   addLog(`Renamed to <strong>${state.meetings[idx].name}</strong>`,'reset');
@@ -830,41 +828,39 @@ function finishEdit(idx,el){
 /* ══════════════════════════════════════════
    RENDER ITEM
 ══════════════════════════════════════════ */
+const MTR_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+const MTR_EDIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+
 function renderItem(idx){
   const list=idx<GOAL?document.getElementById('goal-list'):document.getElementById('bonus-list');
   const existing=list.children[idx<GOAL?idx:idx-GOAL];
   const m=state.meetings[idx]; const isBonus=idx>=GOAL;
   const el=existing||document.createElement('div');
-  const doneClass=m.done?(isBonus?'done-amber':'done-green'):'';
-  const badgeClass=m.done?(isBonus?'b-done-amber':'b-done-green'):(isBonus?'b-bonus':'b-goal');
+  const badgeClass=m.done?'green':'gold';
   const badgeText=m.done?'Booked!':(isBonus?'Bonus':'Goal');
   const timeStr=m.time?new Date(m.time).toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit',hour12:true}):'';
-  el.className=`item${isBonus?' bonus':''}${doneClass?' '+doneClass:''}`;
+  el.className=`mtr-row${isBonus?' bonus':''}${m.done?' done':''}`;
   el.innerHTML=`
-    <div class="item-inner">
-      <div class="check"><i class="ti ti-check"></i></div>
-      <div class="item-content">
-        <div class="item-name-wrap">
-          <div class="item-name-display">
-            <span class="item-name${m.done?(isBonus?' done-text-amber':' done-text-green'):''}">${m.name}</span>
-          </div>
-          <input class="item-name-edit" style="display:none" type="text" value="${m.name}" placeholder="Meeting name…">
+    <div class="mtr-check">${MTR_CHECK_SVG}</div>
+    <div class="mtr-row-content">
+      <div class="mtr-row-name-wrap">
+        <div class="mtr-row-name-display">
+          <span class="mtr-row-name">${m.name}</span>
         </div>
-        <div class="item-meta">
-          <span class="item-number">${isBonus?'☁️ Cloud 9 — booking '+(idx+1):'Booking '+(idx+1)+' of '+GOAL}</span>
-          ${timeStr?`<span class="item-time"><i class="ti ti-clock"></i>${timeStr}</span>`:''}
-        </div>
+        <input class="mtr-row-name-edit" type="text" value="${m.name}" placeholder="Meeting name…">
       </div>
-      <div class="item-right">
-        <button class="edit-btn" title="Rename"><i class="ti ti-pencil"></i></button>
-        <span class="mbk-badge ${badgeClass}">${badgeText}</span>
+      <div class="mtr-row-meta">
+        <span>${isBonus?'☁️ Cloud 9 — booking '+(idx+1):'Booking '+(idx+1)+' of '+GOAL}</span>
+        ${timeStr?`<span>· ${timeStr}</span>`:''}
       </div>
-    </div>`;
-  el.querySelector('.item-inner').addEventListener('click',e=>{
-    if(el.classList.contains('editing')||e.target.closest('.edit-btn'))return;
+    </div>
+    <button class="mtr-edit-btn" title="Rename">${MTR_EDIT_SVG}</button>
+    <span class="badge ${badgeClass}">${badgeText}</span>`;
+  el.addEventListener('click',e=>{
+    if(el.classList.contains('editing')||e.target.closest('.mtr-edit-btn'))return;
     toggle(idx,el,e);
   });
-  el.querySelector('.edit-btn').addEventListener('click',e=>{
+  el.querySelector('.mtr-edit-btn').addEventListener('click',e=>{
     e.stopPropagation(); startEdit(idx,el);
   });
   if(!existing) list.appendChild(el);
@@ -918,9 +914,9 @@ function incCounter(key){
   playCounterTick(key === 'convos');
   // spawn a small +1 float
   const rect = cardEl.getBoundingClientRect();
-  const el = document.createElement('div'); el.className = 'score-pop';
+  const el = document.createElement('div'); el.className = 'mtr-score-pop';
   el.textContent = '+1';
-  el.style.cssText = `left:${rect.left + rect.width/2 - 20}px;top:${rect.top + 30}px;font-size:20px;color:${key==='convos'?'var(--amber)':'var(--green)'};text-shadow:0 0 14px ${key==='convos'?'rgba(255,171,0,0.7)':'rgba(0,230,118,0.7)'};`;
+  el.style.cssText = `left:${rect.left + rect.width/2 - 20}px;top:${rect.top + 30}px;font-size:20px;`;
   document.body.appendChild(el); setTimeout(()=>el.remove(), 1000);
   if(navigator.vibrate) navigator.vibrate(18);
 }
