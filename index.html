@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mr Priceless — CRM</title>
+<title>Mr Priceless - CRM</title>
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/meetings-tracker.css">
 </head>
@@ -43,7 +43,7 @@
       <svg width="17" height="17" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.69 28.18A13.98 13.98 0 0 1 10.95 24c0-1.45.25-2.86.74-4.18v-5.7H4.34A21.99 21.99 0 0 0 2 24c0 3.55.85 6.91 2.34 9.88l7.35-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/></svg>
       Sign in with Google
     </button>
-    <p class="auth-hint">Shared workspace for you and your business partner.<br>Google sign-in also connects your calendar — but needs one more setup step, so use email/password for now if Google isn't ready yet.</p>
+    <p class="auth-hint">Shared workspace for you and your business partner.<br>Google sign-in also connects your calendar - but needs one more setup step, so use email/password for now if Google isn't ready yet.</p>
   </div>
 </div>
 
@@ -111,7 +111,7 @@
     <div class="sidebar-footer">
       <div class="user-chip">
         <div class="user-avatar" id="user-initial">?</div>
-        <div class="user-email" id="user-email">—</div>
+        <div class="user-email" id="user-email">-</div>
       </div>
       <button class="signout" id="signout-btn">Sign out</button>
     </div>
@@ -119,7 +119,7 @@
 
   <main class="main">
     <div id="demo-banner" class="demo-banner" style="display:none;">
-      ★ Demo mode — connect Supabase (see README.md) to save real, shared data.
+      ★ Demo mode - connect Supabase (see README.md) to save real, shared data.
     </div>
 
     <!-- Dashboard -->
@@ -212,7 +212,7 @@
       </div>
 
       <div class="page-header">
-        <div><h2>Meetings Booked</h2><p>Goal: 2 today · Cloud 9 at 3 — <span id="date-chip"></span></p></div>
+        <div><h2>Meetings Booked</h2><p>Goal: 2 today · Cloud 9 at 3 - <span id="date-chip"></span></p></div>
         <div class="mtr-header-actions">
           <span class="mtr-streak-chip" id="streak-chip" style="display:none;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/></svg>
@@ -274,7 +274,7 @@
           </div>
 
           <div class="card mtr-card-gap">
-            <div class="card-header"><h3>Cloud 9 — Keep Going ☁️</h3><span class="badge gold" id="bonus-count">0 / 3</span></div>
+            <div class="card-header"><h3>Cloud 9 - Keep Going ☁️</h3><span class="badge gold" id="bonus-count">0 / 3</span></div>
             <div class="mtr-list" id="bonus-list"></div>
           </div>
         </div>
@@ -318,14 +318,14 @@
     <!-- Calendar -->
     <section class="page" id="page-calendar">
       <div class="page-header">
-        <div><h2>Calendar</h2><p>Your own Google Calendar — drag a meeting to reschedule it, or click it to edit the exact time and length.</p></div>
+        <div><h2>Calendar</h2><p>Your own Google Calendar - drag a meeting to reschedule it, or click it to edit the exact time and length.</p></div>
         <button class="btn ghost" id="connect-calendar-btn">Connect / Reconnect Google Calendar</button>
       </div>
       <div class="card">
         <div class="calendar-toolbar">
           <div class="calendar-toolbar-nav">
             <button type="button" id="calendar-prev-btn" title="Previous week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
-            <div class="calendar-range-label" id="calendar-range-label">—</div>
+            <div class="calendar-range-label" id="calendar-range-label">-</div>
             <button type="button" id="calendar-next-btn" title="Next week"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
           </div>
           <button type="button" class="calendar-today-btn" id="calendar-today-btn">Today</button>
@@ -464,7 +464,7 @@
   <div class="modal">
     <div class="modal-header"><h3>New Deal</h3><button class="modal-close" data-close="deal-modal">&times;</button></div>
     <form id="deal-form" class="modal-body">
-      <div class="field"><label>Deal Title</label><input type="text" id="deal-title" required placeholder="e.g. Acme Co — SEO Retainer"></div>
+      <div class="field"><label>Deal Title</label><input type="text" id="deal-title" required placeholder="e.g. Acme Co - SEO Retainer"></div>
       <div class="field"><label>Contact (optional)</label><select id="deal-contact-select"></select></div>
       <div class="field-row">
         <div class="field"><label>Value (NZD)</label><input type="number" id="deal-value" min="0" step="1"></div>
@@ -549,10 +549,10 @@
     </div>
     <h3 style="text-align:center;font-size:24px;margin-bottom:6px;">Was this person qualified?</h3>
     <p style="text-align:center;color:var(--text2);font-size:13.5px;margin-bottom:4px;">
-      Meeting: <b id="qualify-title" style="color:var(--text);">—</b>
+      Meeting: <b id="qualify-title" style="color:var(--text);">-</b>
     </p>
     <p style="text-align:center;color:var(--text2);font-size:13px;margin-bottom:22px;">
-      Attendee(s): <span id="qualify-attendees">—</span>
+      Attendee(s): <span id="qualify-attendees">-</span>
     </p>
     <div class="modal-actions" style="justify-content:center;gap:10px;flex-wrap:wrap;">
       <button type="button" class="btn ghost" id="qualify-no" style="min-width:100px;justify-content:center;">No</button>

@@ -1,8 +1,8 @@
-/* Meetings Booked — rebuilt to match the CRM's own black/white/gold system.
+/* Meetings Booked - rebuilt to match the CRM's own black/white/gold system.
    Keeps the dopamine engine (confetti, sound, particles, screen-shake,
    full-screen Cloud 9 / Legend celebrations, streak tracking) but every
    piece of chrome now reuses the CRM's real components: .stat-card,
-   .card, .badge, .btn, .activity-row — nothing custom-dark anymore. */
+   .card, .badge, .btn, .activity-row - nothing custom-dark anymore. */
 
 #page-cold-calls .mtr-header-actions{display:flex;align-items:center;gap:10px;}
 .mtr-streak-chip{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gold-deep);background:var(--gold-soft);border:1px solid var(--gold-border);padding:7px 13px;border-radius:999px;}
@@ -122,7 +122,7 @@
 @keyframes mtr-cloud-drift{0%{transform:translateX(-160px);}100%{transform:translateX(calc(100vw + 160px));}}
 @keyframes mtr-cloud-bob{0%,100%{transform:translateY(0);}50%{transform:translateY(-10px);}}
 
-/* ─── Reward modals (Goal Crushed / Cloud 9) — use the CRM's own modal shell ─── */
+/* ─── Reward modals (Goal Crushed / Cloud 9) - use the CRM's own modal shell ─── */
 .mtr-reward .modal{max-width:360px;text-align:center;padding:8px;}
 .mtr-reward-icon{font-size:56px;display:block;margin:20px 0 6px;animation:mtr-icon-bounce .9s .3s cubic-bezier(.34,1.56,.64,1) both;}
 @keyframes mtr-icon-bounce{from{transform:scale(0) translateY(30px) rotate(-15deg);}60%{transform:scale(1.25) translateY(-10px) rotate(6deg);}to{transform:scale(1) translateY(0) rotate(0);}}

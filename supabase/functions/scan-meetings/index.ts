@@ -2,7 +2,7 @@
 // Called on a schedule (see sql/003_meeting_qualification.sql cron job).
 // For every user who has connected Google Calendar, looks at meetings that
 // ended in the last ~40 minutes. Any meeting with at least one other
-// attendee (i.e. not just a personal calendar block) queues a review row —
+// attendee (i.e. not just a personal calendar block) queues a review row -
 // the person decides Yes / Internal Meeting / No next time they open the CRM.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";

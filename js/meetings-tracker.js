@@ -1,10 +1,10 @@
-/* Meetings Booked — ported as-is from the standalone tracker tool.
+/* Meetings Booked - ported as-is from the standalone tracker tool.
    Not wrapped in an IIFE: the markup's inline onclick handlers (incCounter,
    resetDay, addMeeting, closeModal, closeMegaC9, closeInsane) call these as
    globals, exactly like the original standalone file. */
 
 /* ══════════════════════════════════════════
-   AUDIO ENGINE — Web Audio API
+   AUDIO ENGINE - Web Audio API
 ══════════════════════════════════════════ */
 let audioCtx = null;
 function getAudio(){
@@ -126,7 +126,7 @@ function playGodmodeFanfare(){
   const ac = getAudio();
   if(ac.state==='suspended') ac.resume();
   const t = ac.currentTime;
-  // Full orchestral blast — rising arpeggio + chord cluster + sub bass
+  // Full orchestral blast - rising arpeggio + chord cluster + sub bass
   const scale = [261.63, 293.66, 329.63, 369.99, 415.30, 466.16, 523.25, 587.33, 659.25, 783.99, 880, 987.77, 1046.5];
   scale.forEach((freq, i) => {
     const delay = i * 0.055;
@@ -169,13 +169,13 @@ function playSwoosh(){
   const ac = getAudio();
   if(ac.state==='suspended') ac.resume();
   const t = ac.currentTime;
-  // White noise burst — the "whoosh" body
+  // White noise burst - the "whoosh" body
   const buf = ac.createBuffer(1, ac.sampleRate * 2.5, ac.sampleRate);
   const data = buf.getChannelData(0);
   for(let i=0;i<data.length;i++) data[i] = Math.random()*2-1;
   const noise = ac.createBufferSource();
   noise.buffer = buf;
-  // Bandpass sweep: starts high, sweeps down — the "whoosh" character
+  // Bandpass sweep: starts high, sweeps down - the "whoosh" character
   const bp = ac.createBiquadFilter();
   bp.type = 'bandpass'; bp.Q.value = 0.8;
   bp.frequency.setValueAtTime(4000, t);
@@ -246,7 +246,7 @@ function showMegaC9(){
     c.style.cssText = `font-size:${sz}px;top:50%;left:50%;--sx:${o.sx};--sy:${o.sy};--ex:${o.ex};--ey:${o.ey};--dur:${dur}s;--es:${0.9+Math.random()*0.4};animation-delay:${i*0.07}s;`;
     el.appendChild(c);
   });
-  // Second wave — smaller, faster
+  // Second wave - smaller, faster
   setTimeout(() => {
     for(let i=0;i<8;i++){
       const c = document.createElement('div'); c.className = 'mega-cloud';
@@ -725,7 +725,7 @@ function updateStats(){
   fill.style.width=(done/TOTAL*100)+'%';
   fill.className='mtr-progress-fill'+(done>=CLOUD9?' cloud9':'');
 
-  // milestones — m3 at 40% (2/5), m5 at 60% (3/5)
+  // milestones - m3 at 40% (2/5), m5 at 60% (3/5)
   const m3=document.getElementById('m3'), m5=document.getElementById('m5');
   m3.classList.toggle('hit', goalDone>=GOAL);
   m5.classList.toggle('hit', done>=CLOUD9);
@@ -741,7 +741,7 @@ function updateStats(){
   // banner
   const banner=document.getElementById('banner');
   banner.className='mtr-banner';
-  if(done>=CLOUD9){ banner.textContent='☁️ Cloud 9 unlocked — you are floating right now.'; banner.classList.add('show','cloud9'); }
+  if(done>=CLOUD9){ banner.textContent='☁️ Cloud 9 unlocked - you are floating right now.'; banner.classList.add('show','cloud9'); }
   else if(goalDone>=GOAL){ banner.textContent='🏆 Goal hit! 2/2 booked. One more for Cloud 9 ☁️'; banner.classList.add('show'); }
 
   // clouds
@@ -770,7 +770,7 @@ function toggle(idx, el, e){
   const goalDone = state.meetings.filter((m,i)=>m.done&&i<GOAL).length;
 
   if(m.done){
-    // Sound — escalate by how many are done
+    // Sound - escalate by how many are done
     const doneCount = done;
     if(goalDone===GOAL && done===GOAL){
       playGoalFanfare();
@@ -850,7 +850,7 @@ function renderItem(idx){
         <input class="mtr-row-name-edit" type="text" value="${m.name}" placeholder="Meeting name…">
       </div>
       <div class="mtr-row-meta">
-        <span>${isBonus?'☁️ Cloud 9 — booking '+(idx+1):'Booking '+(idx+1)+' of '+GOAL}</span>
+        <span>${isBonus?'☁️ Cloud 9 - booking '+(idx+1):'Booking '+(idx+1)+' of '+GOAL}</span>
         ${timeStr?`<span>· ${timeStr}</span>`:''}
       </div>
     </div>
@@ -958,7 +958,7 @@ function resetDay(){
   closeModal('modal-goal'); closeModal('modal-god');
   closeMegaC9(); closeInsane(); stopClouds();
   cfRunning=false; ctx.clearRect(0,0,canvas.width,canvas.height);
-  save(); renderAll(); addLog('Day reset — fresh slate','reset');
+  save(); renderAll(); addLog('Day reset - fresh slate','reset');
 }
 
 /* ══════════════════════════════════════════

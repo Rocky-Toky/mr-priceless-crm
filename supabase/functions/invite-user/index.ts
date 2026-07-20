@@ -2,7 +2,7 @@
 // Lets an existing (allowlisted) teammate add a new person by email.
 // Adds them to the `allowlist` table and sends them Supabase's built-in
 // invite email. Uses the service_role key, which must NEVER be exposed
-// to the frontend — that's the whole reason this runs as a server function.
+// to the frontend - that's the whole reason this runs as a server function.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
       return json({ error: "Not signed in." }, 401);
     }
 
-    // Client scoped to the caller's own token — used only to find out who's calling.
+    // Client scoped to the caller's own token - used only to find out who's calling.
     const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
       return json({ error: "Could not verify who you are." }, 401);
     }
 
-    // Admin client — the only place the service_role key is ever used.
+    // Admin client - the only place the service_role key is ever used.
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
     const { data: callerAllowed } = await admin
@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
     }
 
     const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(normalizedEmail);
-    // If they already have an account, inviteUserByEmail errors — that's fine,
+    // If they already have an account, inviteUserByEmail errors - that's fine,
     // they're allowlisted now and can just sign in with Google directly.
     if (inviteErr && !/already been registered|already exists/i.test(inviteErr.message)) {
       return json({ error: inviteErr.message }, 500);

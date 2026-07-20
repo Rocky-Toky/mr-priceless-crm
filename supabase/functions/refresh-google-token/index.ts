@@ -1,7 +1,7 @@
 // Edge Function: refresh-google-token
 // Exchanges the caller's stored Google refresh_token for a fresh access_token.
 // The Google client secret lives only here (as a function secret), never in
-// frontend code — that's why this can't just happen in app.js.
+// frontend code - that's why this can't just happen in app.js.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";

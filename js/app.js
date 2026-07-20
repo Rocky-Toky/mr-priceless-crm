@@ -1,4 +1,4 @@
-/* Mr Priceless CRM — app logic (vanilla JS, no build step) */
+/* Mr Priceless CRM - app logic (vanilla JS, no build step) */
 (function(){
 "use strict";
 
@@ -58,7 +58,7 @@ const FUNCTIONS_URL = SUPABASE_URL ? SUPABASE_URL + "/functions/v1" : "";
 const $ = (sel, root=document) => root.querySelector(sel);
 const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 const fmtMoney = (n) => "$" + Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0});
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}) : "—";
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}) : "-";
 const timeAgo = (iso) => {
   const s = Math.floor((Date.now() - new Date(iso).getTime())/1000);
   if (s < 60) return "just now";
@@ -79,15 +79,15 @@ function seedDemo(){
   ];
   state.coldCalls = [
     { id:uid(), contact_id:c3, contact_name:"Priya Chand", phone:"022 555 0177", call_date:new Date(Date.now()-86400e3*1).toISOString().slice(0,10), outcome:"interested", follow_up_date:new Date(Date.now()+86400e3*3).toISOString().slice(0,10), notes:"Wants a proposal for SEO + Google Ads.", created_at:new Date(Date.now()-3600e3*20).toISOString() },
-    { id:uid(), contact_id:null, contact_name:"Marlon Reeve — Reeve Builders", phone:"021 555 0111", call_date:new Date().toISOString().slice(0,10), outcome:"no_answer", follow_up_date:new Date(Date.now()+86400e3*1).toISOString().slice(0,10), notes:"Left voicemail.", created_at:new Date(Date.now()-3600e3*2).toISOString() },
+    { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", phone:"021 555 0111", call_date:new Date().toISOString().slice(0,10), outcome:"no_answer", follow_up_date:new Date(Date.now()+86400e3*1).toISOString().slice(0,10), notes:"Left voicemail.", created_at:new Date(Date.now()-3600e3*2).toISOString() },
   ];
   state.deals = [
-    { id:uid(), contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri — Full funnel rebuild", value:8500, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental — Meta Ads retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal — SEO + Ads", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", value:8500, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental - Meta Ads retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal - SEO + Ads", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.calendarEvents = [
-    { id:"demo-1", summary:"Discovery call — Reeve Builders", start:{ dateTime:new Date(Date.now()+3600e3*3).toISOString() }, end:{ dateTime:new Date(Date.now()+3600e3*3.5).toISOString() }, attendees:[{ email:"marlon@reevebuilders.co.nz" }] },
+    { id:"demo-1", summary:"Discovery call - Reeve Builders", start:{ dateTime:new Date(Date.now()+3600e3*3).toISOString() }, end:{ dateTime:new Date(Date.now()+3600e3*3.5).toISOString() }, attendees:[{ email:"marlon@reevebuilders.co.nz" }] },
     { id:"demo-2", summary:"Internal pipeline review", start:{ dateTime:new Date(Date.now()+86400e3*1).toISOString() }, end:{ dateTime:new Date(Date.now()+86400e3*1+3600e3).toISOString() }, attendees:[{ email:"rockyoneill02@gmail.com" }] },
   ];
   state.notes = [
@@ -178,7 +178,7 @@ async function initAuth(){
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
     showApp();
-    reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call — Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
+    reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call - Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
     return;
   }
@@ -210,7 +210,7 @@ async function handleSignedIn(session, freshLogin){
     });
     if (error) console.error("Couldn't save Google refresh token:", error.message);
   } else if (freshLogin){
-    console.warn("Google sign-in didn't return a refresh token — use the Calendar page's Connect button to retry.");
+    console.warn("Google sign-in didn't return a refresh token - use the Calendar page's Connect button to retry.");
   }
 
   const allowed = await isAllowlisted(session.user.email);
@@ -285,7 +285,7 @@ function setupGoogleAuth(){
   });
 }
 
-/* ───────── Auth (email/password — quick-start alternative to Google) ───────── */
+/* ───────── Auth (email/password - quick-start alternative to Google) ───────── */
 function setupEmailAuth(){
   let mode = "signin";
   $$(".auth-tab").forEach(tab => tab.addEventListener("click", () => {
@@ -345,9 +345,9 @@ function renderDashboard(){
   $("#stat-won").textContent = fmtMoney(qualifiedThisMonth.reduce((s,d)=>s+Number(d.value||0),0));
 
   const events = [
-    ...state.coldCalls.map(c => ({ t:c.created_at, text:`Cold call logged with <b>${escapeHtml(c.contact_name)}</b> — ${OUTCOMES[c.outcome]?.label||c.outcome}` })),
-    ...state.deals.map(d => ({ t:d.created_at, text:`Deal created — <b>${escapeHtml(d.title)}</b> (${fmtMoney(d.value)})` })),
-    ...state.notes.map(n => ({ t:n.created_at, text:`Note added — <b>${escapeHtml(n.title||"Untitled")}</b>` })),
+    ...state.coldCalls.map(c => ({ t:c.created_at, text:`Cold call logged with <b>${escapeHtml(c.contact_name)}</b> - ${OUTCOMES[c.outcome]?.label||c.outcome}` })),
+    ...state.deals.map(d => ({ t:d.created_at, text:`Deal created - <b>${escapeHtml(d.title)}</b> (${fmtMoney(d.value)})` })),
+    ...state.notes.map(n => ({ t:n.created_at, text:`Note added - <b>${escapeHtml(n.title||"Untitled")}</b>` })),
   ].sort((a,b) => new Date(b.t) - new Date(a.t)).slice(0,8);
 
   $("#activity-list").innerHTML = events.length ? events.map(e => `
@@ -358,7 +358,7 @@ function renderDashboard(){
         <div class="activity-time">${timeAgo(e.t)}</div>
       </div>
     </div>
-  `).join("") : emptyState("No activity yet — log a cold call or add a deal to get started.");
+  `).join("") : emptyState("No activity yet - log a cold call or add a deal to get started.");
 
   const followUps = state.coldCalls.filter(c => c.follow_up_date).sort((a,b)=> new Date(a.follow_up_date)-new Date(b.follow_up_date)).slice(0,6);
   $("#followup-list").innerHTML = followUps.length ? followUps.map(c => `
@@ -388,9 +388,9 @@ function renderContacts(){
   tbody.innerHTML = filtered.map(c => `
     <tr data-id="${c.id}">
       <td><div class="row-name">${escapeHtml(c.name)}</div><div class="row-sub">${escapeHtml(c.tags||"")}</div></td>
-      <td>${escapeHtml(c.company||"—")}</td>
-      <td>${escapeHtml(c.email||"—")}</td>
-      <td>${escapeHtml(c.phone||"—")}</td>
+      <td>${escapeHtml(c.company||"-")}</td>
+      <td>${escapeHtml(c.email||"-")}</td>
+      <td>${escapeHtml(c.phone||"-")}</td>
       <td><span class="badge ${CONTACT_STATUS[c.status]?.cls||"gray"}">${CONTACT_STATUS[c.status]?.label||c.status}</span></td>
       <td style="text-align:right;white-space:nowrap;">
         <button class="icon-btn" data-action="edit-contact" data-id="${c.id}" title="Edit">${ICONS.edit}</button>
@@ -476,7 +476,7 @@ function renderRegions(){
   tbody.innerHTML = sorted.map(r => {
     const calls = Number(r.calls_made||0);
     const meetings = Number(r.meetings_booked||0);
-    const conversion = calls > 0 ? Math.round((meetings/calls)*100) + "%" : "—";
+    const conversion = calls > 0 ? Math.round((meetings/calls)*100) + "%" : "-";
     return `
     <tr data-id="${r.id}">
       <td><div class="row-name">${escapeHtml(r.region)}</div></td>
@@ -818,7 +818,7 @@ function showNextReview(){
   if (!reviewQueue.length) { closeModal("qualify-modal"); return; }
   const review = reviewQueue[0];
   $("#qualify-title").textContent = review.meeting_title || "Untitled meeting";
-  $("#qualify-attendees").textContent = (review.attendees || []).join(", ") || "—";
+  $("#qualify-attendees").textContent = (review.attendees || []).join(", ") || "-";
   openModal("qualify-modal");
 }
 async function resolveMeetingReview(answer){
@@ -837,7 +837,7 @@ async function resolveMeetingReview(answer){
 
   const attendee = (review.attendees || [])[0] || "Unknown";
   const dealRow = {
-    title: `${review.meeting_title || "Meeting"} — ${attendee}`,
+    title: `${review.meeting_title || "Meeting"} - ${attendee}`,
     value: 1500,
     stage: answer,
     contact_id: null,
@@ -857,7 +857,7 @@ async function resolveMeetingReview(answer){
   showNextReview();
 }
 function fillContactDropdowns(){
-  const opts = `<option value="">— No contact —</option>` + state.contacts.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+  const opts = `<option value="">- No contact -</option>` + state.contacts.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   ["deal-contact-select","note-contact-select"].forEach(id => {
     const el = $("#"+id);
     if (el) el.innerHTML = opts;
