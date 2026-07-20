@@ -30,8 +30,8 @@ const state = {
   contacts: [],
   coldCalls: [],
   deals: [],
-  notes: [],
   regions: [],
+  prospects: [],
   team: [],
   contactFilter: "",
   contactSearch: "",
@@ -90,12 +90,14 @@ function seedDemo(){
     { id:"demo-1", summary:"Discovery call - Reeve Builders", start:{ dateTime:new Date(Date.now()+3600e3*3).toISOString() }, end:{ dateTime:new Date(Date.now()+3600e3*3.5).toISOString() }, attendees:[{ email:"marlon@reevebuilders.co.nz" }] },
     { id:"demo-2", summary:"Internal pipeline review", start:{ dateTime:new Date(Date.now()+86400e3*1).toISOString() }, end:{ dateTime:new Date(Date.now()+86400e3*1+3600e3).toISOString() }, attendees:[{ email:"rockyoneill02@gmail.com" }] },
   ];
-  state.notes = [
-    { id:uid(), title:"Q3 outreach plan", body:"Focus cold calls on trades + legal this month. Aim for 20 dials/day between us.", contact_id:null, deal_id:null, created_at:new Date(Date.now()-86400e3*5).toISOString() },
-  ];
   state.regions = [
     { id:uid(), region:"Auckland CBD", calls_made:64, meetings_booked:6, notes:"Worked through the Queen St + Britomart lists.", created_at:new Date(Date.now()-86400e3*12).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), region:"North Shore", calls_made:38, meetings_booked:2, notes:"Started this week, more to go.", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+  ];
+  state.prospects = [
+    { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", notes:"", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", calls_made:0, last_called_at:null, last_outcome:null, notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", calls_made:0, last_called_at:null, last_outcome:null, notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
   ];
 }
 
@@ -103,18 +105,18 @@ function seedDemo(){
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, n, r] = await Promise.all([
+    const [c, cc, d, r, p] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
-      supabase.from("notes").select("*").order("created_at",{ascending:false}),
       supabase.from("prospecting_regions").select("*").order("region",{ascending:true}),
+      supabase.from("dial_prospects").select("*").order("last_called_at",{ascending:true,nullsFirst:true}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
     state.deals = d.data || [];
-    state.notes = n.data || [];
     state.regions = r.data || [];
+    state.prospects = p.data || [];
   },
   async insert(table, row){
     row.created_by = state.user ? state.user.email : "demo";
@@ -153,7 +155,7 @@ const DataLayer = {
   }
 };
 function stateArray(table){
-  return { contacts: state.contacts, cold_calls: state.coldCalls, deals: state.deals, notes: state.notes, prospecting_regions: state.regions }[table];
+  return { contacts: state.contacts, cold_calls: state.coldCalls, deals: state.deals, prospecting_regions: state.regions, dial_prospects: state.prospects }[table];
 }
 
 /* ───────── Realtime ───────── */
@@ -165,8 +167,8 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"contacts" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"cold_calls" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"deals" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"prospecting_regions" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"dial_prospects" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -347,7 +349,6 @@ function renderDashboard(){
   const events = [
     ...state.coldCalls.map(c => ({ t:c.created_at, text:`Cold call logged with <b>${escapeHtml(c.contact_name)}</b> - ${OUTCOMES[c.outcome]?.label||c.outcome}` })),
     ...state.deals.map(d => ({ t:d.created_at, text:`Deal created - <b>${escapeHtml(d.title)}</b> (${fmtMoney(d.value)})` })),
-    ...state.notes.map(n => ({ t:n.created_at, text:`Note added - <b>${escapeHtml(n.title||"Untitled")}</b>` })),
   ].sort((a,b) => new Date(b.t) - new Date(a.t)).slice(0,8);
 
   $("#activity-list").innerHTML = events.length ? events.map(e => `
@@ -452,20 +453,168 @@ function setupDragDrop(){
   });
 }
 
-/* ───────── Render: Notes ───────── */
-function renderNotes(){
-  const grid = $("#notes-grid");
-  if (!state.notes.length){ grid.innerHTML = emptyState("No notes yet. Jot down your first one."); return; }
-  grid.innerHTML = state.notes.map(n => `
-    <div class="note-card" data-id="${n.id}">
-      <button class="icon-btn note-del" data-action="delete-note" data-id="${n.id}" title="Delete">${ICONS.trash}</button>
-      <h5>${escapeHtml(n.title||"Untitled")}</h5>
-      <p>${escapeHtml(n.body)}</p>
-      <div class="note-meta">${timeAgo(n.created_at)}${n.contact_id ? " · " + escapeHtml(contactName(n.contact_id)) : ""}</div>
-    </div>
-  `).join("");
-}
 function contactName(id){ return state.contacts.find(c => c.id === id)?.name || ""; }
+
+/* ───────── Render: Dialer (power dialing prospect list) ───────── */
+const OUTCOME_BUTTONS = [
+  { key:"no_answer", label:"No Answer", cls:"ghost" },
+  { key:"call_back", label:"Call Back", cls:"ghost" },
+  { key:"not_interested", label:"Not Interested", cls:"ghost" },
+  { key:"interested", label:"Interested", cls:"gold" },
+  { key:"booked_meeting", label:"Booked Meeting", cls:"gold" },
+];
+function dialerQueue(){
+  return [...state.prospects].sort((a,b) => {
+    const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
+    const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
+    return ta - tb;
+  });
+}
+function renderDialer(){
+  const total = state.prospects.length;
+  const totalCalls = state.prospects.reduce((s,p) => s + Number(p.calls_made||0), 0);
+  const neverCalled = state.prospects.filter(p => !p.calls_made).length;
+  const todayStr = new Date().toDateString();
+  const dialedToday = state.prospects.filter(p => p.last_called_at && new Date(p.last_called_at).toDateString() === todayStr).length;
+  const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
+  st("#dialer-stat-total", total);
+  st("#dialer-stat-today", dialedToday);
+  st("#dialer-stat-calls", totalCalls);
+  st("#dialer-stat-fresh", neverCalled);
+
+  const queue = dialerQueue();
+  const posEl = $("#dialer-position");
+  if (posEl) posEl.textContent = total ? `1 / ${total}` : "0 / 0";
+
+  const body = $("#dialer-current-body");
+  if (body){
+    if (!queue.length){
+      body.innerHTML = emptyState("Import a CSV/XLS file or add a prospect to start power dialing.");
+    } else {
+      const p = queue[0];
+      body.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+          <div>
+            <h3 style="font-size:22px;margin-bottom:4px;">${escapeHtml(p.name)}</h3>
+            <div style="color:var(--text2);font-size:13.5px;">${escapeHtml(p.company||"No company")}</div>
+            <div style="color:var(--text2);font-size:12.5px;margin-top:4px;">${escapeHtml(p.email||"")}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="badge gray">Calls made: ${Number(p.calls_made||0)}</div>
+            <div style="font-size:11.5px;color:var(--text2);margin-top:6px;">${p.last_called_at ? "Last called " + timeAgo(p.last_called_at) : "Never called"}</div>
+          </div>
+        </div>
+        <a href="tel:${escapeHtml((p.phone||"").replace(/[^0-9+]/g,""))}" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="dial-tel" data-id="${p.id}">${p.phone ? "Call " + escapeHtml(p.phone) : "No phone number"}</a>
+        ${p.notes ? `<div class="card" style="margin-top:14px;padding:12px 14px;background:#faf9f5;box-shadow:none;"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Notes</div><div style="font-size:13px;">${escapeHtml(p.notes)}</div></div>` : ""}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">
+          ${OUTCOME_BUTTONS.map(o => `<button class="btn ${o.cls}" data-action="dial-outcome" data-outcome="${o.key}" data-id="${p.id}">${o.label}</button>`).join("")}
+        </div>
+      `;
+    }
+  }
+
+  const tbody = $("#dialer-queue-tbody");
+  if (tbody){
+    if (!queue.length){
+      tbody.innerHTML = `<tr><td colspan="4">${emptyState("No prospects yet.")}</td></tr>`;
+    } else {
+      tbody.innerHTML = queue.map((p,i) => `
+        <tr data-id="${p.id}" style="${i===0?"background:var(--gold-soft);":""}">
+          <td><div class="row-name">${escapeHtml(p.name)}</div><div class="row-sub">${escapeHtml(p.company||"")}</div></td>
+          <td>${escapeHtml(p.phone||"-")}</td>
+          <td><span class="badge gray">${Number(p.calls_made||0)}</span></td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
+          </td>
+        </tr>
+      `).join("");
+    }
+  }
+}
+async function logDialOutcome(prospectId, outcome){
+  const p = state.prospects.find(x => x.id === prospectId);
+  if (!p) return;
+  await DataLayer.update("dial_prospects", prospectId, {
+    calls_made: Number(p.calls_made||0) + 1,
+    last_called_at: new Date().toISOString(),
+    last_outcome: outcome,
+    updated_at: new Date().toISOString(),
+  });
+  if (!IS_CONFIGURED) return;
+  await DataLayer.fetchAll(); renderAll();
+}
+function parseCsv(text){
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i=0;i<text.length;i++){
+    const c = text[i];
+    if (inQuotes){
+      if (c === '"'){
+        if (text[i+1] === '"'){ field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ","){ row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r"){
+        if (c === "\r" && text[i+1] === "\n") i++;
+        row.push(field); rows.push(row); row = []; field = "";
+      } else field += c;
+    }
+  }
+  if (field.length || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(v => v.trim() !== ""));
+}
+function mapImportRows(rows){
+  if (!rows.length) return [];
+  const headers = rows[0].map(h => String(h||"").trim().toLowerCase());
+  const findCol = (...names) => headers.findIndex(h => names.some(n => h === n || h.includes(n)));
+  const nameIdx = findCol("name","full name","contact");
+  const phoneIdx = findCol("phone","mobile","number","tel");
+  const companyIdx = findCol("company","organisation","organization","business");
+  const emailIdx = findCol("email");
+  return rows.slice(1).map(r => ({
+    name: (nameIdx>-1 ? r[nameIdx] : "") || "Unknown",
+    phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
+    company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
+    email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
+  })).filter(p => p.name || p.phone);
+}
+async function importProspectRows(prospects){
+  if (!prospects.length){ alert("No rows found to import."); return; }
+  for (const p of prospects){
+    await DataLayer.insert("dial_prospects", {
+      name: p.name, phone: p.phone, company: p.company, email: p.email,
+      calls_made: 0, last_called_at: null, last_outcome: null, notes: "",
+    });
+  }
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+  alert(`Imported ${prospects.length} prospect${prospects.length===1?"":"s"}.`);
+}
+function setupDialerImport(){
+  const input = $("#dialer-import-input");
+  $("#dialer-import-btn")?.addEventListener("click", () => input.click());
+  input?.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const isExcel = /\.xlsx?$/i.test(file.name);
+    try {
+      if (isExcel){
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        await importProspectRows(mapImportRows(rows));
+      } else {
+        const text = await file.text();
+        await importProspectRows(mapImportRows(parseCsv(text)));
+      }
+    } catch (err){
+      alert("Couldn't read that file: " + err.message);
+    }
+    input.value = "";
+  });
+}
 
 /* ───────── Render: Prospecting (by region) ───────── */
 function renderRegions(){
@@ -497,8 +646,8 @@ function renderAll(){
   renderDashboard();
   renderContacts();
   renderDeals();
-  renderNotes();
   renderRegions();
+  renderDialer();
   renderTeam();
   renderCalendarGrid();
   fillContactDropdowns();
@@ -858,7 +1007,7 @@ async function resolveMeetingReview(answer){
 }
 function fillContactDropdowns(){
   const opts = `<option value="">- No contact -</option>` + state.contacts.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-  ["deal-contact-select","note-contact-select"].forEach(id => {
+  ["deal-contact-select"].forEach(id => {
     const el = $("#"+id);
     if (el) el.innerHTML = opts;
   });
@@ -955,29 +1104,35 @@ function setupModals(){
     }, "save");
   });
 
-  $("#add-note-btn").addEventListener("click", () => { $("#note-form").reset(); openModal("note-modal"); });
-  $("#note-form").addEventListener("submit", async (e) => {
+  $("#dialer-add-btn")?.addEventListener("click", () => { $("#prospect-form").reset(); openModal("prospect-modal"); });
+  $("#prospect-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const row = {
-      title: $("#note-title").value.trim(),
-      body: $("#note-body").value.trim(),
-      contact_id: $("#note-contact-select").value || null,
-      deal_id: null,
+      name: $("#prospect-name").value.trim(),
+      phone: $("#prospect-phone").value.trim(),
+      company: $("#prospect-company").value.trim(),
+      email: $("#prospect-email").value.trim(),
+      notes: $("#prospect-notes").value.trim(),
+      calls_made: 0,
+      last_called_at: null,
+      last_outcome: null,
     };
-    if (!row.body) return;
-    await DataLayer.insert("notes", row);
-    closeModal("note-modal");
+    if (!row.name) return;
+    await DataLayer.insert("dial_prospects", row);
+    closeModal("prospect-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
 
   document.body.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
-    const { action, id } = btn.dataset;
+    const { action, id, outcome } = btn.dataset;
     if (action === "delete-contact" && confirm("Delete this contact?")) await DataLayer.remove("contacts", id);
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
-    if (action === "delete-note" && confirm("Delete this note?")) await DataLayer.remove("notes", id);
     if (action === "delete-region" && confirm("Delete this region?")) await DataLayer.remove("prospecting_regions", id);
+    if (action === "delete-prospect" && confirm("Delete this prospect?")) await DataLayer.remove("dial_prospects", id);
+    if (action === "dial-tel") await logDialOutcome(id, "dialed");
+    if (action === "dial-outcome") await logDialOutcome(id, outcome);
     if (action === "edit-region"){
       const r = state.regions.find(x => x.id === id);
       if (!r) return;
@@ -1026,6 +1181,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTeam();
   setupQualifyModal();
   setupCalendarNav();
+  setupDialerImport();
   initAuth();
 });
 })();

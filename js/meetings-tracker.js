@@ -856,14 +856,16 @@ function renderItem(idx){
     </div>
     <button class="mtr-edit-btn" title="Rename">${MTR_EDIT_SVG}</button>
     <span class="badge ${badgeClass}">${badgeText}</span>`;
-  el.addEventListener('click',e=>{
-    if(el.classList.contains('editing')||e.target.closest('.mtr-edit-btn'))return;
-    toggle(idx,el,e);
-  });
-  el.querySelector('.mtr-edit-btn').addEventListener('click',e=>{
-    e.stopPropagation(); startEdit(idx,el);
-  });
-  if(!existing) list.appendChild(el);
+  if(!existing){
+    el.addEventListener('click',e=>{
+      if(el.classList.contains('editing')||e.target.closest('.mtr-edit-btn'))return;
+      toggle(idx,el,e);
+    });
+    el.querySelector('.mtr-edit-btn').addEventListener('click',e=>{
+      e.stopPropagation(); startEdit(idx,el);
+    });
+    list.appendChild(el);
+  }
 }
 
 /* ══════════════════════════════════════════

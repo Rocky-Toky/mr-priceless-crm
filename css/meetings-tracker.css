@@ -111,11 +111,11 @@
 @keyframes mtr-fl{0%{opacity:1}100%{opacity:0}}
 .mtr-shake{animation:mtr-shake .4s cubic-bezier(.36,.07,.19,.97);}
 @keyframes mtr-shake{10%,90%{transform:translate3d(-2px,0,0)}20%,80%{transform:translate3d(4px,0,0)}30%,50%,70%{transform:translate3d(-6px,0,0)}40%,60%{transform:translate3d(6px,0,0)}}
-#page-cold-calls #cc{position:fixed;inset:0;pointer-events:none;z-index:9999;width:100%;height:100%;}
+#cc{position:fixed;inset:0;pointer-events:none;z-index:9999;width:100%;height:100%;}
 
 /* ─── Floating clouds (Cloud 9 ambient) ─── */
-#page-cold-calls #clouds{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden;opacity:0;transition:opacity 2s;}
-#page-cold-calls #clouds.active{opacity:1;}
+#clouds{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden;opacity:0;transition:opacity 2s;}
+#clouds.active{opacity:1;}
 .mtr-cloud{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;animation:mtr-cloud-drift linear infinite;animation-fill-mode:backwards;}
 .mtr-cloud-body{font-size:44px;filter:drop-shadow(0 0 14px rgba(232,196,104,0.5));animation:mtr-cloud-bob 4s ease-in-out infinite;}
 .mtr-cloud-label{font-size:12px;font-weight:800;letter-spacing:.14em;color:var(--gold-deep);text-transform:uppercase;opacity:.85;}

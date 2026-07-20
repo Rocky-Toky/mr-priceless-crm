@@ -9,6 +9,27 @@
 </head>
 <body>
 
+<!-- ───────── Shared celebration layer (confetti / ambient glow / floating clouds) ───────── -->
+<div id="amb"><div id="amb-g"></div></div>
+<div id="clouds"></div>
+<canvas id="cc"></canvas>
+
+<!-- MEGA CLOUD 9 OVERLAY (3 meetings) -->
+<div id="mega-c9" onclick="closeMegaC9()">
+  <div id="mega-c9-bg"></div>
+  <div id="mega-c9-text">☁️ CLOUD 9 ☁️</div>
+  <div id="mega-c9-sub">3 meetings · you are on cloud 9</div>
+</div>
+
+<!-- INSANE OVERLAY (5 meetings) -->
+<div id="insane" onclick="closeInsane()">
+  <div id="insane-bg"></div>
+  <div id="insane-border"></div>
+  <div id="insane-num">5/5</div>
+  <div id="insane-label">⚡ ABSOLUTE LEGEND ⚡</div>
+  <div id="insane-sub2">5 meetings booked · unstoppable · untouchable · unreal</div>
+</div>
+
 <!-- ───────── Auth screen ───────── -->
 <div id="auth-screen">
   <div class="auth-box">
@@ -95,13 +116,17 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
         <span>Prospecting</span>
       </button>
+      <button class="nav-item" data-page="dialer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+        <span>Dialer</span>
+      </button>
       <button class="nav-item" data-page="contacts">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
         <span>Contacts</span>
       </button>
-      <button class="nav-item" data-page="notes">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-        <span>Notes</span>
+      <button class="nav-item" data-page="todo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        <span>To Do</span>
       </button>
       <button class="nav-item" data-page="team">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
@@ -147,26 +172,6 @@
 
     <!-- Meetings Booked (gamified daily tracker) -->
     <section class="page" id="page-cold-calls">
-      <div id="amb"><div id="amb-g"></div></div>
-      <div id="clouds"></div>
-      <canvas id="cc"></canvas>
-
-      <!-- MEGA CLOUD 9 OVERLAY (3 meetings) -->
-      <div id="mega-c9" onclick="closeMegaC9()">
-        <div id="mega-c9-bg"></div>
-        <div id="mega-c9-text">☁️ CLOUD 9 ☁️</div>
-        <div id="mega-c9-sub">3 meetings · you are on cloud 9</div>
-      </div>
-
-      <!-- INSANE OVERLAY (5 meetings) -->
-      <div id="insane" onclick="closeInsane()">
-        <div id="insane-bg"></div>
-        <div id="insane-border"></div>
-        <div id="insane-num">5/5</div>
-        <div id="insane-label">⚡ ABSOLUTE LEGEND ⚡</div>
-        <div id="insane-sub2">5 meetings booked · unstoppable · untouchable · unreal</div>
-      </div>
-
       <!-- MODAL: goal hit (2/2) -->
       <div id="modal-goal" class="overlay mtr-reward">
         <div class="modal">
@@ -388,6 +393,47 @@
       </div>
     </section>
 
+    <!-- Dialer -->
+    <section class="page" id="page-dialer">
+      <div class="page-header">
+        <div><h2>Dialer</h2><p>Import a prospect list and power dial straight down it.</p></div>
+        <div style="display:flex;gap:10px;">
+          <input type="file" id="dialer-import-input" accept=".csv,.xls,.xlsx" style="display:none;">
+          <button class="btn ghost" id="dialer-import-btn">Import CSV / XLS</button>
+          <button class="btn gold" id="dialer-add-btn">+ Add Prospect</button>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Prospects</div><div class="stat-value" id="dialer-stat-total">0</div></div>
+        <div class="stat-card"><div class="stat-label">Dialed Today</div><div class="stat-value" id="dialer-stat-today">0</div></div>
+        <div class="stat-card"><div class="stat-label">Total Calls Made</div><div class="stat-value" id="dialer-stat-calls">0</div></div>
+        <div class="stat-card"><div class="stat-label">Never Called</div><div class="stat-value" id="dialer-stat-fresh">0</div></div>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="card">
+            <div class="card-header"><h3>Up Now</h3><span class="badge gold" id="dialer-position">0 / 0</span></div>
+            <div class="card-body" id="dialer-current-body">
+              <div class="empty-state"><p>Import a CSV/XLS file or add a prospect to start power dialing.</p></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <div class="card-header"><h3>Queue</h3></div>
+            <div class="table-wrap" style="max-height:560px;overflow-y:auto;">
+              <table>
+                <thead><tr><th>Name</th><th>Phone</th><th>Calls</th><th></th></tr></thead>
+                <tbody id="dialer-queue-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Contacts -->
     <section class="page" id="page-contacts">
       <div class="page-header">
@@ -417,13 +463,82 @@
       </div>
     </section>
 
-    <!-- Notes -->
-    <section class="page" id="page-notes">
-      <div class="page-header">
-        <div><h2>Notes</h2><p>Quick notes for you and your partner.</p></div>
-        <button class="btn gold" id="add-note-btn">+ Add Note</button>
+    <!-- To Do (gamified daily priority list) -->
+    <section class="page" id="page-todo">
+      <!-- MODAL: all tasks done -->
+      <div id="modal-todo-done" class="overlay mtr-reward">
+        <div class="modal">
+          <span class="mtr-reward-icon">🎯</span>
+          <div class="mtr-reward-title">All Done.</div>
+          <div class="mtr-reward-sub">Every priority for today, crushed.<br>That's exactly how winning days are built.</div>
+          <div class="mtr-reward-ring">
+            <svg width="88" height="88" viewBox="0 0 88 88">
+              <circle class="mtr-rr-track" cx="44" cy="44" r="37"/>
+              <circle class="mtr-rr-fill" id="td-ring-fill" cx="44" cy="44" r="37"/>
+            </svg>
+            <div class="mtr-rr-label" id="td-pct">0%</div>
+          </div>
+          <div class="mtr-reward-pills">
+            <span class="badge gold">Focused</span>
+            <span class="badge gold">Disciplined</span>
+            <span class="badge gold">Unstoppable</span>
+          </div>
+          <button class="btn gold mtr-reward-btn" onclick="closeModal('modal-todo-done')">Nice.</button>
+        </div>
       </div>
-      <div class="notes-grid" id="notes-grid"></div>
+
+      <div class="page-header">
+        <div><h2>To Do</h2><p>Your 3-5 most important things today.</p></div>
+        <div class="mtr-header-actions">
+          <span class="mtr-streak-chip" id="td-streak-chip" style="display:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/></svg>
+            <span id="td-streak-num">0</span> day streak
+          </span>
+          <button class="btn ghost" onclick="todoResetDay()">New Day</button>
+          <button class="btn gold" id="td-add-btn" onclick="todoAddTask()">+ Add Task</button>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Done</div><div class="stat-value mtr-kpi-done" id="td-kpi-done">0</div><div class="stat-sub" id="td-kpi-done-sub">of 0 tasks</div></div>
+        <div class="stat-card"><div class="stat-label">Remaining</div><div class="stat-value" id="td-kpi-left">0</div><div class="stat-sub">to finish</div></div>
+        <div class="stat-card"><div class="stat-label">Complete</div><div class="stat-value mtr-kpi-complete" id="td-kpi-rate">0%</div><div class="stat-sub">of today's list</div></div>
+        <div class="stat-card"><div class="stat-label">Streak</div><div class="stat-value" id="td-kpi-streak">0</div><div class="stat-sub">days in a row</div></div>
+      </div>
+
+      <div class="card mtr-progress-card">
+        <div class="mtr-progress-header"><span>Today's progress</span><b id="td-prog-count">0 / 0</b></div>
+        <div class="mtr-progress-track"><div class="mtr-progress-fill" id="td-prog-fill" style="width:0%"></div></div>
+        <div id="td-banner" class="mtr-banner"></div>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <div class="card">
+            <div class="card-header"><h3>Today's Priorities</h3><span class="badge gold" id="td-count">0 / 0</span></div>
+            <div class="mtr-list" id="td-list"></div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <div class="card-header"><h3>This Week</h3></div>
+            <div class="card-body">
+              <div class="mtr-week-dow"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+              <div class="mtr-week-grid" id="td-week-grid"></div>
+              <div class="mtr-week-legend">
+                <span><i style="background:var(--gold-soft);border:1px solid var(--gold-border);"></i>All done</span>
+                <span><i style="background:#faf9f5;border:1px solid var(--line);"></i>Missed</span>
+              </div>
+            </div>
+          </div>
+          <div class="card mtr-card-gap">
+            <div class="card-header"><h3>Activity</h3></div>
+            <div class="card-body" id="td-activity-log">
+              <div class="empty-state" style="padding:20px 0;"><p>No activity yet today.</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 </div>
@@ -485,17 +600,21 @@
   </div>
 </div>
 
-<!-- ───────── Modal: Note ───────── -->
-<div class="overlay" id="note-modal">
+<!-- ───────── Modal: Add Prospect (Dialer) ───────── -->
+<div class="overlay" id="prospect-modal">
   <div class="modal">
-    <div class="modal-header"><h3>Add Note</h3><button class="modal-close" data-close="note-modal">&times;</button></div>
-    <form id="note-form" class="modal-body">
-      <div class="field"><label>Title</label><input type="text" id="note-title" placeholder="Optional"></div>
-      <div class="field"><label>Note</label><textarea id="note-body" required placeholder="Write your note..." style="min-height:110px;"></textarea></div>
-      <div class="field"><label>Link to contact (optional)</label><select id="note-contact-select"></select></div>
+    <div class="modal-header"><h3>Add Prospect</h3><button class="modal-close" data-close="prospect-modal">&times;</button></div>
+    <form id="prospect-form" class="modal-body">
+      <div class="field"><label>Name</label><input type="text" id="prospect-name" required></div>
+      <div class="field-row">
+        <div class="field"><label>Phone</label><input type="tel" id="prospect-phone"></div>
+        <div class="field"><label>Company</label><input type="text" id="prospect-company"></div>
+      </div>
+      <div class="field"><label>Email</label><input type="email" id="prospect-email"></div>
+      <div class="field"><label>Notes</label><textarea id="prospect-notes" placeholder="Anything worth knowing before you call..."></textarea></div>
       <div class="modal-actions">
-        <button type="button" class="btn ghost" data-close="note-modal">Cancel</button>
-        <button type="submit" class="btn gold">Save Note</button>
+        <button type="button" class="btn ghost" data-close="prospect-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Prospect</button>
       </div>
     </form>
   </div>
@@ -566,9 +685,11 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="js/config.js"></script>
 <script src="js/supabaseClient.js"></script>
 <script src="js/app.js"></script>
 <script src="js/meetings-tracker.js"></script>
+<script src="js/todo.js"></script>
 </body>
 </html>
