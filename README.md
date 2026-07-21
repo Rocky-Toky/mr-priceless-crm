@@ -101,6 +101,61 @@ This is a static folder, so any static host works.
 
 One extra step after deploying: add your live URL to Google Cloud Console under **OAuth consent screen → Authorized domains**, and add `https://your-live-url/` to Supabase's **Authentication → URL Configuration → Redirect URLs** - otherwise Google sign-in will only work on localhost.
 
+## 8. Set up automated Meta Ads client reporting (optional)
+
+The **Reporting** page can pull each client's ad performance straight from their Meta ad account and email it to them - either on demand ("Send Now") or fully automatically on a schedule (weekly/monthly, set per client). The database side of this is already live (columns on `clients`, the `client_reports` table, and a daily cron check are all set up). What's left is entirely on Meta's and Resend's side - things only you can do, since they involve your accounts.
+
+**A. Create a Meta System User (this is what makes automation possible)**
+
+A normal "Login with Facebook" token expires every ~60 days and needs a human to re-approve it, which defeats "fully automated." A **System User** token, created inside Business Manager, doesn't expire that way - it's Meta's own recommended approach for agency/unattended use.
+
+1. Go to [business.facebook.com/settings](https://business.facebook.com/settings) → **Users → System Users**.
+2. Click **Add**, give it a name (e.g. "Mr Priceless Reporting"), role **Admin** (or Employee - Admin is simpler for assigning assets).
+3. Click **Add Assets**, select each client's ad account, and grant it at least **View performance** access.
+4. Click **Generate New Token** on the System User. Select your Meta app (create one first in step B if you haven't), tick the **`ads_read`** permission, and set the expiration to **Never**.
+5. Copy the token now - Meta only shows it once.
+
+**B. Create a Meta App with the Marketing API**
+
+1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps) → **Create App** → choose type **Business**.
+2. Add the **Marketing API** product to the app.
+3. This is the app you select when generating the System User token in step A.4 above.
+4. For `ads_read` on ad accounts your own Business Manager already owns, this typically works without Meta's formal **App Review** - App Review is only required if you need access to ad accounts *outside* your own Business Manager. If a client's ad account isn't already shared into your Business Manager, add it as an asset first (client can do this from their end, or add your Business Manager as a partner).
+
+**C. Sign up for Resend (sends the report emails)**
+
+1. Go to [resend.com](https://resend.com) and create a free account.
+2. **Domains** → add and verify a sending domain you control (e.g. `launchagency.co.nz`) by adding the DNS records Resend gives you - this avoids emails landing in spam.
+3. **API Keys** → create a new key.
+
+**D. Set the secrets and deploy the function**
+
+From inside this `mr-priceless-crm` folder (same Supabase CLI setup as step 5):
+
+```
+supabase secrets set META_SYSTEM_USER_TOKEN=xxxxx
+supabase secrets set RESEND_API_KEY=re_xxxxx
+supabase secrets set REPORT_FROM_EMAIL="Mr Priceless <reports@yourdomain.co.nz>"
+supabase secrets set REPORT_CRON_SECRET=xxxxx
+```
+
+`REPORT_CRON_SECRET` just needs to be any long random string - it's how the daily scheduled check authenticates itself to the function (it's already stored on the database side in Supabase Vault; use that same value here). Generate one with `openssl rand -hex 32` if you need a fresh one, but if you already have one saved from setup, reuse it.
+
+Then deploy the function:
+
+```
+supabase functions deploy generate-client-reports
+```
+
+**E. Turn it on per client**
+
+In the CRM, open a client → **Edit Client**, and fill in:
+- **Meta Ad Account ID** (looks like `act_1234567890` - find it in Meta Ads Manager, top left)
+- **Report Frequency** (weekly, monthly, or off)
+- **Report Email** (where the client wants reports sent)
+
+Once saved, that client shows up on the **Reporting** page. Reports send automatically once a day when they're due, or you can click **Send Now** any time for an ad-hoc report.
+
 ## How the pieces fit together
 
 - **Login & access control**: sign-in is Google-only. The `allowlist` table is the actual gatekeeper - anyone can technically click "Sign in with Google," but the app checks their email against `allowlist` and shows a "not authorized" screen if they're not on it. Every table's Row Level Security policy re-checks the same allowlist, so even a signed-in-but-uninvited account can't read or write data.
