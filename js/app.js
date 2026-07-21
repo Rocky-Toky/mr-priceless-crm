@@ -38,6 +38,13 @@ const CAMPAIGN_STATUSES = {
   paused: { label: "Paused", cls: "gray" },
   ended: { label: "Ended", cls: "red" },
 };
+const TASK_PRIORITIES = {
+  low: { label: "Low", cls: "gray", rank: 0 },
+  medium: { label: "Medium", cls: "gold", rank: 1 },
+  high: { label: "High", cls: "red", rank: 2 },
+  urgent: { label: "Urgent", cls: "black", rank: 3 },
+};
+const TASK_CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>`;
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
@@ -65,7 +72,10 @@ const state = {
   adCreatives: [],
   campaigns: [],
   dealContacts: [],
+  tasks: [],
   selectedClientId: null,
+  dialerFilter: { search: "", region: "", industry: "" },
+  taskFilter: { status: "open", priority: "", sort: "due_date" },
   team: [],
   contactFilter: "",
   contactSearch: "",
@@ -115,8 +125,9 @@ function seedDemo(){
     { id:uid(), contact_id:c3, contact_name:"Priya Chand", phone:"022 555 0177", call_date:new Date(Date.now()-86400e3*1).toISOString().slice(0,10), outcome:"interested", follow_up_date:new Date(Date.now()+86400e3*3).toISOString().slice(0,10), notes:"Wants a proposal for SEO + Google Ads.", created_at:new Date(Date.now()-3600e3*20).toISOString() },
     { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", phone:"021 555 0111", call_date:new Date().toISOString().slice(0,10), outcome:"no_answer", follow_up_date:new Date(Date.now()+86400e3*1).toISOString().slice(0,10), notes:"Left voicemail.", created_at:new Date(Date.now()-3600e3*2).toISOString() },
   ];
+  const deal1 = uid();
   state.deals = [
-    { id:uid(), contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", value:8500, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
+    { id:deal1, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", value:8500, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental - Meta Ads retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal - SEO + Ads", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
   ];
@@ -156,13 +167,19 @@ function seedDemo(){
     { id:uid(), client_id:cl2, name:"Whitening promo - lead gen", platform:"Meta", status:"active", cost_per_lead:19, notes:"", created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.dealContacts = [];
+  state.tasks = [
+    { id:uid(), title:"Send Kauri contract for signature", notes:"", due_date:new Date(Date.now()+86400e3*1).toISOString().slice(0,10), priority:"high", status:"open", contact_id:c1, deal_id:deal1, created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Follow up with Priya Chand re: proposal", notes:"She wanted pricing broken out by service.", due_date:new Date(Date.now()-86400e3*1).toISOString().slice(0,10), priority:"urgent", status:"open", contact_id:c3, deal_id:null, created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Prep Summit Dental ad creative review", notes:"", due_date:new Date(Date.now()+86400e3*5).toISOString().slice(0,10), priority:"medium", status:"open", contact_id:c2, deal_id:null, created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Renew domain for agency site", notes:"", due_date:null, priority:"low", status:"open", contact_id:null, deal_id:null, created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date().toISOString() },
+  ];
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -173,6 +190,7 @@ const DataLayer = {
       supabase.from("client_ad_creatives").select("*").order("created_at",{ascending:false}),
       supabase.from("client_campaigns").select("*").order("created_at",{ascending:false}),
       supabase.from("deal_contacts").select("*").order("created_at",{ascending:false}),
+      supabase.from("tasks").select("*").order("created_at",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -184,6 +202,7 @@ const DataLayer = {
     state.adCreatives = cad.data || [];
     state.campaigns = camp.data || [];
     state.dealContacts = dc.data || [];
+    state.tasks = tk.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -234,7 +253,7 @@ function stateArray(table){
     contacts: state.contacts, cold_calls: state.coldCalls, deals: state.deals,
     prospecting_regions: state.regions, dial_prospects: state.prospects,
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
-    client_campaigns: state.campaigns, deal_contacts: state.dealContacts,
+    client_campaigns: state.campaigns, deal_contacts: state.dealContacts, tasks: state.tasks,
   }[table];
 }
 
@@ -254,6 +273,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"client_ad_creatives" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"client_campaigns" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"deal_contacts" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"tasks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -581,19 +601,48 @@ const OUTCOME_BUTTONS = [
   { key:"interested", label:"Interested", cls:"gold" },
   { key:"booked_meeting", label:"Booked Meeting", cls:"gold" },
 ];
+function dialerFilteredProspects(){
+  const f = state.dialerFilter;
+  const q = f.search.trim().toLowerCase();
+  return state.prospects.filter(p => {
+    if (f.region && (p.region||"") !== f.region) return false;
+    if (f.industry && (p.industry||"") !== f.industry) return false;
+    if (q && ![p.name,p.company,p.notes].some(v => (v||"").toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+function dialerDistinctValues(field){
+  return [...new Set(state.prospects.map(p => p[field]).filter(Boolean))].sort();
+}
 function dialerQueue(){
-  return [...state.prospects].sort((a,b) => {
+  return dialerFilteredProspects().sort((a,b) => {
     const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
     const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
     return ta - tb;
   });
 }
+function renderDialerFilters(){
+  const regionSel = $("#dialer-filter-region");
+  const industrySel = $("#dialer-filter-industry");
+  if (regionSel){
+    const regions = dialerDistinctValues("region");
+    regionSel.innerHTML = `<option value="">All Regions</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
+    regionSel.value = state.dialerFilter.region;
+  }
+  if (industrySel){
+    const industries = dialerDistinctValues("industry");
+    industrySel.innerHTML = `<option value="">All Industries</option>` + industries.map(i => `<option value="${escapeHtml(i)}">${escapeHtml(i)}</option>`).join("");
+    industrySel.value = state.dialerFilter.industry;
+  }
+}
 function renderDialer(){
-  const total = state.prospects.length;
-  const totalCalls = state.prospects.reduce((s,p) => s + Number(p.calls_made||0), 0);
-  const neverCalled = state.prospects.filter(p => !p.calls_made).length;
+  renderDialerFilters();
+  const filtered = dialerFilteredProspects();
+  const total = filtered.length;
+  const totalCalls = filtered.reduce((s,p) => s + Number(p.calls_made||0), 0);
+  const neverCalled = filtered.filter(p => !p.calls_made).length;
   const todayStr = new Date().toDateString();
-  const dialedToday = state.prospects.filter(p => p.last_called_at && new Date(p.last_called_at).toDateString() === todayStr).length;
+  const dialedToday = filtered.filter(p => p.last_called_at && new Date(p.last_called_at).toDateString() === todayStr).length;
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
   st("#dialer-stat-total", total);
   st("#dialer-stat-today", dialedToday);
@@ -634,14 +683,17 @@ function renderDialer(){
   const tbody = $("#dialer-queue-tbody");
   if (tbody){
     if (!queue.length){
-      tbody.innerHTML = `<tr><td colspan="4">${emptyState("No prospects yet.")}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5">${emptyState("No prospects yet.")}</td></tr>`;
     } else {
       tbody.innerHTML = queue.map((p,i) => `
         <tr data-id="${p.id}" style="${i===0?"background:var(--gold-soft);":""}">
           <td><div class="row-name">${escapeHtml(p.name)}</div><div class="row-sub">${escapeHtml(p.company||"")}</div></td>
           <td>${escapeHtml(p.phone||"-")}</td>
+          <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
           <td><span class="badge gray">${Number(p.calls_made||0)}</span></td>
           <td style="text-align:right;white-space:nowrap;">
+            <button class="icon-btn" data-action="edit-prospect" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
+            <button class="icon-btn" data-action="convert-prospect" data-id="${p.id}" title="Move to Contacts">${ICONS.moveToContact}</button>
             <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
           </td>
         </tr>
@@ -691,11 +743,15 @@ function mapImportRows(rows){
   const phoneIdx = findCol("phone","mobile","number","tel");
   const companyIdx = findCol("company","organisation","organization","business");
   const emailIdx = findCol("email");
+  const regionIdx = findCol("region","area","suburb","location","territory");
+  const industryIdx = findCol("industry","sector","niche","category","vertical");
   return rows.slice(1).map(r => ({
     name: (nameIdx>-1 ? r[nameIdx] : "") || "Unknown",
     phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
     company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
     email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
+    region: regionIdx>-1 ? String(r[regionIdx]||"").trim() : "",
+    industry: industryIdx>-1 ? String(r[industryIdx]||"").trim() : "",
   })).filter(p => p.name || p.phone);
 }
 async function importProspectRows(prospects){
@@ -703,6 +759,7 @@ async function importProspectRows(prospects){
   for (const p of prospects){
     await DataLayer.insert("dial_prospects", {
       name: p.name, phone: p.phone, company: p.company, email: p.email,
+      region: p.region||"", industry: p.industry||"",
       calls_made: 0, last_called_at: null, last_outcome: null, notes: "",
     });
   }
@@ -742,6 +799,16 @@ function clientAvgCPL(){
 }
 function campaignsFor(clientId){ return state.campaigns.filter(x => x.client_id === clientId); }
 function runningCampaignsFor(clientId){ return campaignsFor(clientId).filter(x => x.status === "active"); }
+async function uploadAdCreativeImage(file){
+  if (!file) return null;
+  if (!IS_CONFIGURED) return URL.createObjectURL(file);
+  const ext = (file.name.split(".").pop() || "png").toLowerCase();
+  const path = `${uid()}.${ext}`;
+  const { error } = await supabase.storage.from("ad-creatives").upload(path, file);
+  if (error){ alert("Image upload failed: " + error.message); return null; }
+  const { data } = supabase.storage.from("ad-creatives").getPublicUrl(path);
+  return data.publicUrl;
+}
 function renderClients(){
   const listView = $("#clients-list-view");
   const detailView = $("#clients-detail-view");
@@ -842,14 +909,18 @@ function renderClientDetail(c){
 
   const creatives = state.adCreatives.filter(x => x.client_id === c.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
   const tbody = $("#ad-creatives-tbody");
-  if (!creatives.length){ tbody.innerHTML = `<tr><td colspan="4">${emptyState("No ad creatives tried yet.")}</td></tr>`; }
+  if (!creatives.length){ tbody.innerHTML = `<tr><td colspan="5">${emptyState("No ad creatives tried yet.")}</td></tr>`; }
   else {
     tbody.innerHTML = creatives.map(a => `
       <tr data-id="${a.id}">
+        <td>${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="ad-creative-thumb" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="ad-creative-thumb ad-creative-thumb-empty"></div>`}</td>
         <td><div class="row-name">${escapeHtml(a.name)}</div>${a.notes?`<div class="row-sub">${escapeHtml(a.notes)}</div>`:""}</td>
         <td><span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span></td>
         <td>${fmtDate(a.created_at)}</td>
-        <td style="text-align:right;"><button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button></td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="icon-btn" data-action="edit-ad-creative" data-id="${a.id}" title="Edit">${ICONS.edit}</button>
+          <button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button>
+        </td>
       </tr>
     `).join("");
   }
@@ -874,6 +945,58 @@ function setupContentDragDrop(){
       await DataLayer.update("client_content", draggedId, { status: col.dataset.status, updated_at: new Date().toISOString() });
     });
   });
+}
+
+/* ───────── Render: Tasks ───────── */
+function dealTitle(id){ return state.deals.find(d => d.id === id)?.title || ""; }
+function todayDateStr(){ return new Date().toISOString().slice(0,10); }
+function renderTasks(){
+  const f = state.taskFilter;
+  const todayStr = todayDateStr();
+  const open = state.tasks.filter(t => t.status === "open");
+  const overdue = open.filter(t => t.due_date && t.due_date < todayStr);
+  const dueToday = open.filter(t => t.due_date === todayStr);
+  const done = state.tasks.filter(t => t.status === "done");
+  $("#tasks-stat-open").textContent = open.length;
+  $("#tasks-stat-overdue").textContent = overdue.length;
+  $("#tasks-stat-today").textContent = dueToday.length;
+  $("#tasks-stat-done").textContent = done.length;
+
+  let list = state.tasks.filter(t => {
+    if (f.status !== "all" && t.status !== f.status) return false;
+    if (f.priority && t.priority !== f.priority) return false;
+    return true;
+  });
+  list = list.sort((a,b) => {
+    if (f.sort === "priority") return (TASK_PRIORITIES[b.priority]?.rank||0) - (TASK_PRIORITIES[a.priority]?.rank||0);
+    const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+    const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+    return da - db;
+  });
+
+  const tbody = $("#tasks-tbody");
+  if (!tbody) return;
+  if (!list.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No tasks match. Add one to get started.")}</td></tr>`; return; }
+  tbody.innerHTML = list.map(t => {
+    const isOverdue = t.status === "open" && t.due_date && t.due_date < todayStr;
+    const linked = [t.contact_id ? contactName(t.contact_id) : "", t.deal_id ? dealTitle(t.deal_id) : ""].filter(Boolean);
+    return `
+    <tr data-id="${t.id}">
+      <td style="width:34px;"><div class="mtr-check task-check ${t.status==='done'?'done':''}" data-action="toggle-task" data-id="${t.id}">${TASK_CHECK_SVG}</div></td>
+      <td>
+        <div class="row-name" style="${t.status==='done'?'text-decoration:line-through;color:var(--text2);':''}">${escapeHtml(t.title)}</div>
+        ${linked.length ? `<div class="row-sub">${linked.map(escapeHtml).join(" · ")}</div>` : ""}
+        ${t.notes ? `<div class="row-sub">${escapeHtml(t.notes)}</div>` : ""}
+      </td>
+      <td><span class="badge ${TASK_PRIORITIES[t.priority]?.cls||'gray'}">${TASK_PRIORITIES[t.priority]?.label||t.priority}</span></td>
+      <td style="${isOverdue?'color:var(--danger);font-weight:700;':''}">${t.due_date ? fmtDate(t.due_date) : "-"}${isOverdue?" (overdue)":""}</td>
+      <td><span class="badge ${t.status==='done'?'green':'gray'}">${t.status==='done'?'Done':'Open'}</span></td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="icon-btn" data-action="edit-task" data-id="${t.id}" title="Edit">${ICONS.edit}</button>
+        <button class="icon-btn" data-action="delete-task" data-id="${t.id}" title="Delete">${ICONS.trash}</button>
+      </td>
+    </tr>
+  `;}).join("");
 }
 
 /* ───────── Render: Prospecting (by region) ───────── */
@@ -909,6 +1032,7 @@ function renderAll(){
   renderRegions();
   renderDialer();
   renderClients();
+  renderTasks();
   renderTeam();
   renderCalendarGrid();
   fillContactDropdowns();
@@ -1268,10 +1392,13 @@ async function resolveMeetingReview(answer){
 }
 function fillContactDropdowns(){
   const opts = `<option value="">- No contact -</option>` + state.contacts.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-  ["deal-contact-select"].forEach(id => {
+  ["deal-contact-select","task-contact-select"].forEach(id => {
     const el = $("#"+id);
     if (el) el.innerHTML = opts;
   });
+  const dealOpts = `<option value="">- No deal -</option>` + state.deals.map(d => `<option value="${d.id}">${escapeHtml(d.title)}</option>`).join("");
+  const dealEl = $("#task-deal-select");
+  if (dealEl) dealEl.innerHTML = dealOpts;
 }
 
 const ICONS = {
@@ -1279,6 +1406,7 @@ const ICONS = {
   trash: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>`,
   calendar: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`,
   calendarCheck: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg>`,
+  moveToContact: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8l3 3-3 3M23 11h-9"/></svg>`,
 };
 
 /* ───────── Modals ───────── */
@@ -1376,21 +1504,30 @@ function setupModals(){
     }, "save");
   });
 
-  $("#dialer-add-btn")?.addEventListener("click", () => { $("#prospect-form").reset(); openModal("prospect-modal"); });
+  $("#dialer-add-btn")?.addEventListener("click", () => {
+    $("#prospect-form").reset(); $("#prospect-form-id").value=""; $("#prospect-modal-title").textContent="Add Prospect";
+    openModal("prospect-modal");
+  });
   $("#prospect-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const id = $("#prospect-form-id").value;
     const row = {
       name: $("#prospect-name").value.trim(),
       phone: $("#prospect-phone").value.trim(),
       company: $("#prospect-company").value.trim(),
       email: $("#prospect-email").value.trim(),
+      region: $("#prospect-region").value.trim(),
+      industry: $("#prospect-industry").value.trim(),
       notes: $("#prospect-notes").value.trim(),
-      calls_made: 0,
-      last_called_at: null,
-      last_outcome: null,
     };
     if (!row.name) return;
-    await DataLayer.insert("dial_prospects", row);
+    if (id){
+      row.updated_at = new Date().toISOString();
+      await DataLayer.update("dial_prospects", id, row);
+    } else {
+      row.calls_made = 0; row.last_called_at = null; row.last_outcome = null;
+      await DataLayer.insert("dial_prospects", row);
+    }
     closeModal("prospect-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
@@ -1436,9 +1573,15 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
-  $("#add-ad-creative-btn")?.addEventListener("click", () => { $("#ad-creative-form").reset(); openModal("ad-creative-modal"); });
+  $("#add-ad-creative-btn")?.addEventListener("click", () => {
+    $("#ad-creative-form").reset(); $("#ad-creative-form-id").value=""; $("#ad-creative-modal-title").textContent="Add Ad Creative";
+    $("#ad-creative-current-image").innerHTML = "";
+    openModal("ad-creative-modal");
+  });
   $("#ad-creative-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const id = $("#ad-creative-form-id").value;
+    const file = $("#ad-creative-image").files[0];
     const row = {
       client_id: state.selectedClientId,
       name: $("#ad-creative-name").value.trim(),
@@ -1446,7 +1589,12 @@ function setupModals(){
       notes: $("#ad-creative-notes").value.trim(),
     };
     if (!row.name) return;
-    await DataLayer.insert("client_ad_creatives", row);
+    if (file){
+      const imageUrl = await uploadAdCreativeImage(file);
+      if (imageUrl) row.image_url = imageUrl;
+    }
+    if (id) await DataLayer.update("client_ad_creatives", id, row);
+    else await DataLayer.insert("client_ad_creatives", row);
     closeModal("ad-creative-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
@@ -1474,6 +1622,29 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#add-task-btn")?.addEventListener("click", () => {
+    $("#task-form").reset(); $("#task-form-id").value=""; $("#task-modal-title").textContent="Add Task";
+    openModal("task-modal");
+  });
+  $("#task-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#task-form-id").value;
+    const row = {
+      title: $("#task-title").value.trim(),
+      due_date: $("#task-due-date").value || null,
+      priority: $("#task-priority").value,
+      notes: $("#task-notes").value.trim(),
+      contact_id: $("#task-contact-select").value || null,
+      deal_id: $("#task-deal-select").value || null,
+      updated_at: new Date().toISOString(),
+    };
+    if (!row.title) return;
+    if (id) await DataLayer.update("tasks", id, row);
+    else { row.status = "open"; await DataLayer.insert("tasks", row); }
+    closeModal("task-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   document.body.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
@@ -1482,6 +1653,30 @@ function setupModals(){
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
     if (action === "delete-region" && confirm("Delete this region?")) await DataLayer.remove("prospecting_regions", id);
     if (action === "delete-prospect" && confirm("Delete this prospect?")) await DataLayer.remove("dial_prospects", id);
+    if (action === "edit-prospect"){
+      const p = state.prospects.find(x => x.id === id);
+      if (!p) return;
+      $("#prospect-form-id").value = p.id;
+      $("#prospect-name").value = p.name||"";
+      $("#prospect-phone").value = p.phone||"";
+      $("#prospect-company").value = p.company||"";
+      $("#prospect-email").value = p.email||"";
+      $("#prospect-region").value = p.region||"";
+      $("#prospect-industry").value = p.industry||"";
+      $("#prospect-notes").value = p.notes||"";
+      $("#prospect-modal-title").textContent = "Edit Prospect";
+      openModal("prospect-modal");
+    }
+    if (action === "convert-prospect" && confirm("Move this prospect to Contacts? They'll come off the dial queue.")){
+      const p = state.prospects.find(x => x.id === id);
+      if (p){
+        await DataLayer.insert("contacts", {
+          name: p.name, phone: p.phone||"", company: p.company||"", email: p.email||"",
+          status: "lead", tags: p.industry||"",
+        });
+        await DataLayer.remove("dial_prospects", id);
+      }
+    }
     if (action === "dial-tel") await logDialOutcome(id, "dialed");
     if (action === "dial-outcome") await logDialOutcome(id, outcome);
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); }
@@ -1515,7 +1710,20 @@ function setupModals(){
       openModal("content-modal");
     }
     if (action === "delete-content" && confirm("Delete this content piece?")) await DataLayer.remove("client_content", id);
+    if (action === "edit-ad-creative"){
+      const a = state.adCreatives.find(x => x.id === id);
+      if (!a) return;
+      $("#ad-creative-form-id").value = a.id;
+      $("#ad-creative-name").value = a.name||"";
+      $("#ad-creative-result").value = a.result||"testing";
+      $("#ad-creative-notes").value = a.notes||"";
+      $("#ad-creative-image").value = "";
+      $("#ad-creative-current-image").innerHTML = a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="ad-creative-thumb">` : "";
+      $("#ad-creative-modal-title").textContent = "Edit Ad Creative";
+      openModal("ad-creative-modal");
+    }
     if (action === "delete-ad-creative" && confirm("Delete this ad creative?")) await DataLayer.remove("client_ad_creatives", id);
+    if (action === "view-creative-image"){ window.open(btn.dataset.url, "_blank"); }
     if (action === "edit-campaign"){
       const camp = state.campaigns.find(x => x.id === id);
       if (!camp) return;
@@ -1529,6 +1737,25 @@ function setupModals(){
       openModal("campaign-modal");
     }
     if (action === "delete-campaign" && confirm("Delete this campaign?")) await DataLayer.remove("client_campaigns", id);
+    if (action === "toggle-task"){
+      const t = state.tasks.find(x => x.id === id);
+      if (!t) return;
+      await DataLayer.update("tasks", id, { status: t.status === "done" ? "open" : "done", updated_at: new Date().toISOString() });
+    }
+    if (action === "edit-task"){
+      const t = state.tasks.find(x => x.id === id);
+      if (!t) return;
+      $("#task-form-id").value = t.id;
+      $("#task-title").value = t.title||"";
+      $("#task-due-date").value = t.due_date||"";
+      $("#task-priority").value = t.priority||"medium";
+      $("#task-notes").value = t.notes||"";
+      $("#task-contact-select").value = t.contact_id||"";
+      $("#task-deal-select").value = t.deal_id||"";
+      $("#task-modal-title").textContent = "Edit Task";
+      openModal("task-modal");
+    }
+    if (action === "delete-task" && confirm("Delete this task?")) await DataLayer.remove("tasks", id);
     if (action === "edit-region"){
       const r = state.regions.find(x => x.id === id);
       if (!r) return;
@@ -1561,6 +1788,16 @@ function setupSearchFilters(){
   $("#contact-search").addEventListener("input", (e) => { state.contactSearch = e.target.value; renderContacts(); });
   $("#contact-status-filter").addEventListener("change", (e) => { state.contactFilter = e.target.value; renderContacts(); });
 }
+function setupDialerFilters(){
+  $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderDialer(); });
+  $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderDialer(); });
+  $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderDialer(); });
+}
+function setupTaskFilters(){
+  $("#task-status-filter")?.addEventListener("change", (e) => { state.taskFilter.status = e.target.value; renderTasks(); });
+  $("#task-priority-filter")?.addEventListener("change", (e) => { state.taskFilter.priority = e.target.value; renderTasks(); });
+  $("#task-sort")?.addEventListener("change", (e) => { state.taskFilter.sort = e.target.value; renderTasks(); });
+}
 
 function setupQualifyModal(){
   $("#qualify-yes")?.addEventListener("click", () => resolveMeetingReview("qualified"));
@@ -1578,6 +1815,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupQualifyModal();
   setupCalendarNav();
   setupDialerImport();
+  setupDialerFilters();
+  setupTaskFilters();
   initAuth();
 });
 })();

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=2">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=2">
+<link rel="stylesheet" href="css/style.css?v=3">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=3">
 </head>
 <body>
 
@@ -111,6 +111,10 @@
       <button class="nav-item" data-page="deals">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         <span>Deals</span>
+      </button>
+      <button class="nav-item" data-page="tasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        <span>Tasks</span>
       </button>
       <button class="nav-item" data-page="prospecting">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -381,6 +385,46 @@
       <div class="kanban" id="kanban-board"></div>
     </section>
 
+    <!-- Tasks -->
+    <section class="page" id="page-tasks">
+      <div class="page-header">
+        <div><h2>Tasks</h2><p>Set tasks, attach a contact or deal, and keep on top of due dates.</p></div>
+        <button class="btn gold" id="add-task-btn">+ Add Task</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Open</div><div class="stat-value" id="tasks-stat-open">0</div></div>
+        <div class="stat-card"><div class="stat-label">Overdue</div><div class="stat-value" id="tasks-stat-overdue">0</div></div>
+        <div class="stat-card"><div class="stat-label">Due Today</div><div class="stat-value" id="tasks-stat-today">0</div></div>
+        <div class="stat-card"><div class="stat-label">Done</div><div class="stat-value" id="tasks-stat-done">0</div></div>
+      </div>
+      <div class="toolbar">
+        <select class="filter-select" id="task-status-filter">
+          <option value="open" selected>Open</option>
+          <option value="done">Done</option>
+          <option value="all">All</option>
+        </select>
+        <select class="filter-select" id="task-priority-filter">
+          <option value="">All Priorities</option>
+          <option value="urgent">Urgent</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+        <select class="filter-select" id="task-sort">
+          <option value="due_date" selected>Sort by Due Date</option>
+          <option value="priority">Sort by Priority</option>
+        </select>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>Task</th><th>Priority</th><th>Due</th><th>Status</th><th></th></tr></thead>
+            <tbody id="tasks-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- Prospecting -->
     <section class="page" id="page-prospecting">
       <div class="page-header">
@@ -408,6 +452,19 @@
         </div>
       </div>
 
+      <div class="toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="dialer-search" placeholder="Search name, company, notes...">
+        </div>
+        <select class="filter-select" id="dialer-filter-region">
+          <option value="">All Regions</option>
+        </select>
+        <select class="filter-select" id="dialer-filter-industry">
+          <option value="">All Industries</option>
+        </select>
+      </div>
+
       <div class="stat-grid">
         <div class="stat-card"><div class="stat-label">Prospects</div><div class="stat-value" id="dialer-stat-total">0</div></div>
         <div class="stat-card"><div class="stat-label">Dialed Today</div><div class="stat-value" id="dialer-stat-today">0</div></div>
@@ -429,7 +486,7 @@
             <div class="card-header"><h3>Queue</h3></div>
             <div class="table-wrap" style="max-height:560px;overflow-y:auto;">
               <table>
-                <thead><tr><th>Name</th><th>Phone</th><th>Calls</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>Phone</th><th>Target</th><th>Calls</th><th></th></tr></thead>
                 <tbody id="dialer-queue-tbody"></tbody>
               </table>
             </div>
@@ -533,7 +590,7 @@
         <div class="card">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Creative</th><th>Result</th><th>Added</th><th></th></tr></thead>
+              <thead><tr><th>Image</th><th>Creative</th><th>Result</th><th>Added</th><th></th></tr></thead>
               <tbody id="ad-creatives-tbody"></tbody>
             </table>
           </div>
@@ -685,14 +742,19 @@
 <!-- ───────── Modal: Add Prospect (Dialer) ───────── -->
 <div class="overlay" id="prospect-modal">
   <div class="modal">
-    <div class="modal-header"><h3>Add Prospect</h3><button class="modal-close" data-close="prospect-modal">&times;</button></div>
+    <div class="modal-header"><h3 id="prospect-modal-title">Add Prospect</h3><button class="modal-close" data-close="prospect-modal">&times;</button></div>
     <form id="prospect-form" class="modal-body">
+      <input type="hidden" id="prospect-form-id">
       <div class="field"><label>Name</label><input type="text" id="prospect-name" required></div>
       <div class="field-row">
         <div class="field"><label>Phone</label><input type="tel" id="prospect-phone"></div>
         <div class="field"><label>Company</label><input type="text" id="prospect-company"></div>
       </div>
       <div class="field"><label>Email</label><input type="email" id="prospect-email"></div>
+      <div class="field-row">
+        <div class="field"><label>Region</label><input type="text" id="prospect-region" placeholder="e.g. Auckland CBD"></div>
+        <div class="field"><label>Industry</label><input type="text" id="prospect-industry" placeholder="e.g. Real Estate"></div>
+      </div>
       <div class="field"><label>Notes</label><textarea id="prospect-notes" placeholder="Anything worth knowing before you call..."></textarea></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="prospect-modal">Cancel</button>
@@ -778,8 +840,9 @@
 <!-- ───────── Modal: Ad Creative ───────── -->
 <div class="overlay" id="ad-creative-modal">
   <div class="modal">
-    <div class="modal-header"><h3>Add Ad Creative</h3><button class="modal-close" data-close="ad-creative-modal">&times;</button></div>
+    <div class="modal-header"><h3 id="ad-creative-modal-title">Add Ad Creative</h3><button class="modal-close" data-close="ad-creative-modal">&times;</button></div>
     <form id="ad-creative-form" class="modal-body">
+      <input type="hidden" id="ad-creative-form-id">
       <div class="field"><label>Creative Name</label><input type="text" id="ad-creative-name" required placeholder="e.g. Drone listing reel v1"></div>
       <div class="field"><label>Result</label>
         <select id="ad-creative-result">
@@ -787,6 +850,11 @@
           <option value="winner">Winner</option>
           <option value="killed">Killed</option>
         </select>
+      </div>
+      <div class="field">
+        <label>Image</label>
+        <div id="ad-creative-current-image"></div>
+        <input type="file" id="ad-creative-image" accept="image/*">
       </div>
       <div class="field"><label>Notes</label><textarea id="ad-creative-notes" placeholder="Performance notes, CPL, CTR..."></textarea></div>
       <div class="modal-actions">
@@ -819,6 +887,37 @@
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="campaign-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Campaign</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Task ───────── -->
+<div class="overlay" id="task-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="task-modal-title">Add Task</h3><button class="modal-close" data-close="task-modal">&times;</button></div>
+    <form id="task-form" class="modal-body">
+      <input type="hidden" id="task-form-id">
+      <div class="field"><label>Title</label><input type="text" id="task-title" required placeholder="e.g. Send Kauri contract for signature"></div>
+      <div class="field-row">
+        <div class="field"><label>Due Date</label><input type="date" id="task-due-date"></div>
+        <div class="field"><label>Priority</label>
+          <select id="task-priority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Contact (optional)</label><select id="task-contact-select"></select></div>
+        <div class="field"><label>Deal (optional)</label><select id="task-deal-select"></select></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="task-notes" placeholder="Anything worth remembering..."></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="task-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Task</button>
       </div>
     </form>
   </div>
@@ -870,10 +969,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="js/config.js?v=2"></script>
-<script src="js/supabaseClient.js?v=2"></script>
-<script src="js/app.js?v=2"></script>
-<script src="js/meetings-tracker.js?v=2"></script>
-<script src="js/todo.js?v=2"></script>
+<script src="js/config.js?v=3"></script>
+<script src="js/supabaseClient.js?v=3"></script>
+<script src="js/app.js?v=3"></script>
+<script src="js/meetings-tracker.js?v=3"></script>
+<script src="js/todo.js?v=3"></script>
 </body>
 </html>

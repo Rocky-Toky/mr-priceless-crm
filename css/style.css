@@ -247,7 +247,16 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .content-card h5{font-size:13.5px;font-weight:700;letter-spacing:-0.005em;line-height:1.35;}
 .content-card-foot{display:flex;justify-content:flex-end;align-items:center;margin-top:8px;}
 
+/* ───────── Tasks ───────── */
+.task-check{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--white);cursor:pointer;transition:all .2s cubic-bezier(.34,1.8,.64,1);}
+.task-check svg{width:12px;height:12px;color:var(--white);opacity:0;transform:scale(.2);transition:all .2s cubic-bezier(.34,1.8,.64,1);}
+.task-check.done{background:linear-gradient(150deg,var(--gold-bright),var(--gold));border-color:var(--gold);}
+.task-check.done svg{opacity:1;transform:scale(1);}
+
 /* ───────── Clients ───────── */
+.ad-creative-thumb{width:56px;height:42px;border-radius:7px;object-fit:cover;border:1px solid var(--line);display:block;cursor:pointer;background:#f1eee6;}
+.ad-creative-thumb-empty{cursor:default;}
+#ad-creative-current-image .ad-creative-thumb{width:120px;height:90px;margin-bottom:8px;cursor:default;}
 .client-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;}
 .client-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--r);
