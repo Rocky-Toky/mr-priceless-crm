@@ -73,6 +73,7 @@ const state = {
   campaigns: [],
   dealContacts: [],
   tasks: [],
+  clientReports: [],
   selectedClientId: null,
   dialerFilter: { search: "", region: "", industry: "" },
   taskFilter: { status: "open", priority: "", sort: "due_date" },
@@ -146,8 +147,8 @@ function seedDemo(){
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
-    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString() },
-    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString() },
+    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, meta_ad_account_id:"act_1234567890", report_email:"aroha@kauriproperty.co.nz", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*32).toISOString(), created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString() },
+    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.clientContent = [
     { id:uid(), client_id:cl1, type:"video", status:"idea", title:"Listing walkthrough - 14 Marama Rd", directions:"Golden hour, drone opening shot, 45-60s.", script:"", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
@@ -173,13 +174,18 @@ function seedDemo(){
     { id:uid(), title:"Prep Summit Dental ad creative review", notes:"", due_date:new Date(Date.now()+86400e3*5).toISOString().slice(0,10), priority:"medium", status:"open", contact_id:c2, deal_id:null, created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), title:"Renew domain for agency site", notes:"", due_date:null, priority:"low", status:"open", contact_id:null, deal_id:null, created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date().toISOString() },
   ];
+  state.clientReports = [
+    { id:uid(), client_id:cl1, period_start:new Date(Date.now()-86400e3*62).toISOString().slice(0,10), period_end:new Date(Date.now()-86400e3*32).toISOString().slice(0,10),
+      metrics:{ spend:"842.50", impressions:"48210", reach:"21340", clicks:"612", ctr:"1.27", cpc:"1.38", cpm:"17.47", actions:[{action_type:"lead",value:"19"}], cost_per_action_type:[{action_type:"lead",value:"44.34"}] },
+      status:"sent", error:null, created_at:new Date(Date.now()-86400e3*32).toISOString() },
+  ];
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -191,6 +197,7 @@ const DataLayer = {
       supabase.from("client_campaigns").select("*").order("created_at",{ascending:false}),
       supabase.from("deal_contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("tasks").select("*").order("created_at",{ascending:false}),
+      supabase.from("client_reports").select("*").order("created_at",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -203,6 +210,7 @@ const DataLayer = {
     state.campaigns = camp.data || [];
     state.dealContacts = dc.data || [];
     state.tasks = tk.data || [];
+    state.clientReports = crep.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -254,6 +262,7 @@ function stateArray(table){
     prospecting_regions: state.regions, dial_prospects: state.prospects,
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
     client_campaigns: state.campaigns, deal_contacts: state.dealContacts, tasks: state.tasks,
+    client_reports: state.clientReports,
   }[table];
 }
 
@@ -274,6 +283,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"client_campaigns" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"deal_contacts" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"tasks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"client_reports" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -999,6 +1009,95 @@ function renderTasks(){
   `;}).join("");
 }
 
+/* ───────── Render: Reporting (Meta Ads client reports) ───────── */
+function reportDueLabel(client){
+  if (client.report_frequency === "off") return "Off";
+  const days = client.report_frequency === "weekly" ? 7 : 30;
+  if (!client.last_report_sent_at) return "Due now";
+  const dueAt = new Date(client.last_report_sent_at).getTime() + days*24*60*60*1000;
+  return dueAt <= Date.now() ? "Due now" : fmtDate(new Date(dueAt));
+}
+function renderReporting(){
+  const tbody = $("#reporting-tbody");
+  if (!tbody) return;
+  const configured = state.clients.filter(c => c.meta_ad_account_id);
+  $("#reporting-stat-configured").textContent = configured.length;
+  $("#reporting-stat-due").textContent = configured.filter(c => reportDueLabel(c) === "Due now").length;
+  $("#reporting-stat-sent").textContent = state.clientReports.filter(r => r.status === "sent").length;
+
+  if (!configured.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No clients have a Meta Ad Account linked yet. Add one from a client's Edit Client form.")}</td></tr>`; return; }
+  tbody.innerHTML = configured.map(c => {
+    const reportCount = state.clientReports.filter(r => r.client_id === c.id).length;
+    return `
+      <tr data-id="${c.id}">
+        <td><div class="row-name">${escapeHtml(c.name)}</div><div class="row-sub">${escapeHtml(c.meta_ad_account_id)}</div></td>
+        <td><span class="badge gray">${c.report_frequency}</span></td>
+        <td>${c.last_report_sent_at ? fmtDate(c.last_report_sent_at) : "Never"}</td>
+        <td>${reportDueLabel(c)}</td>
+        <td>${escapeHtml(c.report_email || "-")}</td>
+        <td style="text-align:right;white-space:nowrap;">
+          <button class="btn ghost" data-action="view-report-history" data-id="${c.id}">History (${reportCount})</button>
+          <button class="btn gold" data-action="send-report-now" data-id="${c.id}">Send Now</button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+}
+async function sendReportNow(clientId){
+  const client = state.clients.find(c => c.id === clientId);
+  if (!client) return;
+  if (!client.meta_ad_account_id || !client.report_email){ alert("This client needs a Meta Ad Account ID and a report email set first."); return; }
+  if (!IS_CONFIGURED){
+    // Demo mode: simulate what the real Edge Function would do, so the flow is testable without live Meta/Resend credentials.
+    const periodDays = client.report_frequency === "weekly" ? 7 : 30;
+    const periodEnd = new Date(), periodStart = new Date(Date.now() - periodDays*86400e3);
+    await DataLayer.insert("client_reports", {
+      client_id: clientId,
+      period_start: periodStart.toISOString().slice(0,10),
+      period_end: periodEnd.toISOString().slice(0,10),
+      metrics: { spend:"512.00", impressions:"30120", reach:"14802", clicks:"401", ctr:"1.33", cpc:"1.28", cpm:"17.00", actions:[{action_type:"lead",value:"12"}], cost_per_action_type:[{action_type:"lead",value:"42.67"}] },
+      status: "sent",
+    });
+    await DataLayer.update("clients", clientId, { last_report_sent_at: new Date().toISOString() });
+    alert(`Demo mode: simulated sending ${client.name}'s report to ${client.report_email}. Connect Supabase + Meta + Resend for a real send.`);
+    return;
+  }
+  const btn = document.querySelector(`[data-action="send-report-now"][data-id="${clientId}"]`);
+  if (btn){ btn.disabled = true; btn.textContent = "Sending..."; }
+  const { data, error } = await supabase.functions.invoke("generate-client-reports", { body: { client_id: clientId } });
+  if (error){ alert("Couldn't send the report: " + error.message); }
+  else if (data?.results?.[0]?.status === "failed"){ alert("Report failed: " + data.results[0].error); }
+  else { alert(`Report sent to ${client.report_email}.`); }
+  await DataLayer.fetchAll(); renderAll();
+}
+function renderReportHistoryModal(clientId){
+  const client = state.clients.find(c => c.id === clientId);
+  if (!client) return;
+  $("#report-history-title").textContent = `${client.name} - Report History`;
+  const reports = state.clientReports.filter(r => r.client_id === clientId).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
+  const body = $("#report-history-body");
+  if (!reports.length){ body.innerHTML = emptyState("No reports sent yet."); return; }
+  body.innerHTML = `
+    <table>
+      <thead><tr><th>Period</th><th>Spend</th><th>Results</th><th>Status</th></tr></thead>
+      <tbody>
+        ${reports.map(r => {
+          const m = r.metrics || {};
+          const actions = m.actions || [];
+          const resultsText = actions.length ? actions.map(a => `${a.value} ${String(a.action_type).replace(/_/g," ")}`).join(", ") : "-";
+          return `<tr>
+            <td>${fmtDate(r.period_start)} - ${fmtDate(r.period_end)}</td>
+            <td>${m.spend != null ? fmtMoney(m.spend) : "-"}</td>
+            <td>${escapeHtml(resultsText)}</td>
+            <td><span class="badge ${r.status==='sent'?'green':'red'}">${r.status}</span>${r.error ? `<div class="row-sub">${escapeHtml(r.error)}</div>` : ""}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+  openModal("report-history-modal");
+}
+
 /* ───────── Render: Prospecting (by region) ───────── */
 function renderRegions(){
   const tbody = $("#regions-tbody");
@@ -1033,6 +1132,7 @@ function renderAll(){
   renderDialer();
   renderClients();
   renderTasks();
+  renderReporting();
   renderTeam();
   renderCalendarGrid();
   fillContactDropdowns();
@@ -1540,6 +1640,9 @@ function setupModals(){
       name: $("#client-name").value.trim(),
       cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
       notes: $("#client-notes").value.trim(),
+      meta_ad_account_id: $("#client-meta-account").value.trim(),
+      report_frequency: $("#client-report-frequency").value,
+      report_email: $("#client-report-email").value.trim(),
       updated_at: new Date().toISOString(),
     };
     if (!row.name) return;
@@ -1688,6 +1791,9 @@ function setupModals(){
       $("#client-name").value = c.name||"";
       $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
       $("#client-notes").value = c.notes||"";
+      $("#client-meta-account").value = c.meta_ad_account_id||"";
+      $("#client-report-frequency").value = c.report_frequency||"monthly";
+      $("#client-report-email").value = c.report_email||"";
       $("#client-modal-title").textContent = "Edit Client";
       openModal("client-modal");
     }
@@ -1756,6 +1862,8 @@ function setupModals(){
       openModal("task-modal");
     }
     if (action === "delete-task" && confirm("Delete this task?")) await DataLayer.remove("tasks", id);
+    if (action === "send-report-now") await sendReportNow(id);
+    if (action === "view-report-history") renderReportHistoryModal(id);
     if (action === "edit-region"){
       const r = state.regions.find(x => x.id === id);
       if (!r) return;
