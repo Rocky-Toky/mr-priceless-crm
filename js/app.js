@@ -4,6 +4,12 @@
 
 const { supabase, IS_CONFIGURED } = window.CRM_DB;
 
+// Only these tables actually have a created_by column (see sql/schema.sql) -
+// every table added since (dial_prospects, clients, client_content,
+// client_ad_creatives, client_campaigns, deal_contacts, prospecting_regions)
+// does not, and Supabase rejects inserts with an unknown column.
+const TABLES_WITH_CREATED_BY = new Set(["contacts", "cold_calls", "deals"]);
+
 const STAGES = [
   { key: "not_qualified", label: "Not Qualified" },
   { key: "qualified", label: "Qualified" },
@@ -180,7 +186,7 @@ const DataLayer = {
     state.dealContacts = dc.data || [];
   },
   async insert(table, row){
-    row.created_by = state.user ? state.user.email : "demo";
+    if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
     if (!IS_CONFIGURED){
       row.id = uid(); row.created_at = new Date().toISOString();
       stateArray(table).unshift(row);
