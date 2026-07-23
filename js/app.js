@@ -113,6 +113,15 @@ const timeAgo = (iso) => {
 };
 const uid = () => "id-" + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
 const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// Twilio needs E.164 (+<country code><number>). Prospect numbers are usually entered in
+// local NZ format (e.g. "021 555 0111"), so assume NZ (+64) unless a "+" is already present.
+const toE164 = (phone, defaultCountryCode = "64") => {
+  const raw = String(phone||"").trim();
+  if (!raw) return "";
+  if (raw.startsWith("+")) return "+" + raw.replace(/[^0-9]/g, "");
+  const national = raw.replace(/[^0-9]/g, "").replace(/^0+/, "");
+  return national ? "+" + defaultCountryCode + national : "";
+};
 
 /* ───────── Demo seed (used only when Supabase isn't configured) ───────── */
 function seedDemo(){
@@ -761,9 +770,10 @@ async function startCall(prospectId){
   const device = await getVoiceDevice();
   if (!device) return;
 
+  const digits = toE164(p.phone);
+  if (!digits){ alert("This prospect doesn't have a usable phone number."); return; }
   setCallWidget(true, { name: p.name, status: "Calling…" });
   activeCallProspectId = prospectId;
-  const digits = p.phone.replace(/[^0-9+]/g, "");
   activeCall = await device.connect({ params: { To: digits } });
 
   activeCall.on("accept", () => setCallWidget(true, { status: "In call" }));
