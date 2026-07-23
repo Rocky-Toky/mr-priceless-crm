@@ -156,6 +156,39 @@ In the CRM, open a client → **Edit Client**, and fill in:
 
 Once saved, that client shows up on the **Reporting** page. Reports send automatically once a day when they're due, or you can click **Send Now** any time for an ad-hoc report.
 
+## 9. Set up real outbound calling in the Dialer (optional)
+
+The **Dialer**'s "Call" button places a real phone call straight from the browser (your mic and speakers) to the prospect's number, using [Twilio](https://www.twilio.com) Voice. No SQL migration is needed for this - it reuses the existing `dial_prospects` fields. Two things need setting up: a Twilio phone number, and two Supabase secrets/functions.
+
+**A. Twilio account, number, and TwiML App**
+
+1. Sign up at [twilio.com/try-twilio](https://www.twilio.com/try-twilio) (or use an existing Twilio account/number if you already have one).
+2. **Phone Numbers → Manage → Buy a number** - pick a number with **Voice** capability in whichever country you'll mostly be calling.
+3. **Voice → Manage → TwiML Apps → Create new TwiML App**. Name it anything, and set the **Voice Request URL** to:
+   ```
+   https://xxxxxxxx.supabase.co/functions/v1/voice-twiml
+   ```
+   (replace `xxxxxxxx` with your Supabase project ref). Method: HTTP POST.
+4. Go back to your phone number's settings (**Phone Numbers → Manage → Active Numbers** → click the number) and under **Voice Configuration**, set "A call comes in" to **TwiML App**, and select the app you just created.
+5. **Account → API keys & tokens → Create API key**. Type: **Standard**. Copy the **SID** and **Secret** immediately - the secret is only shown once.
+6. Note down your **Account SID** (Account → General settings), the **API Key SID + Secret**, the **TwiML App SID**, and the phone number you bought.
+
+**B. Set the secrets and deploy the two functions**
+
+```
+supabase secrets set TWILIO_ACCOUNT_SID=ACxxxxx
+supabase secrets set TWILIO_API_KEY_SID=SKxxxxx
+supabase secrets set TWILIO_API_KEY_SECRET=xxxxx
+supabase secrets set TWILIO_TWIML_APP_SID=APxxxxx
+supabase secrets set TWILIO_CALLER_ID=+61xxxxxxxxx
+supabase functions deploy voice-token
+supabase functions deploy voice-twiml
+```
+
+`voice-token` mints a short-lived access token for whoever's signed in when they click Call - it never touches the browser without going through the allowlist check first. `voice-twiml` is what Twilio calls the instant a call connects, telling it which real number to dial and which of your numbers to show as caller ID - it's not a page anyone visits directly.
+
+Once deployed, the Dialer's Call button starts making real calls immediately - no further app changes needed.
+
 ## How the pieces fit together
 
 - **Login & access control**: sign-in is Google-only. The `allowlist` table is the actual gatekeeper - anyone can technically click "Sign in with Google," but the app checks their email against `allowlist` and shows a "not authorized" screen if they're not on it. Every table's Row Level Security policy re-checks the same allowlist, so even a signed-in-but-uninvited account can't read or write data.

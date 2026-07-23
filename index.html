@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=4">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=4">
+<link rel="stylesheet" href="css/style.css?v=5">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=5">
 </head>
 <body>
 
@@ -1010,12 +1010,25 @@
   </div>
 </div>
 
+<!-- ───────── Call Widget (real outbound calling via Twilio) ───────── -->
+<div id="call-widget" class="call-widget hidden">
+  <div class="call-widget-info">
+    <div class="call-widget-name" id="call-widget-name">—</div>
+    <div class="call-widget-status" id="call-widget-status">Calling…</div>
+  </div>
+  <div class="call-widget-actions">
+    <button type="button" class="btn" id="call-widget-mute">Mute</button>
+    <button type="button" class="btn" id="call-widget-hangup" style="background:#c0392b;color:#fff;">Hang Up</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="js/config.js?v=4"></script>
-<script src="js/supabaseClient.js?v=4"></script>
-<script src="js/app.js?v=4"></script>
-<script src="js/meetings-tracker.js?v=4"></script>
-<script src="js/todo.js?v=4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
+<script src="js/config.js?v=5"></script>
+<script src="js/supabaseClient.js?v=5"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/meetings-tracker.js?v=5"></script>
+<script src="js/todo.js?v=5"></script>
 </body>
 </html>

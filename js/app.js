@@ -681,7 +681,9 @@ function renderDialer(){
             <div style="font-size:11.5px;color:var(--text2);margin-top:6px;">${p.last_called_at ? "Last called " + timeAgo(p.last_called_at) : "Never called"}</div>
           </div>
         </div>
-        <a href="tel:${escapeHtml((p.phone||"").replace(/[^0-9+]/g,""))}" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="dial-tel" data-id="${p.id}">${p.phone ? "Call " + escapeHtml(p.phone) : "No phone number"}</a>
+        ${IS_CONFIGURED
+          ? `<button type="button" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${p.phone ? "Call " + escapeHtml(p.phone) : "No phone number"}</button>`
+          : `<a href="tel:${escapeHtml((p.phone||"").replace(/[^0-9+]/g,""))}" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="dial-tel" data-id="${p.id}">${p.phone ? "Call " + escapeHtml(p.phone) : "No phone number"}</a>`}
         ${p.notes ? `<div class="card" style="margin-top:14px;padding:12px 14px;background:#faf9f5;box-shadow:none;"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Notes</div><div style="font-size:13px;">${escapeHtml(p.notes)}</div></div>` : ""}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">
           ${OUTCOME_BUTTONS.map(o => `<button class="btn ${o.cls}" data-action="dial-outcome" data-outcome="${o.key}" data-id="${p.id}">${o.label}</button>`).join("")}
@@ -723,6 +725,75 @@ async function logDialOutcome(prospectId, outcome){
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
 }
+
+/* ───────── Twilio Voice (real outbound calling from the Dialer) ───────── */
+let voiceDevice = null;
+let activeCall = null;
+let activeCallProspectId = null;
+
+async function getVoiceDevice(){
+  if (voiceDevice) return voiceDevice;
+  if (typeof Twilio === "undefined"){ alert("Calling isn't available: the Twilio Voice SDK failed to load."); return null; }
+  const { data, error } = await supabase.functions.invoke("voice-token");
+  if (error || !data?.token){ alert("Couldn't start the call: " + (error?.message || "no token returned.")); return null; }
+  voiceDevice = new Twilio.Device(data.token, { codecPreferences: ["opus", "pcmu"] });
+  voiceDevice.on("tokenWillExpire", async () => {
+    const refreshed = await supabase.functions.invoke("voice-token");
+    if (refreshed.data?.token) voiceDevice.updateToken(refreshed.data.token);
+  });
+  voiceDevice.on("error", (e) => { alert("Call error: " + (e?.message || "unknown error")); endCall(); });
+  await voiceDevice.register();
+  return voiceDevice;
+}
+
+function setCallWidget(open, { name, status } = {}){
+  const widget = $("#call-widget");
+  if (!widget) return;
+  widget.classList.toggle("hidden", !open);
+  if (name !== undefined) $("#call-widget-name").textContent = name;
+  if (status !== undefined) $("#call-widget-status").textContent = status;
+}
+
+async function startCall(prospectId){
+  const p = state.prospects.find(x => x.id === prospectId);
+  if (!p || !p.phone) return;
+  if (activeCall){ alert("You're already on a call. Hang up first."); return; }
+  const device = await getVoiceDevice();
+  if (!device) return;
+
+  setCallWidget(true, { name: p.name, status: "Calling…" });
+  activeCallProspectId = prospectId;
+  const digits = p.phone.replace(/[^0-9+]/g, "");
+  activeCall = await device.connect({ params: { To: digits } });
+
+  activeCall.on("accept", () => setCallWidget(true, { status: "In call" }));
+  activeCall.on("disconnect", () => endCall());
+  activeCall.on("cancel", () => endCall());
+  activeCall.on("reject", () => endCall());
+  activeCall.on("error", (e) => { alert("Call error: " + (e?.message || "unknown error")); endCall(); });
+
+  await logDialOutcome(prospectId, "dialed");
+}
+
+function endCall(){
+  if (activeCall){ try { activeCall.disconnect(); } catch {} }
+  activeCall = null;
+  activeCallProspectId = null;
+  setCallWidget(false);
+  const muteBtn = $("#call-widget-mute");
+  if (muteBtn) muteBtn.textContent = "Mute";
+}
+
+function setupCallWidget(){
+  $("#call-widget-hangup")?.addEventListener("click", () => endCall());
+  $("#call-widget-mute")?.addEventListener("click", (e) => {
+    if (!activeCall) return;
+    const muted = !activeCall.isMuted();
+    activeCall.mute(muted);
+    e.target.textContent = muted ? "Unmute" : "Mute";
+  });
+}
+
 function parseCsv(text){
   const rows = [];
   let row = [], field = "", inQuotes = false;
@@ -1781,6 +1852,7 @@ function setupModals(){
       }
     }
     if (action === "dial-tel") await logDialOutcome(id, "dialed");
+    if (action === "start-call") await startCall(id);
     if (action === "dial-outcome") await logDialOutcome(id, outcome);
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
@@ -1924,6 +1996,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCalendarNav();
   setupDialerImport();
   setupDialerFilters();
+  setupCallWidget();
   setupTaskFilters();
   initAuth();
 });
