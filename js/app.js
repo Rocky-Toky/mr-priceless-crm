@@ -616,9 +616,16 @@ async function markDealCalled(dealId){
   await DataLayer.fetchAll(); renderAll();
 }
 async function saveDealNotes(dealId){
+  const btn = $("#deal-detail-save-notes");
   const notes = $("#deal-detail-notes").value.trim();
-  await DataLayer.update("deals", dealId, { notes, updated_at: new Date().toISOString() });
-  if (!IS_CONFIGURED) return;
+  if (btn){ btn.disabled = true; btn.textContent = "Saving..."; }
+  const saved = await DataLayer.update("deals", dealId, { notes, updated_at: new Date().toISOString() });
+  if (btn){
+    btn.disabled = false;
+    btn.textContent = saved ? "Saved" : "Save Notes";
+    if (saved) setTimeout(() => { if ($("#deal-detail-save-notes")) $("#deal-detail-save-notes").textContent = "Save Notes"; }, 1500);
+  }
+  if (!saved || !IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
 }
 function setupDragDrop(){
