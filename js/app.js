@@ -74,7 +74,9 @@ const state = {
   dealContacts: [],
   tasks: [],
   clientReports: [],
+  notes: [],
   selectedClientId: null,
+  selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "" },
   taskFilter: { status: "open", priority: "", sort: "due_date" },
   team: [],
@@ -194,7 +196,7 @@ function seedDemo(){
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -207,6 +209,7 @@ const DataLayer = {
       supabase.from("deal_contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("tasks").select("*").order("created_at",{ascending:false}),
       supabase.from("client_reports").select("*").order("created_at",{ascending:false}),
+      supabase.from("notes").select("*").order("created_at",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -220,6 +223,7 @@ const DataLayer = {
     state.dealContacts = dc.data || [];
     state.tasks = tk.data || [];
     state.clientReports = crep.data || [];
+    state.notes = nt.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -271,7 +275,7 @@ function stateArray(table){
     prospecting_regions: state.regions, dial_prospects: state.prospects,
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
     client_campaigns: state.campaigns, deal_contacts: state.dealContacts, tasks: state.tasks,
-    client_reports: state.clientReports,
+    client_reports: state.clientReports, notes: state.notes,
   }[table];
 }
 
@@ -293,6 +297,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"deal_contacts" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"tasks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"client_reports" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -527,6 +532,23 @@ function renderContacts(){
 
 /* ───────── Render: Deals (Kanban) ───────── */
 function renderDeals(){
+  const listView = $("#deals-list-view");
+  const detailView = $("#deal-detail-view");
+  if (!listView || !detailView) return;
+
+  const selected = state.deals.find(d => d.id === state.selectedDealId);
+  if (!selected){
+    state.selectedDealId = null;
+    listView.style.display = "";
+    detailView.style.display = "none";
+    renderDealsList();
+  } else {
+    listView.style.display = "none";
+    detailView.style.display = "";
+    renderDealDetail(selected);
+  }
+}
+function renderDealsList(){
   const board = $("#kanban-board");
   const totalEl = $("#pipeline-total");
   if (totalEl) totalEl.textContent = fmtMoney(state.deals.reduce((s,d) => s + Number(d.value||0), 0));
@@ -543,7 +565,7 @@ function renderDeals(){
         ${deals.map(d => {
           const extraContacts = dealContactsFor(d.id);
           return `
-          <div class="deal-card" draggable="true" data-id="${d.id}">
+          <div class="deal-card" draggable="true" data-id="${d.id}" data-action="view-deal">
             <h5>${escapeHtml(d.title)}</h5>
             <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}</div>
             ${extraContacts.length ? `<div class="deal-extra-contacts">${extraContacts.map(dc => `${escapeHtml(dc.role||"Contact")}: ${escapeHtml(dc.name)}`).join(", ")}</div>` : ""}
@@ -557,6 +579,47 @@ function renderDeals(){
     `;
   }).join("");
   setupDragDrop();
+}
+function dealActivityFor(dealId){
+  return state.notes.filter(n => n.deal_id === dealId).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+}
+function renderDealDetail(deal){
+  $("#deal-detail-title").textContent = deal.title;
+  $("#deal-detail-value").textContent = fmtMoney(deal.value);
+  $("#deal-detail-delete").dataset.id = deal.id;
+  $("#deal-detail-notes").value = deal.notes || "";
+
+  const contactsBody = $("#deal-detail-contacts");
+  const extraContacts = dealContactsFor(deal.id);
+  const primary = deal.contact_id ? state.contacts.find(c => c.id === deal.contact_id) : null;
+  const rows = [];
+  if (primary) rows.push({ name: primary.name, phone: primary.phone, role: "Primary" });
+  else if (deal.contact_name) rows.push({ name: deal.contact_name, phone: "", role: "Primary" });
+  extraContacts.forEach(dc => rows.push({ name: dc.name, phone: dc.phone, role: dc.role || "Contact" }));
+  contactsBody.innerHTML = rows.length
+    ? rows.map(r => `<div style="margin-bottom:8px;"><b>${escapeHtml(r.name)}</b> ${r.phone ? "· " + escapeHtml(r.phone) : ""} <span class="badge gray" style="margin-left:6px;">${escapeHtml(r.role)}</span></div>`).join("")
+    : `<span style="color:var(--text2);">No contact linked to this deal.</span>`;
+
+  const activity = dealActivityFor(deal.id);
+  const activityBody = $("#deal-detail-activity");
+  activityBody.innerHTML = activity.length
+    ? activity.map(a => `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="16" height="16" style="color:var(--gold);flex-shrink:0;"><path d="M20 6L9 17l-5-5"/></svg><span>${escapeHtml(a.body)}</span><span style="margin-left:auto;color:var(--text2);font-size:12px;">${fmtDate(a.created_at)}</span></div>`).join("")
+    : `<span style="color:var(--text2);">No calls logged yet.</span>`;
+}
+async function markDealCalled(dealId){
+  await DataLayer.insert("notes", {
+    deal_id: dealId,
+    title: "Called",
+    body: `Called on ${fmtDate(new Date())}`,
+  });
+  if (!IS_CONFIGURED) return;
+  await DataLayer.fetchAll(); renderAll();
+}
+async function saveDealNotes(dealId){
+  const notes = $("#deal-detail-notes").value.trim();
+  await DataLayer.update("deals", dealId, { notes, updated_at: new Date().toISOString() });
+  if (!IS_CONFIGURED) return;
+  await DataLayer.fetchAll(); renderAll();
 }
 function setupDragDrop(){
   let draggedId = null;
@@ -1626,6 +1689,7 @@ function setupModals(){
     openModal("deal-modal");
   });
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
+  $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) saveDealNotes(state.selectedDealId); });
   $("#deal-contacts-rows")?.addEventListener("click", (e) => {
     const removeBtn = e.target.closest(".dc-remove");
     if (removeBtn) removeBtn.closest(".deal-contact-row")?.remove();
@@ -1835,6 +1899,9 @@ function setupModals(){
     const { action, id, outcome } = btn.dataset;
     if (action === "delete-contact" && confirm("Delete this contact?")) await DataLayer.remove("contacts", id);
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
+    if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }
+    if (action === "back-to-deals"){ state.selectedDealId = null; renderDeals(); }
+    if (action === "mark-deal-called") await markDealCalled(state.selectedDealId);
     if (action === "delete-region" && confirm("Delete this region?")) await DataLayer.remove("prospecting_regions", id);
     if (action === "delete-prospect" && confirm("Delete this prospect?")) await DataLayer.remove("dial_prospects", id);
     if (action === "edit-prospect"){

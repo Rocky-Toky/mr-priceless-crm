@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=6">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=6">
+<link rel="stylesheet" href="css/style.css?v=7">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=7">
 </head>
 <body>
 
@@ -382,11 +382,52 @@
 
     <!-- Deals -->
     <section class="page" id="page-deals">
-      <div class="page-header">
-        <div><h2>Deals</h2><p>Total pipeline value: <b id="pipeline-total" style="color:var(--gold);">$0</b></p></div>
-        <button class="btn gold" id="add-deal-btn">+ New Deal</button>
+      <div id="deals-list-view">
+        <div class="page-header">
+          <div><h2>Deals</h2><p>Total pipeline value: <b id="pipeline-total" style="color:var(--gold);">$0</b></p></div>
+          <button class="btn gold" id="add-deal-btn">+ New Deal</button>
+        </div>
+        <div class="kanban" id="kanban-board"></div>
       </div>
-      <div class="kanban" id="kanban-board"></div>
+
+      <div id="deal-detail-view" style="display:none;">
+        <div class="page-header">
+          <div>
+            <button class="btn ghost" data-action="back-to-deals" style="margin-bottom:12px;">← Pipeline</button>
+            <h2 id="deal-detail-title">Deal</h2>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span class="badge gold" id="deal-detail-value">$0</span>
+            <button class="icon-btn" data-action="delete-deal" id="deal-detail-delete" title="Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h3>Contact</h3></div>
+          <div class="card-body" id="deal-detail-contacts" style="font-size:13.5px;padding-bottom:16px;">-</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h3>Notes</h3></div>
+          <div style="padding:0 20px 16px;">
+            <textarea id="deal-detail-notes" rows="4" placeholder="Notes on this deal..." style="width:100%;resize:vertical;"></textarea>
+            <button class="btn gold" id="deal-detail-save-notes" style="margin-top:10px;">Save Notes</button>
+          </div>
+        </div>
+
+        <div class="page-header" style="margin-top:8px;">
+          <div><h3>Activity</h3><p>Log a call so you can see when you last reached out.</p></div>
+          <button class="btn gold" id="deal-detail-mark-called" data-action="mark-deal-called">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="16" height="16"><path d="M20 6L9 17l-5-5"/></svg>
+            Called them
+          </button>
+        </div>
+        <div class="card">
+          <div class="card-body" id="deal-detail-activity" style="padding-bottom:16px;">-</div>
+        </div>
+      </div>
     </section>
 
     <!-- Tasks -->
@@ -1025,10 +1066,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=6"></script>
-<script src="js/supabaseClient.js?v=6"></script>
-<script src="js/app.js?v=6"></script>
-<script src="js/meetings-tracker.js?v=6"></script>
-<script src="js/todo.js?v=6"></script>
+<script src="js/config.js?v=7"></script>
+<script src="js/supabaseClient.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
+<script src="js/meetings-tracker.js?v=7"></script>
+<script src="js/todo.js?v=7"></script>
 </body>
 </html>
