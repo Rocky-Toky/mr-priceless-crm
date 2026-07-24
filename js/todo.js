@@ -10,6 +10,8 @@
 const TODO_STORAGE_KEY = 'td_v2';
 const TODO_MAX = 5;
 const TODO_MIN_FOR_WIN = 3;
+const { supabase: todoSupabase, IS_CONFIGURED: todoIsConfigured } = window.CRM_DB;
+let todoUserId = null;
 
 function todoLocalDateKey(d){
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -24,25 +26,48 @@ function todoGetWeekStart(){
 function todoDefaultState(){
   return { weekStart: todoGetWeekStart(), tasks: [], history: {}, log: [] };
 }
-
-let todoState;
-try {
-  const raw = localStorage.getItem(TODO_STORAGE_KEY);
-  todoState = raw ? JSON.parse(raw) : todoDefaultState();
-  if (!todoState.tasks) todoState.tasks = [];
-  if (!todoState.history) todoState.history = {};
-  if (!todoState.log) todoState.log = [];
-  if (todoState.weekStart !== todoGetWeekStart()){
-    const prevDone = todoState.tasks.filter(t=>t.done).length;
-    const prevTotal = todoState.tasks.length;
-    if (todoState.weekStart) todoState.history[todoState.weekStart] = { done: prevDone, total: prevTotal };
-    todoState.weekStart = todoGetWeekStart();
-    todoState.tasks = [];
-    todoState.log = [];
+function todoNormalize(s){
+  if (!s.tasks) s.tasks = [];
+  if (!s.history) s.history = {};
+  if (!s.log) s.log = [];
+  if (s.weekStart !== todoGetWeekStart()){
+    const prevDone = s.tasks.filter(t=>t.done).length;
+    const prevTotal = s.tasks.length;
+    if (s.weekStart) s.history[s.weekStart] = { done: prevDone, total: prevTotal };
+    s.weekStart = todoGetWeekStart();
+    s.tasks = [];
+    s.log = [];
   }
-} catch(e){ todoState = todoDefaultState(); }
+  return s;
+}
 
-function todoSave(){ try { localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(todoState)); } catch(e){} }
+// Per-login persistence: real accounts sync through Supabase (so a reload,
+// a different device, or a browser wipe never loses your week); demo mode
+// falls back to localStorage same as before, since there's no real login.
+async function todoLoad(){
+  if (todoIsConfigured){
+    const { data: { user } } = await todoSupabase.auth.getUser();
+    todoUserId = user ? user.id : null;
+    if (todoUserId){
+      const { data } = await todoSupabase.from("user_widget_state").select("data").eq("user_id", todoUserId).eq("widget","todo").maybeSingle();
+      if (data && data.data) return todoNormalize(data.data);
+    }
+    return todoDefaultState();
+  }
+  try {
+    const raw = localStorage.getItem(TODO_STORAGE_KEY);
+    return raw ? todoNormalize(JSON.parse(raw)) : todoDefaultState();
+  } catch(e){ return todoDefaultState(); }
+}
+let todoState = todoDefaultState();
+
+async function todoSave(){
+  if (todoIsConfigured && todoUserId){
+    try { await todoSupabase.from("user_widget_state").upsert({ user_id: todoUserId, widget: "todo", data: todoState, updated_at: new Date().toISOString() }); } catch(e){}
+    return;
+  }
+  try { localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(todoState)); } catch(e){}
+}
 
 let todoCelebrated = false;
 
@@ -323,4 +348,7 @@ function todoRenderAll(){
   todoCelebrated = total >= TODO_MIN_FOR_WIN && done === total;
 }
 
-document.addEventListener('DOMContentLoaded', todoRenderAll);
+document.addEventListener('DOMContentLoaded', async () => {
+  todoState = await todoLoad();
+  todoRenderAll();
+});

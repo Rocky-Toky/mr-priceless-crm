@@ -9,6 +9,9 @@ const { supabase, IS_CONFIGURED } = window.CRM_DB;
 // client_ad_creatives, client_campaigns, deal_contacts, prospecting_regions)
 // does not, and Supabase rejects inserts with an unknown column.
 const TABLES_WITH_CREATED_BY = new Set(["contacts", "cold_calls", "deals"]);
+// These tables are per-login (see sql/013_per_login_scoping.sql) - every new
+// row is stamped with whoever created it so RLS can scope it to just them.
+const TABLES_WITH_USER_ID = new Set(["dial_prospects", "tasks"]);
 
 const STAGES = [
   { key: "not_qualified", label: "Not Qualified" },
@@ -227,6 +230,7 @@ const DataLayer = {
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
+    if (TABLES_WITH_USER_ID.has(table)) row.user_id = state.user ? state.user.id : null;
     if (!IS_CONFIGURED){
       row.id = uid(); row.created_at = new Date().toISOString();
       stateArray(table).unshift(row);

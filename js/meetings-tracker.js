@@ -451,6 +451,8 @@ function stopClouds(){
 ══════════════════════════════════════════ */
 const GOAL=2, CLOUD9=3, TOTAL=5;
 const STORAGE_KEY='mb_v7';
+const { supabase: mtrSupabase, IS_CONFIGURED: mtrIsConfigured } = window.CRM_DB;
+let mtrUserId = null;
 
 function localDateKey(d){
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -465,25 +467,49 @@ function defaultState(){
     {name:'Meeting booked 5',done:false,time:null,bonus:true}
   ],history:{},log:[]};
 }
-let state;
-try{
-  const raw = localStorage.getItem(STORAGE_KEY);
-  state = raw ? JSON.parse(raw) : defaultState();
-  if(!state.meetings) state.meetings = defaultState().meetings;
-  if(!state.history) state.history = {};
-  if(!state.log) state.log = [];
-  if(state.calls==null) state.calls = 0;
-  if(state.convos==null) state.convos = 0;
-  if(state.today !== getToday()){
-    const prev = state.today;
-    const doneCt = state.meetings.filter(m=>m.done).length;
-    if(prev) state.history[prev] = doneCt;
-    state.today = getToday();
-    state.meetings.forEach(m=>{m.done=false;m.time=null;});
-    state.log = []; state.calls = 0; state.convos = 0;
+function normalizeState(s){
+  if(!s.meetings) s.meetings = defaultState().meetings;
+  if(!s.history) s.history = {};
+  if(!s.log) s.log = [];
+  if(s.calls==null) s.calls = 0;
+  if(s.convos==null) s.convos = 0;
+  if(s.today !== getToday()){
+    const prev = s.today;
+    const doneCt = s.meetings.filter(m=>m.done).length;
+    if(prev) s.history[prev] = doneCt;
+    s.today = getToday();
+    s.meetings.forEach(m=>{m.done=false;m.time=null;});
+    s.log = []; s.calls = 0; s.convos = 0;
   }
-}catch(e){ state = defaultState(); }
-function save(){ try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}catch(e){} }
+  return s;
+}
+
+// Per-login persistence: real accounts sync through Supabase; demo mode
+// falls back to localStorage since there's no real login to scope it to.
+async function loadState(){
+  if (mtrIsConfigured){
+    const { data: { user } } = await mtrSupabase.auth.getUser();
+    mtrUserId = user ? user.id : null;
+    if (mtrUserId){
+      const { data } = await mtrSupabase.from("user_widget_state").select("data").eq("user_id", mtrUserId).eq("widget","meetings_tracker").maybeSingle();
+      if (data && data.data) return normalizeState(data.data);
+    }
+    return defaultState();
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? normalizeState(JSON.parse(raw)) : defaultState();
+  } catch(e){ return defaultState(); }
+}
+let state = defaultState();
+
+async function save(){
+  if (mtrIsConfigured && mtrUserId){
+    try { await mtrSupabase.from("user_widget_state").upsert({ user_id: mtrUserId, widget: "meetings_tracker", data: state, updated_at: new Date().toISOString() }); } catch(e){}
+    return;
+  }
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}catch(e){}
+}
 
 /* ══════════════════════════════════════════
    CONFETTI
@@ -977,4 +1003,7 @@ function resetDay(){
    INIT
 ══════════════════════════════════════════ */
 document.getElementById('date-chip').textContent=formatDate();
-renderAll();
+(async () => {
+  state = await loadState();
+  renderAll();
+})();
