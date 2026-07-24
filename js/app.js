@@ -451,12 +451,35 @@ function setupEmailAuth(){
 
 /* ───────── Navigation ───────── */
 function setupNav(){
-  $$(".nav-item").forEach(btn => {
+  $$(".nav-item[data-page]").forEach(btn => {
     btn.addEventListener("click", () => {
       state.page = btn.dataset.page;
-      $$(".nav-item").forEach(b => b.classList.toggle("active", b === btn));
+      $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));
       $$(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + state.page));
+      $("#nav-more-dropdown")?.classList.remove("open");
     });
+  });
+  $("#nav-more-toggle")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const toggle = e.currentTarget;
+    const dropdown = $("#nav-more-dropdown");
+    if (!dropdown) return;
+    const wasOpen = dropdown.classList.contains("open");
+    dropdown.classList.toggle("open", !wasOpen);
+    if (wasOpen) return;
+    const r = toggle.getBoundingClientRect();
+    const isNarrow = window.innerWidth <= 820;
+    let top = isNarrow ? r.bottom + 8 : r.top;
+    let left = isNarrow ? r.left : r.right + 8;
+    const dw = dropdown.offsetWidth, dh = dropdown.offsetHeight;
+    if (left + dw > window.innerWidth - 8) left = window.innerWidth - dw - 8;
+    if (top + dh > window.innerHeight - 8) top = window.innerHeight - dh - 8;
+    dropdown.style.left = left + "px";
+    dropdown.style.top = top + "px";
+  });
+  document.addEventListener("click", (e) => {
+    const group = $("#nav-more-toggle")?.closest(".nav-group");
+    if (group && !group.contains(e.target)) $("#nav-more-dropdown")?.classList.remove("open");
   });
   $("#signout-btn")?.addEventListener("click", async () => {
     if (IS_CONFIGURED) await supabase.auth.signOut();
@@ -581,13 +604,15 @@ function renderDealsList(){
   setupDragDrop();
 }
 function dealActivityFor(dealId){
-  return state.notes.filter(n => n.deal_id === dealId).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+  return state.notes.filter(n => n.deal_id === dealId && n.title === "Called").sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+}
+function dealNotesFor(dealId){
+  return state.notes.filter(n => n.deal_id === dealId && n.title === "Note").sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
 }
 function renderDealDetail(deal){
   $("#deal-detail-title").textContent = deal.title;
   $("#deal-detail-value").textContent = fmtMoney(deal.value);
   $("#deal-detail-delete").dataset.id = deal.id;
-  $("#deal-detail-notes").value = deal.notes || "";
 
   const contactsBody = $("#deal-detail-contacts");
   const extraContacts = dealContactsFor(deal.id);
@@ -599,6 +624,25 @@ function renderDealDetail(deal){
   contactsBody.innerHTML = rows.length
     ? rows.map(r => `<div style="margin-bottom:8px;"><b>${escapeHtml(r.name)}</b> ${r.phone ? "· " + escapeHtml(r.phone) : ""} <span class="badge gray" style="margin-left:6px;">${escapeHtml(r.role)}</span></div>`).join("")
     : `<span style="color:var(--text2);">No contact linked to this deal.</span>`;
+
+  const linkedIds = new Set(extraContacts.map(dc => dc.contact_id).filter(Boolean));
+  if (deal.contact_id) linkedIds.add(deal.contact_id);
+  const pickable = state.contacts.filter(c => !linkedIds.has(c.id));
+  const select = $("#deal-detail-contact-select");
+  if (select){
+    select.innerHTML = pickable.length
+      ? pickable.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")
+      : `<option value="">No other contacts to add</option>`;
+    select.disabled = !pickable.length;
+  }
+
+  const notes = dealNotesFor(deal.id);
+  const legacyNote = deal.notes ? [{ body: deal.notes, created_at: deal.updated_at || deal.created_at }] : [];
+  const allNotes = [...notes, ...legacyNote];
+  const notesList = $("#deal-detail-notes-list");
+  notesList.innerHTML = allNotes.length
+    ? allNotes.map(n => `<div style="padding:8px 0;border-bottom:1px solid var(--line);"><div style="font-size:13.5px;">${escapeHtml(n.body)}</div><div style="color:var(--text2);font-size:11.5px;margin-top:2px;">${fmtDate(n.created_at)}</div></div>`).join("")
+    : `<span style="color:var(--text2);">No notes yet.</span>`;
 
   const activity = dealActivityFor(deal.id);
   const activityBody = $("#deal-detail-activity");
@@ -615,16 +659,27 @@ async function markDealCalled(dealId){
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
 }
-async function saveDealNotes(dealId){
+async function addExistingContactToDeal(dealId){
+  const select = $("#deal-detail-contact-select");
+  const contactId = select?.value;
+  if (!contactId) return;
+  await DataLayer.insert("deal_contacts", { deal_id: dealId, contact_id: contactId, role: "Contact" });
+  if (!IS_CONFIGURED) return;
+  await DataLayer.fetchAll(); renderAll();
+}
+async function addDealNote(dealId){
   const btn = $("#deal-detail-save-notes");
-  const notes = $("#deal-detail-notes").value.trim();
+  const textarea = $("#deal-detail-notes");
+  const body = textarea.value.trim();
+  if (!body) return;
   if (btn){ btn.disabled = true; btn.textContent = "Saving..."; }
-  const saved = await DataLayer.update("deals", dealId, { notes, updated_at: new Date().toISOString() });
+  const saved = await DataLayer.insert("notes", { deal_id: dealId, title: "Note", body });
   if (btn){
     btn.disabled = false;
-    btn.textContent = saved ? "Saved" : "Save Notes";
-    if (saved) setTimeout(() => { if ($("#deal-detail-save-notes")) $("#deal-detail-save-notes").textContent = "Save Notes"; }, 1500);
+    btn.textContent = saved ? "Saved" : "Save Note";
+    if (saved) setTimeout(() => { if ($("#deal-detail-save-notes")) $("#deal-detail-save-notes").textContent = "Save Note"; }, 1500);
   }
+  if (saved) textarea.value = "";
   if (!saved || !IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
 }
@@ -1022,6 +1077,7 @@ function renderClientDetail(c){
   $("#client-detail-name").textContent = c.name;
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   $("#client-detail-notes").textContent = c.notes || "No notes yet.";
+  $("#client-detail-quotes").textContent = c.quotes_sent || 0;
 
   const campaigns = campaignsFor(c.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
   const running = campaigns.filter(x => x.status === "active");
@@ -1696,7 +1752,8 @@ function setupModals(){
     openModal("deal-modal");
   });
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
-  $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) saveDealNotes(state.selectedDealId); });
+  $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
+  $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
   $("#deal-contacts-rows")?.addEventListener("click", (e) => {
     const removeBtn = e.target.closest(".dc-remove");
     if (removeBtn) removeBtn.closest(".deal-contact-row")?.remove();
@@ -1957,6 +2014,14 @@ function setupModals(){
       await DataLayer.remove("clients", state.selectedClientId);
       state.selectedClientId = null;
       renderClients();
+    }
+    if (action === "quote-increment" || action === "quote-decrement"){
+      const client = state.clients.find(x => x.id === state.selectedClientId);
+      if (client){
+        const next = Math.max(0, Number(client.quotes_sent||0) + (action === "quote-increment" ? 1 : -1));
+        await DataLayer.update("clients", client.id, { quotes_sent: next });
+        if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+      }
     }
     if (action === "edit-content"){
       const p = state.clientContent.find(x => x.id === id);
