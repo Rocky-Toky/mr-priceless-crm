@@ -119,12 +119,18 @@ const timeAgo = (iso) => {
 const uid = () => "id-" + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
 const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Twilio needs E.164 (+<country code><number>). Prospect numbers are usually entered in
-// local NZ format (e.g. "021 555 0111"), so assume NZ (+64) unless a "+" is already present.
-const toE164 = (phone, defaultCountryCode = "64") => {
+// local AU format (e.g. "0412 345 678" or "04 1234 5678"), so assume AU (+61) unless a
+// country code is already present - either as a leading "+", or as bare digits
+// (e.g. "61412345678" or "0061412345678", both missing only the "+").
+const toE164 = (phone, defaultCountryCode = "61") => {
   const raw = String(phone||"").trim();
   if (!raw) return "";
   if (raw.startsWith("+")) return "+" + raw.replace(/[^0-9]/g, "");
-  const national = raw.replace(/[^0-9]/g, "").replace(/^0+/, "");
+  let digits = raw.replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("00")) digits = digits.slice(2); // "0061..." international dialing prefix
+  if (digits.startsWith(defaultCountryCode) && digits.length > 9) return "+" + digits;
+  const national = digits.replace(/^0+/, "");
   return national ? "+" + defaultCountryCode + national : "";
 };
 
@@ -871,6 +877,7 @@ let activeCallProspectId = null;
 
 async function getVoiceDevice(){
   if (voiceDevice) return voiceDevice;
+  if (!IS_CONFIGURED){ alert("Connect Supabase first (see README.md) to enable real calling."); return null; }
   if (typeof Twilio === "undefined"){ alert("Calling isn't available: the Twilio Voice SDK failed to load."); return null; }
   const { data, error } = await supabase.functions.invoke("voice-token");
   if (error || !data?.token){ alert("Couldn't start the call: " + (error?.message || "no token returned.")); return null; }
@@ -898,24 +905,21 @@ function setCallWidget(open, { name, status } = {}){
   if (status !== undefined) $("#call-widget-status").textContent = status;
 }
 
-async function startCall(prospectId){
-  const p = state.prospects.find(x => x.id === prospectId);
-  if (!p || !p.phone) return;
-  if (activeCall){ alert("You're already on a call. Hang up first."); return; }
+async function placeCall(phoneRaw, displayName){
+  if (activeCall){ alert("You're already on a call. Hang up first."); return false; }
+  const digits = toE164(phoneRaw);
+  if (!digits){ alert("That doesn't look like a usable phone number."); return false; }
   const device = await getVoiceDevice();
-  if (!device) return;
+  if (!device) return false;
 
-  const digits = toE164(p.phone);
-  if (!digits){ alert("This prospect doesn't have a usable phone number."); return; }
-  setCallWidget(true, { name: p.name, status: "Calling…" });
-  activeCallProspectId = prospectId;
+  setCallWidget(true, { name: displayName, status: "Calling…" });
   try {
     activeCall = await device.connect({ params: { To: digits } });
   } catch (e) {
     alert("Couldn't place the call: " + (e?.message || e));
     setCallWidget(false);
     activeCallProspectId = null;
-    return;
+    return false;
   }
 
   activeCall.on("accept", () => setCallWidget(true, { status: "In call" }));
@@ -923,8 +927,20 @@ async function startCall(prospectId){
   activeCall.on("cancel", () => endCall());
   activeCall.on("reject", () => endCall());
   activeCall.on("error", (e) => { alert("Call error: " + (e?.message || "unknown error")); endCall(); });
+  return true;
+}
 
+async function startCall(prospectId){
+  const p = state.prospects.find(x => x.id === prospectId);
+  if (!p || !p.phone) return;
+  activeCallProspectId = prospectId;
+  const ok = await placeCall(p.phone, p.name);
+  if (!ok){ activeCallProspectId = null; return; }
   await logDialOutcome(prospectId, "dialed");
+}
+
+async function startQuickCall(name, phone){
+  await placeCall(phone, name || phone);
 }
 
 function endCall(){
@@ -1770,6 +1786,15 @@ function setupModals(){
   });
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
+  $("#quick-call-btn")?.addEventListener("click", () => { $("#quick-call-form").reset(); openModal("quick-call-modal"); });
+  $("#quick-call-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#quick-call-name").value.trim();
+    const phone = $("#quick-call-phone").value.trim();
+    if (!phone) return;
+    closeModal("quick-call-modal");
+    await startQuickCall(name, phone);
+  });
   $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
   $("#deal-contacts-rows")?.addEventListener("click", (e) => {
     const removeBtn = e.target.closest(".dc-remove");
