@@ -874,14 +874,20 @@ async function getVoiceDevice(){
   if (typeof Twilio === "undefined"){ alert("Calling isn't available: the Twilio Voice SDK failed to load."); return null; }
   const { data, error } = await supabase.functions.invoke("voice-token");
   if (error || !data?.token){ alert("Couldn't start the call: " + (error?.message || "no token returned.")); return null; }
-  voiceDevice = new Twilio.Device(data.token, { codecPreferences: ["opus", "pcmu"] });
-  voiceDevice.on("tokenWillExpire", async () => {
-    const refreshed = await supabase.functions.invoke("voice-token");
-    if (refreshed.data?.token) voiceDevice.updateToken(refreshed.data.token);
-  });
-  voiceDevice.on("error", (e) => { alert("Call error: " + (e?.message || "unknown error")); endCall(); });
-  await voiceDevice.register();
-  return voiceDevice;
+  try {
+    voiceDevice = new Twilio.Device(data.token, { codecPreferences: ["opus", "pcmu"] });
+    voiceDevice.on("tokenWillExpire", async () => {
+      const refreshed = await supabase.functions.invoke("voice-token");
+      if (refreshed.data?.token) voiceDevice.updateToken(refreshed.data.token);
+    });
+    voiceDevice.on("error", (e) => { alert("Call error: " + (e?.message || "unknown error")); endCall(); });
+    await voiceDevice.register();
+    return voiceDevice;
+  } catch (e) {
+    voiceDevice = null;
+    alert("Couldn't set up calling: " + (e?.message || e));
+    return null;
+  }
 }
 
 function setCallWidget(open, { name, status } = {}){
@@ -903,7 +909,14 @@ async function startCall(prospectId){
   if (!digits){ alert("This prospect doesn't have a usable phone number."); return; }
   setCallWidget(true, { name: p.name, status: "Calling…" });
   activeCallProspectId = prospectId;
-  activeCall = await device.connect({ params: { To: digits } });
+  try {
+    activeCall = await device.connect({ params: { To: digits } });
+  } catch (e) {
+    alert("Couldn't place the call: " + (e?.message || e));
+    setCallWidget(false);
+    activeCallProspectId = null;
+    return;
+  }
 
   activeCall.on("accept", () => setCallWidget(true, { status: "In call" }));
   activeCall.on("disconnect", () => endCall());
