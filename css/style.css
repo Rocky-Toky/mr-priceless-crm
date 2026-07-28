@@ -258,6 +258,18 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .content-card h5{font-size:13.5px;font-weight:700;letter-spacing:-0.005em;line-height:1.35;}
 .content-card-foot{display:flex;justify-content:flex-end;align-items:center;margin-top:8px;}
 
+/* ───────── Playbooks ───────── */
+.playbook-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;}
+.playbook-card{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+  padding:16px 18px;box-shadow:var(--shadow);cursor:pointer;
+  transition:box-shadow .15s,transform .15s;
+}
+.playbook-card:hover{box-shadow:0 6px 18px rgba(20,15,5,0.1);transform:translateY(-2px);}
+.playbook-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.playbook-card-head h4{font-size:15px;font-weight:700;letter-spacing:-0.01em;}
+.playbook-card-preview{font-size:13px;color:var(--text2);line-height:1.5;white-space:pre-line;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;}
+
 /* ───────── Tasks ───────── */
 .task-check{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--white);cursor:pointer;transition:all .2s cubic-bezier(.34,1.8,.64,1);}
 .task-check svg{width:12px;height:12px;color:var(--white);opacity:0;transform:scale(.2);transition:all .2s cubic-bezier(.34,1.8,.64,1);}
@@ -266,9 +278,6 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 
 /* ───────── Call Widget ───────── */
 .hidden{display:none!important;}
-.quick-call-btn{position:fixed;top:20px;right:24px;z-index:400;width:44px;height:44px;border-radius:50%;border:none;background:linear-gradient(150deg,var(--gold-bright),var(--gold));color:var(--black);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 18px rgba(184,145,44,0.35);transition:transform .15s;}
-.quick-call-btn:hover{transform:scale(1.08);}
-.quick-call-btn svg{width:19px;height:19px;}
 .call-widget{position:fixed;bottom:24px;right:24px;z-index:500;display:flex;align-items:center;gap:18px;background:var(--black);color:var(--white);border-radius:14px;padding:14px 18px;box-shadow:0 12px 32px rgba(0,0,0,.28);min-width:280px;}
 .call-widget-name{font-weight:600;font-size:14.5px;}
 .call-widget-status{font-size:12px;color:var(--gold);margin-top:2px;}

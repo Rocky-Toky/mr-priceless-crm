@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=12">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=12">
+<link rel="stylesheet" href="css/style.css?v=13">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=13">
 </head>
 <body>
 
@@ -145,6 +145,10 @@
           <button class="nav-item" data-page="contacts">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
             <span>Contacts</span>
+          </button>
+          <button class="nav-item" data-page="playbooks">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+            <span>Playbooks</span>
           </button>
         </div>
       </div>
@@ -578,6 +582,15 @@
       </div>
     </section>
 
+    <!-- Playbooks -->
+    <section class="page" id="page-playbooks">
+      <div class="page-header">
+        <div><h2>Playbooks</h2><p>Sales scripts and process docs, shared with the whole team.</p></div>
+        <button class="btn gold" id="add-playbook-btn">+ Add Playbook</button>
+      </div>
+      <div class="playbook-grid" id="playbooks-grid"></div>
+    </section>
+
     <!-- Clients (retention workspace: content planning + ad creatives + CPL) -->
     <section class="page" id="page-clients">
       <div id="clients-list-view">
@@ -771,7 +784,18 @@
       <div class="field"><label>Company</label><input type="text" id="contact-company"></div>
       <div class="field-row">
         <div class="field"><label>Email</label><input type="email" id="contact-email"></div>
-        <div class="field"><label>Phone</label><input type="tel" id="contact-phone"></div>
+        <div class="field">
+          <label>Phone</label>
+          <div style="display:flex;gap:6px;">
+            <select id="contact-country-code" style="flex:0 0 88px;">
+              <option value="61" selected>🇦🇺 +61</option>
+              <option value="64">🇳🇿 +64</option>
+              <option value="1">🇺🇸 +1</option>
+              <option value="44">🇬🇧 +44</option>
+            </select>
+            <input type="tel" id="contact-phone" placeholder="412 345 678" style="flex:1;">
+          </div>
+        </div>
       </div>
       <div class="field-row">
         <div class="field"><label>Status</label>
@@ -787,6 +811,22 @@
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="contact-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Contact</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Playbook ───────── -->
+<div class="overlay" id="playbook-modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header"><h3 id="playbook-modal-title">Add Playbook</h3><button class="modal-close" data-close="playbook-modal">&times;</button></div>
+    <form id="playbook-form" class="modal-body">
+      <input type="hidden" id="playbook-form-id">
+      <div class="field"><label>Title</label><input type="text" id="playbook-title" required placeholder="e.g. Cold Call 1"></div>
+      <div class="field"><label>Script / Notes</label><textarea id="playbook-content" rows="14" placeholder="Write the script or process here..."></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="playbook-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Playbook</button>
       </div>
     </form>
   </div>
@@ -1070,25 +1110,6 @@
   </div>
 </div>
 
-<!-- ───────── Quick Call (dial any number, not just Dialer prospects) ───────── -->
-<button type="button" id="quick-call-btn" class="quick-call-btn" title="Call a number">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-</button>
-
-<div class="overlay" id="quick-call-modal">
-  <div class="modal" style="max-width:360px;">
-    <div class="modal-header"><h3>Call a Number</h3><button class="modal-close" data-close="quick-call-modal">&times;</button></div>
-    <form id="quick-call-form" class="modal-body">
-      <div class="field"><label>Name (optional)</label><input type="text" id="quick-call-name" placeholder="Who are you calling?"></div>
-      <div class="field"><label>Phone Number</label><input type="tel" id="quick-call-phone" required placeholder="e.g. 0412 345 678"></div>
-      <div class="modal-actions">
-        <button type="button" class="btn ghost" data-close="quick-call-modal">Cancel</button>
-        <button type="submit" class="btn gold">Call</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <!-- ───────── Call Widget (real outbound calling via Twilio) ───────── -->
 <div id="call-widget" class="call-widget hidden">
   <div class="call-widget-info">
@@ -1104,10 +1125,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=12"></script>
-<script src="js/supabaseClient.js?v=12"></script>
-<script src="js/app.js?v=12"></script>
-<script src="js/meetings-tracker.js?v=12"></script>
-<script src="js/todo.js?v=12"></script>
+<script src="js/config.js?v=13"></script>
+<script src="js/supabaseClient.js?v=13"></script>
+<script src="js/app.js?v=13"></script>
+<script src="js/meetings-tracker.js?v=13"></script>
+<script src="js/todo.js?v=13"></script>
 </body>
 </html>

@@ -78,6 +78,7 @@ const state = {
   tasks: [],
   clientReports: [],
   notes: [],
+  playbooks: [],
   selectedClientId: null,
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "" },
@@ -132,6 +133,16 @@ const toE164 = (phone, defaultCountryCode = "61") => {
   if (digits.startsWith(defaultCountryCode) && digits.length > 9) return "+" + digits;
   const national = digits.replace(/^0+/, "");
   return national ? "+" + defaultCountryCode + national : "";
+};
+// Splits a stored E.164 number back into {code, local} for editing forms that
+// show the country code as its own dropdown (e.g. the Contact modal).
+const KNOWN_COUNTRY_CODES = ["61","64","1","44"];
+const splitE164 = (phone) => {
+  const raw = String(phone||"").trim();
+  if (!raw.startsWith("+")) return { code: "61", local: raw };
+  const digits = raw.slice(1);
+  const code = KNOWN_COUNTRY_CODES.find(c => digits.startsWith(c)) || "61";
+  return { code, local: digits.slice(code.length) };
 };
 
 /* ───────── Demo seed (used only when Supabase isn't configured) ───────── */
@@ -199,13 +210,19 @@ function seedDemo(){
       metrics:{ spend:"842.50", impressions:"48210", reach:"21340", clicks:"612", ctr:"1.27", cpc:"1.38", cpm:"17.47", actions:[{action_type:"lead",value:"19"}], cost_per_action_type:[{action_type:"lead",value:"44.34"}] },
       status:"sent", error:null, created_at:new Date(Date.now()-86400e3*32).toISOString() },
   ];
+  state.playbooks = [
+    { id:uid(), title:"Cold Call 1", content:"Hi [Name], this is [Your Name] from Mr Priceless...\n\n1. Open with a reason for the call\n2. Ask a qualifying question\n3. Book the meeting", sort_order:0, created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Meeting 1", content:"Discovery meeting agenda:\n\n1. Rapport + context\n2. Uncover pain points\n3. Present the offer\n4. Handle objections\n5. Close or set next step", sort_order:1, created_at:new Date(Date.now()-86400e3*18).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Meeting 2", content:"Follow-up / closing meeting agenda:\n\n1. Recap agreed pain points\n2. Walk through proposal\n3. Handle final objections\n4. Ask for the sale", sort_order:2, created_at:new Date(Date.now()-86400e3*15).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Onboarding Process", content:"New client onboarding checklist:\n\n1. Send welcome email + contract\n2. Collect assets/logins\n3. Schedule kickoff call\n4. Set up ad accounts / tracking\n5. Confirm reporting cadence", sort_order:3, created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date().toISOString() },
+  ];
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -219,6 +236,7 @@ const DataLayer = {
       supabase.from("tasks").select("*").order("created_at",{ascending:false}),
       supabase.from("client_reports").select("*").order("created_at",{ascending:false}),
       supabase.from("notes").select("*").order("created_at",{ascending:false}),
+      supabase.from("playbooks").select("*").order("sort_order",{ascending:true}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -233,6 +251,7 @@ const DataLayer = {
     state.tasks = tk.data || [];
     state.clientReports = crep.data || [];
     state.notes = nt.data || [];
+    state.playbooks = pb.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -285,7 +304,7 @@ function stateArray(table){
     prospecting_regions: state.regions, dial_prospects: state.prospects,
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
     client_campaigns: state.campaigns, deal_contacts: state.dealContacts, tasks: state.tasks,
-    client_reports: state.clientReports, notes: state.notes,
+    client_reports: state.clientReports, notes: state.notes, playbooks: state.playbooks,
   }[table];
 }
 
@@ -308,6 +327,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"tasks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"client_reports" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"playbooks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -939,10 +959,6 @@ async function startCall(prospectId){
   await logDialOutcome(prospectId, "dialed");
 }
 
-async function startQuickCall(name, phone){
-  await placeCall(phone, name || phone);
-}
-
 function endCall(){
   if (activeCall){ try { activeCall.disconnect(); } catch {} }
   activeCall = null;
@@ -1375,7 +1391,25 @@ function renderAll(){
   renderReporting();
   renderTeam();
   renderCalendarGrid();
+  renderPlaybooks();
   fillContactDropdowns();
+}
+
+/* ───────── Playbooks ───────── */
+function renderPlaybooks(){
+  const grid = $("#playbooks-grid");
+  if (!grid) return;
+  const list = [...state.playbooks].sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
+  if (!list.length){ grid.innerHTML = emptyState("No playbooks yet. Add your first sales script."); return; }
+  grid.innerHTML = list.map(p => `
+    <div class="playbook-card" data-action="edit-playbook" data-id="${p.id}">
+      <div class="playbook-card-head">
+        <h4>${escapeHtml(p.title)}</h4>
+        <button class="icon-btn" data-action="delete-playbook" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
+      </div>
+      <p class="playbook-card-preview">${escapeHtml(p.content||"").slice(0,180) || "No content yet."}</p>
+    </div>
+  `).join("");
 }
 
 /* ───────── Team / invites ───────── */
@@ -1767,7 +1801,7 @@ function setupModals(){
       name: $("#contact-name").value.trim(),
       company: $("#contact-company").value.trim(),
       email: $("#contact-email").value.trim(),
-      phone: $("#contact-phone").value.trim(),
+      phone: toE164($("#contact-phone").value.trim(), $("#contact-country-code").value),
       status: $("#contact-status").value,
       tags: $("#contact-tags").value.trim(),
     };
@@ -1775,6 +1809,24 @@ function setupModals(){
     if (id) await DataLayer.update("contacts", id, row);
     else await DataLayer.insert("contacts", row);
     closeModal("contact-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
+  $("#add-playbook-btn")?.addEventListener("click", () => {
+    $("#playbook-form").reset(); $("#playbook-form-id").value=""; $("#playbook-modal-title").textContent="Add Playbook";
+    openModal("playbook-modal");
+  });
+  $("#playbook-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#playbook-form-id").value;
+    const row = {
+      title: $("#playbook-title").value.trim(),
+      content: $("#playbook-content").value.trim(),
+    };
+    if (!row.title) return;
+    if (id) await DataLayer.update("playbooks", id, row);
+    else { row.sort_order = state.playbooks.length; await DataLayer.insert("playbooks", row); }
+    closeModal("playbook-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
 
@@ -1786,15 +1838,6 @@ function setupModals(){
   });
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
-  $("#quick-call-btn")?.addEventListener("click", () => { $("#quick-call-form").reset(); openModal("quick-call-modal"); });
-  $("#quick-call-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const name = $("#quick-call-name").value.trim();
-    const phone = $("#quick-call-phone").value.trim();
-    if (!phone) return;
-    closeModal("quick-call-modal");
-    await startQuickCall(name, phone);
-  });
   $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
   $("#deal-contacts-rows")?.addEventListener("click", (e) => {
     const removeBtn = e.target.closest(".dc-remove");
@@ -2004,6 +2047,16 @@ function setupModals(){
     if (!btn) return;
     const { action, id, outcome } = btn.dataset;
     if (action === "delete-contact" && confirm("Delete this contact?")) await DataLayer.remove("contacts", id);
+    if (action === "edit-playbook"){
+      const p = state.playbooks.find(x => x.id === id);
+      if (!p) return;
+      $("#playbook-form-id").value = p.id;
+      $("#playbook-title").value = p.title||"";
+      $("#playbook-content").value = p.content||"";
+      $("#playbook-modal-title").textContent = "Edit Playbook";
+      openModal("playbook-modal");
+    }
+    if (action === "delete-playbook" && confirm("Delete this playbook?")) await DataLayer.remove("playbooks", id);
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
     if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }
     if (action === "back-to-deals"){ state.selectedDealId = null; renderDeals(); }
@@ -2145,7 +2198,9 @@ function setupModals(){
       $("#contact-name").value = c.name||"";
       $("#contact-company").value = c.company||"";
       $("#contact-email").value = c.email||"";
-      $("#contact-phone").value = c.phone||"";
+      const { code, local } = splitE164(c.phone);
+      $("#contact-country-code").value = code;
+      $("#contact-phone").value = local;
       $("#contact-status").value = c.status||"lead";
       $("#contact-tags").value = c.tags||"";
       $("#contact-modal-title").textContent = "Edit Contact";
