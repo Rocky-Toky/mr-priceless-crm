@@ -1907,7 +1907,7 @@ function setupModals(){
     const id = $("#prospect-form-id").value;
     const row = {
       name: $("#prospect-name").value.trim(),
-      phone: $("#prospect-phone").value.trim(),
+      phone: toE164($("#prospect-phone").value.trim(), $("#prospect-country-code").value),
       company: $("#prospect-company").value.trim(),
       email: $("#prospect-email").value.trim(),
       region: $("#prospect-region").value.trim(),
@@ -2068,7 +2068,9 @@ function setupModals(){
       if (!p) return;
       $("#prospect-form-id").value = p.id;
       $("#prospect-name").value = p.name||"";
-      $("#prospect-phone").value = p.phone||"";
+      const { code, local } = splitE164(p.phone);
+      $("#prospect-country-code").value = code;
+      $("#prospect-phone").value = local;
       $("#prospect-company").value = p.company||"";
       $("#prospect-email").value = p.email||"";
       $("#prospect-region").value = p.region||"";
