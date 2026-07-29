@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=14">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=14">
+<link rel="stylesheet" href="css/style.css?v=15">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=15">
 </head>
 <body>
 
@@ -585,10 +585,13 @@
     <!-- Playbooks -->
     <section class="page" id="page-playbooks">
       <div class="page-header">
-        <div><h2>Playbooks</h2><p>Sales scripts and process docs, shared with the whole team.</p></div>
+        <div><h2>Playbooks</h2><p>Scripts and processes, shared with the whole team.</p></div>
         <button class="btn gold" id="add-playbook-btn">+ Add Playbook</button>
       </div>
-      <div class="playbook-grid" id="playbooks-grid"></div>
+      <div class="playbook-layout">
+        <aside class="playbook-list" id="playbooks-list"></aside>
+        <div class="playbook-viewer" id="playbook-viewer"></div>
+      </div>
     </section>
 
     <!-- Clients (retention workspace: content planning + ad creatives + CPL) -->
@@ -1136,10 +1139,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=14"></script>
-<script src="js/supabaseClient.js?v=14"></script>
-<script src="js/app.js?v=14"></script>
-<script src="js/meetings-tracker.js?v=14"></script>
-<script src="js/todo.js?v=14"></script>
+<script src="js/config.js?v=15"></script>
+<script src="js/supabaseClient.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
+<script src="js/meetings-tracker.js?v=15"></script>
+<script src="js/todo.js?v=15"></script>
 </body>
 </html>

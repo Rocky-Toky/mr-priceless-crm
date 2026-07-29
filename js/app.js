@@ -79,6 +79,7 @@ const state = {
   clientReports: [],
   notes: [],
   playbooks: [],
+  selectedPlaybookId: null,
   selectedClientId: null,
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "" },
@@ -211,10 +212,158 @@ function seedDemo(){
       status:"sent", error:null, created_at:new Date(Date.now()-86400e3*32).toISOString() },
   ];
   state.playbooks = [
-    { id:uid(), title:"Cold Call 1", content:"Hi [Name], this is [Your Name] from Mr Priceless...\n\n1. Open with a reason for the call\n2. Ask a qualifying question\n3. Book the meeting", sort_order:0, created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), title:"Meeting 1", content:"Discovery meeting agenda:\n\n1. Rapport + context\n2. Uncover pain points\n3. Present the offer\n4. Handle objections\n5. Close or set next step", sort_order:1, created_at:new Date(Date.now()-86400e3*18).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), title:"Meeting 2", content:"Follow-up / closing meeting agenda:\n\n1. Recap agreed pain points\n2. Walk through proposal\n3. Handle final objections\n4. Ask for the sale", sort_order:2, created_at:new Date(Date.now()-86400e3*15).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), title:"Onboarding Process", content:"New client onboarding checklist:\n\n1. Send welcome email + contract\n2. Collect assets/logins\n3. Schedule kickoff call\n4. Set up ad accounts / tracking\n5. Confirm reporting cadence", sort_order:3, created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Cold Calling Script", sort_order:0, created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString(), content:
+`## Goal
+Book a qualified meeting - not sell on the phone.
+
+## Opening (First 10 Seconds)
+1. Introduce yourself and the business in one breath.
+2. State the reason for the call - be direct, not salesy.
+3. Ask a permission-based question to keep them on the line.
+
+## The Script
+"Hi [Name], this is [Your Name] calling from [Business]. The reason for my call - we help [industry] businesses [core outcome]. Do you have 30 seconds while I explain why I'm calling?"
+
+## Qualifying Questions
+- Are you currently running any paid ads or marketing?
+- What's working, and what isn't?
+- Who handles this for you right now?
+
+## Handling Objections
+**"I'm not interested"** - Totally understand, most people say that before they've heard what it actually is. Can I take 20 seconds to explain, then you can tell me to get lost?
+
+**"Send me an email"** - Happy to, but most people don't get round to reading it. Can we lock in 10 minutes so I can walk you through it properly instead?
+
+**"We already have someone doing this"** - Good to hear - out of curiosity, are you happy with the results, or open to a second opinion?
+
+## Closing for the Meeting
+1. Suggest two specific times ("Would Tuesday 10am or Wednesday 2pm work better?").
+2. Confirm the best contact number and email.
+3. Send the calendar invite immediately after the call, while they're still warm.
+
+## After the Call
+- Log the outcome in the Dialer straight away.
+- If no answer, schedule a follow-up call for 2-3 days later.` },
+    { id:uid(), title:"Meetings to Close", sort_order:1, created_at:new Date(Date.now()-86400e3*18).toISOString(), updated_at:new Date(Date.now()-86400e3*1).toISOString(), content:
+`## Goal
+Turn the booked meeting into a signed client - not just a nice chat.
+
+## Before the Meeting
+- Check their website, socials, and current ads (if any).
+- Note 2-3 specific things you'd improve for them.
+- Have pricing and case studies ready to share.
+
+## Meeting Agenda
+1. Rapport (2 min) - light, genuine, not scripted small talk.
+2. Context (3 min) - confirm what you already know about their business.
+3. Discovery (10 min) - uncover their real pain points.
+4. Present the offer (10 min) - tailored to what you just heard, not a generic pitch.
+5. Handle objections (5 min).
+6. Close (5 min) - ask for the business directly.
+
+## Discovery Questions
+- What's your biggest bottleneck for growth right now?
+- What have you tried before, and how did it go?
+- If this problem was solved, what would that be worth to you?
+- What's stopping you from doing this already?
+
+## Presenting the Offer
+- Anchor to the pain point they just told you about - not a generic feature list.
+- Show 1-2 relevant results or case studies.
+- Present pricing clearly and confidently - don't apologise for the price.
+
+## Handling Objections
+**"It's too expensive"** - Compared to what? Let's look at what it's costing you to not solve this.
+
+**"I need to think about it"** - Of course - what specifically do you need to think through? Let's talk it through now while it's fresh.
+
+**"I need to check with my partner/team"** - Makes sense. Can we get them on a quick call before we finish up today?
+
+## Closing
+1. Ask directly - "Does this make sense to move forward with?"
+2. If yes, send the contract or invoice before the call ends if possible.
+3. If not yet, agree a specific next step and date, not a vague "I'll follow up."
+
+## After the Meeting
+- Send a follow-up summary within 1 hour, even if they said yes.
+- Log the outcome and next step in Deals.
+- If they went cold, add a follow-up task for 3-5 days later.` },
+    { id:uid(), title:"Onboarding Process", sort_order:2, created_at:new Date(Date.now()-86400e3*15).toISOString(), updated_at:new Date(Date.now()-86400e3*3).toISOString(), content:
+`## Goal
+Get a new client from "signed" to "fully set up and confident in us" as fast as possible.
+
+## Day 1 - Immediately After Signing
+1. Send a welcome email confirming what happens next and the rough timeline.
+2. Send the contract/invoice if not already done.
+3. Add them to Clients in the CRM with all their details.
+4. Create a shared folder/doc for assets (logos, brand guide, login details).
+
+## Week 1 - Collect What You Need
+- Business logo, brand colours, and brand guidelines (if any).
+- Access to ad accounts (Meta Business Manager, Google Ads) or invite as admin.
+- Access to website/CMS if content changes are needed.
+- Existing customer testimonials, photos, or video assets.
+- Key selling points, offers, and target customer description.
+
+## Week 1 - Kickoff Call
+1. Confirm goals and what success looks like for them.
+2. Walk through the reporting cadence and what they'll receive.
+3. Set expectations on timelines (first ads live, first results visible).
+4. Confirm main point of contact on both sides.
+
+## Setup
+- Set up ad accounts, tracking (pixel/conversion tracking), and campaigns.
+- Build the first round of ad creative based on brand assets collected.
+- Set up their entry in Clients with a cost-per-lead target and report frequency.
+
+## Week 2 - Launch
+1. Get final sign-off on ad creative and targeting before launching.
+2. Launch campaigns.
+3. Send confirmation that campaigns are live, with what to expect over the next 7 days.
+
+## Ongoing
+- Confirm reporting cadence is firing correctly.
+- Schedule a 2-week check-in call to review early results.
+- Add any open items to Tasks so nothing gets missed.` },
+    { id:uid(), title:"Service Delivery - Ads", sort_order:3, created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date().toISOString(), content:
+`## Goal
+A single reference for everything needed to run and manage a client's ads properly.
+
+## Access Checklist
+- Meta Business Manager - added as Partner/Admin on the ad account.
+- Google Ads - added as Manager/Standard access.
+- Pixel/conversion tracking installed and verified on their website.
+- Access to their brand assets (logo, colours, fonts, photos/video).
+
+## Campaign Setup Basics
+- Objective matches their actual goal (leads, calls, bookings - not just "awareness").
+- Budget matches their cost-per-lead target from Clients.
+- Location/audience targeting matches their real service area.
+- Tracking is confirmed working with a test conversion before spending real budget.
+
+## Creative Guidelines
+- Lead with the outcome/benefit, not the business name.
+- Always include a clear call to action (Call Now, Book Now, Get a Quote).
+- Use real photos/video where possible - avoid generic stock imagery.
+- Keep it on-brand: their colours, tone, and logo where relevant.
+- Test at least 2-3 creative variations per campaign.
+
+## Copy Checklist
+- Headline states the outcome clearly in under 6 words if possible.
+- Primary text addresses a specific pain point or objection.
+- Include social proof (reviews, results, "trusted by X clients") where available.
+- Always end with a direct, low-friction call to action.
+
+## Ongoing Management
+- Check performance at least every 2-3 days for the first 2 weeks of a new campaign.
+- Pause underperforming ads early - don't wait a full week if something isn't working.
+- Log ad results in Ad Creatives (winner/testing/killed) so history is tracked.
+- Never let a campaign run untouched for more than 7 days.
+
+## Reporting
+- Confirm report frequency and format matches what's set in Clients.
+- Reports should always include spend, results, cost-per-result, and a plain-English summary.
+- Flag any issues (rising costs, tracking problems) proactively - don't wait to be asked.` },
   ];
 }
 
@@ -1396,20 +1545,72 @@ function renderAll(){
 }
 
 /* ───────── Playbooks ───────── */
+// Lightweight markdown-lite renderer: "## " headings, "1. "/"- " lists, **bold**.
+// Keeps playbook authoring as plain text while rendering as a proper doc.
+function renderPlaybookMarkdown(raw){
+  const inline = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const lines = String(raw||"").split("\n");
+  let html = "", listType = null;
+  const closeList = () => { if (listType){ html += `</${listType}>`; listType = null; } };
+  for (const rawLine of lines){
+    const line = rawLine.trim();
+    if (!line){ closeList(); continue; }
+    const h = line.match(/^##\s+(.*)$/);
+    if (h){ closeList(); html += `<h4>${inline(h[1])}</h4>`; continue; }
+    const ol = line.match(/^\d+\.\s+(.*)$/);
+    if (ol){ if (listType !== "ol"){ closeList(); html += "<ol>"; listType = "ol"; } html += `<li>${inline(ol[1])}</li>`; continue; }
+    const ul = line.match(/^[-•]\s+(.*)$/);
+    if (ul){ if (listType !== "ul"){ closeList(); html += "<ul>"; listType = "ul"; } html += `<li>${inline(ul[1])}</li>`; continue; }
+    closeList();
+    html += `<p>${inline(line)}</p>`;
+  }
+  closeList();
+  return html;
+}
+function playbookIcon(title){
+  const t = String(title||"").toLowerCase();
+  if (t.includes("cold call") || t.includes("dial")) return ICONS.phone;
+  if (t.includes("meeting") || t.includes("close") || t.includes("closing")) return ICONS.handshake;
+  if (t.includes("onboard")) return ICONS.flag;
+  if (t.includes("ad") || t.includes("campaign") || t.includes("delivery")) return ICONS.megaphone;
+  return ICONS.book;
+}
 function renderPlaybooks(){
-  const grid = $("#playbooks-grid");
-  if (!grid) return;
+  const listEl = $("#playbooks-list");
+  const viewer = $("#playbook-viewer");
+  if (!listEl || !viewer) return;
   const list = [...state.playbooks].sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
-  if (!list.length){ grid.innerHTML = emptyState("No playbooks yet. Add your first sales script."); return; }
-  grid.innerHTML = list.map(p => `
-    <div class="playbook-card" data-action="edit-playbook" data-id="${p.id}">
-      <div class="playbook-card-head">
-        <h4>${escapeHtml(p.title)}</h4>
+  if (!list.length){
+    listEl.innerHTML = "";
+    viewer.innerHTML = `<div class="playbook-empty"><div class="playbook-empty-icon">${ICONS.book}</div>No playbooks yet.<br>Add your first script or process doc.</div>`;
+    return;
+  }
+  if (!state.selectedPlaybookId || !list.find(p => p.id === state.selectedPlaybookId)){
+    state.selectedPlaybookId = list[0].id;
+  }
+  listEl.innerHTML = list.map(p => `
+    <button type="button" class="playbook-list-item ${p.id === state.selectedPlaybookId ? "active" : ""}" data-action="select-playbook" data-id="${p.id}">
+      <span class="playbook-list-item-icon">${playbookIcon(p.title)}</span>
+      <span class="playbook-list-item-text">
+        <div class="playbook-list-item-title">${escapeHtml(p.title)}</div>
+        <div class="playbook-list-item-sub">${escapeHtml((p.content||"").replace(/[#*\n]/g," ").trim().slice(0,42))}</div>
+      </span>
+    </button>
+  `).join("");
+  const p = list.find(x => x.id === state.selectedPlaybookId);
+  viewer.innerHTML = `
+    <div class="playbook-viewer-head">
+      <div class="playbook-viewer-head-title">
+        <span class="playbook-viewer-icon">${playbookIcon(p.title)}</span>
+        <div><h3>${escapeHtml(p.title)}</h3><p>Updated ${fmtDate(p.updated_at||p.created_at)}</p></div>
+      </div>
+      <div class="playbook-viewer-actions">
+        <button class="icon-btn" data-action="edit-playbook" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
         <button class="icon-btn" data-action="delete-playbook" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
       </div>
-      <p class="playbook-card-preview">${escapeHtml(p.content||"").slice(0,180) || "No content yet."}</p>
     </div>
-  `).join("");
+    <div class="playbook-content">${renderPlaybookMarkdown(p.content) || `<p style="color:var(--text2);">No content yet - click the edit icon to write it.</p>`}</div>
+  `;
 }
 
 /* ───────── Team / invites ───────── */
@@ -1781,6 +1982,11 @@ const ICONS = {
   calendar: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`,
   calendarCheck: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg>`,
   moveToContact: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8l3 3-3 3M23 11h-9"/></svg>`,
+  book: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>`,
+  phone: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>`,
+  handshake: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 17l-1.5-1.5a2.12 2.12 0 010-3l4-4a2.12 2.12 0 013 0L18 10"/><path d="M8.5 15.5L4 11l4-4a2.12 2.12 0 013 0l.5.5"/><path d="M14 15l1.5 1.5a2.12 2.12 0 003 0l3-3"/><path d="M6 13l-3-3"/></svg>`,
+  flag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/></svg>`,
+  megaphone: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-5v12L3 13v-2z"/><path d="M11.6 16.8L13 21a2 2 0 01-3.8 1.3L7 17"/></svg>`,
 };
 
 /* ───────── Modals ───────── */
@@ -1825,7 +2031,11 @@ function setupModals(){
     };
     if (!row.title) return;
     if (id) await DataLayer.update("playbooks", id, row);
-    else { row.sort_order = state.playbooks.length; await DataLayer.insert("playbooks", row); }
+    else {
+      row.sort_order = state.playbooks.length;
+      const created = await DataLayer.insert("playbooks", row);
+      if (created) state.selectedPlaybookId = created.id;
+    }
     closeModal("playbook-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
@@ -2047,6 +2257,7 @@ function setupModals(){
     if (!btn) return;
     const { action, id, outcome } = btn.dataset;
     if (action === "delete-contact" && confirm("Delete this contact?")) await DataLayer.remove("contacts", id);
+    if (action === "select-playbook"){ state.selectedPlaybookId = id; renderPlaybooks(); }
     if (action === "edit-playbook"){
       const p = state.playbooks.find(x => x.id === id);
       if (!p) return;
@@ -2056,7 +2267,10 @@ function setupModals(){
       $("#playbook-modal-title").textContent = "Edit Playbook";
       openModal("playbook-modal");
     }
-    if (action === "delete-playbook" && confirm("Delete this playbook?")) await DataLayer.remove("playbooks", id);
+    if (action === "delete-playbook" && confirm("Delete this playbook?")){
+      if (state.selectedPlaybookId === id) state.selectedPlaybookId = null;
+      await DataLayer.remove("playbooks", id);
+    }
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
     if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }
     if (action === "back-to-deals"){ state.selectedDealId = null; renderDeals(); }
