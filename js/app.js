@@ -64,6 +64,18 @@ const CONTACT_STATUS = {
   client: { label: "Client", cls: "green" },
   inactive: { label: "Inactive", cls: "red" },
 };
+const EXPENSE_CATEGORIES = {
+  software: "Software & Tools",
+  ad_spend: "Ad Spend",
+  contractors: "Contractors",
+  wages: "Wages",
+  office: "Office & Admin",
+  other: "Other",
+};
+const EXPENSE_FREQUENCIES = {
+  one_off: { label: "One-off", cls: "gray" },
+  monthly: { label: "Monthly", cls: "gold" },
+};
 
 const state = {
   page: "dashboard",
@@ -83,6 +95,7 @@ const state = {
   notes: [],
   playbooks: [],
   selectedPlaybookId: null,
+  expenses: [],
   selectedClientId: null,
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "" },
@@ -371,13 +384,21 @@ A single reference for everything needed to run and manage a client's ads proper
 - Reports should always include spend, results, cost-per-result, and a plain-English summary.
 - Flag any issues (rising costs, tracking problems) proactively - don't wait to be asked.` },
   ];
+  state.expenses = [
+    { id:uid(), title:"Meta + Google Ads platform fees", category:"software", amount:49, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*3).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*90).toISOString(), updated_at:new Date(Date.now()-86400e3*3).toISOString() },
+    { id:uid(), title:"CRM hosting (Supabase + Cloudflare)", category:"software", amount:35, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*5).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*90).toISOString(), updated_at:new Date(Date.now()-86400e3*5).toISOString() },
+    { id:uid(), title:"Twilio calling minutes", category:"software", amount:60, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*4).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date(Date.now()-86400e3*4).toISOString() },
+    { id:uid(), title:"Video editor - contractor retainer", category:"contractors", amount:600, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*6).toISOString().slice(0,10), notes:"Edits creative for all clients.", created_at:new Date(Date.now()-86400e3*45).toISOString(), updated_at:new Date(Date.now()-86400e3*6).toISOString() },
+    { id:uid(), title:"New MacBook for editing", category:"office", amount:2800, frequency:"one_off", expense_date:new Date(Date.now()-86400e3*12).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*12).toISOString(), updated_at:new Date(Date.now()-86400e3*12).toISOString() },
+    { id:uid(), title:"Contractor - one-off landing page build", category:"contractors", amount:450, frequency:"one_off", expense_date:new Date(Date.now()-86400e3*20).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date(Date.now()-86400e3*20).toISOString() },
+  ];
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ex] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -392,6 +413,7 @@ const DataLayer = {
       supabase.from("client_reports").select("*").order("created_at",{ascending:false}),
       supabase.from("notes").select("*").order("created_at",{ascending:false}),
       supabase.from("playbooks").select("*").order("sort_order",{ascending:true}),
+      supabase.from("expenses").select("*").order("expense_date",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -407,6 +429,7 @@ const DataLayer = {
     state.clientReports = crep.data || [];
     state.notes = nt.data || [];
     state.playbooks = pb.data || [];
+    state.expenses = ex.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -460,6 +483,7 @@ function stateArray(table){
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
     client_campaigns: state.campaigns, deal_contacts: state.dealContacts, tasks: state.tasks,
     client_reports: state.clientReports, notes: state.notes, playbooks: state.playbooks,
+    expenses: state.expenses,
   }[table];
 }
 
@@ -483,6 +507,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"client_reports" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"playbooks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"expenses" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -683,8 +708,12 @@ function renderDashboard(){
   const closedTotal = closedWon.length + closedLost.length;
   const winRate = closedTotal ? Math.round(closedWon.length / closedTotal * 100) : null;
 
+  const monthlyExpenses = monthlyRecurringTotal();
+  const netMrr = mrr - monthlyExpenses;
+
   $("#stat-mrr").textContent = fmtMoney(mrr);
   $("#stat-mrr-sub").textContent = `from ${closedWon.length} closed won job${closedWon.length===1?"":"s"}`;
+  $("#stat-net-mrr").textContent = `${fmtMoney(netMrr)}/mo net after ${fmtMoney(monthlyExpenses)} expenses`;
   $("#stat-won-month").textContent = wonThisMonth.length;
   $("#stat-won-month-value").textContent = `${fmtMoney(wonThisMonth.reduce((s,d)=>s+Number(d.value||0),0))} added`;
   $("#stat-won-total").textContent = closedWon.length;
@@ -1552,7 +1581,36 @@ function renderAll(){
   renderTeam();
   renderCalendarGrid();
   renderPlaybooks();
+  renderExpenses();
   fillContactDropdowns();
+}
+
+/* ───────── Render: Expenses ───────── */
+function monthlyRecurringTotal(){ return state.expenses.filter(e => e.frequency === "monthly").reduce((s,e) => s + Number(e.amount||0), 0); }
+function renderExpenses(){
+  const tbody = $("#expenses-tbody");
+  if (!tbody) return;
+  const monthlyTotal = monthlyRecurringTotal();
+  const oneOffThisMonth = state.expenses.filter(e => e.frequency === "one_off" && sameMonth(e.expense_date)).reduce((s,e) => s + Number(e.amount||0), 0);
+  $("#stat-expenses-monthly").textContent = fmtMoney(monthlyTotal);
+  $("#stat-expenses-oneoff").textContent = fmtMoney(oneOffThisMonth);
+  $("#stat-expenses-total-month").textContent = fmtMoney(monthlyTotal + oneOffThisMonth);
+
+  const list = [...state.expenses].sort((a,b) => new Date(b.expense_date) - new Date(a.expense_date));
+  if (!list.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No expenses logged yet. Add your first one.")}</td></tr>`; return; }
+  tbody.innerHTML = list.map(e => `
+    <tr data-id="${e.id}">
+      <td>${fmtDate(e.expense_date)}</td>
+      <td><div class="row-name">${escapeHtml(e.title)}</div>${e.notes?`<div class="row-sub">${escapeHtml(e.notes)}</div>`:""}</td>
+      <td><span class="badge gray">${escapeHtml(EXPENSE_CATEGORIES[e.category]||e.category)}</span></td>
+      <td><span class="badge ${EXPENSE_FREQUENCIES[e.frequency]?.cls||"gray"}">${EXPENSE_FREQUENCIES[e.frequency]?.label||e.frequency}</span></td>
+      <td style="font-weight:700;">${fmtMoney(e.amount)}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="icon-btn" data-action="edit-expense" data-id="${e.id}" title="Edit">${ICONS.edit}</button>
+        <button class="icon-btn" data-action="delete-expense" data-id="${e.id}" title="Delete">${ICONS.trash}</button>
+      </td>
+    </tr>
+  `).join("");
 }
 
 /* ───────── Playbooks ───────── */
@@ -2090,6 +2148,28 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#add-expense-btn")?.addEventListener("click", () => {
+    $("#expense-form").reset(); $("#expense-form-id").value=""; $("#expense-date").value = todayDateStr(); $("#expense-modal-title").textContent="Add Expense";
+    openModal("expense-modal");
+  });
+  $("#expense-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#expense-form-id").value;
+    const row = {
+      title: $("#expense-title").value.trim(),
+      category: $("#expense-category").value,
+      amount: Number($("#expense-amount").value) || 0,
+      frequency: $("#expense-frequency").value,
+      expense_date: $("#expense-date").value || todayDateStr(),
+      notes: $("#expense-notes").value.trim(),
+    };
+    if (!row.title) return;
+    if (id) await DataLayer.update("expenses", id, row);
+    else await DataLayer.insert("expenses", row);
+    closeModal("expense-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   $("#add-deal-btn").addEventListener("click", () => {
     $("#deal-form").reset();
     $("#deal-contacts-rows").innerHTML = "";
@@ -2321,6 +2401,20 @@ function setupModals(){
       if (state.selectedPlaybookId === id) state.selectedPlaybookId = null;
       await DataLayer.remove("playbooks", id);
     }
+    if (action === "edit-expense"){
+      const ex = state.expenses.find(x => x.id === id);
+      if (!ex) return;
+      $("#expense-form-id").value = ex.id;
+      $("#expense-title").value = ex.title||"";
+      $("#expense-category").value = ex.category||"other";
+      $("#expense-amount").value = ex.amount||0;
+      $("#expense-frequency").value = ex.frequency||"one_off";
+      $("#expense-date").value = ex.expense_date||todayDateStr();
+      $("#expense-notes").value = ex.notes||"";
+      $("#expense-modal-title").textContent = "Edit Expense";
+      openModal("expense-modal");
+    }
+    if (action === "delete-expense" && confirm("Delete this expense?")) await DataLayer.remove("expenses", id);
     if (action === "toggle-checklist-item"){
       const container = btn.closest(".playbook-content");
       const pbId = container?.dataset.playbook;

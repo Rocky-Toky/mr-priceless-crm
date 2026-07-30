@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=17">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=17">
+<link rel="stylesheet" href="css/style.css?v=18">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=18">
 </head>
 <body>
 
@@ -124,6 +124,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
         <span>Reporting</span>
       </button>
+      <button class="nav-item" data-page="expenses">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
+        <span>Expenses</span>
+      </button>
       <button class="nav-item" data-page="todo">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span>To Do</span>
@@ -177,6 +181,7 @@
           <div class="stat-label">MRR</div>
           <div class="stat-value" id="stat-mrr">$0</div>
           <div class="stat-sub" id="stat-mrr-sub">from 0 closed won jobs</div>
+          <div class="stat-sub" id="stat-net-mrr">$0/mo net after expenses</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Closed Won This Month</div>
@@ -714,6 +719,27 @@
       </div>
     </section>
 
+    <!-- Expenses -->
+    <section class="page" id="page-expenses">
+      <div class="page-header">
+        <div><h2>Expenses</h2><p>Track business costs against your MRR.</p></div>
+        <button class="btn gold" id="add-expense-btn">+ Add Expense</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Monthly Recurring</div><div class="stat-value" id="stat-expenses-monthly">$0</div></div>
+        <div class="stat-card"><div class="stat-label">One-off This Month</div><div class="stat-value" id="stat-expenses-oneoff">$0</div></div>
+        <div class="stat-card"><div class="stat-label">Total This Month</div><div class="stat-value" id="stat-expenses-total-month">$0</div></div>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Title</th><th>Category</th><th>Frequency</th><th>Amount</th><th></th></tr></thead>
+            <tbody id="expenses-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- To Do (gamified daily priority list) -->
     <section class="page" id="page-todo">
       <!-- MODAL: all tasks done -->
@@ -846,6 +872,44 @@
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="playbook-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Playbook</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Expense ───────── -->
+<div class="overlay" id="expense-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="expense-modal-title">Add Expense</h3><button class="modal-close" data-close="expense-modal">&times;</button></div>
+    <form id="expense-form" class="modal-body">
+      <input type="hidden" id="expense-form-id">
+      <div class="field"><label>Title</label><input type="text" id="expense-title" required placeholder="e.g. Google Ads platform fee"></div>
+      <div class="field-row">
+        <div class="field"><label>Amount (NZD)</label><input type="number" id="expense-amount" min="0" step="0.01" required></div>
+        <div class="field"><label>Date</label><input type="date" id="expense-date" required></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Category</label>
+          <select id="expense-category">
+            <option value="software">Software & Tools</option>
+            <option value="ad_spend">Ad Spend</option>
+            <option value="contractors">Contractors</option>
+            <option value="wages">Wages</option>
+            <option value="office">Office & Admin</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field"><label>Frequency</label>
+          <select id="expense-frequency">
+            <option value="one_off">One-off</option>
+            <option value="monthly">Monthly (recurring)</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="expense-notes" placeholder="Optional"></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="expense-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Expense</button>
       </div>
     </form>
   </div>
@@ -1157,10 +1221,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=17"></script>
-<script src="js/supabaseClient.js?v=17"></script>
-<script src="js/app.js?v=17"></script>
-<script src="js/meetings-tracker.js?v=17"></script>
-<script src="js/todo.js?v=17"></script>
+<script src="js/config.js?v=18"></script>
+<script src="js/supabaseClient.js?v=18"></script>
+<script src="js/app.js?v=18"></script>
+<script src="js/meetings-tracker.js?v=18"></script>
+<script src="js/todo.js?v=18"></script>
 </body>
 </html>
