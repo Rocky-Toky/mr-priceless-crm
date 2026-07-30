@@ -198,8 +198,22 @@ function seedDemo(){
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
-    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, meta_ad_account_id:"act_1234567890", report_email:"aroha@kauriproperty.co.nz", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*32).toISOString(), created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString() },
-    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString() },
+    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, meta_ad_account_id:"act_1234567890", report_email:"aroha@kauriproperty.co.nz", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*32).toISOString(), created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString(),
+      services:"Meta Ads management, weekly listing video content, monthly performance report.",
+      client_rules:"All creative needs sign-off from Aroha before it goes live. No posting on Fridays (open home day). CC her PA on every email.",
+      qualified_lead_structure:"Full name, phone number, and confirmed budget range. Must have viewed at least one listing page before enquiring.",
+      branding_expectations:"Warm, premium tone. Gold/cream palette matching their logo. Never use stock photos - only their own listing photography.",
+      key_contacts:"Aroha Ngata - Owner, final approval on everything. Reachable by phone, prefers calls over email.",
+      communication_preferences:"Weekly check-in call every Monday. Slack for anything urgent same-day.",
+      renewal_date:new Date(Date.now()+86400e3*45).toISOString().slice(0,10) },
+    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString(),
+      services:"Meta Ads lead generation.",
+      client_rules:"",
+      qualified_lead_structure:"Name and phone number, must live within 15km of the practice.",
+      branding_expectations:"Clean, clinical, trustworthy. Blue/white palette. Avoid anything that looks too salesy.",
+      key_contacts:"Ben Whitfield - Practice manager, main point of contact.",
+      communication_preferences:"Email preferred. Monthly report call.",
+      renewal_date:new Date(Date.now()+86400e3*8).toISOString().slice(0,10) },
   ];
   state.clientContent = [
     { id:uid(), client_id:cl1, type:"video", status:"idea", title:"Listing walkthrough - 14 Marama Rd", directions:"Golden hour, drone opening shot, 45-60s.", script:"", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
@@ -1311,11 +1325,25 @@ function renderClientsList(){
     `;
   }).join("");
 }
+function setClientInfoField(id, value, emptyText){
+  const el = $(id);
+  if (!el) return;
+  el.textContent = value || emptyText;
+  el.classList.toggle("empty", !value);
+}
 function renderClientDetail(c){
   $("#client-detail-name").textContent = c.name;
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   $("#client-detail-notes").textContent = c.notes || "No notes yet.";
   $("#client-detail-quotes").textContent = c.quotes_sent || 0;
+
+  setClientInfoField("#client-info-services", c.services, "Not set yet.");
+  setClientInfoField("#client-info-rules", c.client_rules, "Not set yet.");
+  setClientInfoField("#client-info-qls", c.qualified_lead_structure, "Not set yet.");
+  setClientInfoField("#client-info-branding", c.branding_expectations, "Not set yet.");
+  setClientInfoField("#client-info-contacts", c.key_contacts, "Not set yet.");
+  setClientInfoField("#client-info-comms", c.communication_preferences, "Not set yet.");
+  setClientInfoField("#client-info-renewal", c.renewal_date ? fmtDate(c.renewal_date) : "", "Not set yet.");
 
   const campaigns = campaignsFor(c.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
   const running = campaigns.filter(x => x.status === "active");
@@ -2286,6 +2314,25 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#client-info-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#client-info-form-id").value;
+    if (!id) return;
+    const row = {
+      services: $("#client-info-services-input").value.trim(),
+      renewal_date: $("#client-info-renewal-input").value || null,
+      client_rules: $("#client-info-rules-input").value.trim(),
+      qualified_lead_structure: $("#client-info-qls-input").value.trim(),
+      branding_expectations: $("#client-info-branding-input").value.trim(),
+      key_contacts: $("#client-info-contacts-input").value.trim(),
+      communication_preferences: $("#client-info-comms-input").value.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    await DataLayer.update("clients", id, row);
+    closeModal("client-info-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   $("#add-content-btn")?.addEventListener("click", () => {
     $("#content-form").reset(); $("#content-form-id").value=""; $("#content-modal-title").textContent="Add Content";
     openModal("content-modal");
@@ -2485,6 +2532,19 @@ function setupModals(){
       $("#client-report-email").value = c.report_email||"";
       $("#client-modal-title").textContent = "Edit Client";
       openModal("client-modal");
+    }
+    if (action === "edit-client-info"){
+      const c = state.clients.find(x => x.id === state.selectedClientId);
+      if (!c) return;
+      $("#client-info-form-id").value = c.id;
+      $("#client-info-services-input").value = c.services||"";
+      $("#client-info-renewal-input").value = c.renewal_date||"";
+      $("#client-info-rules-input").value = c.client_rules||"";
+      $("#client-info-qls-input").value = c.qualified_lead_structure||"";
+      $("#client-info-branding-input").value = c.branding_expectations||"";
+      $("#client-info-contacts-input").value = c.key_contacts||"";
+      $("#client-info-comms-input").value = c.communication_preferences||"";
+      openModal("client-info-modal");
     }
     if (action === "delete-client" && confirm("Delete this client and all their content pieces / ad creatives?")) {
       await DataLayer.remove("clients", state.selectedClientId);
