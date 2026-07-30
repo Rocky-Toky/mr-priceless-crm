@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=20">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=20">
+<link rel="stylesheet" href="css/style.css?v=21">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=21">
 </head>
 <body>
 
@@ -622,20 +622,25 @@
           <div><h2>Clients</h2><p>Plan content, track cost per lead, and see what's worked.</p></div>
           <button class="btn gold" id="add-client-btn">+ Add Client</button>
         </div>
-        <div class="stat-grid">
+        <div class="stat-grid stat-grid-5">
           <div class="stat-card"><div class="stat-label">Clients</div><div class="stat-value" id="clients-stat-total">0</div></div>
           <div class="stat-card"><div class="stat-label">Avg Cost Per Lead</div><div class="stat-value" id="clients-stat-cpl">-</div></div>
           <div class="stat-card"><div class="stat-label">Content Pieces</div><div class="stat-value" id="clients-stat-content">0</div></div>
           <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="clients-stat-campaigns">0</div></div>
+          <div class="stat-card"><div class="stat-label">Needs Attention</div><div class="stat-value" id="clients-stat-attention">0</div></div>
         </div>
-        <div class="client-grid" id="clients-grid"></div>
+        <div class="retention-alerts-panel" id="clients-alerts-panel" style="display:none;"></div>
+        <div class="kanban" id="clients-kanban-board"></div>
       </div>
 
       <div id="clients-detail-view" style="display:none;">
         <div class="page-header">
           <div>
             <button class="btn ghost" data-action="back-to-clients" style="margin-bottom:12px;">← All Clients</button>
-            <h2 id="client-detail-name">Client</h2>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <h2 id="client-detail-name">Client</h2>
+              <span class="badge" id="client-detail-stage-badge"></span>
+            </div>
           </div>
           <div style="display:flex;gap:8px;">
             <button class="btn ghost" data-action="edit-client-header">Edit Client</button>
@@ -1028,7 +1033,12 @@
     <form id="client-form" class="modal-body">
       <input type="hidden" id="client-form-id">
       <div class="field"><label>Name</label><input type="text" id="client-name" required placeholder="e.g. Kauri Property Group"></div>
-      <div class="field"><label>Cost Per Lead (NZD)</label><input type="number" id="client-cpl" min="0" step="0.01" placeholder="e.g. 25"></div>
+      <div class="field-row">
+        <div class="field"><label>Cost Per Lead (NZD)</label><input type="number" id="client-cpl" min="0" step="0.01" placeholder="e.g. 25"></div>
+        <div class="field"><label>Stage</label>
+          <select id="client-stage"></select>
+        </div>
+      </div>
       <div class="field"><label>Notes</label><textarea id="client-notes" placeholder="Anything worth knowing about this client..."></textarea></div>
       <div class="field-row">
         <div class="field"><label>Meta Ad Account ID</label><input type="text" id="client-meta-account" placeholder="e.g. act_1234567890"></div>
@@ -1261,10 +1271,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=20"></script>
-<script src="js/supabaseClient.js?v=20"></script>
-<script src="js/app.js?v=20"></script>
-<script src="js/meetings-tracker.js?v=20"></script>
-<script src="js/todo.js?v=20"></script>
+<script src="js/config.js?v=21"></script>
+<script src="js/supabaseClient.js?v=21"></script>
+<script src="js/app.js?v=21"></script>
+<script src="js/meetings-tracker.js?v=21"></script>
+<script src="js/todo.js?v=21"></script>
 </body>
 </html>

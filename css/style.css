@@ -137,6 +137,7 @@ a{color:inherit;text-decoration:none;}
 
 /* ───────── Cards / stats ───────── */
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:34px;}
+.stat-grid-5{grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));}
 @media(max-width:900px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
 .stat-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--r);
@@ -419,16 +420,37 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .ad-creative-thumb{width:56px;height:42px;border-radius:7px;object-fit:cover;border:1px solid var(--line);display:block;cursor:pointer;background:#f1eee6;}
 .ad-creative-thumb-empty{cursor:default;}
 #ad-creative-current-image .ad-creative-thumb{width:120px;height:90px;margin-bottom:8px;cursor:default;}
-.client-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;}
 .client-card{
-  background:var(--white);border:1px solid var(--line);border-radius:var(--r);
-  padding:18px 20px;box-shadow:var(--shadow);cursor:pointer;transition:box-shadow .15s,transform .15s;
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,0.04);cursor:grab;
+  transition:box-shadow .15s,transform .15s,opacity .15s,border-color .15s;
 }
-.client-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px);}
-.client-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;}
-.client-card-head h3{font-size:16.5px;font-weight:700;letter-spacing:-0.01em;}
-.client-card-notes{font-size:12.5px;color:var(--text2);margin-bottom:12px;line-height:1.4;}
-.client-card-stats{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--text2);border-top:1px solid var(--line);padding-top:10px;}
+.client-card:hover{box-shadow:0 8px 20px rgba(20,15,5,0.1);transform:translateY(-2px);border-color:var(--gold-border);}
+.client-card:active{cursor:grabbing;}
+.client-card h5{font-size:13.5px;font-weight:700;margin-bottom:4px;letter-spacing:-0.005em;}
+.client-card .deal-contact{font-size:11.5px;color:var(--text2);margin-bottom:8px;}
+.client-card-stats{display:flex;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--text2);}
+.client-card-alerts{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px;padding-top:9px;border-top:1px solid var(--line);}
+.client-card-alerts .badge{font-size:10px;padding:2px 7px;}
+
+/* ───────── Retention Alerts ───────── */
+.retention-alerts-panel{
+  background:linear-gradient(175deg,#fdf6ec,#fbeed9);border:1px solid var(--gold-border);border-radius:var(--r);
+  padding:16px 20px;margin-bottom:20px;
+}
+.retention-alerts-head{
+  display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700;color:var(--gold-deep);
+  text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;
+}
+.retention-alerts-head svg{width:16px;height:16px;}
+.retention-alerts-list{display:flex;flex-direction:column;gap:2px;}
+.retention-alert-row{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  padding:9px 10px;border-radius:9px;cursor:pointer;transition:background .12s;
+}
+.retention-alert-row:hover{background:rgba(255,255,255,0.5);}
+.retention-alert-name{font-size:13.5px;font-weight:600;color:var(--text);}
+.retention-alert-tags{display:flex;gap:6px;flex-wrap:wrap;}
 
 /* ───────── Modal ───────── */
 .overlay{

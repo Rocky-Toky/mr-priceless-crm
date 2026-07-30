@@ -77,6 +77,16 @@ const EXPENSE_FREQUENCIES = {
   one_off: { label: "One-off", cls: "gray" },
   monthly: { label: "Monthly", cls: "gold" },
 };
+const CLIENT_STAGES = [
+  { key: "onboarding", label: "Onboarding", days: 30, cls: "gold" },
+  { key: "month_1", label: "Month 1", days: 30, cls: "gold" },
+  { key: "month_2", label: "Month 2", days: 30, cls: "gold" },
+  { key: "month_3", label: "Month 3", days: 30, cls: "gold" },
+  { key: "established", label: "Established", days: null, cls: "green" },
+  { key: "at_risk", label: "At Risk", days: null, cls: "red" },
+  { key: "churned", label: "Churned", days: null, cls: "gray" },
+];
+const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
 
 const state = {
   page: "dashboard",
@@ -207,7 +217,8 @@ function seedDemo(){
       branding_expectations:"Warm, premium tone. Gold/cream palette matching their logo. Never use stock photos - only their own listing photography.",
       key_contacts:"Aroha Ngata - Owner, final approval on everything. Reachable by phone, prefers calls over email.",
       communication_preferences:"Weekly check-in call every Monday. Slack for anything urgent same-day.",
-      renewal_date:new Date(Date.now()+86400e3*45).toISOString().slice(0,10) },
+      renewal_date:new Date(Date.now()+86400e3*45).toISOString().slice(0,10),
+      stage:"established", stage_changed_at:new Date(Date.now()-86400e3*20).toISOString() },
     { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString(),
       services:"Meta Ads lead generation.",
       client_rules:"",
@@ -215,7 +226,26 @@ function seedDemo(){
       branding_expectations:"Clean, clinical, trustworthy. Blue/white palette. Avoid anything that looks too salesy.",
       key_contacts:"Ben Whitfield - Practice manager, main point of contact.",
       communication_preferences:"Email preferred. Monthly report call.",
-      renewal_date:new Date(Date.now()+86400e3*8).toISOString().slice(0,10) },
+      renewal_date:new Date(Date.now()+86400e3*8).toISOString().slice(0,10),
+      stage:"month_1", stage_changed_at:new Date(Date.now()-86400e3*35).toISOString() },
+    { id:uid(), name:"Chand Legal", notes:"Just signed, kicking off this week.", cost_per_lead:null, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*5).toISOString(), updated_at:new Date().toISOString(),
+      services:"SEO + Google Ads.",
+      client_rules:"",
+      qualified_lead_structure:"",
+      branding_expectations:"",
+      key_contacts:"Priya Chand - Owner.",
+      communication_preferences:"",
+      renewal_date:null,
+      stage:"onboarding", stage_changed_at:new Date(Date.now()-86400e3*5).toISOString() },
+    { id:uid(), name:"Reeve Builders", notes:"CPL crept up ~40% last month - asked for a call to discuss results.", cost_per_lead:65, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*5).toISOString(), created_at:new Date(Date.now()-86400e3*140).toISOString(), updated_at:new Date().toISOString(),
+      services:"Meta Ads + SEO retainer.",
+      client_rules:"",
+      qualified_lead_structure:"",
+      branding_expectations:"",
+      key_contacts:"Marlon Reeve - Owner.",
+      communication_preferences:"",
+      renewal_date:new Date(Date.now()+86400e3*20).toISOString().slice(0,10),
+      stage:"at_risk", stage_changed_at:new Date(Date.now()-86400e3*10).toISOString() },
   ];
   state.clientContent = [
     { id:uid(), client_id:cl1, type:"video", status:"idea", title:"Listing walkthrough - 14 Marama Rd", directions:"Golden hour, drone opening shot, 45-60s.", script:"", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
@@ -761,6 +791,29 @@ function renderDashboard(){
 }
 function sameMonth(iso){ const d=new Date(iso), n=new Date(); return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear(); }
 function withinDays(iso, days){ return (Date.now()-new Date(iso).getTime()) < days*86400e3; }
+function daysSince(iso){ return iso ? Math.floor((Date.now()-new Date(iso).getTime())/86400e3) : null; }
+function daysUntil(iso){ return iso ? Math.ceil((new Date(iso+"T00:00:00").getTime()-Date.now())/86400e3) : null; }
+const REPORT_FREQUENCY_DAYS = { weekly: 7, monthly: 30 };
+function getClientAlerts(c){
+  const alerts = [];
+  if (c.renewal_date){
+    const d = daysUntil(c.renewal_date);
+    if (d < 0) alerts.push({ type:"danger", text:`Renewal date passed ${Math.abs(d)}d ago` });
+    else if (d <= 14) alerts.push({ type:"warn", text:`Renewal in ${d}d` });
+  }
+  if (c.report_frequency && c.report_frequency !== "off"){
+    const cadence = REPORT_FREQUENCY_DAYS[c.report_frequency] || 30;
+    const since = daysSince(c.last_report_sent_at || c.created_at);
+    if (since != null && since > cadence + 5) alerts.push({ type:"warn", text:`Report overdue (${since}d since last sent)` });
+  }
+  const stageInfo = CLIENT_STAGE_MAP[c.stage];
+  if (stageInfo?.days){
+    const inStage = daysSince(c.stage_changed_at);
+    if (inStage != null && inStage > stageInfo.days + 5) alerts.push({ type:"warn", text:`${inStage}d in ${stageInfo.label} - overdue to move on` });
+  }
+  if (c.stage === "at_risk") alerts.push({ type:"danger", text:"Marked At Risk" });
+  return alerts;
+}
 function emptyState(msg){ return `<div class="empty-state"><p>${escapeHtml(msg)}</p></div>`; }
 
 /* ───────── Render: Contacts ───────── */
@@ -920,7 +973,9 @@ async function addDealNote(dealId){
 }
 function setupDragDrop(){
   let draggedId = null;
-  $$(".deal-card").forEach(card => {
+  const board = $("#kanban-board");
+  if (!board) return;
+  board.querySelectorAll(".deal-card").forEach(card => {
     card.addEventListener("dragstart", (e) => {
       draggedId = card.dataset.id;
       card.classList.add("dragging");
@@ -928,7 +983,7 @@ function setupDragDrop(){
     });
     card.addEventListener("dragend", () => card.classList.remove("dragging"));
   });
-  $$(".kanban-col").forEach(col => {
+  board.querySelectorAll(".kanban-col").forEach(col => {
     col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
     col.addEventListener("dragleave", () => col.classList.remove("dragover"));
     col.addEventListener("drop", async (e) => {
@@ -1298,34 +1353,97 @@ function renderClients(){
 }
 function renderClientsList(){
   const avg = clientAvgCPL();
+  const withAlerts = state.clients.map(c => ({ c, alerts: getClientAlerts(c) })).filter(x => x.alerts.length);
   $("#clients-stat-total").textContent = state.clients.length;
   $("#clients-stat-cpl").textContent = avg != null ? fmtMoney(avg) : "-";
   $("#clients-stat-content").textContent = state.clientContent.length;
   $("#clients-stat-campaigns").textContent = state.campaigns.filter(c => c.status === "active").length;
+  const attnEl = $("#clients-stat-attention");
+  if (attnEl) attnEl.textContent = withAlerts.length;
 
-  const grid = $("#clients-grid");
-  if (!state.clients.length){ grid.innerHTML = emptyState("No clients yet. Add your first client to start planning their content."); return; }
-  const sorted = [...state.clients].sort((a,b) => (a.name||"").localeCompare(b.name||""));
-  grid.innerHTML = sorted.map(c => {
-    const pieces = state.clientContent.filter(x => x.client_id === c.id);
-    const creatives = state.adCreatives.filter(x => x.client_id === c.id);
-    const running = runningCampaignsFor(c.id).length;
-    const totalCampaigns = campaignsFor(c.id).length;
+  const alertsPanel = $("#clients-alerts-panel");
+  if (alertsPanel){
+    if (!withAlerts.length){
+      alertsPanel.innerHTML = "";
+      alertsPanel.style.display = "none";
+    } else {
+      alertsPanel.style.display = "";
+      const sorted = withAlerts.sort((a,b) => {
+        const worst = x => x.alerts.some(al=>al.type==="danger") ? 0 : 1;
+        return worst(a) - worst(b);
+      });
+      alertsPanel.innerHTML = `
+        <div class="retention-alerts-head">${ICONS.alert} Retention Alerts <span class="kanban-count">${withAlerts.length}</span></div>
+        <div class="retention-alerts-list">
+          ${sorted.map(({c, alerts}) => `
+            <div class="retention-alert-row" data-action="view-client" data-id="${c.id}">
+              <div class="retention-alert-name">${escapeHtml(c.name)}</div>
+              <div class="retention-alert-tags">
+                ${alerts.map(a => `<span class="badge ${a.type==='danger'?'red':'gold'}">${escapeHtml(a.text)}</span>`).join("")}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+  }
+
+  const board = $("#clients-kanban-board");
+  if (!board) return;
+  if (!state.clients.length){ board.innerHTML = emptyState("No clients yet. Add your first client to start planning their content."); return; }
+  board.innerHTML = CLIENT_STAGES.map(stage => {
+    const clients = state.clients.filter(c => (c.stage||"onboarding") === stage.key).sort((a,b) => (a.name||"").localeCompare(b.name||""));
     return `
-      <div class="client-card" data-action="view-client" data-id="${c.id}">
-        <div class="client-card-head">
-          <h3>${escapeHtml(c.name)}</h3>
-          <span class="badge ${c.cost_per_lead!=null ? 'gold':'gray'}">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</span>
+      <div class="kanban-col" data-stage="${stage.key}">
+        <div class="kanban-col-head">
+          <h4>${stage.label}</h4>
+          <span class="kanban-count">${clients.length}</span>
         </div>
-        ${c.notes ? `<div class="client-card-notes">${escapeHtml(c.notes)}</div>` : ""}
-        <div class="client-card-stats">
-          <span>${running} of ${totalCampaigns} campaign${totalCampaigns===1?"":"s"} running</span>
-          <span>${pieces.length} content piece${pieces.length===1?"":"s"}</span>
-          <span>${creatives.length} ad creative${creatives.length===1?"":"s"}</span>
-        </div>
+        ${clients.map(c => {
+          const alerts = getClientAlerts(c);
+          const pieces = state.clientContent.filter(x => x.client_id === c.id);
+          const creatives = state.adCreatives.filter(x => x.client_id === c.id);
+          const running = runningCampaignsFor(c.id).length;
+          return `
+          <div class="client-card" draggable="true" data-id="${c.id}" data-action="view-client">
+            <h5>${escapeHtml(c.name)}</h5>
+            <div class="deal-contact">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</div>
+            <div class="client-card-stats">
+              <span>${running} running</span>
+              <span>${pieces.length} content</span>
+              <span>${creatives.length} creative${creatives.length===1?"":"s"}</span>
+            </div>
+            ${alerts.length ? `<div class="client-card-alerts">${alerts.map(a=>`<span class="badge ${a.type==='danger'?'red':'gold'}">${escapeHtml(a.text)}</span>`).join("")}</div>` : ""}
+          </div>
+        `;}).join("")}
       </div>
     `;
   }).join("");
+  setupClientsDragDrop();
+}
+function setupClientsDragDrop(){
+  let draggedId = null;
+  const board = $("#clients-kanban-board");
+  if (!board) return;
+  board.querySelectorAll(".client-card").forEach(card => {
+    card.addEventListener("dragstart", (e) => {
+      draggedId = card.dataset.id;
+      card.classList.add("dragging");
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragend", () => card.classList.remove("dragging"));
+  });
+  board.querySelectorAll(".kanban-col").forEach(col => {
+    col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
+    col.addEventListener("dragleave", () => col.classList.remove("dragover"));
+    col.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      col.classList.remove("dragover");
+      if (!draggedId) return;
+      await DataLayer.update("clients", draggedId, { stage: col.dataset.stage, stage_changed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
+    });
+  });
 }
 function setClientInfoField(id, value, emptyText){
   const el = $(id);
@@ -1335,6 +1453,10 @@ function setClientInfoField(id, value, emptyText){
 }
 function renderClientDetail(c){
   $("#client-detail-name").textContent = c.name;
+  const stageInfo = CLIENT_STAGE_MAP[c.stage] || CLIENT_STAGES[0];
+  const stageBadge = $("#client-detail-stage-badge");
+  stageBadge.textContent = stageInfo.label;
+  stageBadge.className = `badge ${stageInfo.cls}`;
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   $("#client-detail-notes").textContent = c.notes || "No notes yet.";
   $("#client-detail-quotes").textContent = c.quotes_sent || 0;
@@ -2125,6 +2247,7 @@ const ICONS = {
   handshake: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 17l-1.5-1.5a2.12 2.12 0 010-3l4-4a2.12 2.12 0 013 0L18 10"/><path d="M8.5 15.5L4 11l4-4a2.12 2.12 0 013 0l.5.5"/><path d="M14 15l1.5 1.5a2.12 2.12 0 003 0l3-3"/><path d="M6 13l-3-3"/></svg>`,
   flag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/></svg>`,
   megaphone: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-5v12L3 13v-2z"/><path d="M11.6 16.8L13 21a2 2 0 01-3.8 1.3L7 17"/></svg>`,
+  alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
 };
 
 /* ───────── Modals ───────── */
@@ -2296,10 +2419,16 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
-  $("#add-client-btn")?.addEventListener("click", () => { $("#client-form").reset(); $("#client-form-id").value=""; $("#client-modal-title").textContent="Add Client"; openModal("client-modal"); });
+  $("#add-client-btn")?.addEventListener("click", () => {
+    $("#client-form").reset(); $("#client-form-id").value="";
+    $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
+    $("#client-modal-title").textContent="Add Client"; openModal("client-modal");
+  });
   $("#client-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#client-form-id").value;
+    const existing = id ? state.clients.find(x => x.id === id) : null;
+    const stage = $("#client-stage").value || "onboarding";
     const row = {
       name: $("#client-name").value.trim(),
       cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
@@ -2307,8 +2436,10 @@ function setupModals(){
       meta_ad_account_id: $("#client-meta-account").value.trim(),
       report_frequency: $("#client-report-frequency").value,
       report_email: $("#client-report-email").value.trim(),
+      stage,
       updated_at: new Date().toISOString(),
     };
+    if (!existing || existing.stage !== stage) row.stage_changed_at = new Date().toISOString();
     if (!row.name) return;
     if (id) await DataLayer.update("clients", id, row);
     else await DataLayer.insert("clients", row);
@@ -2532,6 +2663,8 @@ function setupModals(){
       $("#client-meta-account").value = c.meta_ad_account_id||"";
       $("#client-report-frequency").value = c.report_frequency||"monthly";
       $("#client-report-email").value = c.report_email||"";
+      $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
+      $("#client-stage").value = c.stage||"onboarding";
       $("#client-modal-title").textContent = "Edit Client";
       openModal("client-modal");
     }
