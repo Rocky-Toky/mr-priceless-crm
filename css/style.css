@@ -21,6 +21,7 @@
   --gold-glow:rgba(232,196,104,0.3);
   --danger:#b3452e;
   --success:#3f7d55;
+  --pending:#3d6b96;
   --r:14px;
   --r-sm:9px;
   --shadow:0 1px 2px rgba(20,15,5,0.04), 0 10px 30px rgba(20,15,5,0.06);
@@ -229,27 +230,48 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .empty-state p{font-size:13.5px;}
 
 /* ───────── Kanban (Deals) ───────── */
-.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:262px;gap:14px;overflow-x:auto;padding-bottom:12px;}
-.kanban-col{background:linear-gradient(175deg,#f3f0e9,#eeebe2);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:10px;min-height:120px;transition:background .15s,box-shadow .15s;border:1px solid rgba(232,196,104,0.12);}
-.kanban-col-head{display:flex;align-items:center;justify-content:space-between;padding:3px 4px 5px;}
-.kanban-col-head h4{font-size:12px;text-transform:uppercase;letter-spacing:0.07em;font-weight:700;color:var(--text2);}
-.kanban-count{font-size:11px;background:var(--white);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--text2);}
-.kanban-col-value{font-size:13px;font-weight:700;color:var(--gold);font-family:'Cormorant Garamond',serif;padding:0 4px 6px;}
-.kanban-col.dragover{background:var(--gold-soft);box-shadow:inset 0 0 0 2px var(--gold-border);}
+.kanban{display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;align-items:start;}
+.kanban-col{
+  position:relative;background:var(--white);border-radius:var(--r);padding:14px 12px 12px;
+  display:flex;flex-direction:column;gap:10px;min-height:120px;
+  transition:background .15s,box-shadow .15s,transform .15s;
+  border:1px solid var(--line);box-shadow:0 1px 2px rgba(20,15,5,0.03);
+}
+.kanban-col::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:3px;border-radius:var(--r) var(--r) 0 0;
+  background:linear-gradient(90deg,var(--gold-bright),var(--gold));opacity:0.35;
+}
+.kanban-col-head{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 4px;}
+.kanban-col-head h4{font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;color:var(--text2);}
+.kanban-count{font-size:11px;background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--text2);font-weight:600;}
+.kanban-col-value{font-size:15px;font-weight:700;color:var(--gold);font-family:var(--font-display);padding:0 2px 4px;letter-spacing:-0.01em;}
+.kanban-col.dragover{background:var(--gold-soft);box-shadow:inset 0 0 0 2px var(--gold-border);transform:scale(1.01);}
+
+.kanban-col[data-stage="qualified"]::before{opacity:0.55;}
+.kanban-col[data-stage="proposal"]::before{opacity:0.75;}
+.kanban-col[data-stage="negotiation"]::before{opacity:1;}
+
+.kanban-col[data-stage="pending_results"]{background:linear-gradient(175deg,#eef3f7,#e6eef4);border-color:rgba(61,107,150,0.18);}
+.kanban-col[data-stage="pending_results"]::before{background:linear-gradient(90deg,var(--pending),#5f8db8);opacity:1;}
+.kanban-col[data-stage="pending_results"] .kanban-col-head h4{color:var(--pending);}
+.kanban-col[data-stage="pending_results"] .kanban-col-value{color:var(--pending);}
+
 .kanban-col[data-stage="closed_won"]{background:linear-gradient(175deg,#eaf3ec,#e2eee5);border-color:rgba(63,125,85,0.18);}
+.kanban-col[data-stage="closed_won"]::before{background:linear-gradient(90deg,var(--success),#5fae78);opacity:1;}
 .kanban-col[data-stage="closed_won"] .kanban-col-head h4{color:var(--success);}
 .kanban-col[data-stage="closed_won"] .kanban-col-value{color:var(--success);}
 .kanban-col[data-stage="closed_lost"]{background:linear-gradient(175deg,#f1eae7,#ebe2df);border-color:rgba(179,69,46,0.15);}
+.kanban-col[data-stage="closed_lost"]::before{background:linear-gradient(90deg,var(--danger),#c56347);opacity:1;}
 .kanban-col[data-stage="closed_lost"] .kanban-col-head h4{color:var(--danger);}
 .kanban-col[data-stage="closed_lost"] .kanban-col-value{color:var(--danger);}
 .kanban-col[data-stage="closed_lost"] .deal-card{opacity:0.7;}
 
 .deal-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
-  padding:13px 14px;box-shadow:0 1px 2px rgba(0,0,0,0.04);cursor:grab;
-  transition:box-shadow .15s,transform .15s,opacity .15s;
+  padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,0.04);cursor:grab;
+  transition:box-shadow .15s,transform .15s,opacity .15s,border-color .15s;
 }
-.deal-card:hover{box-shadow:0 6px 18px rgba(20,15,5,0.1);transform:translateY(-2px);}
+.deal-card:hover{box-shadow:0 8px 20px rgba(20,15,5,0.1);transform:translateY(-2px);border-color:var(--gold-border);}
 .deal-card:active{cursor:grabbing;}
 .deal-card.dragging{opacity:0.4;box-shadow:0 12px 28px rgba(0,0,0,0.22);transform:scale(1.03) rotate(-1deg);cursor:grabbing;}
 .deal-card h5{font-size:13.5px;font-weight:700;margin-bottom:4px;letter-spacing:-0.005em;}
