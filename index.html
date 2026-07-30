@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=16">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=16">
+<link rel="stylesheet" href="css/style.css?v=17">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=17">
 </head>
 <body>
 
@@ -170,18 +170,34 @@
     <!-- Dashboard -->
     <section class="page active" id="page-dashboard">
       <div class="page-header">
-        <div><h2>Dashboard</h2><p>Your pipeline at a glance.</p></div>
+        <div><h2>Dashboard</h2><p>MRR and closed won jobs at a glance.</p></div>
       </div>
       <div class="stat-grid">
-        <div class="stat-card"><div class="stat-label">Total Contacts</div><div class="stat-value" id="stat-contacts">0</div></div>
-        <div class="stat-card"><div class="stat-label">Calls This Week</div><div class="stat-value" id="stat-calls">0</div></div>
-        <div class="stat-card"><div class="stat-label">Total Pipeline</div><div class="stat-value" id="stat-pipeline">$0</div></div>
-        <div class="stat-card"><div class="stat-label">Qualified This Month</div><div class="stat-value" id="stat-won">$0</div></div>
+        <div class="stat-card stat-card-mrr">
+          <div class="stat-label">MRR</div>
+          <div class="stat-value" id="stat-mrr">$0</div>
+          <div class="stat-sub" id="stat-mrr-sub">from 0 closed won jobs</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Closed Won This Month</div>
+          <div class="stat-value" id="stat-won-month">0</div>
+          <div class="stat-sub" id="stat-won-month-value">$0 added</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Closed Won Jobs (Total)</div>
+          <div class="stat-value" id="stat-won-total">0</div>
+          <div class="stat-sub" id="stat-win-rate">-% win rate</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Open Pipeline</div>
+          <div class="stat-value" id="stat-pipeline">$0</div>
+          <div class="stat-sub" id="stat-pipeline-sub">0 active deals</div>
+        </div>
       </div>
       <div class="two-col">
         <div class="card">
-          <div class="card-header"><h3>Recent Activity</h3></div>
-          <div class="card-body" id="activity-list"></div>
+          <div class="card-header"><h3>Recently Closed Won</h3></div>
+          <div class="card-body" id="closed-won-list"></div>
         </div>
         <div class="card">
           <div class="card-header"><h3>Upcoming Follow-Ups</h3></div>
@@ -392,7 +408,7 @@
     <section class="page" id="page-deals">
       <div id="deals-list-view">
         <div class="page-header">
-          <div><h2>Deals</h2><p>Total pipeline value: <b id="pipeline-total" style="color:var(--gold);">$0</b></p></div>
+          <div><h2>Deals</h2><p>Open pipeline value: <b id="pipeline-total" style="color:var(--gold);">$0</b></p></div>
           <button class="btn gold" id="add-deal-btn">+ New Deal</button>
         </div>
         <div class="kanban" id="kanban-board"></div>
@@ -850,6 +866,8 @@
             <option value="qualified">Qualified</option>
             <option value="proposal">Proposal Meeting</option>
             <option value="negotiation">Negotiation</option>
+            <option value="closed_won">Closed Won</option>
+            <option value="closed_lost">Closed Lost</option>
           </select>
         </div>
       </div>
@@ -1139,10 +1157,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=16"></script>
-<script src="js/supabaseClient.js?v=16"></script>
-<script src="js/app.js?v=16"></script>
-<script src="js/meetings-tracker.js?v=16"></script>
-<script src="js/todo.js?v=16"></script>
+<script src="js/config.js?v=17"></script>
+<script src="js/supabaseClient.js?v=17"></script>
+<script src="js/app.js?v=17"></script>
+<script src="js/meetings-tracker.js?v=17"></script>
+<script src="js/todo.js?v=17"></script>
 </body>
 </html>

@@ -18,7 +18,10 @@ const STAGES = [
   { key: "qualified", label: "Qualified" },
   { key: "proposal", label: "Proposal Meeting" },
   { key: "negotiation", label: "Negotiation" },
+  { key: "closed_won", label: "Closed Won" },
+  { key: "closed_lost", label: "Closed Lost" },
 ];
+const CLOSED_STAGES = new Set(["closed_won", "closed_lost"]);
 const CONTENT_STATUSES = [
   { key: "idea", label: "Idea" },
   { key: "scripting", label: "Scripting" },
@@ -163,6 +166,9 @@ function seedDemo(){
     { id:deal1, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", value:8500, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental - Meta Ads retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal - SEO + Ads", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:null, contact_name:"Grace Nguyen - Nguyen Dental Studio", title:"Nguyen Dental - Google Ads retainer", value:1800, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString() },
+    { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - SEO retainer", value:2600, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*48).toISOString(), updated_at:new Date(Date.now()-86400e3*42).toISOString() },
+    { id:uid(), contact_id:null, contact_name:"Sina Tuilagi - Tuilagi Landscaping", title:"Tuilagi Landscaping - Meta Ads", value:1200, stage:"closed_lost", notes:"Went with a cheaper freelancer.", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*8).toISOString() },
   ];
   state.calendarEvents = [
     { id:"demo-1", summary:"Discovery call - Reeve Builders", start:{ dateTime:new Date(Date.now()+3600e3*3).toISOString() }, end:{ dateTime:new Date(Date.now()+3600e3*3.5).toISOString() }, attendees:[{ email:"marlon@reevebuilders.co.nz" }] },
@@ -668,29 +674,34 @@ function setupNav(){
 
 /* ───────── Render: Dashboard ───────── */
 function renderDashboard(){
-  const qualifiedThisMonth = state.deals.filter(d => d.stage === "qualified" && sameMonth(d.updated_at || d.created_at));
-  const callsThisWeek = state.coldCalls.filter(c => withinDays(c.created_at, 7));
-  const pipelineValue = state.deals.reduce((s,d) => s + Number(d.value||0), 0);
+  const closedWon = state.deals.filter(d => d.stage === "closed_won");
+  const closedLost = state.deals.filter(d => d.stage === "closed_lost");
+  const openDeals = state.deals.filter(d => !CLOSED_STAGES.has(d.stage));
+  const wonThisMonth = closedWon.filter(d => sameMonth(d.updated_at || d.created_at));
+  const mrr = closedWon.reduce((s,d) => s + Number(d.value||0), 0);
+  const pipelineValue = openDeals.reduce((s,d) => s + Number(d.value||0), 0);
+  const closedTotal = closedWon.length + closedLost.length;
+  const winRate = closedTotal ? Math.round(closedWon.length / closedTotal * 100) : null;
 
-  $("#stat-contacts").textContent = state.contacts.length;
-  $("#stat-calls").textContent = callsThisWeek.length;
+  $("#stat-mrr").textContent = fmtMoney(mrr);
+  $("#stat-mrr-sub").textContent = `from ${closedWon.length} closed won job${closedWon.length===1?"":"s"}`;
+  $("#stat-won-month").textContent = wonThisMonth.length;
+  $("#stat-won-month-value").textContent = `${fmtMoney(wonThisMonth.reduce((s,d)=>s+Number(d.value||0),0))} added`;
+  $("#stat-won-total").textContent = closedWon.length;
+  $("#stat-win-rate").textContent = winRate === null ? "No closed deals yet" : `${winRate}% win rate`;
   $("#stat-pipeline").textContent = fmtMoney(pipelineValue);
-  $("#stat-won").textContent = fmtMoney(qualifiedThisMonth.reduce((s,d)=>s+Number(d.value||0),0));
+  $("#stat-pipeline-sub").textContent = `${openDeals.length} active deal${openDeals.length===1?"":"s"}`;
 
-  const events = [
-    ...state.coldCalls.map(c => ({ t:c.created_at, text:`Cold call logged with <b>${escapeHtml(c.contact_name)}</b> - ${OUTCOMES[c.outcome]?.label||c.outcome}` })),
-    ...state.deals.map(d => ({ t:d.created_at, text:`Deal created - <b>${escapeHtml(d.title)}</b> (${fmtMoney(d.value)})` })),
-  ].sort((a,b) => new Date(b.t) - new Date(a.t)).slice(0,8);
-
-  $("#activity-list").innerHTML = events.length ? events.map(e => `
+  const recentWins = [...closedWon].sort((a,b) => new Date(b.updated_at||b.created_at) - new Date(a.updated_at||a.created_at)).slice(0,8);
+  $("#closed-won-list").innerHTML = recentWins.length ? recentWins.map(d => `
     <div class="activity-row">
-      <div class="activity-dot"></div>
+      <div class="activity-dot activity-dot-won"></div>
       <div>
-        <div class="activity-text">${e.text}</div>
-        <div class="activity-time">${timeAgo(e.t)}</div>
+        <div class="activity-text"><b>${escapeHtml(d.title)}</b> - ${fmtMoney(d.value)}/mo</div>
+        <div class="activity-time">${escapeHtml(d.contact_name||"No contact")} · Won ${timeAgo(d.updated_at||d.created_at)}</div>
       </div>
     </div>
-  `).join("") : emptyState("No activity yet - log a cold call or add a deal to get started.");
+  `).join("") : emptyState("No closed won jobs yet - move a deal to Closed Won on the Deals board.");
 
   const followUps = state.coldCalls.filter(c => c.follow_up_date).sort((a,b)=> new Date(a.follow_up_date)-new Date(b.follow_up_date)).slice(0,6);
   $("#followup-list").innerHTML = followUps.length ? followUps.map(c => `
@@ -753,7 +764,7 @@ function renderDeals(){
 function renderDealsList(){
   const board = $("#kanban-board");
   const totalEl = $("#pipeline-total");
-  if (totalEl) totalEl.textContent = fmtMoney(state.deals.reduce((s,d) => s + Number(d.value||0), 0));
+  if (totalEl) totalEl.textContent = fmtMoney(state.deals.filter(d => !CLOSED_STAGES.has(d.stage)).reduce((s,d) => s + Number(d.value||0), 0));
   board.innerHTML = STAGES.map(stage => {
     const deals = state.deals.filter(d => d.stage === stage.key);
     const stageValue = deals.reduce((s,d) => s + Number(d.value||0), 0);

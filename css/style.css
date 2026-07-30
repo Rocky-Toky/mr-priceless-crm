@@ -147,6 +147,11 @@ a{color:inherit;text-decoration:none;}
 .stat-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.1em;font-weight:600;}
 .stat-value{font-size:32px;font-weight:700;margin-top:9px;font-family:var(--font-display);letter-spacing:-0.02em;}
 .stat-sub{font-size:12px;color:var(--text2);margin-top:4px;}
+.stat-card-mrr{background:linear-gradient(160deg,var(--black2),var(--black));border-color:var(--black);}
+.stat-card-mrr::before{background:linear-gradient(90deg,var(--success),#5fae78);}
+.stat-card-mrr .stat-label{color:var(--text2-inverse);}
+.stat-card-mrr .stat-value{color:var(--text-inverse);}
+.stat-card-mrr .stat-sub{color:#8fd6a4;}
 
 .card{background:var(--white);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);}
 .card-header{padding:19px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;}
@@ -159,6 +164,7 @@ a{color:inherit;text-decoration:none;}
 .activity-row{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid var(--line);}
 .activity-row:last-child{border-bottom:none;}
 .activity-dot{width:8px;height:8px;border-radius:50%;background:var(--gold-bright);margin-top:6px;flex-shrink:0;box-shadow:0 0 0 3px var(--gold-soft);}
+.activity-dot-won{background:var(--success);box-shadow:0 0 0 3px rgba(63,125,85,0.15);}
 .activity-text{font-size:13.5px;color:var(--text);}
 .activity-time{font-size:11.5px;color:var(--text2);margin-top:2px;}
 
@@ -223,6 +229,13 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .kanban-count{font-size:11px;background:var(--white);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--text2);}
 .kanban-col-value{font-size:13px;font-weight:700;color:var(--gold);font-family:'Cormorant Garamond',serif;padding:0 4px 6px;}
 .kanban-col.dragover{background:var(--gold-soft);box-shadow:inset 0 0 0 2px var(--gold-border);}
+.kanban-col[data-stage="closed_won"]{background:linear-gradient(175deg,#eaf3ec,#e2eee5);border-color:rgba(63,125,85,0.18);}
+.kanban-col[data-stage="closed_won"] .kanban-col-head h4{color:var(--success);}
+.kanban-col[data-stage="closed_won"] .kanban-col-value{color:var(--success);}
+.kanban-col[data-stage="closed_lost"]{background:linear-gradient(175deg,#f1eae7,#ebe2df);border-color:rgba(179,69,46,0.15);}
+.kanban-col[data-stage="closed_lost"] .kanban-col-head h4{color:var(--danger);}
+.kanban-col[data-stage="closed_lost"] .kanban-col-value{color:var(--danger);}
+.kanban-col[data-stage="closed_lost"] .deal-card{opacity:0.7;}
 
 .deal-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
