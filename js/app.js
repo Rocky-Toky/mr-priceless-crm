@@ -290,41 +290,41 @@ Turn the booked meeting into a signed client - not just a nice chat.
 - If they went cold, add a follow-up task for 3-5 days later.` },
     { id:uid(), title:"Onboarding Process", sort_order:2, created_at:new Date(Date.now()-86400e3*15).toISOString(), updated_at:new Date(Date.now()-86400e3*3).toISOString(), content:
 `## Goal
-Get a new client from "signed" to "fully set up and confident in us" as fast as possible.
+Get a new client from "signed" to "fully set up and confident in us" as fast as possible. Work through this checklist top to bottom for every new client - tick items off as you go.
 
 ## Day 1 - Immediately After Signing
-1. Send a welcome email confirming what happens next and the rough timeline.
-2. Send the contract/invoice if not already done.
-3. Add them to Clients in the CRM with all their details.
-4. Create a shared folder/doc for assets (logos, brand guide, login details).
+- [ ] Send a welcome email confirming what happens next and the rough timeline.
+- [ ] Send the contract/invoice if not already done.
+- [ ] Add them to Clients in the CRM with all their details.
+- [ ] Create a shared folder/doc for assets (logos, brand guide, login details).
 
 ## Week 1 - Collect What You Need
-- Business logo, brand colours, and brand guidelines (if any).
-- Access to ad accounts (Meta Business Manager, Google Ads) or invite as admin.
-- Access to website/CMS if content changes are needed.
-- Existing customer testimonials, photos, or video assets.
-- Key selling points, offers, and target customer description.
+- [ ] Business logo, brand colours, and brand guidelines (if any).
+- [ ] Access to ad accounts (Meta Business Manager, Google Ads) or invite as admin.
+- [ ] Access to website/CMS if content changes are needed.
+- [ ] Existing customer testimonials, photos, or video assets.
+- [ ] Key selling points, offers, and target customer description.
 
 ## Week 1 - Kickoff Call
-1. Confirm goals and what success looks like for them.
-2. Walk through the reporting cadence and what they'll receive.
-3. Set expectations on timelines (first ads live, first results visible).
-4. Confirm main point of contact on both sides.
+- [ ] Confirm goals and what success looks like for them.
+- [ ] Walk through the reporting cadence and what they'll receive.
+- [ ] Set expectations on timelines (first ads live, first results visible).
+- [ ] Confirm main point of contact on both sides.
 
 ## Setup
-- Set up ad accounts, tracking (pixel/conversion tracking), and campaigns.
-- Build the first round of ad creative based on brand assets collected.
-- Set up their entry in Clients with a cost-per-lead target and report frequency.
+- [ ] Set up ad accounts, tracking (pixel/conversion tracking), and campaigns.
+- [ ] Build the first round of ad creative based on brand assets collected.
+- [ ] Set up their entry in Clients with a cost-per-lead target and report frequency.
 
 ## Week 2 - Launch
-1. Get final sign-off on ad creative and targeting before launching.
-2. Launch campaigns.
-3. Send confirmation that campaigns are live, with what to expect over the next 7 days.
+- [ ] Get final sign-off on ad creative and targeting before launching.
+- [ ] Launch campaigns.
+- [ ] Send confirmation that campaigns are live, with what to expect over the next 7 days.
 
 ## Ongoing
-- Confirm reporting cadence is firing correctly.
-- Schedule a 2-week check-in call to review early results.
-- Add any open items to Tasks so nothing gets missed.` },
+- [ ] Confirm reporting cadence is firing correctly.
+- [ ] Schedule a 2-week check-in call to review early results.
+- [ ] Add any open items to Tasks so nothing gets missed.` },
     { id:uid(), title:"Service Delivery - Ads", sort_order:3, created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date().toISOString(), content:
 `## Goal
 A single reference for everything needed to run and manage a client's ads properly.
@@ -1545,18 +1545,31 @@ function renderAll(){
 }
 
 /* ───────── Playbooks ───────── */
-// Lightweight markdown-lite renderer: "## " headings, "1. "/"- " lists, **bold**.
-// Keeps playbook authoring as plain text while rendering as a proper doc.
-function renderPlaybookMarkdown(raw){
+// Lightweight markdown-lite renderer: "## " headings, "1. "/"- " lists, "- [ ] "
+// checklist items, **bold**. Keeps playbook authoring as plain text while
+// rendering as a proper doc.
+function renderPlaybookMarkdown(raw, checked){
+  checked = checked || {};
   const inline = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   const lines = String(raw||"").split("\n");
-  let html = "", listType = null;
+  let html = "", listType = null, checkIdx = 0;
   const closeList = () => { if (listType){ html += `</${listType}>`; listType = null; } };
   for (const rawLine of lines){
     const line = rawLine.trim();
     if (!line){ closeList(); continue; }
     const h = line.match(/^##\s+(.*)$/);
     if (h){ closeList(); html += `<h4>${inline(h[1])}</h4>`; continue; }
+    const task = line.match(/^-\s*\[[ xX]?\]\s+(.*)$/);
+    if (task){
+      if (listType !== "checklist"){ closeList(); html += `<ul class="pb-checklist">`; listType = "checklist"; }
+      const idx = checkIdx++;
+      const isChecked = !!checked[idx];
+      html += `<li class="pb-check-item${isChecked?" checked":""}" data-action="toggle-checklist-item" data-idx="${idx}">
+        <span class="pb-check-box"></span>
+        <span class="pb-check-text">${inline(task[1])}</span>
+      </li>`;
+      continue;
+    }
     const ol = line.match(/^\d+\.\s+(.*)$/);
     if (ol){ if (listType !== "ol"){ closeList(); html += "<ol>"; listType = "ol"; } html += `<li>${inline(ol[1])}</li>`; continue; }
     const ul = line.match(/^[-•]\s+(.*)$/);
@@ -1565,7 +1578,13 @@ function renderPlaybookMarkdown(raw){
     html += `<p>${inline(line)}</p>`;
   }
   closeList();
-  return html;
+  return { html, total: checkIdx };
+}
+function getPlaybookChecklist(id){
+  try { return JSON.parse(localStorage.getItem("pb-checklist-"+id) || "{}"); } catch { return {}; }
+}
+function savePlaybookChecklist(id, state){
+  localStorage.setItem("pb-checklist-"+id, JSON.stringify(state));
 }
 function playbookIcon(title){
   const t = String(title||"").toLowerCase();
@@ -1588,16 +1607,35 @@ function renderPlaybooks(){
   if (!state.selectedPlaybookId || !list.find(p => p.id === state.selectedPlaybookId)){
     state.selectedPlaybookId = list[0].id;
   }
-  listEl.innerHTML = list.map(p => `
+  listEl.innerHTML = list.map(p => {
+    const pState = getPlaybookChecklist(p.id);
+    const { total, checked } = (() => {
+      const r = renderPlaybookMarkdown(p.content, pState);
+      return { total: r.total, checked: Object.values(pState).filter(Boolean).length };
+    })();
+    const sub = total > 0
+      ? `${Math.min(checked,total)} of ${total} steps complete`
+      : escapeHtml((p.content||"").replace(/[#*\n]/g," ").trim().slice(0,42));
+    return `
     <button type="button" class="playbook-list-item ${p.id === state.selectedPlaybookId ? "active" : ""}" data-action="select-playbook" data-id="${p.id}">
       <span class="playbook-list-item-icon">${playbookIcon(p.title)}</span>
       <span class="playbook-list-item-text">
         <div class="playbook-list-item-title">${escapeHtml(p.title)}</div>
-        <div class="playbook-list-item-sub">${escapeHtml((p.content||"").replace(/[#*\n]/g," ").trim().slice(0,42))}</div>
+        <div class="playbook-list-item-sub">${sub}</div>
       </span>
     </button>
-  `).join("");
+  `;
+  }).join("");
   const p = list.find(x => x.id === state.selectedPlaybookId);
+  const checklistState = getPlaybookChecklist(p.id);
+  const { html: contentHtml, total } = renderPlaybookMarkdown(p.content, checklistState);
+  const checkedCount = Object.values(checklistState).filter(Boolean).length;
+  const progressHtml = total > 0 ? `
+    <div class="playbook-progress">
+      <div class="playbook-progress-bar"><div class="playbook-progress-fill" id="playbook-progress-fill" style="width:${Math.round(Math.min(checkedCount,total)/total*100)}%"></div></div>
+      <span class="playbook-progress-text" id="playbook-progress-text">${checkedCount} of ${total} steps complete</span>
+      <button type="button" class="playbook-reset-btn" data-action="reset-checklist" data-id="${p.id}">Reset</button>
+    </div>` : "";
   viewer.innerHTML = `
     <div class="playbook-viewer-head">
       <div class="playbook-viewer-head-title">
@@ -1609,7 +1647,8 @@ function renderPlaybooks(){
         <button class="icon-btn" data-action="delete-playbook" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
       </div>
     </div>
-    <div class="playbook-content">${renderPlaybookMarkdown(p.content) || `<p style="color:var(--text2);">No content yet - click the edit icon to write it.</p>`}</div>
+    ${progressHtml}
+    <div class="playbook-content" data-playbook="${p.id}">${contentHtml || `<p style="color:var(--text2);">No content yet - click the edit icon to write it.</p>`}</div>
   `;
 }
 
@@ -2270,6 +2309,27 @@ function setupModals(){
     if (action === "delete-playbook" && confirm("Delete this playbook?")){
       if (state.selectedPlaybookId === id) state.selectedPlaybookId = null;
       await DataLayer.remove("playbooks", id);
+    }
+    if (action === "toggle-checklist-item"){
+      const container = btn.closest(".playbook-content");
+      const pbId = container?.dataset.playbook;
+      const idx = btn.dataset.idx;
+      if (pbId != null && idx != null){
+        const st = getPlaybookChecklist(pbId);
+        st[idx] = !st[idx];
+        savePlaybookChecklist(pbId, st);
+        btn.classList.toggle("checked", !!st[idx]);
+        const items = container.querySelectorAll(".pb-check-item");
+        const doneCount = container.querySelectorAll(".pb-check-item.checked").length;
+        const fill = $("#playbook-progress-fill");
+        const text = $("#playbook-progress-text");
+        if (fill) fill.style.width = Math.round(doneCount / items.length * 100) + "%";
+        if (text) text.textContent = `${doneCount} of ${items.length} steps complete`;
+      }
+    }
+    if (action === "reset-checklist" && confirm("Reset progress on this checklist?")){
+      savePlaybookChecklist(id, {});
+      renderPlaybooks();
     }
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
     if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }

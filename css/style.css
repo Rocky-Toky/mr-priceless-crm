@@ -312,7 +312,7 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .playbook-content p{margin:0 0 14px;}
 .playbook-content ul,.playbook-content ol{margin:0 0 20px;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;}
 .playbook-content ul li,.playbook-content ol li{display:flex;gap:12px;align-items:baseline;}
-.playbook-content ul li::before{content:"";flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:var(--gold);margin-top:7px;align-self:flex-start;}
+.playbook-content ul:not(.pb-checklist) li::before{content:"";flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:var(--gold);margin-top:7px;align-self:flex-start;}
 .playbook-content ol{counter-reset:pb-step;}
 .playbook-content ol li{counter-increment:pb-step;align-items:flex-start;}
 .playbook-content ol li::before{
@@ -328,6 +328,36 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
   background:linear-gradient(150deg,var(--black3),var(--black2));color:var(--gold-bright);
 }
 .playbook-empty-icon svg{width:24px;height:24px;}
+
+.playbook-progress{display:flex;align-items:center;gap:14px;padding:16px 38px;border-bottom:1px solid var(--line);background:var(--paper);}
+.playbook-progress-bar{flex:1;max-width:220px;height:7px;border-radius:4px;background:var(--line);overflow:hidden;}
+.playbook-progress-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--gold),var(--gold-bright));transition:width .25s ease;}
+.playbook-progress-text{font-size:12.5px;font-weight:600;color:var(--text2);white-space:nowrap;}
+.playbook-reset-btn{
+  margin-left:auto;font-size:12px;font-weight:600;color:var(--text2);background:none;border:1px solid var(--line);
+  border-radius:20px;padding:6px 13px;cursor:pointer;transition:border-color .15s,color .15s;
+}
+.playbook-reset-btn:hover{border-color:var(--gold-border);color:var(--gold-deep);}
+
+.pb-checklist{gap:2px !important;margin-bottom:22px !important;}
+.pb-check-item{
+  display:flex;align-items:flex-start;gap:13px;padding:10px 12px;border-radius:10px;
+  cursor:pointer;transition:background .15s;user-select:none;
+}
+.pb-check-item:hover{background:var(--paper);}
+.pb-check-box{
+  flex:0 0 20px;width:20px;height:20px;margin-top:1px;border-radius:6px;border:2px solid var(--line);
+  background:var(--white);display:flex;align-items:center;justify-content:center;transition:all .15s;position:relative;
+}
+.pb-check-item.checked .pb-check-box{background:linear-gradient(150deg,var(--gold-bright),var(--gold));border-color:var(--gold);}
+.pb-check-box::after{
+  content:"";position:absolute;left:5px;top:1px;width:5px;height:9px;
+  border:solid var(--black);border-width:0 2px 2px 0;transform:rotate(45deg);
+  opacity:0;transition:opacity .1s;
+}
+.pb-check-item.checked .pb-check-box::after{opacity:1;}
+.pb-check-text{font-size:14.5px;line-height:1.5;padding-top:1px;transition:color .15s;}
+.pb-check-item.checked .pb-check-text{color:var(--text2);text-decoration:line-through;text-decoration-color:var(--line);}
 
 /* ───────── Tasks ───────── */
 .task-check{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--white);cursor:pointer;transition:all .2s cubic-bezier(.34,1.8,.64,1);}
