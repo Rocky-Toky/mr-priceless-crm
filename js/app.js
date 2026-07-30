@@ -114,6 +114,7 @@ const state = {
   team: [],
   contactFilter: "",
   contactSearch: "",
+  creativeFilter: { client: "", result: "" },
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
@@ -1554,6 +1555,65 @@ function setupContentDragDrop(){
   });
 }
 
+/* ───────── Render: Creative Library ───────── */
+function populateAdCreativeClientSelect(selectedId){
+  const sel = $("#ad-creative-client");
+  if (!sel) return;
+  sel.innerHTML = state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+  sel.value = selectedId || "";
+}
+function renderCreativeLibrary(){
+  const grid = $("#creative-library-grid");
+  if (!grid) return;
+
+  const clientSel = $("#creative-filter-client");
+  if (clientSel){
+    clientSel.innerHTML = `<option value="">All Clients</option>` + state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    clientSel.value = state.creativeFilter.client;
+  }
+  $("#creative-filter-result").value = state.creativeFilter.result;
+
+  const all = state.adCreatives;
+  $("#creative-stat-total").textContent = all.length;
+  $("#creative-stat-winners").textContent = all.filter(a => a.result === "winner").length;
+  $("#creative-stat-testing").textContent = all.filter(a => a.result === "testing").length;
+  $("#creative-stat-killed").textContent = all.filter(a => a.result === "killed").length;
+  const winners = all.filter(a => a.result === "winner").length;
+  const decided = winners + all.filter(a => a.result === "killed").length;
+  $("#creative-stat-winrate").textContent = decided ? Math.round(winners / decided * 100) + "%" : "-";
+
+  const filtered = all.filter(a => {
+    const matchesClient = !state.creativeFilter.client || a.client_id === state.creativeFilter.client;
+    const matchesResult = !state.creativeFilter.result || a.result === state.creativeFilter.result;
+    return matchesClient && matchesResult;
+  }).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+
+  if (!filtered.length){ grid.innerHTML = emptyState("No ad creatives match. Add one from here or from a client's page."); return; }
+  grid.innerHTML = filtered.map(a => {
+    const client = state.clients.find(c => c.id === a.client_id);
+    return `
+    <div class="creative-card">
+      ${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="creative-card-img" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="creative-card-img creative-card-img-empty"></div>`}
+      <div class="creative-card-body">
+        <div class="creative-card-head">
+          <div class="row-name">${escapeHtml(a.name)}</div>
+          <span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span>
+        </div>
+        <div class="creative-card-client">${escapeHtml(client?.name || "Unknown client")}</div>
+        ${a.notes ? `<div class="creative-card-notes">${escapeHtml(a.notes)}</div>` : ""}
+        <div class="creative-card-foot">
+          <span>${fmtDate(a.created_at)}</span>
+          <div>
+            <button class="icon-btn" data-action="edit-ad-creative" data-id="${a.id}" title="Edit">${ICONS.edit}</button>
+            <button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  }).join("");
+}
+
 /* ───────── Render: Tasks ───────── */
 function dealTitle(id){ return state.deals.find(d => d.id === id)?.title || ""; }
 function todayDateStr(){ return new Date().toISOString().slice(0,10); }
@@ -1728,6 +1788,7 @@ function renderAll(){
   renderRegions();
   renderDialer();
   renderClients();
+  renderCreativeLibrary();
   renderTasks();
   renderReporting();
   renderTeam();
@@ -2493,19 +2554,28 @@ function setupModals(){
   $("#add-ad-creative-btn")?.addEventListener("click", () => {
     $("#ad-creative-form").reset(); $("#ad-creative-form-id").value=""; $("#ad-creative-modal-title").textContent="Add Ad Creative";
     $("#ad-creative-current-image").innerHTML = "";
+    populateAdCreativeClientSelect(state.selectedClientId);
     openModal("ad-creative-modal");
   });
+  $("#add-creative-lib-btn")?.addEventListener("click", () => {
+    $("#ad-creative-form").reset(); $("#ad-creative-form-id").value=""; $("#ad-creative-modal-title").textContent="Add Ad Creative";
+    $("#ad-creative-current-image").innerHTML = "";
+    populateAdCreativeClientSelect(state.creativeFilter.client);
+    openModal("ad-creative-modal");
+  });
+  $("#creative-filter-client")?.addEventListener("change", (e) => { state.creativeFilter.client = e.target.value; renderCreativeLibrary(); });
+  $("#creative-filter-result")?.addEventListener("change", (e) => { state.creativeFilter.result = e.target.value; renderCreativeLibrary(); });
   $("#ad-creative-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#ad-creative-form-id").value;
     const file = $("#ad-creative-image").files[0];
     const row = {
-      client_id: state.selectedClientId,
+      client_id: $("#ad-creative-client").value,
       name: $("#ad-creative-name").value.trim(),
       result: $("#ad-creative-result").value,
       notes: $("#ad-creative-notes").value.trim(),
     };
-    if (!row.name) return;
+    if (!row.name || !row.client_id) return;
     if (file){
       const imageUrl = await uploadAdCreativeImage(file);
       if (imageUrl) row.image_url = imageUrl;
@@ -2712,6 +2782,7 @@ function setupModals(){
       const a = state.adCreatives.find(x => x.id === id);
       if (!a) return;
       $("#ad-creative-form-id").value = a.id;
+      populateAdCreativeClientSelect(a.client_id);
       $("#ad-creative-name").value = a.name||"";
       $("#ad-creative-result").value = a.result||"testing";
       $("#ad-creative-notes").value = a.notes||"";

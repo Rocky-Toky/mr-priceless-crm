@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=21">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=21">
+<link rel="stylesheet" href="css/style.css?v=22">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=22">
 </head>
 <body>
 
@@ -119,6 +119,10 @@
       <button class="nav-item" data-page="clients">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/></svg>
         <span>Clients</span>
+      </button>
+      <button class="nav-item" data-page="creative">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+        <span>Creative</span>
       </button>
       <button class="nav-item" data-page="reporting">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
@@ -720,6 +724,33 @@
       </div>
     </section>
 
+    <!-- Creative Library (every ad creative across all clients) -->
+    <section class="page" id="page-creative">
+      <div class="page-header">
+        <div><h2>Creative Library</h2><p>Every ad creative across all your clients - what's worked, what hasn't.</p></div>
+        <button class="btn gold" id="add-creative-lib-btn">+ Add Creative</button>
+      </div>
+      <div class="stat-grid stat-grid-5">
+        <div class="stat-card"><div class="stat-label">Total Creatives</div><div class="stat-value" id="creative-stat-total">0</div></div>
+        <div class="stat-card"><div class="stat-label">Winners</div><div class="stat-value" id="creative-stat-winners">0</div></div>
+        <div class="stat-card"><div class="stat-label">Testing</div><div class="stat-value" id="creative-stat-testing">0</div></div>
+        <div class="stat-card"><div class="stat-label">Killed</div><div class="stat-value" id="creative-stat-killed">0</div></div>
+        <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="creative-stat-winrate">-</div></div>
+      </div>
+      <div class="toolbar">
+        <select class="filter-select" id="creative-filter-client">
+          <option value="">All Clients</option>
+        </select>
+        <select class="filter-select" id="creative-filter-result">
+          <option value="">All Results</option>
+          <option value="testing">Testing</option>
+          <option value="winner">Winner</option>
+          <option value="killed">Killed</option>
+        </select>
+      </div>
+      <div class="creative-grid" id="creative-library-grid"></div>
+    </section>
+
     <!-- Reporting (Meta Ads client reports) -->
     <section class="page" id="page-reporting">
       <div class="page-header">
@@ -1124,6 +1155,9 @@
     <div class="modal-header"><h3 id="ad-creative-modal-title">Add Ad Creative</h3><button class="modal-close" data-close="ad-creative-modal">&times;</button></div>
     <form id="ad-creative-form" class="modal-body">
       <input type="hidden" id="ad-creative-form-id">
+      <div class="field"><label>Client</label>
+        <select id="ad-creative-client" required></select>
+      </div>
       <div class="field"><label>Creative Name</label><input type="text" id="ad-creative-name" required placeholder="e.g. Drone listing reel v1"></div>
       <div class="field"><label>Result</label>
         <select id="ad-creative-result">
@@ -1271,10 +1305,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=21"></script>
-<script src="js/supabaseClient.js?v=21"></script>
-<script src="js/app.js?v=21"></script>
-<script src="js/meetings-tracker.js?v=21"></script>
-<script src="js/todo.js?v=21"></script>
+<script src="js/config.js?v=22"></script>
+<script src="js/supabaseClient.js?v=22"></script>
+<script src="js/app.js?v=22"></script>
+<script src="js/meetings-tracker.js?v=22"></script>
+<script src="js/todo.js?v=22"></script>
 </body>
 </html>
