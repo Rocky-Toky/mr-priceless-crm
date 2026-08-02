@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=23">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=23">
+<link rel="stylesheet" href="css/style.css?v=24">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=24">
 </head>
 <body>
 
@@ -1019,8 +1019,7 @@
         <div class="field"><label>Value (NZD)</label><input type="number" id="deal-value" min="0" step="1"></div>
         <div class="field"><label>Stage</label>
           <select id="deal-stage">
-            <option value="not_qualified">Not Qualified</option>
-            <option value="qualified">Qualified</option>
+            <option value="qualified">Meeting Booked</option>
             <option value="proposal">Proposal Meeting</option>
             <option value="negotiation">Negotiation</option>
             <option value="pending_results">Pending Results</option>
@@ -1346,7 +1345,7 @@
       <button type="button" class="btn gold" id="qualify-yes" style="min-width:100px;justify-content:center;">Yes</button>
     </div>
     <p style="text-align:center;color:var(--text2);font-size:11.5px;margin-top:18px;">
-      Yes / No each create a $1,500 MRR deal (Qualified / Not Qualified). Internal Meeting creates no deal.
+      Yes / No each create a $1,500 MRR deal (Meeting Booked / Closed Lost). Internal Meeting creates no deal.
     </p>
   </div>
 </div>
@@ -1366,10 +1365,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=23"></script>
-<script src="js/supabaseClient.js?v=23"></script>
-<script src="js/app.js?v=23"></script>
-<script src="js/meetings-tracker.js?v=23"></script>
-<script src="js/todo.js?v=23"></script>
+<script src="js/config.js?v=24"></script>
+<script src="js/supabaseClient.js?v=24"></script>
+<script src="js/app.js?v=24"></script>
+<script src="js/meetings-tracker.js?v=24"></script>
+<script src="js/todo.js?v=24"></script>
 </body>
 </html>

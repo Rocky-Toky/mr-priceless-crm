@@ -14,8 +14,7 @@ const TABLES_WITH_CREATED_BY = new Set(["contacts", "cold_calls", "deals"]);
 const TABLES_WITH_USER_ID = new Set(["dial_prospects", "tasks"]);
 
 const STAGES = [
-  { key: "not_qualified", label: "Not Qualified" },
-  { key: "qualified", label: "Qualified" },
+  { key: "qualified", label: "Meeting Booked" },
   { key: "proposal", label: "Proposal Meeting" },
   { key: "negotiation", label: "Negotiation" },
   { key: "pending_results", label: "Pending Results" },
@@ -2439,7 +2438,7 @@ async function resolveMeetingReview(answer){
   const dealRow = {
     title: `${review.meeting_title || "Meeting"} - ${attendee}`,
     value: 1500,
-    stage: answer,
+    stage: answer === "not_qualified" ? "closed_lost" : answer,
     contact_id: null,
     contact_name: attendee,
     notes: `MRR deal auto-created from a calendar meeting (${attendee}).`,
