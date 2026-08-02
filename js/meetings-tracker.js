@@ -1028,6 +1028,10 @@ function addMeeting(){
 }
 
 function resetDay(){
+  // Lock in today's final tally in the shared analytics table BEFORE
+  // wiping local counters - otherwise the reset below would sync zeros
+  // over whatever was actually booked today.
+  syncCallActivity();
   const done=state.meetings.filter(m=>m.done).length;
   if(done>0) state.history[getToday()]=done;
   state.meetings.forEach(m=>{m.done=false;m.time=null;}); state.log=[]; state.calls=0; state.convos=0; goalShown=false; godShown=false; megaShown=false; insaneShown=false;
@@ -1037,7 +1041,6 @@ function resetDay(){
   closeMegaC9(); closeInsane(); stopClouds();
   cfRunning=false; ctx.clearRect(0,0,canvas.width,canvas.height);
   save(); renderAll(); addLog('Day reset - fresh slate','reset');
-  syncCallActivity();
 }
 
 /* ══════════════════════════════════════════
