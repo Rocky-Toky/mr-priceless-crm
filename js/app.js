@@ -923,6 +923,26 @@ function renderCallAnalytics(){
     }
   });
 
+  const thisYear = String(new Date().getFullYear());
+  const yearSubhead = $("#analytics-year-subhead");
+  if (yearSubhead) yearSubhead.textContent = `This Year's Results (${thisYear})`;
+  let teamYearCalls = 0, teamYearConvos = 0, teamYearMeetings = 0;
+  people.forEach(p => {
+    const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,4) === thisYear);
+    const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
+    const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
+    const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
+    const rate = calls ? Math.round(convos/calls*100) : 0;
+    teamYearCalls += calls; teamYearConvos += convos; teamYearMeetings += meetings;
+    const callsEl = $(`#analytics-${p}-year-calls`); if (callsEl) callsEl.textContent = calls;
+    const meetingsEl = $(`#analytics-${p}-year-meetings`); if (meetingsEl) meetingsEl.textContent = meetings;
+    const rateEl = $(`#analytics-${p}-year-rate`); if (rateEl) rateEl.textContent = rate + "%";
+  });
+  const teamYearRate = teamYearCalls ? Math.round(teamYearConvos/teamYearCalls*100) : 0;
+  const teamCallsEl = $("#analytics-team-year-calls"); if (teamCallsEl) teamCallsEl.textContent = teamYearCalls;
+  const teamMeetingsEl = $("#analytics-team-year-meetings"); if (teamMeetingsEl) teamMeetingsEl.textContent = teamYearMeetings;
+  const teamRateEl = $("#analytics-team-year-rate"); if (teamRateEl) teamRateEl.textContent = teamYearRate + "%";
+
   const perfBody = $("#playbook-performance-tbody");
   if (perfBody){
     const perf = {};

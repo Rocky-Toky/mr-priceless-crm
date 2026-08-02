@@ -236,6 +236,11 @@ function showMegaC9(){
     {sx:`-280px`,sy:`${vh+200}px`,ex:`${vw*0.18}px`,ey:`${-vh*0.18}px`},
     {sx:`${vw+280}px`,sy:`${vh+200}px`,ex:`${-vw*0.18}px`,ey:`${-vh*0.18}px`},
     {sx:`${vw/2-100}px`,sy:`-240px`,ex:`${-40+Math.random()*80}px`,ey:`${vh*0.3}px`},
+    // a few more, filling in the gaps
+    {sx:`-220px`,sy:`${vh*0.35}px`,ex:`${vw*0.28}px`,ey:`${-40+Math.random()*80}px`},
+    {sx:`${vw+220}px`,sy:`${vh*0.35}px`,ex:`${-vw*0.28}px`,ey:`${-40+Math.random()*80}px`},
+    {sx:`${vw*0.3}px`,sy:`-200px`,ex:`${-40+Math.random()*80}px`,ey:`${vh*0.22}px`},
+    {sx:`${vw*0.7}px`,sy:`${vh+200}px`,ex:`${-40+Math.random()*80}px`,ey:`${-vh*0.22}px`},
   ];
   origins.forEach((o, i) => {
     const c = document.createElement('div');
@@ -246,9 +251,9 @@ function showMegaC9(){
     c.style.cssText = `font-size:${sz}px;top:50%;left:50%;--sx:${o.sx};--sy:${o.sy};--ex:${o.ex};--ey:${o.ey};--dur:${dur}s;--es:${0.9+Math.random()*0.4};animation-delay:${i*0.07}s;`;
     el.appendChild(c);
   });
-  // Second wave - smaller, faster
+  // Second wave - smaller, faster, more of them
   setTimeout(() => {
-    for(let i=0;i<8;i++){
+    for(let i=0;i<14;i++){
       const c = document.createElement('div'); c.className = 'mega-cloud';
       const side = i % 4;
       const sx = side===0?`-180px`:side===1?`${vw+180}px`:`${-200+Math.random()*400}px`;
@@ -260,8 +265,8 @@ function showMegaC9(){
       el.appendChild(c);
     }
   }, 300);
-  // Auto-dismiss after 3.8s
-  setTimeout(closeMegaC9, 3800);
+  // Auto-dismiss after 4.2s
+  setTimeout(closeMegaC9, 4200);
 }
 function closeMegaC9(){
   const el = document.getElementById('mega-c9');
@@ -378,19 +383,32 @@ function showInsane(numText, labelText, subText){
     setTimeout(()=>num.classList.remove('glitch'), 1200);
   }, 300);
 
-  // Emoji particle explosion
+  // Emoji particle explosion - two waves for a bigger payoff
   const vw = window.innerWidth, vh = window.innerHeight;
-  for(let i=0;i<32;i++){
+  for(let i=0;i<48;i++){
     const pt = document.createElement('div');
     pt.className = 'insane-pt';
     pt.textContent = INSANE_EMOJIS[Math.floor(Math.random()*INSANE_EMOJIS.length)];
-    const angle = (i/32)*Math.PI*2;
+    const angle = (i/48)*Math.PI*2;
     const dist = 200 + Math.random()*280;
     const dx = Math.cos(angle)*dist + (Math.random()-0.5)*120;
     const dy = Math.sin(angle)*dist + (Math.random()-0.5)*120;
     pt.style.cssText = `font-size:${22+Math.floor(Math.random()*28)}px;top:50%;left:50%;--dx:${dx}px;--dy:${dy}px;--dur:${0.7+Math.random()*0.7}s;animation-delay:${Math.random()*0.3}s;`;
     el.appendChild(pt);
   }
+  setTimeout(() => {
+    for(let i=0;i<24;i++){
+      const pt = document.createElement('div');
+      pt.className = 'insane-pt';
+      pt.textContent = INSANE_EMOJIS[Math.floor(Math.random()*INSANE_EMOJIS.length)];
+      const angle = (i/24)*Math.PI*2 + 0.3;
+      const dist = 260 + Math.random()*320;
+      const dx = Math.cos(angle)*dist + (Math.random()-0.5)*140;
+      const dy = Math.sin(angle)*dist + (Math.random()-0.5)*140;
+      pt.style.cssText = `font-size:${18+Math.floor(Math.random()*24)}px;top:50%;left:50%;--dx:${dx}px;--dy:${dy}px;--dur:${0.6+Math.random()*0.6}s;`;
+      el.appendChild(pt);
+    }
+  }, 350);
 
   setTimeout(closeInsane, 5000);
 }
@@ -437,7 +455,7 @@ function startClouds(){
   if(cloudsActive) return;
   cloudsActive = true;
   document.getElementById('clouds').classList.add('active');
-  for(let i=0;i<5;i++) spawnCloud(i * 3.5);
+  for(let i=0;i<8;i++) spawnCloud(i * 2.6);
 }
 function stopClouds(){
   cloudsActive = false;

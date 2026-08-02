@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=27">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=27">
+<link rel="stylesheet" href="css/style.css?v=28">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=28">
 </head>
 <body>
 
@@ -25,6 +25,8 @@
 <div id="insane" onclick="closeInsane()">
   <div id="insane-bg"></div>
   <div id="insane-border"></div>
+  <div id="insane-ring"></div>
+  <div id="insane-ring2"></div>
   <div id="insane-num">5/5</div>
   <div id="insane-label">⚡ ABSOLUTE LEGEND ⚡</div>
   <div id="insane-sub2">5 meetings booked · unstoppable · untouchable · unreal</div>
@@ -360,7 +362,7 @@
               <div class="mtr-week-grid" id="week-grid"></div>
               <div class="mtr-week-legend">
                 <span><i style="background:var(--gold-soft);border:1px solid var(--gold-border);"></i>Goal</span>
-                <span><i style="background:var(--gold);"></i>Cloud 9</span>
+                <span><i style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);"></i>Cloud 9</span>
                 <span><i style="background:#faf9f5;border:1px solid var(--line);"></i>Missed</span>
               </div>
             </div>
@@ -411,6 +413,34 @@
               <thead><tr><th>Playbook</th><th>Months Used</th><th>Total Calls</th><th>Total Meetings</th><th>Conversion Rate</th></tr></thead>
               <tbody id="playbook-performance-tbody"></tbody>
             </table>
+          </div>
+
+          <h4 class="analytics-subhead" id="analytics-year-subhead" style="margin-top:24px;">This Year's Results</h4>
+          <div class="analytics-month-grid">
+            <div class="analytics-person-card">
+              <h4>Rocky</h4>
+              <div class="analytics-person-stats">
+                <div><div class="stat-value" id="analytics-rocky-year-calls">0</div><div class="stat-label">Calls</div></div>
+                <div><div class="stat-value" id="analytics-rocky-year-meetings">0</div><div class="stat-label">Meetings</div></div>
+                <div><div class="stat-value" id="analytics-rocky-year-rate">0%</div><div class="stat-label">Conversion</div></div>
+              </div>
+            </div>
+            <div class="analytics-person-card">
+              <h4>Max</h4>
+              <div class="analytics-person-stats">
+                <div><div class="stat-value" id="analytics-max-year-calls">0</div><div class="stat-label">Calls</div></div>
+                <div><div class="stat-value" id="analytics-max-year-meetings">0</div><div class="stat-label">Meetings</div></div>
+                <div><div class="stat-value" id="analytics-max-year-rate">0%</div><div class="stat-label">Conversion</div></div>
+              </div>
+            </div>
+            <div class="analytics-person-card analytics-team-card">
+              <h4>Team Combined</h4>
+              <div class="analytics-person-stats">
+                <div><div class="stat-value" id="analytics-team-year-calls">0</div><div class="stat-label">Calls</div></div>
+                <div><div class="stat-value" id="analytics-team-year-meetings">0</div><div class="stat-label">Meetings</div></div>
+                <div><div class="stat-value" id="analytics-team-year-rate">0%</div><div class="stat-label">Conversion</div></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1431,10 +1461,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=27"></script>
-<script src="js/supabaseClient.js?v=27"></script>
-<script src="js/app.js?v=27"></script>
-<script src="js/meetings-tracker.js?v=27"></script>
-<script src="js/todo.js?v=27"></script>
+<script src="js/config.js?v=28"></script>
+<script src="js/supabaseClient.js?v=28"></script>
+<script src="js/app.js?v=28"></script>
+<script src="js/meetings-tracker.js?v=28"></script>
+<script src="js/todo.js?v=28"></script>
 </body>
 </html>
