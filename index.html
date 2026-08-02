@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=26">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=26">
+<link rel="stylesheet" href="css/style.css?v=27">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=27">
 </head>
 <body>
 
@@ -728,6 +728,10 @@
                 <button type="button" class="icon-btn" data-action="quote-increment" title="Add one">+</button>
               </div>
             </div>
+            <div id="client-detail-quote-progress" style="display:none;margin-top:10px;">
+              <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" id="client-detail-quote-progress-fill" style="width:0%;"></div></div>
+              <div class="onboarding-progress-label" id="client-detail-quote-progress-label" style="margin-top:4px;"></div>
+            </div>
           </div>
         </div>
         <div class="card">
@@ -1171,6 +1175,7 @@
           <select id="client-stage"></select>
         </div>
       </div>
+      <div class="field" id="client-quote-target-field" style="display:none;"><label>Quote Target</label><input type="number" id="client-quote-target" min="1" step="1" placeholder="e.g. 10"></div>
       <div class="field"><label>Notes</label><textarea id="client-notes" placeholder="Anything worth knowing about this client..."></textarea></div>
       <div class="field-row">
         <div class="field"><label>Meta Ad Account ID</label><input type="text" id="client-meta-account" placeholder="e.g. act_1234567890"></div>
@@ -1426,10 +1431,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=26"></script>
-<script src="js/supabaseClient.js?v=26"></script>
-<script src="js/app.js?v=26"></script>
-<script src="js/meetings-tracker.js?v=26"></script>
-<script src="js/todo.js?v=26"></script>
+<script src="js/config.js?v=27"></script>
+<script src="js/supabaseClient.js?v=27"></script>
+<script src="js/app.js?v=27"></script>
+<script src="js/meetings-tracker.js?v=27"></script>
+<script src="js/todo.js?v=27"></script>
 </body>
 </html>

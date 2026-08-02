@@ -95,6 +95,7 @@ const EXPENSE_FREQUENCIES = {
 };
 const CLIENT_STAGES = [
   { key: "onboarding", label: "Onboarding", days: 30, cls: "gold" },
+  { key: "quote_guarantee", label: "Quote Guarantee", days: null, cls: "black" },
   { key: "month_1", label: "Month 1", days: 30, cls: "gold" },
   { key: "month_2", label: "Month 2", days: 30, cls: "gold" },
   { key: "month_3", label: "Month 3", days: 30, cls: "gold" },
@@ -295,15 +296,15 @@ function seedDemo(){
       renewal_date:null,
       stage:"onboarding", stage_changed_at:new Date(Date.now()-86400e3*5).toISOString(),
       onboarding_progress:{ "0_0":true, "0_1":true, "0_2":true, "1_0":true } },
-    { id:uid(), name:"Reeve Builders", notes:"CPL crept up ~40% last month - asked for a call to discuss results.", cost_per_lead:65, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*5).toISOString(), created_at:new Date(Date.now()-86400e3*140).toISOString(), updated_at:new Date().toISOString(),
-      services:"Meta Ads + SEO retainer.",
+    { id:uid(), name:"Reeve Builders", notes:"On the 10 quote guarantee - 4 of 10 delivered so far.", cost_per_lead:65, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*5).toISOString(), created_at:new Date(Date.now()-86400e3*140).toISOString(), updated_at:new Date().toISOString(),
+      services:"Meta Ads + SEO, quote guarantee.",
       client_rules:"",
       qualified_lead_structure:"",
       branding_expectations:"",
       key_contacts:"Marlon Reeve - Owner.",
       communication_preferences:"",
       renewal_date:new Date(Date.now()+86400e3*20).toISOString().slice(0,10),
-      stage:"at_risk", stage_changed_at:new Date(Date.now()-86400e3*10).toISOString() },
+      stage:"quote_guarantee", quote_target:10, quotes_sent:4, stage_changed_at:new Date(Date.now()-86400e3*10).toISOString() },
   ];
   state.clientContent = [
     { id:uid(), client_id:cl1, type:"video", status:"idea", title:"Listing walkthrough - 14 Marama Rd", directions:"Golden hour, drone opening shot, 45-60s.", script:"", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
@@ -1178,6 +1179,10 @@ function toggleDealContractFields(){
   if (valueField) valueField.style.display = type === "retainer" ? "" : "none";
   if (pctField) pctField.style.display = type === "retainer" ? "none" : "";
 }
+function toggleClientQuoteTargetField(){
+  const field = $("#client-quote-target-field");
+  if (field) field.style.display = $("#client-stage")?.value === "quote_guarantee" ? "" : "none";
+}
 function addDealContactRow(){
   const rows = $("#deal-contacts-rows");
   if (!rows) return;
@@ -1581,10 +1586,15 @@ function renderClientsList(){
           const pieces = state.clientContent.filter(x => x.client_id === c.id);
           const creatives = state.adCreatives.filter(x => x.client_id === c.id);
           const running = runningCampaignsFor(c.id).length;
+          const quotePct = c.quote_target ? Math.min(100, Math.round((Number(c.quotes_sent||0) / c.quote_target) * 100)) : null;
           return `
           <div class="client-card" draggable="true" data-id="${c.id}" data-action="view-client">
             <h5>${escapeHtml(c.name)}</h5>
             <div class="deal-contact">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</div>
+            ${quotePct != null ? `
+              <div class="onboarding-progress-bar" style="margin-top:8px;"><div class="onboarding-progress-fill" style="width:${quotePct}%;"></div></div>
+              <div class="onboarding-progress-label" style="margin-top:4px;">${c.quotes_sent||0} of ${c.quote_target} quotes</div>
+            ` : ""}
             <div class="client-card-stats">
               <span>${running} running</span>
               <span>${pieces.length} content</span>
@@ -1637,6 +1647,17 @@ function renderClientDetail(c){
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   $("#client-detail-notes").textContent = c.notes || "No notes yet.";
   $("#client-detail-quotes").textContent = c.quotes_sent || 0;
+  const quoteProgress = $("#client-detail-quote-progress");
+  if (quoteProgress){
+    if (c.quote_target){
+      quoteProgress.style.display = "";
+      const pct = Math.min(100, Math.round((Number(c.quotes_sent||0) / c.quote_target) * 100));
+      $("#client-detail-quote-progress-fill").style.width = pct + "%";
+      $("#client-detail-quote-progress-label").textContent = `${c.quotes_sent||0} of ${c.quote_target} quotes`;
+    } else {
+      quoteProgress.style.display = "none";
+    }
+  }
 
   setClientInfoField("#client-info-services", c.services, "Not set yet.");
   setClientInfoField("#client-info-rules", c.client_rules, "Not set yet.");
@@ -2829,8 +2850,10 @@ function setupModals(){
   $("#add-client-btn")?.addEventListener("click", () => {
     $("#client-form").reset(); $("#client-form-id").value="";
     $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
+    toggleClientQuoteTargetField();
     $("#client-modal-title").textContent="Add Client"; openModal("client-modal");
   });
+  $("#client-stage")?.addEventListener("change", toggleClientQuoteTargetField);
   $("#client-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#client-form-id").value;
@@ -2839,6 +2862,7 @@ function setupModals(){
     const row = {
       name: $("#client-name").value.trim(),
       cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
+      quote_target: $("#client-quote-target").value !== "" ? Number($("#client-quote-target").value) : null,
       notes: $("#client-notes").value.trim(),
       meta_ad_account_id: $("#client-meta-account").value.trim(),
       report_frequency: $("#client-report-frequency").value,
@@ -3117,6 +3141,8 @@ function setupModals(){
       $("#client-report-email").value = c.report_email||"";
       $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
       $("#client-stage").value = c.stage||"onboarding";
+      $("#client-quote-target").value = c.quote_target != null ? c.quote_target : "";
+      toggleClientQuoteTargetField();
       $("#client-modal-title").textContent = "Edit Client";
       openModal("client-modal");
     }
