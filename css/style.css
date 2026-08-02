@@ -232,6 +232,8 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 
 /* ───────── Kanban (Deals) ───────── */
 .kanban{display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;align-items:start;}
+.kanban-closed{grid-template-columns:repeat(auto-fit, minmax(180px, 260px));}
+.kanban-closed-divider{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin:20px 0 12px;padding-top:16px;border-top:1px solid var(--line);}
 .kanban-col{
   position:relative;background:var(--white);border-radius:var(--r);padding:14px 12px 12px;
   display:flex;flex-direction:column;gap:10px;min-height:120px;

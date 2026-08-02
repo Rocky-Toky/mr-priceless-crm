@@ -149,6 +149,8 @@ const state = {
   playbooks: [],
   selectedPlaybookId: null,
   expenses: [],
+  callActivity: [],
+  playbookUsage: [],
   selectedClientId: null,
   selectedOnboardingClientId: null,
   selectedDealId: null,
@@ -321,8 +323,9 @@ function seedDemo(){
       metrics:{ spend:"842.50", impressions:"48210", reach:"21340", clicks:"612", ctr:"1.27", cpc:"1.38", cpm:"17.47", actions:[{action_type:"lead",value:"19"}], cost_per_action_type:[{action_type:"lead",value:"44.34"}] },
       status:"sent", error:null, created_at:new Date(Date.now()-86400e3*32).toISOString() },
   ];
+  const pbCold = uid();
   state.playbooks = [
-    { id:uid(), title:"Cold Calling Script", sort_order:0, created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString(), content:
+    { id:pbCold, title:"Cold Calling Script", sort_order:0, created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString(), content:
 `## Goal
 Book a qualified meeting - not sell on the phone.
 
@@ -446,13 +449,36 @@ A single reference for everything needed to run and manage a client's ads proper
     { id:uid(), title:"New MacBook for editing", category:"office", amount:2800, frequency:"one_off", expense_date:new Date(Date.now()-86400e3*12).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*12).toISOString(), updated_at:new Date(Date.now()-86400e3*12).toISOString() },
     { id:uid(), title:"Contractor - one-off landing page build", category:"contractors", amount:450, frequency:"one_off", expense_date:new Date(Date.now()-86400e3*20).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date(Date.now()-86400e3*20).toISOString() },
   ];
+
+  const seedMonday = startOfWeek(new Date());
+  const seedToday = new Date(); seedToday.setHours(0,0,0,0);
+  const daysSoFar = Math.floor((seedToday - seedMonday) / 86400e3) + 1;
+  const perDayCalls = { rocky:[22,19,25,18,24,20,0], max:[15,20,17,22,19,14,0] };
+  const perDayMeetings = { rocky:[2,1,3,2,2,1,0], max:[1,2,1,3,2,1,0] };
+  const convoRatio = { rocky:0.32, max:0.28 };
+  const callActivitySeed = [];
+  for (let i=0;i<daysSoFar;i++){
+    const d = new Date(seedMonday); d.setDate(seedMonday.getDate()+i);
+    const dateStr = d.toISOString().slice(0,10);
+    ["rocky","max"].forEach(person => {
+      const calls = perDayCalls[person][i] ?? 0;
+      const meetings = perDayMeetings[person][i] ?? 0;
+      const conversations = Math.round(calls * convoRatio[person]);
+      callActivitySeed.push({ id:uid(), person, activity_date:dateStr, calls, conversations, meetings_booked:meetings, created_at:d.toISOString(), updated_at:d.toISOString() });
+    });
+  }
+  state.callActivity = callActivitySeed;
+  state.playbookUsage = [
+    { id:uid(), person:"rocky", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), person:"max", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+  ];
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ex] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ex, ca, pu] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -468,6 +494,8 @@ const DataLayer = {
       supabase.from("notes").select("*").order("created_at",{ascending:false}),
       supabase.from("playbooks").select("*").order("sort_order",{ascending:true}),
       supabase.from("expenses").select("*").order("expense_date",{ascending:false}),
+      supabase.from("call_activity").select("*").order("activity_date",{ascending:false}),
+      supabase.from("playbook_usage").select("*").order("month",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -484,6 +512,8 @@ const DataLayer = {
     state.notes = nt.data || [];
     state.playbooks = pb.data || [];
     state.expenses = ex.data || [];
+    state.callActivity = ca.data || [];
+    state.playbookUsage = pu.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -537,7 +567,7 @@ function stateArray(table){
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
     client_campaigns: state.campaigns, deal_contacts: state.dealContacts, tasks: state.tasks,
     client_reports: state.clientReports, notes: state.notes, playbooks: state.playbooks,
-    expenses: state.expenses,
+    expenses: state.expenses, call_activity: state.callActivity, playbook_usage: state.playbookUsage,
   }[table];
 }
 
@@ -562,6 +592,8 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"playbooks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"expenses" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"call_activity" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"playbook_usage" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -826,6 +858,118 @@ function getClientAlerts(c){
 }
 function emptyState(msg){ return `<div class="empty-state"><p>${escapeHtml(msg)}</p></div>`; }
 
+/* ───────── Render: Call Analytics (Meetings Booked) ───────── */
+function monthKey(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); }
+function callActivityFor(person, dateStr){ return state.callActivity.find(r => r.person === person && r.activity_date === dateStr); }
+function renderCallAnalytics(){
+  const grid = $("#analytics-week-grid");
+  if (!grid) return;
+
+  const people = Object.keys(ASSIGNEES);
+  const monday = startOfWeek(new Date());
+  const days = Array.from({length:7}, (_,i) => { const d = new Date(monday); d.setDate(monday.getDate()+i); return d; });
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  grid.innerHTML = `
+    <table>
+      <thead>
+        <tr><th>Day</th>${people.map(p => `<th colspan="2">${ASSIGNEES[p].label}</th>`).join("")}</tr>
+        <tr><th></th>${people.map(() => `<th>Calls</th><th>Meetings</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${days.map(d => {
+          const dateStr = d.toISOString().slice(0,10);
+          const isToday = dateStr === todayStr;
+          const label = d.toLocaleDateString("en-NZ", {weekday:"short", day:"numeric"});
+          return `<tr${isToday?' class="analytics-today-row"':''}>
+            <td>${label}</td>
+            ${people.map(p => {
+              const row = callActivityFor(p, dateStr);
+              return `<td>${row?.calls ?? "-"}</td><td>${row?.meetings_booked ?? "-"}</td>`;
+            }).join("")}
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+
+  const thisMonth = monthKey(new Date());
+  people.forEach(p => {
+    const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,7) === thisMonth);
+    const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
+    const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
+    const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
+    const rate = calls ? Math.round(convos/calls*100) : 0;
+    const callsEl = $(`#analytics-${p}-calls`); if (callsEl) callsEl.textContent = calls;
+    const meetingsEl = $(`#analytics-${p}-meetings`); if (meetingsEl) meetingsEl.textContent = meetings;
+    const rateEl = $(`#analytics-${p}-rate`); if (rateEl) rateEl.textContent = rate + "%";
+    const usage = state.playbookUsage.find(u => u.person === p && u.month === thisMonth);
+    const select = $(`#analytics-${p}-playbook`);
+    if (select){
+      select.innerHTML = `<option value="">- Not set -</option>` + state.playbooks.map(pb => `<option value="${pb.id}">${escapeHtml(pb.title)}</option>`).join("");
+      select.value = usage?.playbook_id || "";
+    }
+  });
+
+  const perfBody = $("#playbook-performance-tbody");
+  if (perfBody){
+    const perf = {};
+    state.playbookUsage.forEach(u => {
+      if (!u.playbook_id) return;
+      const rows = state.callActivity.filter(r => r.person === u.person && r.activity_date.slice(0,7) === u.month);
+      if (!perf[u.playbook_id]) perf[u.playbook_id] = { months: new Set(), calls:0, convos:0, meetings:0 };
+      const bucket = perf[u.playbook_id];
+      bucket.months.add(`${u.person}:${u.month}`);
+      rows.forEach(r => { bucket.calls += r.calls||0; bucket.convos += r.conversations||0; bucket.meetings += r.meetings_booked||0; });
+    });
+    const ids = Object.keys(perf);
+    if (!ids.length){ perfBody.innerHTML = `<tr><td colspan="5">${emptyState("No playbook usage logged yet. Pick what you used above.")}</td></tr>`; }
+    else {
+      perfBody.innerHTML = ids.map(id => {
+        const pb = state.playbooks.find(x => x.id === id);
+        const b = perf[id];
+        const rate = b.calls ? Math.round(b.convos/b.calls*100) : 0;
+        return `<tr>
+          <td>${escapeHtml(pb?.title || "Deleted playbook")}</td>
+          <td>${b.months.size}</td>
+          <td>${b.calls}</td>
+          <td>${b.meetings}</td>
+          <td>${rate}%</td>
+        </tr>`;
+      }).join("");
+    }
+  }
+}
+async function savePlaybookUsage(person, playbookId){
+  const thisMonth = monthKey(new Date());
+  const existing = state.playbookUsage.find(u => u.person === person && u.month === thisMonth);
+  const row = { person, month: thisMonth, playbook_id: playbookId || null, updated_at: new Date().toISOString() };
+  if (existing) await DataLayer.update("playbook_usage", existing.id, row);
+  else await DataLayer.insert("playbook_usage", row);
+  if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
+}
+window.CRM_CALL_ACTIVITY = {
+  async upsertToday(person, patch){
+    if (!person) return;
+    const today = new Date().toISOString().slice(0,10);
+    let row = state.callActivity.find(r => r.person === person && r.activity_date === today);
+    if (!row){
+      row = { id: uid(), person, activity_date: today, calls:0, conversations:0, meetings_booked:0 };
+      state.callActivity.push(row);
+    }
+    Object.assign(row, patch, { updated_at: new Date().toISOString() });
+    if (IS_CONFIGURED){
+      try {
+        await supabase.from("call_activity").upsert(
+          { person, activity_date: today, calls: row.calls, conversations: row.conversations, meetings_booked: row.meetings_booked, updated_at: row.updated_at },
+          { onConflict: "person,activity_date" }
+        );
+      } catch(e){ console.error("Couldn't sync call activity:", e); }
+    }
+    renderCallAnalytics();
+  },
+};
+
 /* ───────── Render: Contacts ───────── */
 function renderContacts(){
   const q = state.contactSearch.toLowerCase();
@@ -869,36 +1013,39 @@ function renderDeals(){
     renderDealDetail(selected);
   }
 }
+function renderDealStageCol(stage){
+  const deals = state.deals.filter(d => d.stage === stage.key);
+  const stageValue = deals.reduce((s,d) => s + Number(d.value||0), 0);
+  return `
+    <div class="kanban-col" data-stage="${stage.key}">
+      <div class="kanban-col-head">
+        <h4>${stage.label}</h4>
+        <span class="kanban-count">${deals.length}</span>
+      </div>
+      <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
+      ${deals.map(d => {
+        const extraContacts = dealContactsFor(d.id);
+        return `
+        <div class="deal-card" draggable="true" data-id="${d.id}" data-action="view-deal">
+          <h5>${escapeHtml(d.title)}</h5>
+          <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}</div>
+          ${extraContacts.length ? `<div class="deal-extra-contacts">${extraContacts.map(dc => `${escapeHtml(dc.role||"Contact")}: ${escapeHtml(dc.name)}`).join(", ")}</div>` : ""}
+          <div class="deal-card-foot">
+            <span class="deal-value">${fmtMoney(d.value)}</span>
+            <button class="icon-btn" data-action="delete-deal" data-id="${d.id}" title="Delete">${ICONS.trash}</button>
+          </div>
+        </div>
+      `;}).join("")}
+    </div>
+  `;
+}
 function renderDealsList(){
   const board = $("#kanban-board");
+  const closedBoard = $("#kanban-board-closed");
   const totalEl = $("#pipeline-total");
   if (totalEl) totalEl.textContent = fmtMoney(state.deals.filter(d => !CLOSED_STAGES.has(d.stage)).reduce((s,d) => s + Number(d.value||0), 0));
-  board.innerHTML = STAGES.map(stage => {
-    const deals = state.deals.filter(d => d.stage === stage.key);
-    const stageValue = deals.reduce((s,d) => s + Number(d.value||0), 0);
-    return `
-      <div class="kanban-col" data-stage="${stage.key}">
-        <div class="kanban-col-head">
-          <h4>${stage.label}</h4>
-          <span class="kanban-count">${deals.length}</span>
-        </div>
-        <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
-        ${deals.map(d => {
-          const extraContacts = dealContactsFor(d.id);
-          return `
-          <div class="deal-card" draggable="true" data-id="${d.id}" data-action="view-deal">
-            <h5>${escapeHtml(d.title)}</h5>
-            <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}</div>
-            ${extraContacts.length ? `<div class="deal-extra-contacts">${extraContacts.map(dc => `${escapeHtml(dc.role||"Contact")}: ${escapeHtml(dc.name)}`).join(", ")}</div>` : ""}
-            <div class="deal-card-foot">
-              <span class="deal-value">${fmtMoney(d.value)}</span>
-              <button class="icon-btn" data-action="delete-deal" data-id="${d.id}" title="Delete">${ICONS.trash}</button>
-            </div>
-          </div>
-        `;}).join("")}
-      </div>
-    `;
-  }).join("");
+  board.innerHTML = STAGES.filter(s => !CLOSED_STAGES.has(s.key)).map(renderDealStageCol).join("");
+  if (closedBoard) closedBoard.innerHTML = STAGES.filter(s => CLOSED_STAGES.has(s.key)).map(renderDealStageCol).join("");
   setupDragDrop();
 }
 function dealActivityFor(dealId){
@@ -983,24 +1130,26 @@ async function addDealNote(dealId){
 }
 function setupDragDrop(){
   let draggedId = null;
-  const board = $("#kanban-board");
-  if (!board) return;
-  board.querySelectorAll(".deal-card").forEach(card => {
-    card.addEventListener("dragstart", (e) => {
-      draggedId = card.dataset.id;
-      card.classList.add("dragging");
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  const boards = [$("#kanban-board"), $("#kanban-board-closed")].filter(Boolean);
+  if (!boards.length) return;
+  boards.forEach(board => {
+    board.querySelectorAll(".deal-card").forEach(card => {
+      card.addEventListener("dragstart", (e) => {
+        draggedId = card.dataset.id;
+        card.classList.add("dragging");
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      });
+      card.addEventListener("dragend", () => card.classList.remove("dragging"));
     });
-    card.addEventListener("dragend", () => card.classList.remove("dragging"));
-  });
-  board.querySelectorAll(".kanban-col").forEach(col => {
-    col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
-    col.addEventListener("dragleave", () => col.classList.remove("dragover"));
-    col.addEventListener("drop", async (e) => {
-      e.preventDefault();
-      col.classList.remove("dragover");
-      if (!draggedId) return;
-      await DataLayer.update("deals", draggedId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
+    board.querySelectorAll(".kanban-col").forEach(col => {
+      col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
+      col.addEventListener("dragleave", () => col.classList.remove("dragover"));
+      col.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        col.classList.remove("dragover");
+        if (!draggedId) return;
+        await DataLayer.update("deals", draggedId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
+      });
     });
   });
 }
@@ -1951,6 +2100,7 @@ function renderRegions(){
 
 function renderAll(){
   renderDashboard();
+  renderCallAnalytics();
   renderContacts();
   renderDeals();
   renderRegions();
@@ -3056,6 +3206,12 @@ function setupTaskFilters(){
   });
 }
 
+function setupAnalyticsFilters(){
+  Object.keys(ASSIGNEES).forEach(p => {
+    $(`#analytics-${p}-playbook`)?.addEventListener("change", (e) => { savePlaybookUsage(p, e.target.value || null); });
+  });
+}
+
 function setupQualifyModal(){
   $("#qualify-yes")?.addEventListener("click", () => resolveMeetingReview("qualified"));
   $("#qualify-internal")?.addEventListener("click", () => resolveMeetingReview("internal"));
@@ -3075,6 +3231,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupDialerFilters();
   setupCallWidget();
   setupTaskFilters();
+  setupAnalyticsFilters();
   initAuth();
 });
 })();

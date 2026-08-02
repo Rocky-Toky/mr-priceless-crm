@@ -451,8 +451,16 @@ function stopClouds(){
 ══════════════════════════════════════════ */
 const GOAL=2, CLOUD9=3, TOTAL=5;
 const STORAGE_KEY='mb_v7';
+const PERSON_KEY='mb_active_person';
 const { supabase: mtrSupabase, IS_CONFIGURED: mtrIsConfigured } = window.CRM_DB;
 let mtrUserId = null;
+
+// Who's currently tracking - lets Rocky and Max share one device/login
+// without each other's stats mixing together. Saved so it sticks.
+function getActivePerson(){ return localStorage.getItem(PERSON_KEY) || 'rocky'; }
+function setActivePerson(p){ try{ localStorage.setItem(PERSON_KEY, p); }catch(e){} }
+function personStorageKey(){ return STORAGE_KEY + '_' + getActivePerson(); }
+function personWidgetName(){ return 'meetings_tracker_' + getActivePerson(); }
 
 function localDateKey(d){
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -491,13 +499,13 @@ async function loadState(){
     const { data: { user } } = await mtrSupabase.auth.getUser();
     mtrUserId = user ? user.id : null;
     if (mtrUserId){
-      const { data } = await mtrSupabase.from("user_widget_state").select("data").eq("user_id", mtrUserId).eq("widget","meetings_tracker").maybeSingle();
+      const { data } = await mtrSupabase.from("user_widget_state").select("data").eq("user_id", mtrUserId).eq("widget",personWidgetName()).maybeSingle();
       if (data && data.data) return normalizeState(data.data);
     }
     return defaultState();
   }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(personStorageKey());
     return raw ? normalizeState(JSON.parse(raw)) : defaultState();
   } catch(e){ return defaultState(); }
 }
@@ -505,10 +513,10 @@ let state = defaultState();
 
 async function save(){
   if (mtrIsConfigured && mtrUserId){
-    try { await mtrSupabase.from("user_widget_state").upsert({ user_id: mtrUserId, widget: "meetings_tracker", data: state, updated_at: new Date().toISOString() }); } catch(e){}
+    try { await mtrSupabase.from("user_widget_state").upsert({ user_id: mtrUserId, widget: personWidgetName(), data: state, updated_at: new Date().toISOString() }); } catch(e){}
     return;
   }
-  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));}catch(e){}
+  try{localStorage.setItem(personStorageKey(),JSON.stringify(state));}catch(e){}
 }
 
 /* ══════════════════════════════════════════
@@ -837,6 +845,7 @@ function toggle(idx, el, e){
     }
   }
   updateStats();
+  syncCallActivity();
 }
 
 /* ══════════════════════════════════════════
@@ -940,9 +949,21 @@ function renderCounters(){
   document.getElementById('cc-convos').classList.toggle('has-count', convos > 0);
 }
 
+// Mirrors today's totals into the shared call_activity table so the
+// Team Analytics section (and the other person) can see them.
+function syncCallActivity(){
+  if (!window.CRM_CALL_ACTIVITY) return;
+  window.CRM_CALL_ACTIVITY.upsertToday(getActivePerson(), {
+    calls: state.calls,
+    conversations: state.convos,
+    meetings_booked: state.meetings.filter(m=>m.done).length,
+  });
+}
+
 function incCounter(key){
   state[key]++;
   save();
+  syncCallActivity();
   const numEl = document.getElementById('cnt-' + key);
   const cardEl = document.getElementById('cc-' + key);
   numEl.textContent = state[key];
@@ -963,6 +984,7 @@ function decCounter(key){
   if(state[key] <= 0) return;
   state[key]--;
   save();
+  syncCallActivity();
   renderCounters();
 }
 
@@ -997,12 +1019,22 @@ function resetDay(){
   closeMegaC9(); closeInsane(); stopClouds();
   cfRunning=false; ctx.clearRect(0,0,canvas.width,canvas.height);
   save(); renderAll(); addLog('Day reset - fresh slate','reset');
+  syncCallActivity();
 }
 
 /* ══════════════════════════════════════════
    INIT
 ══════════════════════════════════════════ */
 document.getElementById('date-chip').textContent=formatDate();
+const personSelect = document.getElementById('mb-person-select');
+if(personSelect){
+  personSelect.value = getActivePerson();
+  personSelect.addEventListener('change', async (e) => {
+    setActivePerson(e.target.value);
+    state = await loadState();
+    renderAll();
+  });
+}
 (async () => {
   state = await loadState();
   renderAll();

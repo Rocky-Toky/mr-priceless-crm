@@ -7,6 +7,23 @@
 #page-cold-calls .mtr-header-actions{display:flex;align-items:center;gap:10px;}
 .mtr-streak-chip{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--gold-deep);background:var(--gold-soft);border:1px solid var(--gold-border);padding:7px 13px;border-radius:999px;}
 .mtr-streak-chip svg{width:14px;height:14px;}
+.mtr-person-select{display:flex;align-items:center;gap:8px;}
+.mtr-person-select label{font-size:12px;color:var(--text2);font-weight:600;white-space:nowrap;}
+.mtr-person-select select{padding:7px 12px;border-radius:999px;border:1px solid var(--gold-border);background:var(--gold-soft);color:var(--gold-deep);font-weight:700;font-size:12.5px;}
+
+/* ─── Team Analytics ─── */
+#analytics-week-grid table{width:100%;border-collapse:collapse;}
+#analytics-week-grid th, #analytics-week-grid td{padding:8px 10px;text-align:center;font-size:12.5px;border-bottom:1px solid var(--line);}
+#analytics-week-grid th{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);}
+#analytics-week-grid td:first-child, #analytics-week-grid th:first-child{text-align:left;font-weight:600;}
+.analytics-today-row td{background:var(--gold-soft);font-weight:700;}
+.analytics-month-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin:20px 0;}
+.analytics-person-card{border:1px solid var(--line);border-radius:var(--r-sm);padding:14px 16px;background:var(--paper);}
+.analytics-person-card h4{font-size:13.5px;font-weight:700;margin-bottom:10px;}
+.analytics-person-stats{display:flex;gap:18px;margin-bottom:12px;}
+.analytics-person-stats .stat-value{font-size:20px;font-weight:800;font-family:var(--font-display);color:var(--gold-deep);}
+.analytics-person-stats .stat-label{font-size:10.5px;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;}
+.analytics-subhead{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin:8px 0 10px;}
 
 /* ─── KPI values (inside the shared .stat-card) ─── */
 .mtr-kpi-done{color:var(--gold-deep);}
