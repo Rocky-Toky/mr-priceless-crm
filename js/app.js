@@ -52,6 +52,12 @@ const TASK_PRIORITIES = {
   urgent: { label: "Urgent", cls: "black", rank: 3 },
 };
 const TASK_CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>`;
+const ASSIGNEES = {
+  rocky: { label: "Rocky", cls: "gold" },
+  max: { label: "Max", cls: "black" },
+};
+function getAssigneeFirstPref(){ return localStorage.getItem("crm_task_assignee_first") || "rocky"; }
+function setAssigneeFirstPref(v){ if (v === "rocky" || v === "max") localStorage.setItem("crm_task_assignee_first", v); }
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
@@ -87,6 +93,43 @@ const CLIENT_STAGES = [
   { key: "churned", label: "Churned", days: null, cls: "gray" },
 ];
 const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
+const ONBOARDING_SECTIONS = [
+  { section: "Day 1 - Immediately After Signing", items: [
+    "Send a welcome email confirming what happens next and the rough timeline.",
+    "Send the contract/invoice if not already done.",
+    "Add them to Clients in the CRM with all their details.",
+    "Create a shared folder/doc for assets (logos, brand guide, login details).",
+  ]},
+  { section: "Week 1 - Collect What You Need", items: [
+    "Business logo, brand colours, and brand guidelines (if any).",
+    "Access to ad accounts (Meta Business Manager, Google Ads) or invite as admin.",
+    "Access to website/CMS if content changes are needed.",
+    "Existing customer testimonials, photos, or video assets.",
+    "Key selling points, offers, and target customer description.",
+  ]},
+  { section: "Week 1 - Kickoff Call", items: [
+    "Confirm goals and what success looks like for them.",
+    "Walk through the reporting cadence and what they'll receive.",
+    "Set expectations on timelines (first ads live, first results visible).",
+    "Confirm main point of contact on both sides.",
+  ]},
+  { section: "Setup", items: [
+    "Set up ad accounts, tracking (pixel/conversion tracking), and campaigns.",
+    "Build the first round of ad creative based on brand assets collected.",
+    "Set up their entry in Clients with a cost-per-lead target and report frequency.",
+  ]},
+  { section: "Week 2 - Launch", items: [
+    "Get final sign-off on ad creative and targeting before launching.",
+    "Launch campaigns.",
+    "Send confirmation that campaigns are live, with what to expect over the next 7 days.",
+  ]},
+  { section: "Ongoing", items: [
+    "Confirm reporting cadence is firing correctly.",
+    "Schedule a 2-week check-in call to review early results.",
+    "Add any open items to Tasks so nothing gets missed.",
+  ]},
+];
+const ONBOARDING_STEPS = ONBOARDING_SECTIONS.flatMap((s, si) => s.items.map((label, ii) => ({ key: `${si}_${ii}`, section: s.section, label })));
 
 const state = {
   page: "dashboard",
@@ -108,9 +151,10 @@ const state = {
   selectedPlaybookId: null,
   expenses: [],
   selectedClientId: null,
+  selectedOnboardingClientId: null,
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "" },
-  taskFilter: { status: "open", priority: "", sort: "due_date" },
+  taskFilter: { status: "open", priority: "", sort: "due_date", assignee: "" },
   team: [],
   contactFilter: "",
   contactSearch: "",
@@ -237,7 +281,8 @@ function seedDemo(){
       key_contacts:"Priya Chand - Owner.",
       communication_preferences:"",
       renewal_date:null,
-      stage:"onboarding", stage_changed_at:new Date(Date.now()-86400e3*5).toISOString() },
+      stage:"onboarding", stage_changed_at:new Date(Date.now()-86400e3*5).toISOString(),
+      onboarding_progress:{ "0_0":true, "0_1":true, "0_2":true, "1_0":true } },
     { id:uid(), name:"Reeve Builders", notes:"CPL crept up ~40% last month - asked for a call to discuss results.", cost_per_lead:65, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*5).toISOString(), created_at:new Date(Date.now()-86400e3*140).toISOString(), updated_at:new Date().toISOString(),
       services:"Meta Ads + SEO retainer.",
       client_rules:"",
@@ -255,7 +300,7 @@ function seedDemo(){
     { id:uid(), client_id:cl2, type:"video", status:"filming", title:"Patient testimonial - Whitening results", directions:"Shoot in the new chair, natural light near window.", script:"", notes:"", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.adCreatives = [
-    { id:uid(), client_id:cl1, name:"Drone listing reel v1", result:"winner", notes:"Lowest CPL so far, keep scaling.", created_at:new Date(Date.now()-86400e3*20).toISOString() },
+    { id:uid(), client_id:cl1, name:"Drone listing reel v1", result:"winner", notes:"Lowest CPL so far, keep scaling.", meta_ad_id:"120211234567890123", impressions:18420, clicks:512, spend:284.50, results:11, cost_per_result:25.86, insights_updated_at:new Date(Date.now()-3600e3*3).toISOString(), created_at:new Date(Date.now()-86400e3*20).toISOString() },
     { id:uid(), client_id:cl1, name:"Static \"just sold\" carousel", result:"killed", notes:"CTR too low, paused after 3 days.", created_at:new Date(Date.now()-86400e3*15).toISOString() },
     { id:uid(), client_id:cl2, name:"Before/after smile carousel", result:"testing", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString() },
   ];
@@ -267,10 +312,10 @@ function seedDemo(){
   ];
   state.dealContacts = [];
   state.tasks = [
-    { id:uid(), title:"Send Kauri contract for signature", notes:"", due_date:new Date(Date.now()+86400e3*1).toISOString().slice(0,10), priority:"high", status:"open", contact_id:c1, deal_id:deal1, created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), title:"Follow up with Priya Chand re: proposal", notes:"She wanted pricing broken out by service.", due_date:new Date(Date.now()-86400e3*1).toISOString().slice(0,10), priority:"urgent", status:"open", contact_id:c3, deal_id:null, created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), title:"Prep Summit Dental ad creative review", notes:"", due_date:new Date(Date.now()+86400e3*5).toISOString().slice(0,10), priority:"medium", status:"open", contact_id:c2, deal_id:null, created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), title:"Renew domain for agency site", notes:"", due_date:null, priority:"low", status:"open", contact_id:null, deal_id:null, created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Send Kauri contract for signature", notes:"", due_date:new Date(Date.now()+86400e3*1).toISOString().slice(0,10), priority:"high", assignee:"rocky", status:"open", contact_id:c1, deal_id:deal1, created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Follow up with Priya Chand re: proposal", notes:"She wanted pricing broken out by service.", due_date:new Date(Date.now()-86400e3*1).toISOString().slice(0,10), priority:"urgent", assignee:"max", status:"open", contact_id:c3, deal_id:null, created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Prep Summit Dental ad creative review", notes:"", due_date:new Date(Date.now()+86400e3*5).toISOString().slice(0,10), priority:"medium", assignee:"rocky", status:"open", contact_id:c2, deal_id:null, created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Renew domain for agency site", notes:"", due_date:null, priority:"low", assignee:null, status:"open", contact_id:null, deal_id:null, created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.clientReports = [
     { id:uid(), client_id:cl1, period_start:new Date(Date.now()-86400e3*62).toISOString().slice(0,10), period_end:new Date(Date.now()-86400e3*32).toISOString().slice(0,10),
@@ -354,43 +399,6 @@ Turn the booked meeting into a signed client - not just a nice chat.
 - Send a follow-up summary within 1 hour, even if they said yes.
 - Log the outcome and next step in Deals.
 - If they went cold, add a follow-up task for 3-5 days later.` },
-    { id:uid(), title:"Onboarding Process", sort_order:2, created_at:new Date(Date.now()-86400e3*15).toISOString(), updated_at:new Date(Date.now()-86400e3*3).toISOString(), content:
-`## Goal
-Get a new client from "signed" to "fully set up and confident in us" as fast as possible. Work through this checklist top to bottom for every new client - tick items off as you go.
-
-## Day 1 - Immediately After Signing
-- [ ] Send a welcome email confirming what happens next and the rough timeline.
-- [ ] Send the contract/invoice if not already done.
-- [ ] Add them to Clients in the CRM with all their details.
-- [ ] Create a shared folder/doc for assets (logos, brand guide, login details).
-
-## Week 1 - Collect What You Need
-- [ ] Business logo, brand colours, and brand guidelines (if any).
-- [ ] Access to ad accounts (Meta Business Manager, Google Ads) or invite as admin.
-- [ ] Access to website/CMS if content changes are needed.
-- [ ] Existing customer testimonials, photos, or video assets.
-- [ ] Key selling points, offers, and target customer description.
-
-## Week 1 - Kickoff Call
-- [ ] Confirm goals and what success looks like for them.
-- [ ] Walk through the reporting cadence and what they'll receive.
-- [ ] Set expectations on timelines (first ads live, first results visible).
-- [ ] Confirm main point of contact on both sides.
-
-## Setup
-- [ ] Set up ad accounts, tracking (pixel/conversion tracking), and campaigns.
-- [ ] Build the first round of ad creative based on brand assets collected.
-- [ ] Set up their entry in Clients with a cost-per-lead target and report frequency.
-
-## Week 2 - Launch
-- [ ] Get final sign-off on ad creative and targeting before launching.
-- [ ] Launch campaigns.
-- [ ] Send confirmation that campaigns are live, with what to expect over the next 7 days.
-
-## Ongoing
-- [ ] Confirm reporting cadence is firing correctly.
-- [ ] Schedule a 2-week check-in call to review early results.
-- [ ] Add any open items to Tasks so nothing gets missed.` },
     { id:uid(), title:"Service Delivery - Ads", sort_order:3, created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date().toISOString(), content:
 `## Goal
 A single reference for everything needed to run and manage a client's ads properly.
@@ -568,6 +576,7 @@ async function initAuth(){
     showApp();
     reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call - Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
+    checkOverdueTasksPopup();
     return;
   }
   const { data:{ session } } = await supabase.auth.getSession();
@@ -612,6 +621,7 @@ async function handleSignedIn(session, freshLogin){
   subscribeRealtime();
   showApp();
   await checkPendingMeetingReviews();
+  checkOverdueTasksPopup();
   loadCalendarWeek();
 }
 
@@ -1522,10 +1532,11 @@ function renderClientDetail(c){
     tbody.innerHTML = creatives.map(a => `
       <tr data-id="${a.id}">
         <td>${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="ad-creative-thumb" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="ad-creative-thumb ad-creative-thumb-empty"></div>`}</td>
-        <td><div class="row-name">${escapeHtml(a.name)}</div>${a.notes?`<div class="row-sub">${escapeHtml(a.notes)}</div>`:""}</td>
+        <td><div class="row-name">${escapeHtml(a.name)}</div>${a.notes?`<div class="row-sub">${escapeHtml(a.notes)}</div>`:""}${creativeInsightsSummary(a)}</td>
         <td><span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span></td>
         <td>${fmtDate(a.created_at)}</td>
         <td style="text-align:right;white-space:nowrap;">
+          ${a.meta_ad_id ? `<button class="icon-btn" data-action="refresh-creative-insights" data-id="${a.id}" title="Refresh live stats">${ICONS.refresh}</button>` : ""}
           <button class="icon-btn" data-action="edit-ad-creative" data-id="${a.id}" title="Edit">${ICONS.edit}</button>
           <button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button>
         </td>
@@ -1555,7 +1566,115 @@ function setupContentDragDrop(){
   });
 }
 
+/* ───────── Render: Onboarding (per-client tracker) ───────── */
+function onboardingDoneCount(client){
+  const progress = client.onboarding_progress || {};
+  return ONBOARDING_STEPS.filter(s => progress[s.key]).length;
+}
+function renderOnboarding(){
+  const listView = $("#onboarding-list-view");
+  const detailView = $("#onboarding-detail-view");
+  if (!listView || !detailView) return;
+  const selected = state.clients.find(c => c.id === state.selectedOnboardingClientId);
+  if (!selected){
+    state.selectedOnboardingClientId = null;
+    listView.style.display = "";
+    detailView.style.display = "none";
+    renderOnboardingList();
+  } else {
+    listView.style.display = "none";
+    detailView.style.display = "";
+    renderOnboardingDetail(selected);
+  }
+}
+function renderOnboardingList(){
+  const clients = state.clients.filter(c => c.stage === "onboarding" || (!c.stage && onboardingDoneCount(c) < ONBOARDING_STEPS.length));
+  const grid = $("#onboarding-clients-grid");
+  if (!grid) return;
+  $("#onboarding-stat-active").textContent = clients.length;
+  const overdueCount = clients.filter(c => c.stage_changed_at && daysSince(c.stage_changed_at) > 35).length;
+  $("#onboarding-stat-overdue").textContent = overdueCount;
+  const avgDone = clients.length ? Math.round(clients.reduce((s,c) => s + onboardingDoneCount(c), 0) / clients.length) : 0;
+  $("#onboarding-stat-avg-steps").textContent = clients.length ? `${avgDone}/${ONBOARDING_STEPS.length}` : "-";
+
+  if (!clients.length){ grid.innerHTML = emptyState("No clients currently onboarding. New clients start here automatically when added in the Onboarding stage."); return; }
+  grid.innerHTML = clients.map(c => {
+    const done = onboardingDoneCount(c);
+    const pct = Math.round(done / ONBOARDING_STEPS.length * 100);
+    const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
+    const isSlow = days != null && days > 35;
+    return `
+    <div class="onboarding-card" data-action="view-onboarding-client" data-id="${c.id}">
+      <div class="onboarding-card-head">
+        <h5>${escapeHtml(c.name)}</h5>
+        ${isSlow ? `<span class="badge red">${days}d - slow</span>` : (days != null ? `<span class="badge gray">${days}d in</span>` : "")}
+      </div>
+      <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" style="width:${pct}%"></div></div>
+      <div class="onboarding-card-foot">${done} of ${ONBOARDING_STEPS.length} steps complete</div>
+    </div>
+  `;
+  }).join("");
+}
+function renderOnboardingDetail(c){
+  $("#onboarding-detail-name").textContent = c.name;
+  const done = onboardingDoneCount(c);
+  const pct = Math.round(done / ONBOARDING_STEPS.length * 100);
+  $("#onboarding-detail-progress-fill").style.width = pct + "%";
+  $("#onboarding-detail-progress-label").textContent = `${done} of ${ONBOARDING_STEPS.length} steps complete`;
+  const progress = c.onboarding_progress || {};
+
+  let lastSection = null;
+  const rows = ONBOARDING_STEPS.map(s => {
+    const isDone = Boolean(progress[s.key]);
+    const sectionHeader = s.section !== lastSection ? `<div class="onboarding-section-head">${escapeHtml(s.section)}</div>` : "";
+    lastSection = s.section;
+    return `${sectionHeader}
+      <div class="onboarding-step-row ${isDone?'done':''}" data-action="toggle-onboarding-step" data-id="${c.id}" data-step="${s.key}">
+        <div class="mtr-check task-check ${isDone?'done':''}">${TASK_CHECK_SVG}</div>
+        <div class="onboarding-step-label">${escapeHtml(s.label)}</div>
+      </div>`;
+  }).join("");
+  $("#onboarding-steps-list").innerHTML = rows;
+  const completeBtn = $("#onboarding-complete-btn");
+  if (completeBtn){
+    completeBtn.dataset.id = c.id;
+    completeBtn.style.display = done === ONBOARDING_STEPS.length ? "" : "none";
+  }
+}
+
 /* ───────── Render: Creative Library ───────── */
+function creativeInsightsSummary(a){
+  if (!a.meta_ad_id) return "";
+  if (a.insights_updated_at == null) return `<div class="creative-insights creative-insights-empty">Live stats not fetched yet.</div>`;
+  const parts = [];
+  if (a.impressions != null) parts.push(`${Number(a.impressions).toLocaleString()} impr`);
+  if (a.spend != null) parts.push(`${fmtMoney(a.spend)} spent`);
+  if (a.cost_per_result != null) parts.push(`${fmtMoney(a.cost_per_result)}/result`);
+  else if (a.clicks != null) parts.push(`${Number(a.clicks).toLocaleString()} clicks`);
+  return `<div class="creative-insights">${parts.join(" · ")}<span class="creative-insights-updated">Updated ${timeAgo(a.insights_updated_at)}</span></div>`;
+}
+async function refreshCreativeInsights(id){
+  const a = state.adCreatives.find(x => x.id === id);
+  if (!a?.meta_ad_id) return;
+  const btn = document.querySelector(`[data-action="refresh-creative-insights"][data-id="${id}"]`);
+  if (btn) btn.classList.add("spinning");
+  if (!IS_CONFIGURED){
+    // Demo mode: simulate what the real Edge Function would do, so the flow is testable without a live Meta token.
+    await DataLayer.update("client_ad_creatives", id, {
+      impressions: Math.floor(8000 + Math.random()*20000),
+      clicks: Math.floor(150 + Math.random()*400),
+      spend: Number((150 + Math.random()*350).toFixed(2)),
+      results: Math.floor(4 + Math.random()*14),
+      cost_per_result: Number((15 + Math.random()*35).toFixed(2)),
+      insights_updated_at: new Date().toISOString(),
+    });
+    renderAll();
+    return;
+  }
+  const { data, error } = await supabase.functions.invoke("creative-insights", { body: { creative_id: id } });
+  if (error || data?.error){ alert("Couldn't refresh live stats: " + (data?.error || error.message)); }
+  await DataLayer.fetchAll(); renderAll();
+}
 function populateAdCreativeClientSelect(selectedId){
   const sel = $("#ad-creative-client");
   if (!sel) return;
@@ -1601,9 +1720,11 @@ function renderCreativeLibrary(){
         </div>
         <div class="creative-card-client">${escapeHtml(client?.name || "Unknown client")}</div>
         ${a.notes ? `<div class="creative-card-notes">${escapeHtml(a.notes)}</div>` : ""}
+        ${creativeInsightsSummary(a)}
         <div class="creative-card-foot">
           <span>${fmtDate(a.created_at)}</span>
           <div>
+            ${a.meta_ad_id ? `<button class="icon-btn" data-action="refresh-creative-insights" data-id="${a.id}" title="Refresh live stats">${ICONS.refresh}</button>` : ""}
             <button class="icon-btn" data-action="edit-ad-creative" data-id="${a.id}" title="Edit">${ICONS.edit}</button>
             <button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button>
           </div>
@@ -1629,12 +1750,22 @@ function renderTasks(){
   $("#tasks-stat-today").textContent = dueToday.length;
   $("#tasks-stat-done").textContent = done.length;
 
+  const assigneeFilterEl = $("#task-assignee-filter");
+  if (assigneeFilterEl) assigneeFilterEl.value = f.assignee;
+
   let list = state.tasks.filter(t => {
     if (f.status !== "all" && t.status !== f.status) return false;
     if (f.priority && t.priority !== f.priority) return false;
+    if (f.assignee && t.assignee !== f.assignee) return false;
     return true;
   });
+  const firstAssignee = getAssigneeFirstPref();
   list = list.sort((a,b) => {
+    if (!f.assignee){
+      const rankOf = (t) => t.assignee === firstAssignee ? 0 : (t.assignee ? 1 : 2);
+      const ar = rankOf(a), br = rankOf(b);
+      if (ar !== br) return ar - br;
+    }
     if (f.sort === "priority") return (TASK_PRIORITIES[b.priority]?.rank||0) - (TASK_PRIORITIES[a.priority]?.rank||0);
     const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
     const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
@@ -1643,7 +1774,7 @@ function renderTasks(){
 
   const tbody = $("#tasks-tbody");
   if (!tbody) return;
-  if (!list.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No tasks match. Add one to get started.")}</td></tr>`; return; }
+  if (!list.length){ tbody.innerHTML = `<tr><td colspan="7">${emptyState("No tasks match. Add one to get started.")}</td></tr>`; return; }
   tbody.innerHTML = list.map(t => {
     const isOverdue = t.status === "open" && t.due_date && t.due_date < todayStr;
     const linked = [t.contact_id ? contactName(t.contact_id) : "", t.deal_id ? dealTitle(t.deal_id) : ""].filter(Boolean);
@@ -1655,6 +1786,7 @@ function renderTasks(){
         ${linked.length ? `<div class="row-sub">${linked.map(escapeHtml).join(" · ")}</div>` : ""}
         ${t.notes ? `<div class="row-sub">${escapeHtml(t.notes)}</div>` : ""}
       </td>
+      <td>${t.assignee ? `<span class="badge ${ASSIGNEES[t.assignee]?.cls||'gray'}">${ASSIGNEES[t.assignee]?.label||t.assignee}</span>` : `<span class="badge gray">Unassigned</span>`}</td>
       <td><span class="badge ${TASK_PRIORITIES[t.priority]?.cls||'gray'}">${TASK_PRIORITIES[t.priority]?.label||t.priority}</span></td>
       <td style="${isOverdue?'color:var(--danger);font-weight:700;':''}">${t.due_date ? fmtDate(t.due_date) : "-"}${isOverdue?" (overdue)":""}</td>
       <td><span class="badge ${t.status==='done'?'green':'gray'}">${t.status==='done'?'Done':'Open'}</span></td>
@@ -1664,6 +1796,43 @@ function renderTasks(){
       </td>
     </tr>
   `;}).join("");
+}
+function openEditTaskModal(id){
+  const t = state.tasks.find(x => x.id === id);
+  if (!t) return;
+  $("#task-form-id").value = t.id;
+  $("#task-title").value = t.title||"";
+  $("#task-due-date").value = t.due_date||"";
+  $("#task-priority").value = t.priority||"medium";
+  $("#task-assignee").value = t.assignee||"";
+  $("#task-notes").value = t.notes||"";
+  $("#task-contact-select").value = t.contact_id||"";
+  $("#task-deal-select").value = t.deal_id||"";
+  $("#task-modal-title").textContent = "Edit Task";
+  openModal("task-modal");
+}
+let overdueTasksPopupShown = false;
+function checkOverdueTasksPopup(){
+  if (overdueTasksPopupShown) return;
+  if ($("#qualify-modal")?.classList.contains("visible")) return;
+  overdueTasksPopupShown = true;
+  const todayStr = todayDateStr();
+  const overdue = state.tasks.filter(t => t.status === "open" && t.due_date && t.due_date < todayStr);
+  if (!overdue.length) return;
+  const list = $("#overdue-tasks-list");
+  if (!list) return;
+  list.innerHTML = overdue
+    .sort((a,b) => new Date(a.due_date) - new Date(b.due_date))
+    .map(t => `
+      <div class="overdue-task-row" data-action="view-overdue-task" data-id="${t.id}">
+        <div>
+          <div class="overdue-task-title">${escapeHtml(t.title)}</div>
+          <div class="overdue-task-meta">${t.assignee ? (ASSIGNEES[t.assignee]?.label||t.assignee) + " · " : ""}Due ${fmtDate(t.due_date)}</div>
+        </div>
+        <span class="badge ${TASK_PRIORITIES[t.priority]?.cls||'gray'}">${TASK_PRIORITIES[t.priority]?.label||t.priority}</span>
+      </div>
+    `).join("");
+  openModal("overdue-tasks-modal");
 }
 
 /* ───────── Render: Reporting (Meta Ads client reports) ───────── */
@@ -1788,6 +1957,7 @@ function renderAll(){
   renderRegions();
   renderDialer();
   renderClients();
+  renderOnboarding();
   renderCreativeLibrary();
   renderTasks();
   renderReporting();
@@ -2245,7 +2415,7 @@ async function checkPendingMeetingReviews(){
   showNextReview();
 }
 function showNextReview(){
-  if (!reviewQueue.length) { closeModal("qualify-modal"); return; }
+  if (!reviewQueue.length) { closeModal("qualify-modal"); checkOverdueTasksPopup(); return; }
   const review = reviewQueue[0];
   $("#qualify-title").textContent = review.meeting_title || "Untitled meeting";
   $("#qualify-attendees").textContent = (review.attendees || []).join(", ") || "-";
@@ -2309,6 +2479,7 @@ const ICONS = {
   flag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22V4"/><path d="M4 4h13l-2 4 2 4H4"/></svg>`,
   megaphone: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-5v12L3 13v-2z"/><path d="M11.6 16.8L13 21a2 2 0 01-3.8 1.3L7 17"/></svg>`,
   alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
+  refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/></svg>`,
 };
 
 /* ───────── Modals ───────── */
@@ -2572,6 +2743,7 @@ function setupModals(){
     const row = {
       client_id: $("#ad-creative-client").value,
       name: $("#ad-creative-name").value.trim(),
+      meta_ad_id: $("#ad-creative-meta-id").value.trim() || null,
       result: $("#ad-creative-result").value,
       notes: $("#ad-creative-notes").value.trim(),
     };
@@ -2620,6 +2792,7 @@ function setupModals(){
       title: $("#task-title").value.trim(),
       due_date: $("#task-due-date").value || null,
       priority: $("#task-priority").value,
+      assignee: $("#task-assignee").value || null,
       notes: $("#task-notes").value.trim(),
       contact_id: $("#task-contact-select").value || null,
       deal_id: $("#task-deal-select").value || null,
@@ -2723,6 +2896,22 @@ function setupModals(){
     if (action === "dial-outcome") await logDialOutcome(id, outcome);
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
+    if (action === "view-onboarding-client"){ state.selectedOnboardingClientId = id; renderOnboarding(); }
+    if (action === "back-to-onboarding"){ state.selectedOnboardingClientId = null; renderOnboarding(); }
+    if (action === "toggle-onboarding-step"){
+      const c = state.clients.find(x => x.id === id);
+      if (!c) return;
+      const stepKey = btn.dataset.step;
+      const progress = { ...(c.onboarding_progress || {}) };
+      if (progress[stepKey]) delete progress[stepKey]; else progress[stepKey] = true;
+      await DataLayer.update("clients", id, { onboarding_progress: progress });
+      if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
+    }
+    if (action === "complete-onboarding" && confirm("Mark onboarding complete and move this client to Month 1?")){
+      await DataLayer.update("clients", id, { stage: "month_1", stage_changed_at: new Date().toISOString() });
+      state.selectedOnboardingClientId = null;
+      if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
+    }
     if (action === "edit-client-header"){
       const c = state.clients.find(x => x.id === state.selectedClientId);
       if (!c) return;
@@ -2784,6 +2973,7 @@ function setupModals(){
       $("#ad-creative-form-id").value = a.id;
       populateAdCreativeClientSelect(a.client_id);
       $("#ad-creative-name").value = a.name||"";
+      $("#ad-creative-meta-id").value = a.meta_ad_id||"";
       $("#ad-creative-result").value = a.result||"testing";
       $("#ad-creative-notes").value = a.notes||"";
       $("#ad-creative-image").value = "";
@@ -2792,6 +2982,7 @@ function setupModals(){
       openModal("ad-creative-modal");
     }
     if (action === "delete-ad-creative" && confirm("Delete this ad creative?")) await DataLayer.remove("client_ad_creatives", id);
+    if (action === "refresh-creative-insights") await refreshCreativeInsights(id);
     if (action === "view-creative-image"){ window.open(btn.dataset.url, "_blank"); }
     if (action === "edit-campaign"){
       const camp = state.campaigns.find(x => x.id === id);
@@ -2811,19 +3002,8 @@ function setupModals(){
       if (!t) return;
       await DataLayer.update("tasks", id, { status: t.status === "done" ? "open" : "done", updated_at: new Date().toISOString() });
     }
-    if (action === "edit-task"){
-      const t = state.tasks.find(x => x.id === id);
-      if (!t) return;
-      $("#task-form-id").value = t.id;
-      $("#task-title").value = t.title||"";
-      $("#task-due-date").value = t.due_date||"";
-      $("#task-priority").value = t.priority||"medium";
-      $("#task-notes").value = t.notes||"";
-      $("#task-contact-select").value = t.contact_id||"";
-      $("#task-deal-select").value = t.deal_id||"";
-      $("#task-modal-title").textContent = "Edit Task";
-      openModal("task-modal");
-    }
+    if (action === "edit-task") openEditTaskModal(id);
+    if (action === "view-overdue-task"){ closeModal("overdue-tasks-modal"); openEditTaskModal(id); }
     if (action === "delete-task" && confirm("Delete this task?")) await DataLayer.remove("tasks", id);
     if (action === "send-report-now") await sendReportNow(id);
     if (action === "view-report-history") renderReportHistoryModal(id);
@@ -2870,6 +3050,11 @@ function setupTaskFilters(){
   $("#task-status-filter")?.addEventListener("change", (e) => { state.taskFilter.status = e.target.value; renderTasks(); });
   $("#task-priority-filter")?.addEventListener("change", (e) => { state.taskFilter.priority = e.target.value; renderTasks(); });
   $("#task-sort")?.addEventListener("change", (e) => { state.taskFilter.sort = e.target.value; renderTasks(); });
+  $("#task-assignee-filter")?.addEventListener("change", (e) => {
+    state.taskFilter.assignee = e.target.value;
+    setAssigneeFirstPref(e.target.value || getAssigneeFirstPref());
+    renderTasks();
+  });
 }
 
 function setupQualifyModal(){

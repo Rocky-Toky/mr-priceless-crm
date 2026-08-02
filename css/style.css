@@ -407,6 +407,11 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .task-check svg{width:12px;height:12px;color:var(--white);opacity:0;transform:scale(.2);transition:all .2s cubic-bezier(.34,1.8,.64,1);}
 .task-check.done{background:linear-gradient(150deg,var(--gold-bright),var(--gold));border-color:var(--gold);}
 .task-check.done svg{opacity:1;transform:scale(1);}
+.overdue-tasks-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;}
+.overdue-task-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;cursor:pointer;transition:background .12s,border-color .12s;}
+.overdue-task-row:hover{background:var(--gold-soft);border-color:var(--gold-border);}
+.overdue-task-title{font-size:13.5px;font-weight:600;color:var(--text);}
+.overdue-task-meta{font-size:11.5px;color:var(--danger);margin-top:2px;}
 
 /* ───────── Call Widget ───────── */
 .hidden{display:none!important;}
@@ -452,6 +457,28 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .retention-alert-name{font-size:13.5px;font-weight:600;color:var(--text);}
 .retention-alert-tags{display:flex;gap:6px;flex-wrap:wrap;}
 
+/* ───────── Onboarding ───────── */
+.onboarding-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));gap:14px;}
+.onboarding-card{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);padding:14px 16px;cursor:pointer;
+  box-shadow:0 1px 2px rgba(0,0,0,0.04);transition:box-shadow .15s,transform .15s,border-color .15s;
+}
+.onboarding-card:hover{box-shadow:0 8px 20px rgba(20,15,5,0.1);transform:translateY(-2px);border-color:var(--gold-border);}
+.onboarding-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
+.onboarding-card-head h5{font-size:14.5px;font-weight:700;}
+.onboarding-progress-bar{height:8px;border-radius:5px;background:#f1eee6;overflow:hidden;}
+.onboarding-progress-bar-lg{height:12px;border-radius:7px;margin-bottom:10px;}
+.onboarding-progress-fill{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold-bright));border-radius:inherit;transition:width .3s;}
+.onboarding-card-foot{margin-top:9px;font-size:12px;color:var(--text2);}
+.onboarding-progress-label{font-size:13px;color:var(--text2);font-weight:600;}
+.onboarding-steps-list{display:flex;flex-direction:column;}
+.onboarding-section-head{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gold-deep);padding:16px 4px 8px;border-top:1px solid var(--line);}
+.onboarding-section-head:first-child{border-top:none;padding-top:4px;}
+.onboarding-step-row{display:flex;align-items:center;gap:12px;padding:9px 4px;cursor:pointer;border-radius:8px;transition:background .12s;}
+.onboarding-step-row:hover{background:var(--gold-soft);}
+.onboarding-step-label{font-size:13.5px;color:var(--text);}
+.onboarding-step-row.done .onboarding-step-label{color:var(--text2);text-decoration:line-through;}
+
 /* ───────── Creative Library ───────── */
 .creative-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:14px;}
 .creative-card{
@@ -466,6 +493,11 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .creative-card-client{font-size:11.5px;color:var(--text2);margin-bottom:6px;}
 .creative-card-notes{font-size:12px;color:var(--text2);margin-bottom:9px;line-height:1.4;}
 .creative-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:9px;border-top:1px solid var(--line);font-size:11.5px;color:var(--text2);}
+.creative-insights{font-size:11.5px;color:var(--gold-deep);background:var(--gold-soft);border:1px solid var(--gold-border);border-radius:7px;padding:5px 8px;margin:6px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.creative-insights-empty{color:var(--text2);background:transparent;border-style:dashed;}
+.creative-insights-updated{margin-left:auto;color:var(--text2);font-size:10.5px;}
+.icon-btn.spinning svg{animation:crm-spin .7s linear infinite;}
+@keyframes crm-spin{to{transform:rotate(360deg);}}
 
 /* ───────── Modal ───────── */
 .overlay{
