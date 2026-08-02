@@ -70,6 +70,17 @@ const CONTACT_STATUS = {
   client: { label: "Client", cls: "green" },
   inactive: { label: "Inactive", cls: "red" },
 };
+const CONTRACT_TYPES = {
+  retainer: { label: "Monthly Retainer", cls: "gold" },
+  profit_share: { label: "Profit Share", cls: "green" },
+  revenue_share: { label: "Revenue Share", cls: "black" },
+};
+function dealValueLabel(d){
+  if (d.contract_type === "profit_share" || d.contract_type === "revenue_share"){
+    return `${Number(d.percentage||0)}% ${CONTRACT_TYPES[d.contract_type].label}`;
+  }
+  return fmtMoney(d.value);
+}
 const EXPENSE_CATEGORIES = {
   software: "Software & Tools",
   ad_spend: "Ad Spend",
@@ -233,10 +244,10 @@ function seedDemo(){
   ];
   const deal1 = uid();
   state.deals = [
-    { id:deal1, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", value:8500, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental - Meta Ads retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal - SEO + Ads", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - 10 quote guarantee", value:1500, stage:"pending_results", notes:"Signed to the guarantee - 4 of 10 quotes delivered so far.", created_at:new Date(Date.now()-86400e3*9).toISOString(), updated_at:new Date(Date.now()-86400e3*1).toISOString() },
+    { id:deal1, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", contract_type:"profit_share", percentage:15, value:0, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental - Meta Ads retainer", contract_type:"retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal - SEO + Ads", contract_type:"retainer", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - 10 quote guarantee", contract_type:"revenue_share", percentage:10, value:0, stage:"pending_results", notes:"Signed to the guarantee - 4 of 10 quotes delivered so far.", created_at:new Date(Date.now()-86400e3*9).toISOString(), updated_at:new Date(Date.now()-86400e3*1).toISOString() },
     { id:uid(), contact_id:null, contact_name:"Grace Nguyen - Nguyen Dental Studio", title:"Nguyen Dental - Google Ads retainer", value:1800, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString() },
     { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - SEO retainer", value:2600, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*48).toISOString(), updated_at:new Date(Date.now()-86400e3*42).toISOString() },
     { id:uid(), contact_id:null, contact_name:"Sina Tuilagi - Tuilagi Landscaping", title:"Tuilagi Landscaping - Meta Ads", value:1200, stage:"closed_lost", notes:"Went with a cheaper freelancer.", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*8).toISOString() },
@@ -1031,7 +1042,7 @@ function renderDealStageCol(stage){
           <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}</div>
           ${extraContacts.length ? `<div class="deal-extra-contacts">${extraContacts.map(dc => `${escapeHtml(dc.role||"Contact")}: ${escapeHtml(dc.name)}`).join(", ")}</div>` : ""}
           <div class="deal-card-foot">
-            <span class="deal-value">${fmtMoney(d.value)}</span>
+            <span class="deal-value">${dealValueLabel(d)}</span>
             <button class="icon-btn" data-action="delete-deal" data-id="${d.id}" title="Delete">${ICONS.trash}</button>
           </div>
         </div>
@@ -1056,7 +1067,7 @@ function dealNotesFor(dealId){
 }
 function renderDealDetail(deal){
   $("#deal-detail-title").textContent = deal.title;
-  $("#deal-detail-value").textContent = fmtMoney(deal.value);
+  $("#deal-detail-value").textContent = dealValueLabel(deal);
   $("#deal-detail-delete").dataset.id = deal.id;
 
   const contactsBody = $("#deal-detail-contacts");
@@ -1159,6 +1170,13 @@ function dealContactsFor(dealId){
   return state.dealContacts.filter(dc => dc.deal_id === dealId).map(dc => ({
     ...dc, name: contactName(dc.contact_id) || "(deleted contact)",
   }));
+}
+function toggleDealContractFields(){
+  const type = $("#deal-contract-type")?.value || "retainer";
+  const valueField = $("#deal-value-field");
+  const pctField = $("#deal-percentage-field");
+  if (valueField) valueField.style.display = type === "retainer" ? "" : "none";
+  if (pctField) pctField.style.display = type === "retainer" ? "none" : "";
 }
 function addDealContactRow(){
   const rows = $("#deal-contacts-rows");
@@ -2706,10 +2724,15 @@ function setupModals(){
 
   $("#add-deal-btn").addEventListener("click", () => {
     $("#deal-form").reset();
+    $("#deal-form-id").value = "";
+    $("#deal-contract-type").value = "retainer";
+    toggleDealContractFields();
+    $("#deal-modal-title").textContent = "New Deal";
     $("#deal-contacts-rows").innerHTML = "";
     addDealContactRow();
     openModal("deal-modal");
   });
+  $("#deal-contract-type")?.addEventListener("change", toggleDealContractFields);
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
   $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
@@ -2719,18 +2742,21 @@ function setupModals(){
   });
   $("#deal-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const id = $("#deal-form-id").value;
     const contactId = $("#deal-contact-select").value || null;
+    const contractType = $("#deal-contract-type").value;
     const row = {
       title: $("#deal-title").value.trim(),
-      value: Number($("#deal-value").value || 0),
+      contract_type: contractType,
+      value: contractType === "retainer" ? Number($("#deal-value").value || 0) : 0,
+      percentage: contractType === "retainer" ? null : Number($("#deal-percentage").value || 0),
       stage: $("#deal-stage").value,
       contact_id: contactId,
       contact_name: contactId ? contactName(contactId) : "",
-      notes: "",
       updated_at: new Date().toISOString(),
     };
     if (!row.title) return;
-    const deal = await DataLayer.insert("deals", row);
+    const deal = id ? await DataLayer.update("deals", id, row) : await DataLayer.insert("deals", { ...row, notes: "" });
     if (deal) await saveDealContactRows(deal.id);
     closeModal("deal-modal");
     if (!IS_CONFIGURED) return; renderAll();
@@ -3010,6 +3036,24 @@ function setupModals(){
     }
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
     if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }
+    if (action === "edit-deal"){
+      const d = state.deals.find(x => x.id === (id || state.selectedDealId));
+      if (!d) return;
+      $("#deal-form-id").value = d.id;
+      $("#deal-title").value = d.title||"";
+      $("#deal-contact-select").value = d.contact_id||"";
+      $("#deal-contract-type").value = d.contract_type||"retainer";
+      $("#deal-value").value = d.value||0;
+      $("#deal-percentage").value = d.percentage||0;
+      $("#deal-stage").value = d.stage||"qualified";
+      toggleDealContractFields();
+      $("#deal-contacts-rows").innerHTML = "";
+      $("#deal-modal-title").textContent = "Edit Deal";
+      openModal("deal-modal");
+      // Demo mode re-renders after every click, which rebuilds this dropdown's
+      // options and wipes the selection just set above - reapply on next tick.
+      setTimeout(() => { $("#deal-contact-select").value = d.contact_id||""; }, 0);
+    }
     if (action === "back-to-deals"){ state.selectedDealId = null; renderDeals(); }
     if (action === "mark-deal-called") await markDealCalled(state.selectedDealId);
     if (action === "delete-region" && confirm("Delete this region?")) await DataLayer.remove("prospecting_regions", id);
