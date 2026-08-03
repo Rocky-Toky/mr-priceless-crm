@@ -1197,7 +1197,8 @@ function setupDragDrop(){
         e.preventDefault();
         col.classList.remove("dragover");
         if (!draggedId) return;
-        await DataLayer.update("deals", draggedId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
+        const updated = await DataLayer.update("deals", draggedId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
+        await maybeCreateClientFromDeal(updated);
       });
     });
   });
@@ -1970,6 +1971,25 @@ function renderCreativeLibrary(){
     </div>
   `;
   }).join("");
+}
+
+/* ───────── Auto-create a Client (Onboarding) when a deal wins ───────── */
+async function maybeCreateClientFromDeal(deal){
+  if (!deal || (deal.stage !== "pending_results" && deal.stage !== "closed_won")) return;
+  if (state.clients.some(c => c.source_deal_id === deal.id)) return;
+  const contact = deal.contact_id ? state.contacts.find(c => c.id === deal.contact_id) : null;
+  const name = (contact?.company || deal.contact_name || deal.title || "").trim();
+  if (!name) return;
+  if (state.clients.some(c => (c.name||"").trim().toLowerCase() === name.toLowerCase())) return;
+  await DataLayer.insert("clients", {
+    name,
+    stage: "onboarding",
+    stage_changed_at: new Date().toISOString(),
+    source_deal_id: deal.id,
+    notes: `Auto-created when "${deal.title}" landed on ${CLOSED_STAGES.has(deal.stage) ? "Closed Won" : "Pending Results"}.`,
+  });
+  if (!IS_CONFIGURED) return;
+  await DataLayer.fetchAll(); renderAll();
 }
 
 /* ───────── Render: Tasks ───────── */
@@ -2843,6 +2863,7 @@ function setupModals(){
     if (!row.title) return;
     const deal = id ? await DataLayer.update("deals", id, row) : await DataLayer.insert("deals", { ...row, notes: "" });
     if (deal) await saveDealContactRows(deal.id);
+    if (deal) await maybeCreateClientFromDeal(deal);
     closeModal("deal-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
