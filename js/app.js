@@ -2225,6 +2225,38 @@ async function sendReportNow(clientId){
   else { alert(`Report sent to ${client.report_email}.`); }
   await DataLayer.fetchAll(); renderAll();
 }
+async function syncClientAds(clientId){
+  const client = state.clients.find(c => c.id === clientId);
+  if (!client) return;
+  if (!client.meta_ad_account_id){ alert("This client needs a Meta Ad Account ID set first (Edit Client)."); return; }
+  const btn = $("#sync-client-ads-btn");
+  if (btn){ btn.disabled = true; btn.textContent = "Syncing..."; }
+  if (!IS_CONFIGURED){
+    // Demo mode: simulate what the real Edge Function would do - refresh
+    // whatever creatives already have a Facebook Ad ID, since there's no
+    // live Meta account to actually discover new ads from.
+    const withMetaId = state.adCreatives.filter(a => a.client_id === clientId && a.meta_ad_id);
+    for (const a of withMetaId){
+      await DataLayer.update("client_ad_creatives", a.id, {
+        impressions: Math.floor(8000 + Math.random()*20000),
+        clicks: Math.floor(150 + Math.random()*400),
+        spend: Number((150 + Math.random()*350).toFixed(2)),
+        results: Math.floor(4 + Math.random()*14),
+        cost_per_result: Number((15 + Math.random()*35).toFixed(2)),
+        insights_updated_at: new Date().toISOString(),
+      });
+    }
+    if (btn){ btn.disabled = false; btn.textContent = "Sync Ad Account"; }
+    alert(`Demo mode: refreshed ${withMetaId.length} existing creative${withMetaId.length===1?"":"s"}. Connect Supabase + Meta to actually discover and import new ads from the account.`);
+    renderAll();
+    return;
+  }
+  const { data, error } = await supabase.functions.invoke("sync-client-ads", { body: { client_id: clientId } });
+  if (btn){ btn.disabled = false; btn.textContent = "Sync Ad Account"; }
+  if (error || data?.error){ alert("Couldn't sync the ad account: " + (data?.error || error.message)); return; }
+  alert(`Synced ${data.ads_found} ad${data.ads_found===1?"":"s"}: ${data.creatives_created} new, ${data.creatives_updated} updated, ${data.campaigns_created} new campaign${data.campaigns_created===1?"":"s"} found.`);
+  await DataLayer.fetchAll(); renderAll();
+}
 function renderReportHistoryModal(clientId){
   const client = state.clients.find(c => c.id === clientId);
   if (!client) return;
@@ -3122,6 +3154,7 @@ function setupModals(){
     $("#campaign-form").reset(); $("#campaign-form-id").value=""; $("#campaign-modal-title").textContent="Add Campaign";
     openModal("campaign-modal");
   });
+  $("#sync-client-ads-btn")?.addEventListener("click", () => syncClientAds(state.selectedClientId));
   $("#campaign-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#campaign-form-id").value;
