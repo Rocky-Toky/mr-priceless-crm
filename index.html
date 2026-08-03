@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=34">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=34">
+<link rel="stylesheet" href="css/style.css?v=35">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=35">
 </head>
 <body>
 
@@ -829,7 +829,7 @@
         <div class="card">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Campaign</th><th>Platform</th><th>Status</th><th>CPL</th><th></th></tr></thead>
+              <thead><tr><th>Campaign</th><th>Platform</th><th>Status</th><th>Ad Spend</th><th>CPL</th><th></th></tr></thead>
               <tbody id="campaigns-tbody"></tbody>
             </table>
           </div>
@@ -1342,6 +1342,9 @@
       <div class="field"><label>Client</label>
         <select id="ad-creative-client" required></select>
       </div>
+      <div class="field"><label>Campaign (optional)</label>
+        <select id="ad-creative-campaign"><option value="">- No campaign -</option></select>
+      </div>
       <div class="field"><label>Creative Name</label><input type="text" id="ad-creative-name" required placeholder="e.g. Drone listing reel v1"></div>
       <div class="field"><label>Facebook Ad ID (optional)</label><input type="text" id="ad-creative-meta-id" placeholder="e.g. 120211234567890123 - pulls live stats"></div>
       <div class="field"><label>Result</label>
@@ -1509,10 +1512,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=34"></script>
-<script src="js/supabaseClient.js?v=34"></script>
-<script src="js/app.js?v=34"></script>
-<script src="js/meetings-tracker.js?v=34"></script>
-<script src="js/todo.js?v=34"></script>
+<script src="js/config.js?v=35"></script>
+<script src="js/supabaseClient.js?v=35"></script>
+<script src="js/app.js?v=35"></script>
+<script src="js/meetings-tracker.js?v=35"></script>
+<script src="js/todo.js?v=35"></script>
 </body>
 </html>

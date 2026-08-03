@@ -318,16 +318,17 @@ function seedDemo(){
     { id:uid(), client_id:cl1, type:"video", status:"posted", title:"Open home recap - Britomart apartment", directions:"", script:"", notes:"Posted to IG + FB, did well.", created_at:new Date(Date.now()-86400e3*12).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), client_id:cl2, type:"video", status:"filming", title:"Patient testimonial - Whitening results", directions:"Shoot in the new chair, natural light near window.", script:"", notes:"", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
   ];
-  state.adCreatives = [
-    { id:uid(), client_id:cl1, name:"Drone listing reel v1", result:"winner", notes:"Lowest CPL so far, keep scaling.", meta_ad_id:"120211234567890123", impressions:18420, clicks:512, spend:284.50, results:11, cost_per_result:25.86, insights_updated_at:new Date(Date.now()-3600e3*3).toISOString(), created_at:new Date(Date.now()-86400e3*20).toISOString() },
-    { id:uid(), client_id:cl1, name:"Static \"just sold\" carousel", result:"killed", notes:"CTR too low, paused after 3 days.", created_at:new Date(Date.now()-86400e3*15).toISOString() },
-    { id:uid(), client_id:cl2, name:"Before/after smile carousel", result:"testing", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString() },
-  ];
+  const campAucklandLeadGen = uid();
   state.campaigns = [
-    { id:uid(), client_id:cl1, name:"Auckland listings - lead gen", platform:"Meta", status:"active", cost_per_lead:35, notes:"", created_at:new Date(Date.now()-86400e3*18).toISOString(), updated_at:new Date().toISOString() },
+    { id:campAucklandLeadGen, client_id:cl1, name:"Auckland listings - lead gen", platform:"Meta", status:"active", cost_per_lead:35, notes:"", created_at:new Date(Date.now()-86400e3*18).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), client_id:cl1, name:"Retargeting - open home visitors", platform:"Meta", status:"active", cost_per_lead:22, notes:"", created_at:new Date(Date.now()-86400e3*9).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), client_id:cl1, name:"Google Search - suburb keywords", platform:"Google", status:"paused", cost_per_lead:58, notes:"Paused, CPL too high vs Meta.", created_at:new Date(Date.now()-86400e3*30).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), client_id:cl2, name:"Whitening promo - lead gen", platform:"Meta", status:"active", cost_per_lead:19, notes:"", created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date().toISOString() },
+  ];
+  state.adCreatives = [
+    { id:uid(), client_id:cl1, campaign_id:campAucklandLeadGen, name:"Drone listing reel v1", result:"winner", notes:"Lowest CPL so far, keep scaling.", meta_ad_id:"120211234567890123", impressions:18420, clicks:512, spend:284.50, results:11, cost_per_result:25.86, insights_updated_at:new Date(Date.now()-3600e3*3).toISOString(), created_at:new Date(Date.now()-86400e3*20).toISOString() },
+    { id:uid(), client_id:cl1, campaign_id:campAucklandLeadGen, name:"Static \"just sold\" carousel", result:"killed", meta_ad_id:"120211234567890124", impressions:9310, clicks:118, spend:96.20, results:2, cost_per_result:48.10, insights_updated_at:new Date(Date.now()-86400e3*14).toISOString(), notes:"CTR too low, paused after 3 days.", created_at:new Date(Date.now()-86400e3*15).toISOString() },
+    { id:uid(), client_id:cl2, name:"Before/after smile carousel", result:"testing", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString() },
   ];
   state.dealContacts = [];
   state.tasks = [
@@ -1604,7 +1605,17 @@ function clientAvgCPL(){
   return withCpl.reduce((s,c) => s + Number(c.cost_per_lead||0), 0) / withCpl.length;
 }
 function campaignsFor(clientId){ return state.campaigns.filter(x => x.client_id === clientId); }
+function campaignName(id){ return state.campaigns.find(c => c.id === id)?.name || ""; }
 function runningCampaignsFor(clientId){ return campaignsFor(clientId).filter(x => x.status === "active"); }
+// Rolls up real Meta-pulled spend/results from a campaign's linked creatives,
+// so Ad Spend and CPL reflect live numbers instead of a manual guess.
+function campaignAdStats(campaignId){
+  const creatives = state.adCreatives.filter(a => a.campaign_id === campaignId && a.spend != null);
+  if (!creatives.length) return null;
+  const spend = creatives.reduce((s,a) => s + Number(a.spend||0), 0);
+  const results = creatives.reduce((s,a) => s + Number(a.results||0), 0);
+  return { spend, results, cpl: results > 0 ? spend / results : null, creativeCount: creatives.length };
+}
 async function uploadAdCreativeImage(file){
   if (!file) return null;
   if (!IS_CONFIGURED) return URL.createObjectURL(file);
@@ -1771,20 +1782,26 @@ function renderClientDetail(c){
   $("#client-detail-campaigns-running").textContent = running.length;
   $("#client-detail-campaigns-total").textContent = campaigns.length;
   const campTbody = $("#campaigns-tbody");
-  if (!campaigns.length){ campTbody.innerHTML = `<tr><td colspan="5">${emptyState("No campaigns yet. Add one to start tracking CPL.")}</td></tr>`; }
+  if (!campaigns.length){ campTbody.innerHTML = `<tr><td colspan="6">${emptyState("No campaigns yet. Add one to start tracking CPL.")}</td></tr>`; }
   else {
-    campTbody.innerHTML = campaigns.map(camp => `
+    campTbody.innerHTML = campaigns.map(camp => {
+      const stats = campaignAdStats(camp.id);
+      const spendCell = stats ? `${fmtMoney(stats.spend)}<div class="row-sub">${stats.creativeCount} creative${stats.creativeCount===1?"":"s"}</div>` : "-";
+      const cplCell = stats?.cpl != null ? `${fmtMoney(stats.cpl)}<div class="row-sub">live</div>` : (camp.cost_per_lead!=null ? fmtMoney(camp.cost_per_lead) : "-");
+      return `
       <tr data-id="${camp.id}">
         <td><div class="row-name">${escapeHtml(camp.name)}</div>${camp.notes?`<div class="row-sub">${escapeHtml(camp.notes)}</div>`:""}</td>
         <td>${escapeHtml(camp.platform||"-")}</td>
         <td><span class="badge ${CAMPAIGN_STATUSES[camp.status]?.cls||'gray'}">${CAMPAIGN_STATUSES[camp.status]?.label||camp.status}</span></td>
-        <td>${camp.cost_per_lead!=null ? fmtMoney(camp.cost_per_lead) : "-"}</td>
+        <td>${spendCell}</td>
+        <td>${cplCell}</td>
         <td style="text-align:right;white-space:nowrap;">
           <button class="icon-btn" data-action="edit-campaign" data-id="${camp.id}" title="Edit">${ICONS.edit}</button>
           <button class="icon-btn" data-action="delete-campaign" data-id="${camp.id}" title="Delete">${ICONS.trash}</button>
         </td>
       </tr>
-    `).join("");
+    `;
+    }).join("");
   }
 
   const pieces = state.clientContent.filter(x => x.client_id === c.id);
@@ -1818,7 +1835,7 @@ function renderClientDetail(c){
     tbody.innerHTML = creatives.map(a => `
       <tr data-id="${a.id}">
         <td>${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="ad-creative-thumb" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="ad-creative-thumb ad-creative-thumb-empty"></div>`}</td>
-        <td><div class="row-name">${escapeHtml(a.name)}</div>${a.notes?`<div class="row-sub">${escapeHtml(a.notes)}</div>`:""}${creativeInsightsSummary(a)}</td>
+        <td><div class="row-name">${escapeHtml(a.name)}</div>${a.campaign_id?`<div class="row-sub">${escapeHtml(campaignName(a.campaign_id))}</div>`:""}${a.notes?`<div class="row-sub">${escapeHtml(a.notes)}</div>`:""}${creativeInsightsSummary(a)}</td>
         <td><span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span></td>
         <td>${fmtDate(a.created_at)}</td>
         <td style="text-align:right;white-space:nowrap;">
@@ -1967,6 +1984,13 @@ function populateAdCreativeClientSelect(selectedId){
   sel.innerHTML = state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   sel.value = selectedId || "";
 }
+function populateAdCreativeCampaignSelect(clientId, selectedCampaignId){
+  const sel = $("#ad-creative-campaign");
+  if (!sel) return;
+  const campaigns = clientId ? campaignsFor(clientId) : [];
+  sel.innerHTML = `<option value="">- No campaign -</option>` + campaigns.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+  sel.value = selectedCampaignId || "";
+}
 function renderCreativeLibrary(){
   const grid = $("#creative-library-grid");
   if (!grid) return;
@@ -2004,7 +2028,7 @@ function renderCreativeLibrary(){
           <div class="row-name">${escapeHtml(a.name)}</div>
           <span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span>
         </div>
-        <div class="creative-card-client">${escapeHtml(client?.name || "Unknown client")}</div>
+        <div class="creative-card-client">${escapeHtml(client?.name || "Unknown client")}${a.campaign_id ? ` · ${escapeHtml(campaignName(a.campaign_id))}` : ""}</div>
         ${a.notes ? `<div class="creative-card-notes">${escapeHtml(a.notes)}</div>` : ""}
         ${creativeInsightsSummary(a)}
         <div class="creative-card-foot">
@@ -3058,14 +3082,17 @@ function setupModals(){
     $("#ad-creative-form").reset(); $("#ad-creative-form-id").value=""; $("#ad-creative-modal-title").textContent="Add Ad Creative";
     $("#ad-creative-current-image").innerHTML = "";
     populateAdCreativeClientSelect(state.selectedClientId);
+    populateAdCreativeCampaignSelect(state.selectedClientId);
     openModal("ad-creative-modal");
   });
   $("#add-creative-lib-btn")?.addEventListener("click", () => {
     $("#ad-creative-form").reset(); $("#ad-creative-form-id").value=""; $("#ad-creative-modal-title").textContent="Add Ad Creative";
     $("#ad-creative-current-image").innerHTML = "";
     populateAdCreativeClientSelect(state.creativeFilter.client);
+    populateAdCreativeCampaignSelect(state.creativeFilter.client);
     openModal("ad-creative-modal");
   });
+  $("#ad-creative-client")?.addEventListener("change", (e) => populateAdCreativeCampaignSelect(e.target.value));
   $("#creative-filter-client")?.addEventListener("change", (e) => { state.creativeFilter.client = e.target.value; renderCreativeLibrary(); });
   $("#creative-filter-result")?.addEventListener("change", (e) => { state.creativeFilter.result = e.target.value; renderCreativeLibrary(); });
   $("#ad-creative-form")?.addEventListener("submit", async (e) => {
@@ -3074,6 +3101,7 @@ function setupModals(){
     const file = $("#ad-creative-image").files[0];
     const row = {
       client_id: $("#ad-creative-client").value,
+      campaign_id: $("#ad-creative-campaign").value || null,
       name: $("#ad-creative-name").value.trim(),
       meta_ad_id: $("#ad-creative-meta-id").value.trim() || null,
       result: $("#ad-creative-result").value,
@@ -3328,6 +3356,7 @@ function setupModals(){
       if (!a) return;
       $("#ad-creative-form-id").value = a.id;
       populateAdCreativeClientSelect(a.client_id);
+      populateAdCreativeCampaignSelect(a.client_id, a.campaign_id);
       $("#ad-creative-name").value = a.name||"";
       $("#ad-creative-meta-id").value = a.meta_ad_id||"";
       $("#ad-creative-result").value = a.result||"testing";
