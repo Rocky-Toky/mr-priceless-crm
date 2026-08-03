@@ -767,7 +767,39 @@ function setupEmailAuth(){
 }
 
 /* ───────── Navigation ───────── */
+const WORKSPACE_KEY = "mp_workspace";
+const WORKSPACE_COPY = {
+  sales: { title: "Sales", sub: "Prospecting, booking meetings, and closing deals." },
+  delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients." },
+};
+function getWorkspace(){ return localStorage.getItem(WORKSPACE_KEY) || "sales"; }
+function setWorkspace(w){
+  try { localStorage.setItem(WORKSPACE_KEY, w); } catch(e){}
+  applyWorkspace();
+}
+function applyWorkspace(){
+  const ws = getWorkspace();
+  const select = $("#workspace-select");
+  if (select) select.value = ws;
+  document.body.classList.toggle("workspace-sales", ws === "sales");
+  document.body.classList.toggle("workspace-delivery", ws === "delivery");
+  $$("[data-workspace]").forEach(el => {
+    el.style.display = (el.dataset.workspace === "both" || el.dataset.workspace === ws) ? "" : "none";
+  });
+  const copy = WORKSPACE_COPY[ws] || WORKSPACE_COPY.sales;
+  const titleEl = $("#workspace-banner-title");
+  const subEl = $("#workspace-banner-sub");
+  if (titleEl) titleEl.textContent = copy.title;
+  if (subEl) subEl.textContent = copy.sub;
+  // If the page we're on isn't part of this workspace, fall back to Dashboard.
+  const activeBtn = $(`.nav-item[data-page="${state.page}"]`);
+  const btnWorkspace = activeBtn?.dataset.workspace;
+  if (btnWorkspace && btnWorkspace !== "both" && btnWorkspace !== ws){
+    $('.nav-item[data-page="dashboard"]')?.click();
+  }
+}
 function setupNav(){
+  $("#workspace-select")?.addEventListener("change", (e) => setWorkspace(e.target.value));
   $$(".nav-item[data-page]").forEach(btn => {
     btn.addEventListener("click", () => {
       state.page = btn.dataset.page;
@@ -802,6 +834,7 @@ function setupNav(){
     if (IS_CONFIGURED) await supabase.auth.signOut();
     else location.reload();
   });
+  applyWorkspace();
 }
 
 /* ───────── Render: Dashboard ───────── */

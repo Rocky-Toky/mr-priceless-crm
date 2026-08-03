@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=30">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=30">
+<link rel="stylesheet" href="css/style.css?v=31">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=31">
 </head>
 <body>
 
@@ -97,72 +97,79 @@
         <p>CRM</p>
       </div>
     </div>
+    <div class="workspace-switcher">
+      <label for="workspace-select">Workspace</label>
+      <select id="workspace-select">
+        <option value="sales">Sales</option>
+        <option value="delivery">Service Delivery</option>
+      </select>
+    </div>
     <nav class="nav">
-      <button class="nav-item active" data-page="dashboard">
+      <button class="nav-item active" data-page="dashboard" data-workspace="both">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
         <span>Dashboard</span>
       </button>
-      <button class="nav-item" data-page="cold-calls">
+      <button class="nav-item" data-page="cold-calls" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         <span>Meetings Booked</span>
       </button>
-      <button class="nav-item" data-page="dialer">
+      <button class="nav-item" data-page="dialer" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         <span>Dialer</span>
       </button>
-      <button class="nav-item" data-page="deals">
+      <button class="nav-item" data-page="deals" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         <span>Deals</span>
       </button>
-      <button class="nav-item" data-page="tasks">
+      <button class="nav-item" data-page="tasks" data-workspace="both">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span>Tasks</span>
       </button>
-      <button class="nav-item" data-page="clients">
+      <button class="nav-item" data-page="clients" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/></svg>
         <span>Clients</span>
       </button>
-      <button class="nav-item" data-page="onboarding">
+      <button class="nav-item" data-page="onboarding" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span>Onboarding</span>
       </button>
-      <button class="nav-item" data-page="creative">
+      <button class="nav-item" data-page="creative" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
         <span>Creative</span>
       </button>
-      <button class="nav-item" data-page="reporting">
+      <button class="nav-item" data-page="reporting" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
         <span>Reporting</span>
       </button>
-      <button class="nav-item" data-page="todo">
+      <button class="nav-item" data-page="expenses" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
+        <span>Expenses</span>
+      </button>
+      <button class="nav-item" data-page="todo" data-workspace="both">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span>To Do</span>
       </button>
-      <button class="nav-item" data-page="playbooks">
+      <button class="nav-item" data-page="playbooks" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
         <span>Playbooks</span>
       </button>
-      <div class="nav-group">
+      <div class="nav-group" data-workspace="sales">
         <button type="button" class="nav-item nav-group-toggle" id="nav-more-toggle">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
           <span>More</span>
         </button>
         <div class="nav-dropdown" id="nav-more-dropdown">
-          <button class="nav-item" data-page="calendar">
+          <button class="nav-item" data-page="calendar" data-workspace="sales">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
             <span>Calendar</span>
           </button>
-          <button class="nav-item" data-page="prospecting">
+          <button class="nav-item" data-page="prospecting" data-workspace="sales">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
             <span>Prospecting</span>
           </button>
-          <button class="nav-item" data-page="contacts">
+          <button class="nav-item" data-page="contacts" data-workspace="sales">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
             <span>Contacts</span>
-          </button>
-          <button class="nav-item" data-page="expenses">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
-            <span>Expenses</span>
           </button>
         </div>
       </div>
@@ -177,6 +184,10 @@
   </aside>
 
   <main class="main">
+    <div id="workspace-banner" class="workspace-banner">
+      <h2 id="workspace-banner-title">Sales</h2>
+      <p id="workspace-banner-sub">Prospecting, booking meetings, and closing deals.</p>
+    </div>
     <div id="demo-banner" class="demo-banner" style="display:none;">
       ★ Demo mode - connect Supabase (see README.md) to save real, shared data.
     </div>
@@ -1472,10 +1483,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=30"></script>
-<script src="js/supabaseClient.js?v=30"></script>
-<script src="js/app.js?v=30"></script>
-<script src="js/meetings-tracker.js?v=30"></script>
-<script src="js/todo.js?v=30"></script>
+<script src="js/config.js?v=31"></script>
+<script src="js/supabaseClient.js?v=31"></script>
+<script src="js/app.js?v=31"></script>
+<script src="js/meetings-tracker.js?v=31"></script>
+<script src="js/todo.js?v=31"></script>
 </body>
 </html>
