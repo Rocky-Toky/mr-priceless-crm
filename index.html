@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=33">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=33">
+<link rel="stylesheet" href="css/style.css?v=34">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=34">
 </head>
 <body>
 
@@ -183,39 +183,77 @@
     <!-- Dashboard -->
     <section class="page active" id="page-dashboard">
       <div class="page-header">
-        <div><h2>Dashboard</h2><p>MRR and closed won jobs at a glance.</p></div>
+        <div><h2 id="dashboard-title">Dashboard</h2><p id="dashboard-sub">MRR and closed won jobs at a glance.</p></div>
       </div>
-      <div class="stat-grid">
-        <div class="stat-card stat-card-mrr">
-          <div class="stat-label">MRR</div>
-          <div class="stat-value" id="stat-mrr">$0</div>
-          <div class="stat-sub" id="stat-mrr-sub">from 0 closed won jobs</div>
-          <div class="stat-sub" id="stat-net-mrr">$0/mo net after expenses</div>
+
+      <div data-workspace="sales">
+        <div class="stat-grid">
+          <div class="stat-card stat-card-mrr">
+            <div class="stat-label">MRR</div>
+            <div class="stat-value" id="stat-mrr">$0</div>
+            <div class="stat-sub" id="stat-mrr-sub">from 0 closed won jobs</div>
+            <div class="stat-sub" id="stat-net-mrr">$0/mo net after expenses</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Closed Won This Month</div>
+            <div class="stat-value" id="stat-won-month">0</div>
+            <div class="stat-sub" id="stat-won-month-value">$0 added</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Closed Won Jobs (Total)</div>
+            <div class="stat-value" id="stat-won-total">0</div>
+            <div class="stat-sub" id="stat-win-rate">-% win rate</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Open Pipeline</div>
+            <div class="stat-value" id="stat-pipeline">$0</div>
+            <div class="stat-sub" id="stat-pipeline-sub">0 active deals</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Closed Won This Month</div>
-          <div class="stat-value" id="stat-won-month">0</div>
-          <div class="stat-sub" id="stat-won-month-value">$0 added</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Closed Won Jobs (Total)</div>
-          <div class="stat-value" id="stat-won-total">0</div>
-          <div class="stat-sub" id="stat-win-rate">-% win rate</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Open Pipeline</div>
-          <div class="stat-value" id="stat-pipeline">$0</div>
-          <div class="stat-sub" id="stat-pipeline-sub">0 active deals</div>
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header"><h3>Recently Closed Won</h3></div>
+            <div class="card-body" id="closed-won-list"></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><h3>Upcoming Follow-Ups</h3></div>
+            <div class="card-body" id="followup-list"></div>
+          </div>
         </div>
       </div>
-      <div class="two-col">
-        <div class="card">
-          <div class="card-header"><h3>Recently Closed Won</h3></div>
-          <div class="card-body" id="closed-won-list"></div>
+
+      <div data-workspace="delivery">
+        <div class="stat-grid">
+          <div class="stat-card stat-card-mrr">
+            <div class="stat-label">Client Revenue (MRR)</div>
+            <div class="stat-value" id="stat-client-revenue">$0</div>
+            <div class="stat-sub" id="stat-client-revenue-sub">from 0 active clients</div>
+            <div class="stat-sub" id="stat-client-net">$0/mo net after expenses</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Profit Share (This Month)</div>
+            <div class="stat-value" id="stat-profit-share-month" style="color:var(--success);">$0</div>
+            <div class="stat-sub" id="stat-profit-share-sub">0 payouts logged</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Clients In The Green</div>
+            <div class="stat-value" id="stat-clients-green">0</div>
+            <div class="stat-sub" id="stat-clients-green-sub">of 0 active clients</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Needing Attention</div>
+            <div class="stat-value" id="stat-clients-attention">0</div>
+            <div class="stat-sub" id="stat-clients-attention-sub">renewals, reports, or stuck stages</div>
+          </div>
         </div>
         <div class="card">
-          <div class="card-header"><h3>Upcoming Follow-Ups</h3></div>
-          <div class="card-body" id="followup-list"></div>
+          <div class="card-header"><h3>Client Health</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Client</th><th>Status</th><th>Stage</th><th>CPL</th><th>Flags</th></tr></thead>
+              <tbody id="dashboard-client-health-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
@@ -1471,10 +1509,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=33"></script>
-<script src="js/supabaseClient.js?v=33"></script>
-<script src="js/app.js?v=33"></script>
-<script src="js/meetings-tracker.js?v=33"></script>
-<script src="js/todo.js?v=33"></script>
+<script src="js/config.js?v=34"></script>
+<script src="js/supabaseClient.js?v=34"></script>
+<script src="js/app.js?v=34"></script>
+<script src="js/meetings-tracker.js?v=34"></script>
+<script src="js/todo.js?v=34"></script>
 </body>
 </html>

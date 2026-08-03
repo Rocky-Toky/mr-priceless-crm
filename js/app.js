@@ -769,8 +769,8 @@ function setupEmailAuth(){
 /* ───────── Navigation ───────── */
 const WORKSPACE_KEY = "mp_workspace";
 const WORKSPACE_COPY = {
-  sales: { title: "Sales", sub: "Prospecting, booking meetings, and closing deals." },
-  delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients." },
+  sales: { title: "Sales", sub: "Prospecting, booking meetings, and closing deals.", dashboardTitle: "Dashboard", dashboardSub: "MRR and closed won jobs at a glance." },
+  delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients.", dashboardTitle: "Dashboard", dashboardSub: "Client health and revenue at a glance." },
 };
 function getWorkspace(){ return localStorage.getItem(WORKSPACE_KEY) || "sales"; }
 function setWorkspace(w){
@@ -791,6 +791,10 @@ function applyWorkspace(){
   const subEl = $("#workspace-banner-sub");
   if (titleEl) titleEl.textContent = copy.title;
   if (subEl) subEl.textContent = copy.sub;
+  const dashTitleEl = $("#dashboard-title");
+  const dashSubEl = $("#dashboard-sub");
+  if (dashTitleEl) dashTitleEl.textContent = copy.dashboardTitle;
+  if (dashSubEl) dashSubEl.textContent = copy.dashboardSub;
   // If the page we're on isn't part of this workspace, fall back to Dashboard.
   const activeBtn = $(`.nav-item[data-page="${state.page}"]`);
   const btnWorkspace = activeBtn?.dataset.workspace;
@@ -859,6 +863,43 @@ function renderDashboard(){
       </div>
     </div>
   `).join("") : emptyState("No follow-ups scheduled.");
+
+  // Service Delivery view: client health & revenue instead of pipeline
+  const activeClients = state.clients.filter(c => c.stage !== "churned");
+  $("#stat-client-revenue").textContent = fmtMoney(mrr);
+  $("#stat-client-revenue-sub").textContent = `from ${activeClients.length} active client${activeClients.length===1?"":"s"}`;
+  $("#stat-client-net").textContent = `${fmtMoney(netMrr)}/mo net after ${fmtMoney(monthlyExpenses)} expenses`;
+
+  const profitEntriesMonth = state.expenses.filter(e => e.type === "profit" && sameMonth(e.expense_date));
+  const profitShareMonth = profitEntriesMonth.reduce((s,e) => s + Number(e.amount||0), 0);
+  $("#stat-profit-share-month").textContent = fmtMoney(profitShareMonth);
+  $("#stat-profit-share-sub").textContent = `${profitEntriesMonth.length} payout${profitEntriesMonth.length===1?"":"s"} logged`;
+
+  const health = activeClients.map(c => ({ client: c, alerts: getClientAlerts(c), status: clientHealthStatus(c) }));
+  const greenCount = health.filter(x => x.status === "green").length;
+  $("#stat-clients-green").textContent = greenCount;
+  $("#stat-clients-green-sub").textContent = `of ${activeClients.length} active client${activeClients.length===1?"":"s"}`;
+  $("#stat-clients-attention").textContent = health.length - greenCount;
+
+  const healthTbody = $("#dashboard-client-health-tbody");
+  if (healthTbody){
+    if (!health.length){ healthTbody.innerHTML = `<tr><td colspan="5">${emptyState("No active clients yet.")}</td></tr>`; }
+    else {
+      const rank = s => s === "red" ? 0 : s === "amber" ? 1 : 2;
+      const sorted = [...health].sort((a,b) => rank(a.status) - rank(b.status));
+      healthTbody.innerHTML = sorted.map(({client:c, alerts, status}) => {
+        const stageInfo = CLIENT_STAGE_MAP[c.stage] || CLIENT_STAGES[0];
+        const statusBadge = status === "red" ? `<span class="badge red">At Risk</span>` : status === "amber" ? `<span class="badge gold">Needs Attention</span>` : `<span class="badge green">Green</span>`;
+        return `<tr data-id="${c.id}" data-action="view-client" style="cursor:pointer;">
+          <td><div class="row-name">${escapeHtml(c.name)}</div></td>
+          <td>${statusBadge}</td>
+          <td><span class="badge ${stageInfo.cls}">${escapeHtml(stageInfo.label)}</span></td>
+          <td>${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead) : "-"}</td>
+          <td>${alerts.length ? escapeHtml(alerts.map(a=>a.text).join(", ")) : "-"}</td>
+        </tr>`;
+      }).join("");
+    }
+  }
 }
 function sameMonth(iso){ const d=new Date(iso), n=new Date(); return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear(); }
 function withinDays(iso, days){ return (Date.now()-new Date(iso).getTime()) < days*86400e3; }
@@ -884,6 +925,13 @@ function getClientAlerts(c){
   }
   if (c.stage === "at_risk") alerts.push({ type:"danger", text:"Marked At Risk" });
   return alerts;
+}
+function clientHealthStatus(c){
+  if (c.stage === "at_risk") return "red";
+  const alerts = getClientAlerts(c);
+  if (alerts.some(a => a.type === "danger")) return "red";
+  if (alerts.length) return "amber";
+  return "green";
 }
 function emptyState(msg){ return `<div class="empty-state"><p>${escapeHtml(msg)}</p></div>`; }
 
@@ -3200,7 +3248,7 @@ function setupModals(){
     if (action === "dial-tel") await logDialOutcome(id, "dialed");
     if (action === "start-call") await startCall(id);
     if (action === "dial-outcome") await logDialOutcome(id, outcome);
-    if (action === "view-client"){ state.selectedClientId = id; renderClients(); }
+    if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
     if (action === "view-onboarding-client"){ state.selectedOnboardingClientId = id; renderOnboarding(); }
     if (action === "back-to-onboarding"){ state.selectedOnboardingClientId = null; renderOnboarding(); }
