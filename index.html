@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=29">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=29">
+<link rel="stylesheet" href="css/style.css?v=30">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=30">
 </head>
 <body>
 
@@ -901,18 +901,20 @@
     <!-- Expenses -->
     <section class="page" id="page-expenses">
       <div class="page-header">
-        <div><h2>Expenses</h2><p>Track business costs against your MRR.</p></div>
+        <div><h2>Expenses</h2><p>Track business costs and profit-share income against your MRR.</p></div>
         <button class="btn gold" id="add-expense-btn">+ Add Expense</button>
       </div>
-      <div class="stat-grid">
+      <div class="stat-grid stat-grid-5">
         <div class="stat-card"><div class="stat-label">Monthly Recurring</div><div class="stat-value" id="stat-expenses-monthly">$0</div></div>
         <div class="stat-card"><div class="stat-label">One-off This Month</div><div class="stat-value" id="stat-expenses-oneoff">$0</div></div>
         <div class="stat-card"><div class="stat-label">Total This Month</div><div class="stat-value" id="stat-expenses-total-month">$0</div></div>
+        <div class="stat-card"><div class="stat-label">Profit From Won Jobs (This Month)</div><div class="stat-value" id="stat-expenses-profit-month" style="color:var(--success);">$0</div></div>
+        <div class="stat-card"><div class="stat-label">Net This Month</div><div class="stat-value" id="stat-expenses-net-month">$0</div></div>
       </div>
       <div class="card">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Title</th><th>Category</th><th>Frequency</th><th>Amount</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Title</th><th>Type</th><th>Category</th><th>Frequency</th><th>Amount</th><th></th></tr></thead>
             <tbody id="expenses-tbody"></tbody>
           </table>
         </div>
@@ -1062,13 +1064,19 @@
     <div class="modal-header"><h3 id="expense-modal-title">Add Expense</h3><button class="modal-close" data-close="expense-modal">&times;</button></div>
     <form id="expense-form" class="modal-body">
       <input type="hidden" id="expense-form-id">
+      <div class="field"><label>Type</label>
+        <select id="expense-type">
+          <option value="expense">Expense</option>
+          <option value="profit">Profit From Won Job</option>
+        </select>
+      </div>
       <div class="field"><label>Title</label><input type="text" id="expense-title" required placeholder="e.g. Google Ads platform fee"></div>
       <div class="field-row">
         <div class="field"><label>Amount (NZD)</label><input type="number" id="expense-amount" min="0" step="0.01" required></div>
         <div class="field"><label>Date</label><input type="date" id="expense-date" required></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Category</label>
+        <div class="field" id="expense-category-field"><label>Category</label>
           <select id="expense-category">
             <option value="software">Software & Tools</option>
             <option value="ad_spend">Ad Spend</option>
@@ -1084,6 +1092,9 @@
             <option value="monthly">Monthly (recurring)</option>
           </select>
         </div>
+      </div>
+      <div class="field" id="expense-deal-field" style="display:none;"><label>Which won job is this from?</label>
+        <select id="expense-deal-select"></select>
       </div>
       <div class="field"><label>Notes</label><textarea id="expense-notes" placeholder="Optional"></textarea></div>
       <div class="modal-actions">
@@ -1461,10 +1472,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=29"></script>
-<script src="js/supabaseClient.js?v=29"></script>
-<script src="js/app.js?v=29"></script>
-<script src="js/meetings-tracker.js?v=29"></script>
-<script src="js/todo.js?v=29"></script>
+<script src="js/config.js?v=30"></script>
+<script src="js/supabaseClient.js?v=30"></script>
+<script src="js/app.js?v=30"></script>
+<script src="js/meetings-tracker.js?v=30"></script>
+<script src="js/todo.js?v=30"></script>
 </body>
 </html>

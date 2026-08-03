@@ -89,6 +89,10 @@ const EXPENSE_CATEGORIES = {
   office: "Office & Admin",
   other: "Other",
 };
+const EXPENSE_TYPES = {
+  expense: { label: "Expense", cls: "gray" },
+  profit: { label: "Profit Share", cls: "green" },
+};
 const EXPENSE_FREQUENCIES = {
   one_off: { label: "One-off", cls: "gray" },
   monthly: { label: "Monthly", cls: "gold" },
@@ -244,6 +248,7 @@ function seedDemo(){
     { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", phone:"021 555 0111", call_date:new Date().toISOString().slice(0,10), outcome:"no_answer", follow_up_date:new Date(Date.now()+86400e3*1).toISOString().slice(0,10), notes:"Left voicemail.", created_at:new Date(Date.now()-3600e3*2).toISOString() },
   ];
   const deal1 = uid();
+  const dealKauriRevShare = uid();
   state.deals = [
     { id:deal1, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", contract_type:"profit_share", percentage:15, value:0, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental - Meta Ads retainer", contract_type:"retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
@@ -251,6 +256,7 @@ function seedDemo(){
     { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - 10 quote guarantee", contract_type:"revenue_share", percentage:10, value:0, stage:"pending_results", notes:"Signed to the guarantee - 4 of 10 quotes delivered so far.", created_at:new Date(Date.now()-86400e3*9).toISOString(), updated_at:new Date(Date.now()-86400e3*1).toISOString() },
     { id:uid(), contact_id:null, contact_name:"Grace Nguyen - Nguyen Dental Studio", title:"Nguyen Dental - Google Ads retainer", value:1800, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString() },
     { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - SEO retainer", value:2600, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*48).toISOString(), updated_at:new Date(Date.now()-86400e3*42).toISOString() },
+    { id:dealKauriRevShare, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Spring listings campaign", contract_type:"revenue_share", percentage:8, value:0, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*30).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
     { id:uid(), contact_id:null, contact_name:"Sina Tuilagi - Tuilagi Landscaping", title:"Tuilagi Landscaping - Meta Ads", value:1200, stage:"closed_lost", notes:"Went with a cheaper freelancer.", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*8).toISOString() },
   ];
   state.calendarEvents = [
@@ -460,6 +466,7 @@ A single reference for everything needed to run and manage a client's ads proper
     { id:uid(), title:"Video editor - contractor retainer", category:"contractors", amount:600, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*6).toISOString().slice(0,10), notes:"Edits creative for all clients.", created_at:new Date(Date.now()-86400e3*45).toISOString(), updated_at:new Date(Date.now()-86400e3*6).toISOString() },
     { id:uid(), title:"New MacBook for editing", category:"office", amount:2800, frequency:"one_off", expense_date:new Date(Date.now()-86400e3*12).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*12).toISOString(), updated_at:new Date(Date.now()-86400e3*12).toISOString() },
     { id:uid(), title:"Contractor - one-off landing page build", category:"contractors", amount:450, frequency:"one_off", expense_date:new Date(Date.now()-86400e3*20).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date(Date.now()-86400e3*20).toISOString() },
+    { id:uid(), title:"Kauri revenue share - Spring listings campaign", type:"profit", deal_id:dealKauriRevShare, amount:340, frequency:"one_off", expense_date:new Date(Date.now()-86400e3*2).toISOString().slice(0,10), notes:"8% of campaign revenue for the month.", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString() },
   ];
 
   const seedMonday = startOfWeek(new Date());
@@ -1202,6 +1209,19 @@ function toggleDealContractFields(){
 function toggleClientQuoteTargetField(){
   const field = $("#client-quote-target-field");
   if (field) field.style.display = $("#client-stage")?.value === "quote_guarantee" ? "" : "none";
+}
+function toggleExpenseTypeFields(){
+  const isProfit = $("#expense-type")?.value === "profit";
+  const categoryField = $("#expense-category-field");
+  const dealField = $("#expense-deal-field");
+  if (categoryField) categoryField.style.display = isProfit ? "none" : "";
+  if (dealField) dealField.style.display = isProfit ? "" : "none";
+}
+function populateExpenseDealSelect(){
+  const select = $("#expense-deal-select");
+  if (!select) return;
+  const profitDeals = state.deals.filter(d => d.stage === "closed_won" && (d.contract_type === "profit_share" || d.contract_type === "revenue_share"));
+  select.innerHTML = `<option value="">- No linked job -</option>` + profitDeals.map(d => `<option value="${d.id}">${escapeHtml(d.title)}</option>`).join("");
 }
 function addDealContactRow(){
   const rows = $("#deal-contacts-rows");
@@ -2177,31 +2197,38 @@ function renderAll(){
 }
 
 /* ───────── Render: Expenses ───────── */
-function monthlyRecurringTotal(){ return state.expenses.filter(e => e.frequency === "monthly").reduce((s,e) => s + Number(e.amount||0), 0); }
+function monthlyRecurringTotal(){ return state.expenses.filter(e => (e.type||"expense") === "expense" && e.frequency === "monthly").reduce((s,e) => s + Number(e.amount||0), 0); }
 function renderExpenses(){
   const tbody = $("#expenses-tbody");
   if (!tbody) return;
   const monthlyTotal = monthlyRecurringTotal();
-  const oneOffThisMonth = state.expenses.filter(e => e.frequency === "one_off" && sameMonth(e.expense_date)).reduce((s,e) => s + Number(e.amount||0), 0);
+  const oneOffThisMonth = state.expenses.filter(e => (e.type||"expense") === "expense" && e.frequency === "one_off" && sameMonth(e.expense_date)).reduce((s,e) => s + Number(e.amount||0), 0);
+  const profitThisMonth = state.expenses.filter(e => e.type === "profit" && sameMonth(e.expense_date)).reduce((s,e) => s + Number(e.amount||0), 0);
   $("#stat-expenses-monthly").textContent = fmtMoney(monthlyTotal);
   $("#stat-expenses-oneoff").textContent = fmtMoney(oneOffThisMonth);
   $("#stat-expenses-total-month").textContent = fmtMoney(monthlyTotal + oneOffThisMonth);
+  const profitEl = $("#stat-expenses-profit-month"); if (profitEl) profitEl.textContent = fmtMoney(profitThisMonth);
+  const netEl = $("#stat-expenses-net-month"); if (netEl) netEl.textContent = fmtMoney(profitThisMonth - (monthlyTotal + oneOffThisMonth));
 
   const list = [...state.expenses].sort((a,b) => new Date(b.expense_date) - new Date(a.expense_date));
-  if (!list.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No expenses logged yet. Add your first one.")}</td></tr>`; return; }
-  tbody.innerHTML = list.map(e => `
+  if (!list.length){ tbody.innerHTML = `<tr><td colspan="7">${emptyState("No expenses logged yet. Add your first one.")}</td></tr>`; return; }
+  tbody.innerHTML = list.map(e => {
+    const isProfit = e.type === "profit";
+    const dealName = e.deal_id ? dealTitle(e.deal_id) : "";
+    return `
     <tr data-id="${e.id}">
       <td>${fmtDate(e.expense_date)}</td>
-      <td><div class="row-name">${escapeHtml(e.title)}</div>${e.notes?`<div class="row-sub">${escapeHtml(e.notes)}</div>`:""}</td>
-      <td><span class="badge gray">${escapeHtml(EXPENSE_CATEGORIES[e.category]||e.category)}</span></td>
+      <td><div class="row-name">${escapeHtml(e.title)}</div>${dealName?`<div class="row-sub">${escapeHtml(dealName)}</div>`:""}${e.notes?`<div class="row-sub">${escapeHtml(e.notes)}</div>`:""}</td>
+      <td><span class="badge ${EXPENSE_TYPES[e.type||"expense"]?.cls||"gray"}">${EXPENSE_TYPES[e.type||"expense"]?.label||"Expense"}</span></td>
+      <td>${isProfit ? "-" : `<span class="badge gray">${escapeHtml(EXPENSE_CATEGORIES[e.category]||e.category)}</span>`}</td>
       <td><span class="badge ${EXPENSE_FREQUENCIES[e.frequency]?.cls||"gray"}">${EXPENSE_FREQUENCIES[e.frequency]?.label||e.frequency}</span></td>
-      <td style="font-weight:700;">${fmtMoney(e.amount)}</td>
+      <td style="font-weight:700;${isProfit?"color:var(--success);":""}">${isProfit?"+":""}${fmtMoney(e.amount)}</td>
       <td style="text-align:right;white-space:nowrap;">
         <button class="icon-btn" data-action="edit-expense" data-id="${e.id}" title="Edit">${ICONS.edit}</button>
         <button class="icon-btn" data-action="delete-expense" data-id="${e.id}" title="Delete">${ICONS.trash}</button>
       </td>
     </tr>
-  `).join("");
+  `;}).join("");
 }
 
 /* ───────── Playbooks ───────── */
@@ -2743,17 +2770,24 @@ function setupModals(){
 
   $("#add-expense-btn")?.addEventListener("click", () => {
     $("#expense-form").reset(); $("#expense-form-id").value=""; $("#expense-date").value = todayDateStr(); $("#expense-modal-title").textContent="Add Expense";
+    $("#expense-type").value = "expense";
+    populateExpenseDealSelect();
+    toggleExpenseTypeFields();
     openModal("expense-modal");
   });
+  $("#expense-type")?.addEventListener("change", toggleExpenseTypeFields);
   $("#expense-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#expense-form-id").value;
+    const type = $("#expense-type").value || "expense";
     const row = {
       title: $("#expense-title").value.trim(),
+      type,
       category: $("#expense-category").value,
       amount: Number($("#expense-amount").value) || 0,
       frequency: $("#expense-frequency").value,
       expense_date: $("#expense-date").value || todayDateStr(),
+      deal_id: type === "profit" ? ($("#expense-deal-select").value || null) : null,
       notes: $("#expense-notes").value.trim(),
     };
     if (!row.title) return;
@@ -3047,12 +3081,16 @@ function setupModals(){
       const ex = state.expenses.find(x => x.id === id);
       if (!ex) return;
       $("#expense-form-id").value = ex.id;
+      $("#expense-type").value = ex.type||"expense";
       $("#expense-title").value = ex.title||"";
       $("#expense-category").value = ex.category||"other";
       $("#expense-amount").value = ex.amount||0;
       $("#expense-frequency").value = ex.frequency||"one_off";
       $("#expense-date").value = ex.expense_date||todayDateStr();
+      populateExpenseDealSelect();
+      $("#expense-deal-select").value = ex.deal_id||"";
       $("#expense-notes").value = ex.notes||"";
+      toggleExpenseTypeFields();
       $("#expense-modal-title").textContent = "Edit Expense";
       openModal("expense-modal");
     }
