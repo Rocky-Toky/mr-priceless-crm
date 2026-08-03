@@ -805,30 +805,7 @@ function setupNav(){
       state.page = btn.dataset.page;
       $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));
       $$(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + state.page));
-      $("#nav-more-dropdown")?.classList.remove("open");
     });
-  });
-  $("#nav-more-toggle")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const toggle = e.currentTarget;
-    const dropdown = $("#nav-more-dropdown");
-    if (!dropdown) return;
-    const wasOpen = dropdown.classList.contains("open");
-    dropdown.classList.toggle("open", !wasOpen);
-    if (wasOpen) return;
-    const r = toggle.getBoundingClientRect();
-    const isNarrow = window.innerWidth <= 820;
-    let top = isNarrow ? r.bottom + 8 : r.top;
-    let left = isNarrow ? r.left : r.right + 8;
-    const dw = dropdown.offsetWidth, dh = dropdown.offsetHeight;
-    if (left + dw > window.innerWidth - 8) left = window.innerWidth - dw - 8;
-    if (top + dh > window.innerHeight - 8) top = window.innerHeight - dh - 8;
-    dropdown.style.left = left + "px";
-    dropdown.style.top = top + "px";
-  });
-  document.addEventListener("click", (e) => {
-    const group = $("#nav-more-toggle")?.closest(".nav-group");
-    if (group && !group.contains(e.target)) $("#nav-more-dropdown")?.classList.remove("open");
   });
   $("#signout-btn")?.addEventListener("click", async () => {
     if (IS_CONFIGURED) await supabase.auth.signOut();
