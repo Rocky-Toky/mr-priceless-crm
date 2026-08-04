@@ -26,6 +26,52 @@ const json = (body: unknown, status = 200) =>
     },
   });
 
+// Everything worth showing in the library — excludes ARCHIVED/DELETED, which
+// are genuinely retired and would just be clutter.
+const RELEVANT_STATUSES = [
+  "ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED",
+  "PENDING_REVIEW", "DISAPPROVED", "PREAPPROVED",
+  "PENDING_BILLING_INFO", "IN_PROCESS", "WITH_ISSUES",
+];
+
+const RICH_FIELDS = "id,name,effective_status,campaign{id,name},adset{learning_stage_info},creative{image_url,thumbnail_url},insights.date_preset(maximum){impressions,clicks,spend,actions,cost_per_action_type}";
+const BASIC_FIELDS = "id,name,effective_status,campaign{id,name},creative{image_url,thumbnail_url},insights.date_preset(maximum){impressions,clicks,spend,actions,cost_per_action_type}";
+
+function buildAdsUrl(adAccountId: string, fields: string, filtering: string, token: string) {
+  return `https://graph.facebook.com/v21.0/${encodeURIComponent(adAccountId)}/ads` +
+    `?fields=${encodeURIComponent(fields)}` +
+    `&filtering=${encodeURIComponent(filtering)}` +
+    `&limit=100` +
+    `&access_token=${encodeURIComponent(token)}`;
+}
+
+// Maps Meta's effective_status (+ adset learning-phase info, when available)
+// onto a single delivery_status string the UI can badge/filter on.
+function computeDeliveryStatus(ad: any): string | null {
+  const es = ad?.effective_status;
+  if (!es) return null;
+  if (es === "ACTIVE") {
+    const learning = ad?.adset?.learning_stage_info?.status;
+    if (learning === "LEARNING") return "learning";
+    if (learning === "LEARNING_LIMITED") return "learning_limited";
+    return "active";
+  }
+  const map: Record<string, string> = {
+    PAUSED: "paused",
+    CAMPAIGN_PAUSED: "campaign_paused",
+    ADSET_PAUSED: "adset_paused",
+    PENDING_REVIEW: "in_review",
+    DISAPPROVED: "disapproved",
+    PREAPPROVED: "preapproved",
+    PENDING_BILLING_INFO: "pending_billing",
+    IN_PROCESS: "in_process",
+    WITH_ISSUES: "with_issues",
+    ARCHIVED: "archived",
+    DELETED: "deleted",
+  };
+  return map[es] || es.toLowerCase();
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { status: 200, headers: { ...corsHeaders } });
@@ -100,29 +146,37 @@ Deno.serve(async (req: Request) => {
     : `act_${rawMetaAdAccountId}`;
 
   try {
-    const fields = "id,name,effective_status,campaign{id,name},creative{image_url,thumbnail_url},insights.date_preset(maximum){impressions,clicks,spend,actions,cost_per_action_type}";
     const filtering = JSON.stringify([
-      { field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] },
+      { field: "effective_status", operator: "IN", value: RELEVANT_STATUSES },
     ]);
-
-    let nextUrl: string | null =
-      `https://graph.facebook.com/v21.0/${encodeURIComponent(metaAdAccountId)}/ads` +
-      `?fields=${encodeURIComponent(fields)}` +
-      `&filtering=${encodeURIComponent(filtering)}` +
-      `&limit=100` +
-      `&access_token=${encodeURIComponent(META_SYSTEM_USER_TOKEN)}`;
 
     const ads: any[] = [];
     let pagesFetched = 0;
 
+    // Try the rich field set (includes adset learning-phase info) first; if
+    // the account/token can't access that nested field, fall back to the
+    // basic set rather than failing the whole sync.
+    let nextUrl: string | null = buildAdsUrl(metaAdAccountId, RICH_FIELDS, filtering, META_SYSTEM_USER_TOKEN);
+    let resp = await fetch(nextUrl);
+    let pageJson = await resp.json();
+    if (!resp.ok) {
+      nextUrl = buildAdsUrl(metaAdAccountId, BASIC_FIELDS, filtering, META_SYSTEM_USER_TOKEN);
+      resp = await fetch(nextUrl);
+      pageJson = await resp.json();
+      if (!resp.ok) throw new Error(pageJson?.error?.message || "Meta API error");
+    }
+    ads.push(...(pageJson?.data ?? []));
+    nextUrl = pageJson?.paging?.next ?? null;
+    pagesFetched += 1;
+
     while (nextUrl && pagesFetched < 10) {
-      const resp = await fetch(nextUrl);
-      const pageJson = await resp.json();
-      if (!resp.ok) {
-        throw new Error(pageJson?.error?.message || "Meta API error");
+      const pageResp = await fetch(nextUrl);
+      const pageData = await pageResp.json();
+      if (!pageResp.ok) {
+        throw new Error(pageData?.error?.message || "Meta API error");
       }
-      ads.push(...(pageJson?.data ?? []));
-      nextUrl = pageJson?.paging?.next ?? null;
+      ads.push(...(pageData?.data ?? []));
+      nextUrl = pageData?.paging?.next ?? null;
       pagesFetched += 1;
     }
 
@@ -190,6 +244,7 @@ Deno.serve(async (req: Request) => {
         spend,
         results,
         cost_per_result: costPerResult,
+        delivery_status: computeDeliveryStatus(ad),
         insights_updated_at: new Date().toISOString(),
       };
 

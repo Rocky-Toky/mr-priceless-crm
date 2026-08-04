@@ -39,6 +39,24 @@ const AD_RESULTS = {
   winner: { label: "Winner", cls: "green" },
   killed: { label: "Killed", cls: "red" },
 };
+// Meta's real delivery status per ad, pulled live via sync/refresh - distinct
+// from the manually-set AD_RESULTS tag above.
+const DELIVERY_STATUS = {
+  active: { label: "Active", cls: "green", group: "running" },
+  learning: { label: "Learning", cls: "gold", group: "running" },
+  learning_limited: { label: "Learning Limited", cls: "gold", group: "running" },
+  paused: { label: "Paused", cls: "gray", group: "paused" },
+  campaign_paused: { label: "Campaign Paused", cls: "gray", group: "paused" },
+  adset_paused: { label: "Ad Set Paused", cls: "gray", group: "paused" },
+  archived: { label: "Archived", cls: "gray", group: "paused" },
+  deleted: { label: "Deleted", cls: "gray", group: "paused" },
+  in_review: { label: "In Review", cls: "gold", group: "attention" },
+  preapproved: { label: "Pre-Approved", cls: "gold", group: "attention" },
+  in_process: { label: "Processing", cls: "gold", group: "attention" },
+  disapproved: { label: "Disapproved", cls: "red", group: "attention" },
+  with_issues: { label: "With Issues", cls: "red", group: "attention" },
+  pending_billing: { label: "Pending Billing", cls: "red", group: "attention" },
+};
 const CAMPAIGN_STATUSES = {
   active: { label: "Active", cls: "green" },
   paused: { label: "Paused", cls: "gray" },
@@ -175,7 +193,7 @@ const state = {
   team: [],
   contactFilter: "",
   contactSearch: "",
-  creativeFilter: { client: "", result: "", sort: "newest" },
+  creativeFilter: { client: "", result: "", delivery: "", sort: "top" },
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
@@ -1991,16 +2009,17 @@ function populateAdCreativeCampaignSelect(clientId, selectedCampaignId){
   sel.innerHTML = `<option value="">- No campaign -</option>` + campaigns.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   sel.value = selectedCampaignId || "";
 }
-function creativeMetricsBlock(a){
+function creativeMetricsBlock(a, tierCls){
   if (!a.meta_ad_id) return "";
   if (a.insights_updated_at == null) return `<div class="creative-metrics-empty">Live stats not fetched yet — hit refresh.</div>`;
   const spend = a.spend != null ? fmtMoney(a.spend) : "-";
   const cpl = a.cost_per_result != null ? fmtMoney(a.cost_per_result) : "-";
   const leads = a.results != null ? Number(a.results).toLocaleString() : "-";
+  const cplCls = tierCls || "creative-metric-highlight";
   return `
     <div class="creative-metrics">
       <div class="creative-metric"><span class="creative-metric-value">${spend}</span><span class="creative-metric-label">Ad Spend</span></div>
-      <div class="creative-metric creative-metric-highlight"><span class="creative-metric-value">${cpl}</span><span class="creative-metric-label">Cost / Lead</span></div>
+      <div class="creative-metric ${cplCls}"><span class="creative-metric-value">${cpl}</span><span class="creative-metric-label">Cost / Lead</span></div>
       <div class="creative-metric"><span class="creative-metric-value">${leads}</span><span class="creative-metric-label">Leads</span></div>
     </div>`;
 }
@@ -2014,8 +2033,10 @@ function renderCreativeLibrary(){
     clientSel.value = state.creativeFilter.client;
   }
   $("#creative-filter-result").value = state.creativeFilter.result;
+  const deliverySel = $("#creative-filter-delivery");
+  if (deliverySel) deliverySel.value = state.creativeFilter.delivery || "";
   const sortSel = $("#creative-filter-sort");
-  if (sortSel) sortSel.value = state.creativeFilter.sort || "newest";
+  if (sortSel) sortSel.value = state.creativeFilter.sort || "top";
 
   const all = state.adCreatives;
   $("#creative-stat-total").textContent = all.length;
@@ -2034,14 +2055,57 @@ function renderCreativeLibrary(){
   $("#creative-stat-cpl").textContent = totalLeads > 0 ? fmtMoney(totalSpend / totalLeads) : "-";
   $("#creative-stat-leads-sub").textContent = `${totalLeads.toLocaleString()} lead${totalLeads===1?"":"s"} generated all-time`;
 
+  // Delivery status breakdown, so it's obvious at a glance how many of these
+  // are actually running vs sitting paused/needing attention.
+  const strip = $("#creative-status-strip");
+  if (strip){
+    const synced = all.filter(a => a.meta_ad_id);
+    const counts = { running: 0, paused: 0, attention: 0, unsynced: 0 };
+    for (const a of synced){
+      const group = DELIVERY_STATUS[a.delivery_status]?.group;
+      if (group) counts[group]++; else counts.paused++;
+    }
+    counts.unsynced = all.length - synced.length;
+    const parts = [];
+    if (synced.length){
+      parts.push(`<span><span class="creative-status-dot" style="background:var(--success)"></span><strong>${counts.running}</strong> Running</span>`);
+      parts.push(`<span><span class="creative-status-dot" style="background:var(--text2)"></span><strong>${counts.paused}</strong> Not Running</span>`);
+      if (counts.attention) parts.push(`<span><span class="creative-status-dot" style="background:var(--danger)"></span><strong>${counts.attention}</strong> Needs Attention</span>`);
+    }
+    if (counts.unsynced) parts.push(`<span><strong>${counts.unsynced}</strong> not linked to Meta</span>`);
+    strip.innerHTML = parts.join("");
+  }
+
+  // Performance tiers: rank creatives with real spend+CPL data by percentile
+  // on both dimensions, so "Top performers" surfaces high-spend + low-CPL
+  // ads first (rather than just one dimension), and color-code each card's
+  // Cost/Lead number relative to the library average.
+  const perfPool = all.filter(a => Number(a.spend) > 0 && a.cost_per_result != null);
+  const bySpendAsc = [...perfPool].sort((a,b) => a.spend - b.spend);
+  const byCplDesc = [...perfPool].sort((a,b) => b.cost_per_result - a.cost_per_result);
+  const spendRank = new Map();
+  bySpendAsc.forEach((a,i) => spendRank.set(a.id, perfPool.length > 1 ? i/(perfPool.length-1) : 1));
+  const cplRank = new Map();
+  byCplDesc.forEach((a,i) => cplRank.set(a.id, perfPool.length > 1 ? i/(perfPool.length-1) : 1));
+  const topScore = (a) => spendRank.has(a.id) ? spendRank.get(a.id) + cplRank.get(a.id) : -1;
+  const avgCpl = perfPool.length ? perfPool.reduce((s,a) => s + a.cost_per_result, 0) / perfPool.length : null;
+  const tierClsFor = (a) => {
+    if (avgCpl == null || a.cost_per_result == null || Number(a.spend) < 20) return null;
+    if (a.cost_per_result <= avgCpl * 0.8) return "creative-metric-good";
+    if (a.cost_per_result >= avgCpl * 1.3) return "creative-metric-bad";
+    return null;
+  };
+
   const filtered = all.filter(a => {
     const matchesClient = !state.creativeFilter.client || a.client_id === state.creativeFilter.client;
     const matchesResult = !state.creativeFilter.result || a.result === state.creativeFilter.result;
-    return matchesClient && matchesResult;
+    const matchesDelivery = !state.creativeFilter.delivery || a.delivery_status === state.creativeFilter.delivery;
+    return matchesClient && matchesResult && matchesDelivery;
   });
 
-  const sort = state.creativeFilter.sort || "newest";
+  const sort = state.creativeFilter.sort || "top";
   filtered.sort((a,b) => {
+    if (sort === "top") return topScore(b) - topScore(a);
     if (sort === "cpl"){
       const av = a.cost_per_result, bv = b.cost_per_result;
       if (av == null && bv == null) return 0;
@@ -2058,17 +2122,19 @@ function renderCreativeLibrary(){
   grid.innerHTML = filtered.map(a => {
     const client = state.clients.find(c => c.id === a.client_id);
     const initial = (client?.name || "?").trim().charAt(0).toUpperCase();
+    const delivery = DELIVERY_STATUS[a.delivery_status];
     return `
     <div class="creative-card">
       <div class="creative-card-media">
         ${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="creative-card-img" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="creative-card-img-empty">${escapeHtml(initial)}</div>`}
+        ${delivery ? `<span class="badge creative-card-delivery ${delivery.cls}">${delivery.label}</span>` : ""}
         <span class="badge creative-card-badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span>
       </div>
       <div class="creative-card-body">
         <div class="creative-card-name">${escapeHtml(a.name)}</div>
         <div class="creative-card-client">${escapeHtml(client?.name || "Unknown client")}${a.campaign_id ? ` · ${escapeHtml(campaignName(a.campaign_id))}` : ""}</div>
         ${a.notes ? `<div class="creative-card-notes">${escapeHtml(a.notes)}</div>` : ""}
-        ${creativeMetricsBlock(a)}
+        ${creativeMetricsBlock(a, tierClsFor(a))}
         <div class="creative-card-foot">
           <span>${a.impressions != null ? Number(a.impressions).toLocaleString()+" impr · " : ""}${a.insights_updated_at ? "Updated "+timeAgo(a.insights_updated_at) : fmtDate(a.created_at)}</span>
           <div class="creative-card-foot-actions">
@@ -3165,6 +3231,7 @@ function setupModals(){
   $("#ad-creative-client")?.addEventListener("change", (e) => populateAdCreativeCampaignSelect(e.target.value));
   $("#creative-filter-client")?.addEventListener("change", (e) => { state.creativeFilter.client = e.target.value; renderCreativeLibrary(); });
   $("#creative-filter-result")?.addEventListener("change", (e) => { state.creativeFilter.result = e.target.value; renderCreativeLibrary(); });
+  $("#creative-filter-delivery")?.addEventListener("change", (e) => { state.creativeFilter.delivery = e.target.value; renderCreativeLibrary(); });
   $("#creative-filter-sort")?.addEventListener("change", (e) => { state.creativeFilter.sort = e.target.value; renderCreativeLibrary(); });
   $("#ad-creative-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();

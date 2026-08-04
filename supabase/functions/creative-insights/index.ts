@@ -15,6 +15,33 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// Maps Meta's effective_status (+ adset learning-phase info, when available)
+// onto a single delivery_status string the UI can badge/filter on.
+function computeDeliveryStatus(ad: any): string | null {
+  const es = ad?.effective_status;
+  if (!es) return null;
+  if (es === "ACTIVE") {
+    const learning = ad?.adset?.learning_stage_info?.status;
+    if (learning === "LEARNING") return "learning";
+    if (learning === "LEARNING_LIMITED") return "learning_limited";
+    return "active";
+  }
+  const map: Record<string, string> = {
+    PAUSED: "paused",
+    CAMPAIGN_PAUSED: "campaign_paused",
+    ADSET_PAUSED: "adset_paused",
+    PENDING_REVIEW: "in_review",
+    DISAPPROVED: "disapproved",
+    PREAPPROVED: "preapproved",
+    PENDING_BILLING_INFO: "pending_billing",
+    IN_PROCESS: "in_process",
+    WITH_ISSUES: "with_issues",
+    ARCHIVED: "archived",
+    DELETED: "deleted",
+  };
+  return map[es] || es.toLowerCase();
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -145,17 +172,27 @@ Deno.serve(async (req: Request) => {
     const clicks = Math.round(Number(insights?.clicks || 0));
 
     // Backfill the creative image from Meta if we don't already have one
-    // (never overwrite a manually-uploaded image).
+    // (never overwrite a manually-uploaded image), and always refresh the
+    // live delivery status (active/paused/learning/etc).
     let imageUrl: string | undefined;
-    if (!creative.image_url) {
-      try {
-        const creativeUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(String(meta_ad_id))}?fields=creative{image_url,thumbnail_url}&access_token=${encodeURIComponent(String(META_SYSTEM_USER_TOKEN))}`;
-        const creativeRes = await fetch(creativeUrl);
-        const creativeJson = await creativeRes.json().catch(() => ({}));
-        imageUrl = creativeJson?.creative?.image_url || creativeJson?.creative?.thumbnail_url || undefined;
-      } catch {
-        // Non-fatal — keep the stats refresh even if the image lookup fails.
+    let deliveryStatus: string | null = null;
+    try {
+      const richUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(String(meta_ad_id))}?fields=effective_status,adset{learning_stage_info},creative{image_url,thumbnail_url}&access_token=${encodeURIComponent(String(META_SYSTEM_USER_TOKEN))}`;
+      let adRes = await fetch(richUrl);
+      let adJson = await adRes.json().catch(() => ({}));
+      if (!adRes.ok) {
+        const basicUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(String(meta_ad_id))}?fields=effective_status,creative{image_url,thumbnail_url}&access_token=${encodeURIComponent(String(META_SYSTEM_USER_TOKEN))}`;
+        adRes = await fetch(basicUrl);
+        adJson = await adRes.json().catch(() => ({}));
       }
+      if (adRes.ok) {
+        deliveryStatus = computeDeliveryStatus(adJson);
+        if (!creative.image_url) {
+          imageUrl = adJson?.creative?.image_url || adJson?.creative?.thumbnail_url || undefined;
+        }
+      }
+    } catch {
+      // Non-fatal — keep the stats refresh even if this lookup fails.
     }
 
     const updatePayload: Record<string, unknown> = {
@@ -164,6 +201,7 @@ Deno.serve(async (req: Request) => {
       spend,
       results,
       cost_per_result,
+      delivery_status: deliveryStatus,
       insights_updated_at: new Date().toISOString(),
     };
     if (imageUrl) updatePayload.image_url = imageUrl;
@@ -185,6 +223,7 @@ Deno.serve(async (req: Request) => {
       results,
       cost_per_result,
       image_url: imageUrl ?? creative.image_url ?? null,
+      delivery_status: deliveryStatus,
       insights_updated_at: new Date().toISOString(),
     });
   } catch (e) {

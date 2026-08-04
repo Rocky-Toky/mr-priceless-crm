@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=37">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=37">
+<link rel="stylesheet" href="css/style.css?v=38">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=38">
 </head>
 <body>
 
@@ -916,6 +916,7 @@
         <div class="stat-card"><div class="stat-label">Killed</div><div class="stat-value" id="creative-stat-killed">0</div></div>
         <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="creative-stat-winrate">-</div></div>
       </div>
+      <div class="creative-status-strip" id="creative-status-strip"></div>
       <div class="toolbar">
         <select class="filter-select" id="creative-filter-client">
           <option value="">All Clients</option>
@@ -926,7 +927,28 @@
           <option value="winner">Winner</option>
           <option value="killed">Killed</option>
         </select>
+        <select class="filter-select" id="creative-filter-delivery">
+          <option value="">All Delivery Statuses</option>
+          <optgroup label="Running">
+            <option value="active">Active</option>
+            <option value="learning">Learning</option>
+            <option value="learning_limited">Learning Limited</option>
+          </optgroup>
+          <optgroup label="Not Running">
+            <option value="paused">Paused</option>
+            <option value="campaign_paused">Campaign Paused</option>
+            <option value="adset_paused">Ad Set Paused</option>
+            <option value="archived">Archived</option>
+          </optgroup>
+          <optgroup label="Needs Attention">
+            <option value="in_review">In Review</option>
+            <option value="disapproved">Disapproved</option>
+            <option value="with_issues">With Issues</option>
+            <option value="pending_billing">Pending Billing</option>
+          </optgroup>
+        </select>
         <select class="filter-select" id="creative-filter-sort">
+          <option value="top">Top performers</option>
           <option value="newest">Newest first</option>
           <option value="cpl">Best cost per lead</option>
           <option value="spend">Highest spend</option>
@@ -1533,10 +1555,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=37"></script>
-<script src="js/supabaseClient.js?v=37"></script>
-<script src="js/app.js?v=37"></script>
-<script src="js/meetings-tracker.js?v=37"></script>
-<script src="js/todo.js?v=37"></script>
+<script src="js/config.js?v=38"></script>
+<script src="js/supabaseClient.js?v=38"></script>
+<script src="js/app.js?v=38"></script>
+<script src="js/meetings-tracker.js?v=38"></script>
+<script src="js/todo.js?v=38"></script>
 </body>
 </html>
