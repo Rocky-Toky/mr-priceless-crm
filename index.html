@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=36">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=36">
+<link rel="stylesheet" href="css/style.css?v=37">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=37">
 </head>
 <body>
 
@@ -894,8 +894,20 @@
     <!-- Creative Library (every ad creative across all clients) -->
     <section class="page" id="page-creative">
       <div class="page-header">
-        <div><h2>Creative Library</h2><p>Every ad creative across all your clients - what's worked, what hasn't.</p></div>
+        <div><h2>Creative Library</h2><p>Every ad creative across all your clients, with all-time spend and cost per lead pulled live from Meta.</p></div>
         <button class="btn gold" id="add-creative-lib-btn">+ Add Creative</button>
+      </div>
+      <div class="stat-grid stat-grid-2">
+        <div class="stat-card stat-card-spend">
+          <div class="stat-label">All-Time Ad Spend</div>
+          <div class="stat-value" id="creative-stat-spend">$0</div>
+          <div class="stat-sub" id="creative-stat-spend-sub">Across all synced creatives</div>
+        </div>
+        <div class="stat-card stat-card-spend">
+          <div class="stat-label">Avg Cost Per Lead</div>
+          <div class="stat-value" id="creative-stat-cpl">-</div>
+          <div class="stat-sub" id="creative-stat-leads-sub">0 leads generated</div>
+        </div>
       </div>
       <div class="stat-grid stat-grid-5">
         <div class="stat-card"><div class="stat-label">Total Creatives</div><div class="stat-value" id="creative-stat-total">0</div></div>
@@ -913,6 +925,12 @@
           <option value="testing">Testing</option>
           <option value="winner">Winner</option>
           <option value="killed">Killed</option>
+        </select>
+        <select class="filter-select" id="creative-filter-sort">
+          <option value="newest">Newest first</option>
+          <option value="cpl">Best cost per lead</option>
+          <option value="spend">Highest spend</option>
+          <option value="leads">Most leads</option>
         </select>
       </div>
       <div class="creative-grid" id="creative-library-grid"></div>
@@ -1515,10 +1533,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=36"></script>
-<script src="js/supabaseClient.js?v=36"></script>
-<script src="js/app.js?v=36"></script>
-<script src="js/meetings-tracker.js?v=36"></script>
-<script src="js/todo.js?v=36"></script>
+<script src="js/config.js?v=37"></script>
+<script src="js/supabaseClient.js?v=37"></script>
+<script src="js/app.js?v=37"></script>
+<script src="js/meetings-tracker.js?v=37"></script>
+<script src="js/todo.js?v=37"></script>
 </body>
 </html>

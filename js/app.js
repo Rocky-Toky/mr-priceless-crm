@@ -175,7 +175,7 @@ const state = {
   team: [],
   contactFilter: "",
   contactSearch: "",
-  creativeFilter: { client: "", result: "" },
+  creativeFilter: { client: "", result: "", sort: "newest" },
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
@@ -1991,6 +1991,19 @@ function populateAdCreativeCampaignSelect(clientId, selectedCampaignId){
   sel.innerHTML = `<option value="">- No campaign -</option>` + campaigns.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   sel.value = selectedCampaignId || "";
 }
+function creativeMetricsBlock(a){
+  if (!a.meta_ad_id) return "";
+  if (a.insights_updated_at == null) return `<div class="creative-metrics-empty">Live stats not fetched yet — hit refresh.</div>`;
+  const spend = a.spend != null ? fmtMoney(a.spend) : "-";
+  const cpl = a.cost_per_result != null ? fmtMoney(a.cost_per_result) : "-";
+  const leads = a.results != null ? Number(a.results).toLocaleString() : "-";
+  return `
+    <div class="creative-metrics">
+      <div class="creative-metric"><span class="creative-metric-value">${spend}</span><span class="creative-metric-label">Ad Spend</span></div>
+      <div class="creative-metric creative-metric-highlight"><span class="creative-metric-value">${cpl}</span><span class="creative-metric-label">Cost / Lead</span></div>
+      <div class="creative-metric"><span class="creative-metric-value">${leads}</span><span class="creative-metric-label">Leads</span></div>
+    </div>`;
+}
 function renderCreativeLibrary(){
   const grid = $("#creative-library-grid");
   if (!grid) return;
@@ -2001,6 +2014,8 @@ function renderCreativeLibrary(){
     clientSel.value = state.creativeFilter.client;
   }
   $("#creative-filter-result").value = state.creativeFilter.result;
+  const sortSel = $("#creative-filter-sort");
+  if (sortSel) sortSel.value = state.creativeFilter.sort || "newest";
 
   const all = state.adCreatives;
   $("#creative-stat-total").textContent = all.length;
@@ -2011,29 +2026,52 @@ function renderCreativeLibrary(){
   const decided = winners + all.filter(a => a.result === "killed").length;
   $("#creative-stat-winrate").textContent = decided ? Math.round(winners / decided * 100) + "%" : "-";
 
+  const totalSpend = all.reduce((s,a) => s + (Number(a.spend)||0), 0);
+  const totalLeads = all.reduce((s,a) => s + (Number(a.results)||0), 0);
+  const spendCreatives = all.filter(a => a.spend != null).length;
+  $("#creative-stat-spend").textContent = fmtMoney(totalSpend);
+  $("#creative-stat-spend-sub").textContent = `All-time · across ${spendCreatives} synced creative${spendCreatives===1?"":"s"}`;
+  $("#creative-stat-cpl").textContent = totalLeads > 0 ? fmtMoney(totalSpend / totalLeads) : "-";
+  $("#creative-stat-leads-sub").textContent = `${totalLeads.toLocaleString()} lead${totalLeads===1?"":"s"} generated all-time`;
+
   const filtered = all.filter(a => {
     const matchesClient = !state.creativeFilter.client || a.client_id === state.creativeFilter.client;
     const matchesResult = !state.creativeFilter.result || a.result === state.creativeFilter.result;
     return matchesClient && matchesResult;
-  }).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+  });
+
+  const sort = state.creativeFilter.sort || "newest";
+  filtered.sort((a,b) => {
+    if (sort === "cpl"){
+      const av = a.cost_per_result, bv = b.cost_per_result;
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return av - bv;
+    }
+    if (sort === "spend") return (Number(b.spend)||0) - (Number(a.spend)||0);
+    if (sort === "leads") return (Number(b.results)||0) - (Number(a.results)||0);
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
 
   if (!filtered.length){ grid.innerHTML = emptyState("No ad creatives match. Add one from here or from a client's page."); return; }
   grid.innerHTML = filtered.map(a => {
     const client = state.clients.find(c => c.id === a.client_id);
+    const initial = (client?.name || "?").trim().charAt(0).toUpperCase();
     return `
     <div class="creative-card">
-      ${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="creative-card-img" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="creative-card-img creative-card-img-empty"></div>`}
+      <div class="creative-card-media">
+        ${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="creative-card-img" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="creative-card-img-empty">${escapeHtml(initial)}</div>`}
+        <span class="badge creative-card-badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span>
+      </div>
       <div class="creative-card-body">
-        <div class="creative-card-head">
-          <div class="row-name">${escapeHtml(a.name)}</div>
-          <span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span>
-        </div>
+        <div class="creative-card-name">${escapeHtml(a.name)}</div>
         <div class="creative-card-client">${escapeHtml(client?.name || "Unknown client")}${a.campaign_id ? ` · ${escapeHtml(campaignName(a.campaign_id))}` : ""}</div>
         ${a.notes ? `<div class="creative-card-notes">${escapeHtml(a.notes)}</div>` : ""}
-        ${creativeInsightsSummary(a)}
+        ${creativeMetricsBlock(a)}
         <div class="creative-card-foot">
-          <span>${fmtDate(a.created_at)}</span>
-          <div>
+          <span>${a.impressions != null ? Number(a.impressions).toLocaleString()+" impr · " : ""}${a.insights_updated_at ? "Updated "+timeAgo(a.insights_updated_at) : fmtDate(a.created_at)}</span>
+          <div class="creative-card-foot-actions">
             ${a.meta_ad_id ? `<button class="icon-btn" data-action="refresh-creative-insights" data-id="${a.id}" title="Refresh live stats">${ICONS.refresh}</button>` : ""}
             <button class="icon-btn" data-action="edit-ad-creative" data-id="${a.id}" title="Edit">${ICONS.edit}</button>
             <button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button>
@@ -3127,6 +3165,7 @@ function setupModals(){
   $("#ad-creative-client")?.addEventListener("change", (e) => populateAdCreativeCampaignSelect(e.target.value));
   $("#creative-filter-client")?.addEventListener("change", (e) => { state.creativeFilter.client = e.target.value; renderCreativeLibrary(); });
   $("#creative-filter-result")?.addEventListener("change", (e) => { state.creativeFilter.result = e.target.value; renderCreativeLibrary(); });
+  $("#creative-filter-sort")?.addEventListener("change", (e) => { state.creativeFilter.sort = e.target.value; renderCreativeLibrary(); });
   $("#ad-creative-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#ad-creative-form-id").value;

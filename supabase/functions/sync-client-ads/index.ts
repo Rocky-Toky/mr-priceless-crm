@@ -100,7 +100,7 @@ Deno.serve(async (req: Request) => {
     : `act_${rawMetaAdAccountId}`;
 
   try {
-    const fields = "id,name,effective_status,campaign{id,name},insights.date_preset(maximum){impressions,clicks,spend,actions,cost_per_action_type}";
+    const fields = "id,name,effective_status,campaign{id,name},creative{image_url,thumbnail_url},insights.date_preset(maximum){impressions,clicks,spend,actions,cost_per_action_type}";
     const filtering = JSON.stringify([
       { field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED"] },
     ]);
@@ -128,7 +128,7 @@ Deno.serve(async (req: Request) => {
 
     const [{ data: existingCampaigns }, { data: existingCreatives }] = await Promise.all([
       supabaseAdmin.from("client_campaigns").select("id, client_id, name, platform, status").eq("client_id", clientId),
-      supabaseAdmin.from("client_ad_creatives").select("id, client_id, meta_ad_id, name, result, campaign_id").eq("client_id", clientId),
+      supabaseAdmin.from("client_ad_creatives").select("id, client_id, meta_ad_id, name, result, campaign_id, image_url").eq("client_id", clientId),
     ]);
 
     const campaignByName = new Map<string, any>();
@@ -193,11 +193,17 @@ Deno.serve(async (req: Request) => {
         insights_updated_at: new Date().toISOString(),
       };
 
+      const creativeImageUrl: string | null = ad?.creative?.image_url || ad?.creative?.thumbnail_url || null;
       const adId = ad?.id;
       const existingCreative = adId != null ? creativeByMetaId.get(String(adId)) : undefined;
 
       if (existingCreative) {
-        await supabaseAdmin.from("client_ad_creatives").update(patch).eq("id", existingCreative.id);
+        const updatePatch: Record<string, unknown> = { ...patch };
+        // Don't clobber a manually-uploaded image with Meta's version.
+        if (creativeImageUrl && !existingCreative.image_url) {
+          updatePatch.image_url = creativeImageUrl;
+        }
+        await supabaseAdmin.from("client_ad_creatives").update(updatePatch).eq("id", existingCreative.id);
         creativesUpdated += 1;
       } else {
         const insertPayload = {
@@ -205,6 +211,7 @@ Deno.serve(async (req: Request) => {
           meta_ad_id: ad?.id,
           name: ad?.name,
           result: "testing",
+          image_url: creativeImageUrl,
           ...patch,
         };
         await supabaseAdmin.from("client_ad_creatives").insert(insertPayload);
