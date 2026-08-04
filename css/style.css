@@ -166,12 +166,23 @@ a{color:inherit;text-decoration:none;}
 .card-header h3{font-size:18px;font-weight:700;letter-spacing:-0.01em;}
 .card-body{padding:6px 22px 18px;}
 
+.client-info-card .card-header{align-items:flex-start;}
+.client-info-progress{display:flex;align-items:center;gap:10px;margin-top:8px;}
+.client-info-progress-bar{width:120px;height:6px;border-radius:4px;background:var(--line);overflow:hidden;flex-shrink:0;}
+.client-info-progress-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--gold),var(--gold-bright));transition:width .25s ease;}
+.client-info-progress span{font-size:11.5px;color:var(--text2);font-weight:600;white-space:nowrap;}
 .client-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 24px;padding-top:4px;}
 @media(max-width:800px){.client-info-grid{grid-template-columns:1fr;}}
 .client-info-block-wide{grid-column:1 / -1;}
 .client-info-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;font-weight:600;margin-bottom:6px;}
 .client-info-value{font-size:13.5px;color:var(--text);line-height:1.6;white-space:pre-line;}
 .client-info-value.empty{color:var(--text2);font-style:italic;}
+button.client-info-empty{
+  display:block;width:100%;text-align:left;background:var(--paper);border:1px dashed var(--line);border-radius:8px;
+  padding:9px 11px;font-size:12.5px;color:var(--gold-deep);font-style:normal;line-height:1.5;cursor:pointer;
+  transition:border-color .15s,background .15s;
+}
+button.client-info-empty:hover{border-color:var(--gold-border);background:var(--gold-soft);}
 
 .two-col{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;}
 @media(max-width:1000px){.two-col{grid-template-columns:1fr;}}
@@ -380,6 +391,13 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 }
 .playbook-empty-icon svg{width:24px;height:24px;}
 
+.email-template-field{padding:20px 38px;border-bottom:1px solid var(--line);}
+.email-template-field:last-child{border-bottom:none;}
+.email-template-field-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.email-template-field-head span{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;font-weight:700;}
+.email-template-subject{font-size:15px;font-weight:600;color:var(--text);}
+.email-template-body{font-size:14px;line-height:1.75;color:var(--text);white-space:pre-wrap;}
+
 .playbook-progress{display:flex;align-items:center;gap:14px;padding:16px 38px;border-bottom:1px solid var(--line);background:var(--paper);}
 .playbook-progress-bar{flex:1;max-width:220px;height:7px;border-radius:4px;background:var(--line);overflow:hidden;}
 .playbook-progress-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--gold),var(--gold-bright));transition:width .25s ease;}
@@ -440,9 +458,18 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 }
 .client-card:hover{box-shadow:0 8px 20px rgba(20,15,5,0.1);transform:translateY(-2px);border-color:var(--gold-border);}
 .client-card:active{cursor:grabbing;}
-.client-card h5{font-size:13.5px;font-weight:700;margin-bottom:4px;letter-spacing:-0.005em;}
-.client-card .deal-contact{font-size:11.5px;color:var(--text2);margin-bottom:8px;}
-.client-card-stats{display:flex;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--text2);}
+.client-card-head{display:flex;align-items:center;gap:9px;margin-bottom:2px;}
+.client-card-avatar{
+  width:28px;height:28px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-display);font-size:12.5px;font-weight:800;color:var(--gold-deep);
+  background:linear-gradient(150deg,var(--gold-soft),rgba(232,196,104,0.24));border:1px solid var(--gold-border);
+}
+.client-card-head-text{min-width:0;}
+.client-card h5{font-size:13.5px;font-weight:700;letter-spacing:-0.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.client-card .deal-contact{font-size:11.5px;color:var(--text2);}
+.client-card-stats{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:10.5px;color:var(--text2);margin-top:8px;}
+.client-card-profile{margin-left:auto;font-weight:700;color:var(--gold-deep);}
+.client-card-profile.complete{color:var(--success);}
 .client-card-alerts{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px;padding-top:9px;border-top:1px solid var(--line);}
 .client-card-alerts .badge{font-size:10px;padding:2px 7px;}
 
@@ -552,6 +579,15 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .field textarea{resize:vertical;min-height:70px;}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.modal-section-label{
+  font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--gold-deep);
+  padding-top:14px;margin-top:2px;border-top:1px solid var(--line);
+}
+.modal-section-label:first-child{border-top:none;padding-top:0;margin-top:0;}
+.modal-intro{
+  font-size:12.5px;color:var(--gold-deep);line-height:1.5;
+  padding:11px 14px;background:var(--gold-soft);border:1px solid var(--gold-border);border-radius:9px;
+}
 
 /* ───────── Meeting qualification popup ───────── */
 #qualify-modal{background:rgba(9,9,10,0.78);z-index:100;}

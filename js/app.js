@@ -126,40 +126,66 @@ const CLIENT_STAGES = [
   { key: "churned", label: "Churned", days: null, cls: "gray" },
 ];
 const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
+// The fields that make a client's profile genuinely useful to anyone on the
+// team - drives the completeness bar on the Client Info card and kanban card.
+const CLIENT_INFO_FIELDS = [
+  { key: "services", label: "Services", hint: "What we deliver for them - so anyone can explain it without asking." },
+  { key: "renewal_date", label: "Renewal / Review Date", hint: "When to revisit the contract or scope.", isDate: true },
+  { key: "client_rules", label: "Client Rules", hint: "Anything they're particular about, so nobody has to learn it the hard way." },
+  { key: "key_contacts", label: "Key Contacts", hint: "Who the decision makers are and how to reach them." },
+  { key: "communication_preferences", label: "Communication Preferences", hint: "Preferred channel, cadence, response expectations.", wide: true },
+  { key: "qualified_lead_structure", label: "Qualified Lead Structure", hint: "What actually counts as a good lead for this client." },
+  { key: "branding_expectations", label: "Branding Expectations", hint: "Tone, colours, logo use - what to avoid." },
+];
+function clientProfileCompleteness(c){
+  const filled = CLIENT_INFO_FIELDS.filter(f => c[f.key] != null && String(c[f.key]).trim() !== "").length;
+  return { filled, total: CLIENT_INFO_FIELDS.length, pct: Math.round(filled / CLIENT_INFO_FIELDS.length * 100) };
+}
 const ONBOARDING_SECTIONS = [
-  { section: "Day 1 - Immediately After Signing", items: [
-    "Send a welcome email confirming what happens next and the rough timeline.",
-    "Send the contract/invoice if not already done.",
-    "Add them to Clients in the CRM with all their details.",
-    "Create a shared folder/doc for assets (logos, brand guide, login details).",
+  { section: "Before The Call", items: [
+    "Book the onboarding call in with them.",
+    "Prep their CRM setup ahead of time so it's ready to demo.",
+    "Send the welcome email.",
   ]},
-  { section: "Week 1 - Collect What You Need", items: [
-    "Business logo, brand colours, and brand guidelines (if any).",
-    "Access to ad accounts (Meta Business Manager, Google Ads) or invite as admin.",
-    "Access to website/CMS if content changes are needed.",
-    "Existing customer testimonials, photos, or video assets.",
-    "Key selling points, offers, and target customer description.",
+  { section: "Open With Energy", items: [
+    "Come in genuinely excited - smiling, good energy, stoked to have them on board.",
+    "Introduce yourself and the Media Buyer who'll be handling the digital marketing side.",
   ]},
-  { section: "Week 1 - Kickoff Call", items: [
-    "Confirm goals and what success looks like for them.",
-    "Walk through the reporting cadence and what they'll receive.",
-    "Set expectations on timelines (first ads live, first results visible).",
-    "Confirm main point of contact on both sides.",
+  { section: "Set Honest Expectations", items: [
+    "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill.",
+    "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that.",
   ]},
-  { section: "Setup", items: [
-    "Set up ad accounts, tracking (pixel/conversion tracking), and campaigns.",
-    "Build the first round of ad creative based on brand assets collected.",
-    "Set up their entry in Clients with a cost-per-lead target and report frequency.",
+  { section: "Define What A Good Lead Looks Like For Them", items: [
+    "Ask what they consider a job they're happy to quote for.",
+    "Confirm their budget and timeline expectations.",
+    "Confirm their average job value.",
+    "Confirm the type of work they want to chase right now.",
+    "Confirm how far out from their base they're willing to quote.",
   ]},
-  { section: "Week 2 - Launch", items: [
-    "Get final sign-off on ad creative and targeting before launching.",
-    "Launch campaigns.",
-    "Send confirmation that campaigns are live, with what to expect over the next 7 days.",
+  { section: "Set Up Their Calendar", items: [
+    "Confirm they're on Google Calendar and get the app downloaded on their phone - mention it syncs offline so it works anywhere.",
+    "Explain quotes get booked straight into whatever shows as free, so they need to block off every slot they're actually available - including travel time to and from quotes.",
+    "Walk them through setting recurring blocks for their regular hours or days off, so they're not manually updating their calendar every week.",
   ]},
-  { section: "Ongoing", items: [
-    "Confirm reporting cadence is firing correctly.",
-    "Schedule a 2-week check-in call to review early results.",
-    "Add any open items to Tasks so nothing gets missed.",
+  { section: "Demo The CRM", items: [
+    "Walk them through the Tasks section.",
+    "Walk them through Opportunities - the leads that sync straight in from Meta.",
+    "Show them where to add notes, and stress how important it is to drag leads through the stages - that feedback is what we use to optimise targeting back on Meta.",
+    "Let them know Tasks, Opportunities, and Document Storage are really the only sections they'll need to worry about day to day.",
+    "Walk through Document Storage - this is where they upload before/after job photos for us, plus a friendly photo of the team (or just themselves) to use in ads.",
+    "Get them to pin the CRM tab in their browser so it's always handy.",
+  ]},
+  { section: "Confirm Access & Notifications", items: [
+    "Send their login and confirm they can get in.",
+    "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due.",
+    "Set up full Meta partner access on their ad account.",
+  ]},
+  { section: "Lock In The Ongoing Cadence", items: [
+    "Set up a recurring fortnightly catch-up to go through progress, goals, and the pipeline together.",
+  ]},
+  { section: "Close It Out", items: [
+    "Tell them again how excited we are to work with them - we don't take on just anyone, and we're genuinely looking to build a long-term partnership.",
+    "Let them know they can call anytime - if anything feels off, or they want to go deeper on strategy and what's actually happening behind the ads, we're always happy to jump on a call and sort it out together.",
   ]},
 ];
 const ONBOARDING_STEPS = ONBOARDING_SECTIONS.flatMap((s, si) => s.items.map((label, ii) => ({ key: `${si}_${ii}`, section: s.section, label })));
@@ -182,6 +208,8 @@ const state = {
   notes: [],
   playbooks: [],
   selectedPlaybookId: null,
+  emailTemplates: [],
+  selectedEmailTemplateId: null,
   expenses: [],
   callActivity: [],
   playbookUsage: [],
@@ -478,6 +506,56 @@ A single reference for everything needed to run and manage a client's ads proper
 - Reports should always include spend, results, cost-per-result, and a plain-English summary.
 - Flag any issues (rising costs, tracking problems) proactively - don't wait to be asked.` },
   ];
+  state.emailTemplates = [
+    { id:uid(), title:"Welcome Email", sort_order:0, created_at:new Date(Date.now()-86400e3*30).toISOString(), updated_at:new Date(Date.now()-86400e3*30).toISOString(),
+      subject: "Welcome to Mr Priceless - here's what happens next",
+      body:
+`Hi [Name],
+
+Welcome aboard - we're genuinely stoked to be working with [Client]. We don't take on just anyone, so it means we're confident we can get you real results.
+
+Here's what happens next:
+1. We'll get your onboarding call booked in for this week.
+2. Before that call, keep an eye out for your CRM login - that's where you'll see every lead as it comes in.
+3. On the call we'll walk you through everything and get your calendar set up so quotes book straight in.
+
+If anything comes up before then, just reply to this email or give us a call.
+
+Looking forward to it,
+[Your Name]` },
+    { id:uid(), title:"Onboarding Call Confirmation", sort_order:1, created_at:new Date(Date.now()-86400e3*25).toISOString(), updated_at:new Date(Date.now()-86400e3*25).toISOString(),
+      subject: "Confirmed - your onboarding call [Date] at [Time]",
+      body:
+`Hi [Name],
+
+Confirming our onboarding call for [Date] at [Time].
+
+Quick heads up on what we'll cover:
+- What a great lead looks like for you (budget, job size, region)
+- Getting your Google Calendar set up so quotes book straight into your free time
+- A walkthrough of the CRM - it's genuinely simple, just a couple of sections to know
+- Your login and how the automated text notifications work
+
+Should only take about 30 minutes. Talk soon,
+[Your Name]` },
+    { id:uid(), title:"Monthly Report Cover Note", sort_order:2, created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString(),
+      subject: "[Client] - your [Month] results",
+      body:
+`Hi [Name],
+
+Your [Month] report is attached - here's the quick summary:
+
+- Ad spend: $[Spend]
+- Leads generated: [Leads]
+- Cost per lead: $[CPL]
+
+[One or two lines on what's working, what we're testing next, and any recommendation.]
+
+Let me know if you want to jump on a call to go through it in more detail.
+
+Cheers,
+[Your Name]` },
+  ];
   state.expenses = [
     { id:uid(), title:"Meta + Google Ads platform fees", category:"software", amount:49, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*3).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*90).toISOString(), updated_at:new Date(Date.now()-86400e3*3).toISOString() },
     { id:uid(), title:"CRM hosting (Supabase + Cloudflare)", category:"software", amount:35, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*5).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*90).toISOString(), updated_at:new Date(Date.now()-86400e3*5).toISOString() },
@@ -516,7 +594,7 @@ A single reference for everything needed to run and manage a client's ads proper
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ex, ca, pu] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, et, ex, ca, pu] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -531,6 +609,7 @@ const DataLayer = {
       supabase.from("client_reports").select("*").order("created_at",{ascending:false}),
       supabase.from("notes").select("*").order("created_at",{ascending:false}),
       supabase.from("playbooks").select("*").order("sort_order",{ascending:true}),
+      supabase.from("email_templates").select("*").order("sort_order",{ascending:true}),
       supabase.from("expenses").select("*").order("expense_date",{ascending:false}),
       supabase.from("call_activity").select("*").order("activity_date",{ascending:false}),
       supabase.from("playbook_usage").select("*").order("month",{ascending:false}),
@@ -549,6 +628,7 @@ const DataLayer = {
     state.clientReports = crep.data || [];
     state.notes = nt.data || [];
     state.playbooks = pb.data || [];
+    state.emailTemplates = et.data || [];
     state.expenses = ex.data || [];
     state.callActivity = ca.data || [];
     state.playbookUsage = pu.data || [];
@@ -605,6 +685,7 @@ function stateArray(table){
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
     client_campaigns: state.campaigns, deal_contacts: state.dealContacts, tasks: state.tasks,
     client_reports: state.clientReports, notes: state.notes, playbooks: state.playbooks,
+    email_templates: state.emailTemplates,
     expenses: state.expenses, call_activity: state.callActivity, playbook_usage: state.playbookUsage,
   }[table];
 }
@@ -629,6 +710,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"client_reports" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"playbooks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"email_templates" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"expenses" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"call_activity" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"playbook_usage" }, async () => { await DataLayer.fetchAll(); renderAll(); })
@@ -789,7 +871,7 @@ function setupEmailAuth(){
 const WORKSPACE_KEY = "mp_workspace";
 const WORKSPACE_COPY = {
   sales: { title: "Sales", sub: "Prospecting, booking meetings, and closing deals.", dashboardTitle: "Dashboard", dashboardSub: "MRR and closed won jobs at a glance." },
-  delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients.", dashboardTitle: "Dashboard", dashboardSub: "Client health and revenue at a glance." },
+  delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients.", dashboardTitle: "Dashboard", dashboardSub: "Client health and delivery at a glance." },
 };
 function getWorkspace(){ return localStorage.getItem(WORKSPACE_KEY) || "sales"; }
 function setWorkspace(w){
@@ -883,16 +965,13 @@ function renderDashboard(){
     </div>
   `).join("") : emptyState("No follow-ups scheduled.");
 
-  // Service Delivery view: client health & revenue instead of pipeline
+  // Service Delivery view: client health & delivery instead of agency revenue
   const activeClients = state.clients.filter(c => c.stage !== "churned");
-  $("#stat-client-revenue").textContent = fmtMoney(mrr);
-  $("#stat-client-revenue-sub").textContent = `from ${activeClients.length} active client${activeClients.length===1?"":"s"}`;
-  $("#stat-client-net").textContent = `${fmtMoney(netMrr)}/mo net after ${fmtMoney(monthlyExpenses)} expenses`;
-
-  const profitEntriesMonth = state.expenses.filter(e => e.type === "profit" && sameMonth(e.expense_date));
-  const profitShareMonth = profitEntriesMonth.reduce((s,e) => s + Number(e.amount||0), 0);
-  $("#stat-profit-share-month").textContent = fmtMoney(profitShareMonth);
-  $("#stat-profit-share-sub").textContent = `${profitEntriesMonth.length} payout${profitEntriesMonth.length===1?"":"s"} logged`;
+  const onboardingCount = state.clients.filter(c => c.stage === "onboarding").length;
+  const adSpendManaged = state.adCreatives.reduce((s,a) => s + (Number(a.spend)||0), 0);
+  $("#stat-ad-spend-managed").textContent = fmtMoney(adSpendManaged);
+  $("#stat-active-clients").textContent = activeClients.length;
+  $("#stat-active-clients-sub").textContent = `${onboardingCount} currently onboarding`;
 
   const health = activeClients.map(c => ({ client: c, alerts: getClientAlerts(c), status: clientHealthStatus(c) }));
   const greenCount = health.filter(x => x.status === "green").length;
@@ -1715,10 +1794,17 @@ function renderClientsList(){
           const creatives = state.adCreatives.filter(x => x.client_id === c.id);
           const running = runningCampaignsFor(c.id).length;
           const quotePct = c.quote_target ? Math.min(100, Math.round((Number(c.quotes_sent||0) / c.quote_target) * 100)) : null;
+          const profile = clientProfileCompleteness(c);
+          const initial = (c.name||"?").trim().charAt(0).toUpperCase();
           return `
           <div class="client-card" draggable="true" data-id="${c.id}" data-action="view-client">
-            <h5>${escapeHtml(c.name)}</h5>
-            <div class="deal-contact">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</div>
+            <div class="client-card-head">
+              <span class="client-card-avatar">${escapeHtml(initial)}</span>
+              <div class="client-card-head-text">
+                <h5>${escapeHtml(c.name)}</h5>
+                <div class="deal-contact">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</div>
+              </div>
+            </div>
             ${quotePct != null ? `
               <div class="onboarding-progress-bar" style="margin-top:8px;"><div class="onboarding-progress-fill" style="width:${quotePct}%;"></div></div>
               <div class="onboarding-progress-label" style="margin-top:4px;">${c.quotes_sent||0} of ${c.quote_target} quotes</div>
@@ -1727,6 +1813,7 @@ function renderClientsList(){
               <span>${running} running</span>
               <span>${pieces.length} content</span>
               <span>${creatives.length} creative${creatives.length===1?"":"s"}</span>
+              <span class="client-card-profile ${profile.pct===100?'complete':''}" title="Client Info completeness">${profile.pct}% profile</span>
             </div>
             ${alerts.length ? `<div class="client-card-alerts">${alerts.map(a=>`<span class="badge ${a.type==='danger'?'red':'gold'}">${escapeHtml(a.text)}</span>`).join("")}</div>` : ""}
           </div>
@@ -1760,11 +1847,27 @@ function setupClientsDragDrop(){
     });
   });
 }
-function setClientInfoField(id, value, emptyText){
-  const el = $(id);
-  if (!el) return;
-  el.textContent = value || emptyText;
-  el.classList.toggle("empty", !value);
+function renderClientInfoGrid(c){
+  const grid = $("#client-info-grid");
+  if (grid){
+    grid.innerHTML = CLIENT_INFO_FIELDS.map(f => {
+      const raw = c[f.key];
+      const hasValue = raw != null && String(raw).trim() !== "";
+      const display = hasValue ? (f.isDate ? fmtDate(raw) : escapeHtml(raw)) : "";
+      return `
+        <div class="client-info-block${f.wide?' client-info-block-wide':''}">
+          <div class="client-info-label">${escapeHtml(f.label)}</div>
+          ${hasValue
+            ? `<div class="client-info-value">${display}</div>`
+            : `<button type="button" class="client-info-value client-info-empty" data-action="edit-client-info">+ Add ${escapeHtml(f.label.toLowerCase())} - ${escapeHtml(f.hint)}</button>`}
+        </div>`;
+    }).join("");
+  }
+  const { filled, total, pct } = clientProfileCompleteness(c);
+  const fill = $("#client-info-progress-fill");
+  const label = $("#client-info-progress-label");
+  if (fill) fill.style.width = pct + "%";
+  if (label) label.textContent = `${filled} of ${total} filled in - ${pct}% complete`;
 }
 function renderClientDetail(c){
   $("#client-detail-name").textContent = c.name;
@@ -1787,13 +1890,7 @@ function renderClientDetail(c){
     }
   }
 
-  setClientInfoField("#client-info-services", c.services, "Not set yet.");
-  setClientInfoField("#client-info-rules", c.client_rules, "Not set yet.");
-  setClientInfoField("#client-info-qls", c.qualified_lead_structure, "Not set yet.");
-  setClientInfoField("#client-info-branding", c.branding_expectations, "Not set yet.");
-  setClientInfoField("#client-info-contacts", c.key_contacts, "Not set yet.");
-  setClientInfoField("#client-info-comms", c.communication_preferences, "Not set yet.");
-  setClientInfoField("#client-info-renewal", c.renewal_date ? fmtDate(c.renewal_date) : "", "Not set yet.");
+  renderClientInfoGrid(c);
 
   const campaigns = campaignsFor(c.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
   const running = campaigns.filter(x => x.status === "active");
@@ -2430,6 +2527,7 @@ function renderAll(){
   renderTeam();
   renderCalendarGrid();
   renderPlaybooks();
+  renderEmailTemplates();
   renderExpenses();
   fillContactDropdowns();
 }
@@ -2575,6 +2673,64 @@ function renderPlaybooks(){
     ${progressHtml}
     <div class="playbook-content" data-playbook="${p.id}">${contentHtml || `<p style="color:var(--text2);">No content yet - click the edit icon to write it.</p>`}</div>
   `;
+}
+
+/* ───────── Email Templates ───────── */
+function renderEmailTemplates(){
+  const listEl = $("#email-templates-list");
+  const viewer = $("#email-template-viewer");
+  if (!listEl || !viewer) return;
+  const list = [...state.emailTemplates].sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
+  if (!list.length){
+    listEl.innerHTML = "";
+    viewer.innerHTML = `<div class="playbook-empty"><div class="playbook-empty-icon">${ICONS.book}</div>No email templates yet.<br>Add your first one so the whole team sends the same message.</div>`;
+    return;
+  }
+  if (!state.selectedEmailTemplateId || !list.find(p => p.id === state.selectedEmailTemplateId)){
+    state.selectedEmailTemplateId = list[0].id;
+  }
+  listEl.innerHTML = list.map(t => `
+    <button type="button" class="playbook-list-item ${t.id === state.selectedEmailTemplateId ? "active" : ""}" data-action="select-email-template" data-id="${t.id}">
+      <span class="playbook-list-item-icon">${ICONS.book}</span>
+      <span class="playbook-list-item-text">
+        <div class="playbook-list-item-title">${escapeHtml(t.title)}</div>
+        <div class="playbook-list-item-sub">${escapeHtml(t.subject || "No subject set")}</div>
+      </span>
+    </button>
+  `).join("");
+  const t = list.find(x => x.id === state.selectedEmailTemplateId);
+  viewer.innerHTML = `
+    <div class="playbook-viewer-head">
+      <div class="playbook-viewer-head-title">
+        <span class="playbook-viewer-icon">${ICONS.book}</span>
+        <div><h3>${escapeHtml(t.title)}</h3><p>Updated ${fmtDate(t.updated_at||t.created_at)}</p></div>
+      </div>
+      <div class="playbook-viewer-actions">
+        <button class="icon-btn" data-action="edit-email-template" data-id="${t.id}" title="Edit">${ICONS.edit}</button>
+        <button class="icon-btn" data-action="delete-email-template" data-id="${t.id}" title="Delete">${ICONS.trash}</button>
+      </div>
+    </div>
+    <div class="email-template-field">
+      <div class="email-template-field-head"><span>Subject</span><button type="button" class="btn ghost sm" data-action="copy-email-subject" data-id="${t.id}">Copy Subject</button></div>
+      <div class="email-template-subject">${t.subject ? escapeHtml(t.subject) : `<span style="color:var(--text2);font-style:italic;">No subject set</span>`}</div>
+    </div>
+    <div class="email-template-field">
+      <div class="email-template-field-head"><span>Body</span><button type="button" class="btn gold sm" data-action="copy-email-body" data-id="${t.id}">Copy Body</button></div>
+      <div class="email-template-body">${t.body ? escapeHtml(t.body) : `<span style="color:var(--text2);font-style:italic;">No content yet - click the edit icon to write it.</span>`}</div>
+    </div>
+  `;
+}
+async function copyToClipboard(text, btn){
+  try {
+    await navigator.clipboard.writeText(text || "");
+    if (btn){
+      const original = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    }
+  } catch {
+    alert("Couldn't copy - your browser may be blocking clipboard access.");
+  }
 }
 
 /* ───────── Team / invites ───────── */
@@ -3006,6 +3162,29 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#add-email-template-btn")?.addEventListener("click", () => {
+    $("#email-template-form").reset(); $("#email-template-form-id").value=""; $("#email-template-modal-title").textContent="Add Email Template";
+    openModal("email-template-modal");
+  });
+  $("#email-template-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#email-template-form-id").value;
+    const row = {
+      title: $("#email-template-name").value.trim(),
+      subject: $("#email-template-subject").value.trim(),
+      body: $("#email-template-body").value.trim(),
+    };
+    if (!row.title) return;
+    if (id) await DataLayer.update("email_templates", id, row);
+    else {
+      row.sort_order = state.emailTemplates.length;
+      const created = await DataLayer.insert("email_templates", row);
+      if (created) state.selectedEmailTemplateId = created.id;
+    }
+    closeModal("email-template-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   $("#add-expense-btn")?.addEventListener("click", () => {
     $("#expense-form").reset(); $("#expense-form-id").value=""; $("#expense-date").value = todayDateStr(); $("#expense-modal-title").textContent="Add Expense";
     $("#expense-type").value = "expense";
@@ -3322,6 +3501,29 @@ function setupModals(){
     if (action === "delete-playbook" && confirm("Delete this playbook?")){
       if (state.selectedPlaybookId === id) state.selectedPlaybookId = null;
       await DataLayer.remove("playbooks", id);
+    }
+    if (action === "select-email-template"){ state.selectedEmailTemplateId = id; renderEmailTemplates(); }
+    if (action === "edit-email-template"){
+      const t = state.emailTemplates.find(x => x.id === id);
+      if (!t) return;
+      $("#email-template-form-id").value = t.id;
+      $("#email-template-name").value = t.title||"";
+      $("#email-template-subject").value = t.subject||"";
+      $("#email-template-body").value = t.body||"";
+      $("#email-template-modal-title").textContent = "Edit Email Template";
+      openModal("email-template-modal");
+    }
+    if (action === "delete-email-template" && confirm("Delete this email template?")){
+      if (state.selectedEmailTemplateId === id) state.selectedEmailTemplateId = null;
+      await DataLayer.remove("email_templates", id);
+    }
+    if (action === "copy-email-subject"){
+      const t = state.emailTemplates.find(x => x.id === id);
+      await copyToClipboard(t?.subject, btn);
+    }
+    if (action === "copy-email-body"){
+      const t = state.emailTemplates.find(x => x.id === id);
+      await copyToClipboard(t?.body, btn);
     }
     if (action === "edit-expense"){
       const ex = state.expenses.find(x => x.id === id);
