@@ -91,10 +91,13 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Client not found." }, 404);
   }
 
-  const metaAdAccountId = clientRow?.meta_ad_account_id;
-  if (!metaAdAccountId) {
+  const rawMetaAdAccountId = clientRow?.meta_ad_account_id;
+  if (!rawMetaAdAccountId) {
     return json({ error: "This client has no Meta Ad Account ID set." }, 400);
   }
+  const metaAdAccountId = String(rawMetaAdAccountId).startsWith("act_")
+    ? String(rawMetaAdAccountId)
+    : `act_${rawMetaAdAccountId}`;
 
   try {
     const fields = "id,name,effective_status,campaign{id,name},insights.date_preset(maximum){impressions,clicks,spend,actions,cost_per_action_type}";
