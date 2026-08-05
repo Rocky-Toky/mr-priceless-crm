@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=44">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=44">
+<link rel="stylesheet" href="css/style.css?v=45">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=45">
 </head>
 <body>
 
@@ -690,14 +690,20 @@
         </div>
       </div>
 
-      <div class="stat-grid">
+      <div class="stat-grid stat-grid-5">
         <div class="stat-card"><div class="stat-label">Total Prospects</div><div class="stat-value" id="prospecting-stat-total">0</div></div>
+        <div class="stat-card"><div class="stat-label">Ready to Call</div><div class="stat-value" id="prospecting-stat-ready">0</div></div>
+        <div class="stat-card"><div class="stat-label">Cooling Down</div><div class="stat-value" id="prospecting-stat-snoozed">0</div></div>
         <div class="stat-card"><div class="stat-label">Never Called</div><div class="stat-value" id="prospecting-stat-fresh">0</div></div>
-        <div class="stat-card"><div class="stat-label">Called This Week</div><div class="stat-value" id="prospecting-stat-week">0</div></div>
         <div class="stat-card"><div class="stat-label">Industries</div><div class="stat-value" id="prospecting-stat-industries">0</div></div>
       </div>
 
-      <div class="toolbar">
+      <div class="card">
+        <div class="card-header"><h3>Region Progress</h3><span class="stat-sub">Which regions are mostly worked through vs still fresh - click one to filter below.</span></div>
+        <div class="card-body" id="prospecting-region-progress"></div>
+      </div>
+
+      <div class="toolbar" style="margin-top:24px;">
         <div class="search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input type="text" id="prospecting-search" placeholder="Search name, company, notes...">
@@ -711,18 +717,19 @@
         <select class="filter-select" id="prospecting-filter-caller">
           <option value="">Called By - Anyone</option>
         </select>
+        <button class="btn ghost" id="prospecting-show-snoozed">Show recently called</button>
       </div>
 
       <div class="card">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Phone</th><th>Region / Industry</th><th>Times Called</th><th>Last Called</th><th>Notes</th><th></th></tr></thead>
+            <thead><tr><th>Business</th><th>Phone</th><th>Region / Industry</th><th>Status</th><th>Notes</th><th></th></tr></thead>
             <tbody id="prospecting-tbody"></tbody>
           </table>
         </div>
       </div>
 
-      <h3 class="analytics-subhead" style="margin-top:28px;">By Region</h3>
+      <h3 class="analytics-subhead" style="margin-top:28px;">Region Notes</h3>
       <div class="card">
         <div class="card-header"><h3>Region Rollups</h3><button class="btn ghost" id="add-region-btn" style="margin-left:auto;">+ Add Region</button></div>
         <div class="table-wrap">
@@ -1393,7 +1400,10 @@
         </div>
         <div class="field"><label>Company</label><input type="text" id="prospect-company"></div>
       </div>
-      <div class="field"><label>Email</label><input type="email" id="prospect-email"></div>
+      <div class="field-row">
+        <div class="field"><label>Email</label><input type="email" id="prospect-email"></div>
+        <div class="field"><label>Website</label><input type="text" id="prospect-website" placeholder="e.g. reevebuilders.co.nz"></div>
+      </div>
       <div class="field-row">
         <div class="field"><label>Region</label><input type="text" id="prospect-region" placeholder="e.g. Auckland CBD"></div>
         <div class="field"><label>Industry</label><input type="text" id="prospect-industry" placeholder="e.g. Real Estate"></div>
@@ -1402,6 +1412,31 @@
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="prospect-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Prospect</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Log a Call (Prospecting) ───────── -->
+<div class="overlay" id="log-call-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="log-call-title">Log Call</h3><button class="modal-close" data-close="log-call-modal">&times;</button></div>
+    <form id="log-call-form" class="modal-body">
+      <input type="hidden" id="log-call-prospect-id">
+      <div class="field"><label>Outcome</label>
+        <select id="log-call-outcome" required>
+          <option value="no_answer">No Answer</option>
+          <option value="call_back">Call Back</option>
+          <option value="not_interested">Not Interested</option>
+          <option value="interested">Interested</option>
+          <option value="booked_meeting">Booked Meeting</option>
+        </select>
+      </div>
+      <div class="field"><label>Notes (optional)</label><textarea id="log-call-notes" placeholder="Anything worth knowing for next time..."></textarea></div>
+      <p style="color:var(--text2);font-size:12.5px;">This drops them off the "ready to call" list for a few days so nobody calls them again too soon.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="log-call-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Call</button>
       </div>
     </form>
   </div>
@@ -1724,10 +1759,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=44"></script>
-<script src="js/supabaseClient.js?v=44"></script>
-<script src="js/app.js?v=44"></script>
-<script src="js/meetings-tracker.js?v=44"></script>
-<script src="js/todo.js?v=44"></script>
+<script src="js/config.js?v=45"></script>
+<script src="js/supabaseClient.js?v=45"></script>
+<script src="js/app.js?v=45"></script>
+<script src="js/meetings-tracker.js?v=45"></script>
+<script src="js/todo.js?v=45"></script>
 </body>
 </html>

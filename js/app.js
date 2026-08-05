@@ -256,6 +256,7 @@ const state = {
   selectedOnboardingClientId: null,
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
+  prospectingShowSnoozed: false,
   taskFilter: { status: "open", priority: "", sort: "due_date", assignee: "" },
   team: [],
   contactFilter: "",
@@ -353,9 +354,9 @@ function seedDemo(){
     { id:uid(), region:"North Shore", calls_made:38, meetings_booked:2, notes:"Started this week, more to go.", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.prospects = [
-    { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", notes:"Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", notes:"Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", website:"reevebuilders.co.nz", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", snoozed_until:new Date(Date.now()+86400e3*1).toISOString(), notes:"[Aug 3, 1:30pm - max] No Answer: Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", website:"", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:new Date(Date.now()-3600e3*1).toISOString(), notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
@@ -1587,6 +1588,10 @@ const OUTCOME_BUTTONS = [
   { key:"interested", label:"Interested", cls:"gold" },
   { key:"booked_meeting", label:"Booked Meeting", cls:"gold" },
 ];
+// Logging a call snoozes a prospect for a few days so it drops out of
+// everyone's "ready to call" view - the actual mechanism that stops two
+// different reps (or the same rep twice) from calling the same business.
+function isSnoozed(p){ return !!p.snoozed_until && new Date(p.snoozed_until) > new Date(); }
 function dialerFilteredProspects(){
   const f = state.dialerFilter;
   const q = f.search.trim().toLowerCase();
@@ -1602,7 +1607,10 @@ function dialerDistinctValues(field){
   return [...new Set(state.prospects.map(p => p[field]).filter(Boolean))].sort();
 }
 function dialerQueue(){
-  return dialerFilteredProspects().sort((a,b) => {
+  // The power dialer only ever wants to surface prospects that are actually
+  // callable right now - anyone still cooling down after a recent call stays
+  // out of the queue until they're due again.
+  return dialerFilteredProspects().filter(p => !isSnoozed(p)).sort((a,b) => {
     const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
     const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
     return ta - tb;
@@ -1643,7 +1651,9 @@ function renderDialer(){
   const body = $("#dialer-current-body");
   if (body){
     if (!queue.length){
-      body.innerHTML = emptyState("Import a CSV/XLS file or add a prospect to start power dialing.");
+      body.innerHTML = emptyState(filtered.length
+        ? "Everyone matching this filter has been called recently - check back once their cooldown's up."
+        : "Import a CSV/XLS file or add a prospect to start power dialing.");
     } else {
       const p = queue[0];
       body.innerHTML = `
@@ -1672,7 +1682,7 @@ function renderDialer(){
   const tbody = $("#dialer-queue-tbody");
   if (tbody){
     if (!queue.length){
-      tbody.innerHTML = `<tr><td colspan="5">${emptyState("No prospects yet.")}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5">${emptyState(filtered.length ? "Everyone's cooling down - nobody's due for a call right now." : "No prospects yet.")}</td></tr>`;
     } else {
       tbody.innerHTML = queue.map((p,i) => `
         <tr data-id="${p.id}" style="${i===0?"background:var(--gold-soft);":""}">
@@ -1690,14 +1700,25 @@ function renderDialer(){
     }
   }
 }
-async function logDialOutcome(prospectId, outcome){
+// How long a business drops out of the "ready to call" view after a
+// logged call, per outcome - short for "try again soon", long for
+// "leave this one alone for a good while".
+const CALL_COOLDOWN_DAYS = { no_answer: 1, call_back: 3, not_interested: 60, interested: 365, booked_meeting: 365 };
+async function logDialOutcome(prospectId, outcome, note){
   const p = state.prospects.find(x => x.id === prospectId);
   if (!p) return;
+  const who = state.user ? state.user.email : "demo";
+  const stamp = new Date().toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" });
+  const label = OUTCOMES[outcome]?.label || outcome;
+  const entry = `[${stamp} - ${who.split("@")[0]}] ${label}${note ? ": " + note : ""}`;
+  const cooldownDays = CALL_COOLDOWN_DAYS[outcome] ?? 4;
   await DataLayer.update("dial_prospects", prospectId, {
     calls_made: Number(p.calls_made||0) + 1,
     last_called_at: new Date().toISOString(),
     last_outcome: outcome,
-    last_called_by: state.user ? state.user.email : "demo",
+    last_called_by: who,
+    snoozed_until: new Date(Date.now() + cooldownDays*86400e3).toISOString(),
+    notes: [entry, p.notes].filter(Boolean).join("\n\n"),
     updated_at: new Date().toISOString(),
   });
   if (!IS_CONFIGURED) return;
@@ -1837,6 +1858,7 @@ function mapImportRows(rows){
   const emailIdx = findCol("email");
   const regionIdx = findCol("region","area","suburb","location","territory","address");
   const industryIdx = findCol("industry","sector","niche","category","vertical","type");
+  const websiteIdx = findCol("website","url","site");
   return rows.slice(1).map(r => ({
     name: (nameIdx>-1 ? r[nameIdx] : "") || "Unknown",
     phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
@@ -1844,6 +1866,7 @@ function mapImportRows(rows){
     email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
     region: regionIdx>-1 ? String(r[regionIdx]||"").trim() : "",
     industry: industryIdx>-1 ? String(r[industryIdx]||"").trim() : "",
+    website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
   })).filter(p => p.name || p.phone);
 }
 const digitsOnly = (s) => (s||"").replace(/\D/g,"");
@@ -1869,9 +1892,9 @@ async function importProspectRows(prospects){
     if (existingKeys.has(key) || seenInBatch.has(key)){ skipped++; continue; }
     seenInBatch.add(key);
     await DataLayer.insert("dial_prospects", {
-      name: p.name, phone: p.phone, company: p.company, email: p.email,
+      name: p.name, phone: p.phone, company: p.company, email: p.email, website: p.website||"",
       region: p.region||"", industry: p.industry||"",
-      calls_made: 0, last_called_at: null, last_outcome: null, last_called_by: null, notes: "",
+      calls_made: 0, last_called_at: null, last_outcome: null, last_called_by: null, snoozed_until: null, notes: "",
     });
     imported++;
   }
@@ -2807,40 +2830,80 @@ function renderProspectFilters(){
     callerSel.value = state.dialerFilter.caller;
   }
 }
+// Which regions are mostly worked through vs which are still fresh - the
+// "map" of where the team's cold-calling effort is actually going.
+function renderRegionProgress(){
+  const wrap = $("#prospecting-region-progress");
+  if (!wrap) return;
+  const regions = dialerDistinctValues("region");
+  if (!regions.length){ wrap.innerHTML = emptyState("No regions yet - add a Region when importing or adding a prospect."); return; }
+  const rows = regions.map(r => {
+    const inRegion = state.prospects.filter(p => (p.region||"") === r);
+    const called = inRegion.filter(p => Number(p.calls_made||0) > 0).length;
+    const pct = inRegion.length ? Math.round((called/inRegion.length)*100) : 0;
+    return { region: r, total: inRegion.length, called, pct };
+  }).sort((a,b) => b.total - a.total);
+  wrap.innerHTML = rows.map(x => `
+    <div class="region-progress-row" data-action="filter-prospect-region" data-id="${escapeHtml(x.region)}" style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer;">
+      <div style="width:150px;flex-shrink:0;font-weight:600;font-size:13.5px;">${escapeHtml(x.region)}</div>
+      <div class="playbook-progress-bar"><div class="playbook-progress-fill" style="width:${x.pct}%"></div></div>
+      <div style="width:120px;flex-shrink:0;text-align:right;color:var(--text2);font-size:12.5px;">${x.called} / ${x.total} called</div>
+    </div>
+  `).join("");
+}
 // The master prospect list, shared team-wide, so everyone dialing off it -
-// Rocky, Max, and the new cold callers - can see who's already called who
-// and nobody works the same lead twice.
+// Rocky, Max, and the new cold callers - can see who's already called who.
+// Logging a call snoozes a business out of this view for a few days, which
+// is what actually stops the same lead getting called twice.
 function renderProspectList(){
   const tbody = $("#prospecting-tbody");
   if (!tbody) return;
   renderProspectFilters();
-  const filtered = dialerFilteredProspects();
-  const neverCalled = filtered.filter(p => !p.calls_made).length;
-  const calledThisWeek = filtered.filter(p => p.last_called_at && (Date.now() - new Date(p.last_called_at).getTime()) < 7*86400e3).length;
-  const industries = new Set(filtered.map(p => p.industry).filter(Boolean)).size;
+  renderRegionProgress();
+  const baseFiltered = dialerFilteredProspects();
+  const snoozedCount = baseFiltered.filter(isSnoozed).length;
+  const filtered = state.prospectingShowSnoozed ? baseFiltered : baseFiltered.filter(p => !isSnoozed(p));
+  const neverCalled = baseFiltered.filter(p => !p.calls_made).length;
+  const industries = new Set(baseFiltered.map(p => p.industry).filter(Boolean)).size;
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
-  st("#prospecting-stat-total", filtered.length);
+  st("#prospecting-stat-total", baseFiltered.length);
+  st("#prospecting-stat-ready", baseFiltered.length - snoozedCount);
+  st("#prospecting-stat-snoozed", snoozedCount);
   st("#prospecting-stat-fresh", neverCalled);
-  st("#prospecting-stat-week", calledThisWeek);
   st("#prospecting-stat-industries", industries);
 
-  if (!filtered.length){ tbody.innerHTML = `<tr><td colspan="7">${emptyState("No prospects yet. Import a list or paste one in above.")}</td></tr>`; return; }
+  const toggle = $("#prospecting-show-snoozed");
+  if (toggle) toggle.textContent = state.prospectingShowSnoozed ? `Hide recently called (${snoozedCount})` : `Show recently called (${snoozedCount})`;
+
+  if (!filtered.length){
+    tbody.innerHTML = `<tr><td colspan="6">${emptyState(baseFiltered.length ? "Everyone matching this filter has been called recently - toggle above to see them anyway." : "No prospects yet. Import a list or paste one in above.")}</td></tr>`;
+    return;
+  }
   const sorted = [...filtered].sort((a,b) => (a.name||"").localeCompare(b.name||""));
-  tbody.innerHTML = sorted.map(p => `
+  tbody.innerHTML = sorted.map(p => {
+    const website = p.website ? (/^https?:\/\//i.test(p.website) ? p.website : "https://" + p.website) : "";
+    return `
     <tr data-id="${p.id}">
-      <td><div class="row-name">${escapeHtml(p.name)}</div><div class="row-sub">${escapeHtml(p.company||"")}</div></td>
+      <td>
+        <div class="row-name">${escapeHtml(p.name)}</div>
+        <div class="row-sub">${escapeHtml(p.company||"")}${website ? ` · <a href="${escapeHtml(website)}" target="_blank" rel="noopener">Website ↗</a>` : ""}</div>
+      </td>
       <td>${escapeHtml(p.phone||"-")}</td>
       <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
-      <td>${Number(p.calls_made||0) ? `<span class="badge gray">${Number(p.calls_made)}</span>` : `<span class="badge gold">New</span>`}</td>
-      <td>${p.last_called_at ? timeAgo(p.last_called_at) : "Never"}${p.last_called_by ? `<div class="row-sub">by ${escapeHtml(prospectCallerLabel(p.last_called_by))}</div>` : ""}</td>
-      <td style="max-width:220px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);">${escapeHtml(p.notes||"")}</span></td>
+      <td>
+        ${Number(p.calls_made||0) ? `<span class="badge gray">${Number(p.calls_made)} called</span>` : `<span class="badge gold">New</span>`}
+        ${isSnoozed(p) ? `<div class="row-sub" style="margin-top:4px;">Cooling down til ${fmtDate(p.snoozed_until)}</div>` : ""}
+        ${p.last_called_at ? `<div class="row-sub">${timeAgo(p.last_called_at)}${p.last_called_by ? " by "+escapeHtml(prospectCallerLabel(p.last_called_by)) : ""}</div>` : ""}
+      </td>
+      <td style="max-width:240px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);white-space:pre-line;">${escapeHtml(p.notes||"")}</span></td>
       <td style="text-align:right;white-space:nowrap;">
+        <button class="btn ghost" data-action="log-prospect-call" data-id="${p.id}" style="padding:6px 12px;font-size:12.5px;">Mark Called</button>
         <button class="icon-btn" data-action="edit-prospect" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
         <button class="icon-btn" data-action="convert-prospect" data-id="${p.id}" title="Move to Contacts">${ICONS.moveToContact}</button>
         <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
       </td>
     </tr>
-  `).join("");
+  `;}).join("");
 }
 
 function renderAll(){
@@ -3663,6 +3726,7 @@ function setupModals(){
       phone: toE164($("#prospect-phone").value.trim(), $("#prospect-country-code").value),
       company: $("#prospect-company").value.trim(),
       email: $("#prospect-email").value.trim(),
+      website: $("#prospect-website").value.trim(),
       region: $("#prospect-region").value.trim(),
       industry: $("#prospect-industry").value.trim(),
       notes: $("#prospect-notes").value.trim(),
@@ -3677,6 +3741,19 @@ function setupModals(){
     }
     closeModal("prospect-modal");
     if (!IS_CONFIGURED) return; renderAll();
+  });
+
+  $("#log-call-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#log-call-prospect-id").value;
+    const outcome = $("#log-call-outcome").value;
+    const note = $("#log-call-notes").value.trim();
+    closeModal("log-call-modal");
+    await logDialOutcome(id, outcome, note);
+  });
+  $("#prospecting-show-snoozed")?.addEventListener("click", () => {
+    state.prospectingShowSnoozed = !state.prospectingShowSnoozed;
+    renderProspectList();
   });
 
   $("#add-client-btn")?.addEventListener("click", () => {
@@ -3960,6 +4037,7 @@ function setupModals(){
       $("#prospect-phone").value = local;
       $("#prospect-company").value = p.company||"";
       $("#prospect-email").value = p.email||"";
+      $("#prospect-website").value = p.website||"";
       $("#prospect-region").value = p.region||"";
       $("#prospect-industry").value = p.industry||"";
       $("#prospect-notes").value = p.notes||"";
@@ -3975,6 +4053,19 @@ function setupModals(){
         });
         await DataLayer.remove("dial_prospects", id);
       }
+    }
+    if (action === "log-prospect-call"){
+      const p = state.prospects.find(x => x.id === id);
+      if (!p) return;
+      $("#log-call-prospect-id").value = id;
+      $("#log-call-title").textContent = `Log Call - ${p.name}`;
+      $("#log-call-outcome").value = "no_answer";
+      $("#log-call-notes").value = "";
+      openModal("log-call-modal");
+    }
+    if (action === "filter-prospect-region"){
+      state.dialerFilter.region = id;
+      renderProspectViews();
     }
     if (action === "dial-tel") await logDialOutcome(id, "dialed");
     if (action === "start-call") await startCall(id);
