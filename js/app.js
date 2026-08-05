@@ -5,12 +5,15 @@
 const { supabase, IS_CONFIGURED } = window.CRM_DB;
 
 // Only these tables actually have a created_by column (see sql/schema.sql) -
-// every table added since (dial_prospects, clients, client_content,
-// client_ad_creatives, client_campaigns, deal_contacts, prospecting_regions)
-// does not, and Supabase rejects inserts with an unknown column.
-const TABLES_WITH_CREATED_BY = new Set(["contacts", "cold_calls", "deals"]);
-// These tables are per-login (see sql/013_per_login_scoping.sql) - every new
-// row is stamped with whoever created it so RLS can scope it to just them.
+// every table added since (clients, client_content, client_ad_creatives,
+// client_campaigns, deal_contacts, prospecting_regions) does not, and
+// Supabase rejects inserts with an unknown column. dial_prospects got its
+// own created_by in 032, once it went back to being a shared list.
+const TABLES_WITH_CREATED_BY = new Set(["contacts", "cold_calls", "deals", "dial_prospects"]);
+// Tasks stays per-login (see sql/013_per_login_scoping.sql) - every new row
+// is stamped with whoever created it so RLS can scope it to just them.
+// dial_prospects also stamps user_id for legacy reasons but, since 032, its
+// RLS is shared team-wide - the column is unused for access control now.
 const TABLES_WITH_USER_ID = new Set(["dial_prospects", "tasks"]);
 
 const STAGES = [
@@ -252,7 +255,7 @@ const state = {
   selectedClientId: null,
   selectedOnboardingClientId: null,
   selectedDealId: null,
-  dialerFilter: { search: "", region: "", industry: "" },
+  dialerFilter: { search: "", region: "", industry: "", caller: "" },
   taskFilter: { status: "open", priority: "", sort: "due_date", assignee: "" },
   team: [],
   contactFilter: "",
@@ -350,9 +353,9 @@ function seedDemo(){
     { id:uid(), region:"North Shore", calls_made:38, meetings_booked:2, notes:"Started this week, more to go.", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.prospects = [
-    { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", notes:"", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", calls_made:0, last_called_at:null, last_outcome:null, notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", calls_made:0, last_called_at:null, last_outcome:null, notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", notes:"Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", notes:"Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
@@ -1590,6 +1593,7 @@ function dialerFilteredProspects(){
   return state.prospects.filter(p => {
     if (f.region && (p.region||"") !== f.region) return false;
     if (f.industry && (p.industry||"") !== f.industry) return false;
+    if (f.caller && (p.last_called_by||"") !== f.caller) return false;
     if (q && ![p.name,p.company,p.notes].some(v => (v||"").toLowerCase().includes(q))) return false;
     return true;
   });
@@ -1693,6 +1697,7 @@ async function logDialOutcome(prospectId, outcome){
     calls_made: Number(p.calls_made||0) + 1,
     last_called_at: new Date().toISOString(),
     last_outcome: outcome,
+    last_called_by: state.user ? state.user.email : "demo",
     updated_at: new Date().toISOString(),
   });
   if (!IS_CONFIGURED) return;
@@ -1809,6 +1814,19 @@ function parseCsv(text){
   if (field.length || row.length){ row.push(field); rows.push(row); }
   return rows.filter(r => r.some(v => v.trim() !== ""));
 }
+// Pasting a tidied table straight out of a Claude chat usually comes through
+// tab-separated (that's how browsers copy rendered HTML tables); typing or
+// pasting a plain CSV is comma-separated. Pick whichever the first line has
+// more of, so both paths work without asking the user to choose a format.
+function parseDelimited(text){
+  const firstLine = text.split(/\r?\n/, 1)[0] || "";
+  const tabCount = (firstLine.match(/\t/g)||[]).length;
+  const commaCount = (firstLine.match(/,/g)||[]).length;
+  if (tabCount > commaCount){
+    return text.split(/\r?\n/).map(line => line.split("\t")).filter(r => r.some(v => v.trim() !== ""));
+  }
+  return parseCsv(text);
+}
 function mapImportRows(rows){
   if (!rows.length) return [];
   const headers = rows[0].map(h => String(h||"").trim().toLowerCase());
@@ -1817,8 +1835,8 @@ function mapImportRows(rows){
   const phoneIdx = findCol("phone","mobile","number","tel");
   const companyIdx = findCol("company","organisation","organization","business");
   const emailIdx = findCol("email");
-  const regionIdx = findCol("region","area","suburb","location","territory");
-  const industryIdx = findCol("industry","sector","niche","category","vertical");
+  const regionIdx = findCol("region","area","suburb","location","territory","address");
+  const industryIdx = findCol("industry","sector","niche","category","vertical","type");
   return rows.slice(1).map(r => ({
     name: (nameIdx>-1 ? r[nameIdx] : "") || "Unknown",
     phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
@@ -1828,21 +1846,42 @@ function mapImportRows(rows){
     industry: industryIdx>-1 ? String(r[industryIdx]||"").trim() : "",
   })).filter(p => p.name || p.phone);
 }
+const digitsOnly = (s) => (s||"").replace(/\D/g,"");
+// A prospect's identity for dedup purposes: prefer matching on phone number
+// (most reliable - different sources format the same number differently,
+// hence stripping to digits), falling back to name+company for rows with
+// no phone at all (common with a quick Google Maps scrape).
+function prospectDedupKey(p){
+  const phoneDigits = digitsOnly(p.phone);
+  if (phoneDigits) return "phone:" + phoneDigits;
+  return "name:" + (p.name||"").trim().toLowerCase() + "|" + (p.company||"").trim().toLowerCase();
+}
+// The whole point of a shared list: two different cold callers uploading
+// overlapping Google Maps scrapes should never end up with the same lead
+// twice, since that's exactly how someone gets called twice by mistake.
 async function importProspectRows(prospects){
   if (!prospects.length){ alert("No rows found to import."); return; }
+  const existingKeys = new Set(state.prospects.map(prospectDedupKey));
+  const seenInBatch = new Set();
+  let imported = 0, skipped = 0;
   for (const p of prospects){
+    const key = prospectDedupKey(p);
+    if (existingKeys.has(key) || seenInBatch.has(key)){ skipped++; continue; }
+    seenInBatch.add(key);
     await DataLayer.insert("dial_prospects", {
       name: p.name, phone: p.phone, company: p.company, email: p.email,
       region: p.region||"", industry: p.industry||"",
-      calls_made: 0, last_called_at: null, last_outcome: null, notes: "",
+      calls_made: 0, last_called_at: null, last_outcome: null, last_called_by: null, notes: "",
     });
+    imported++;
   }
   if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
-  alert(`Imported ${prospects.length} prospect${prospects.length===1?"":"s"}.`);
+  const skippedMsg = skipped ? ` ${skipped} skipped - already on the list.` : "";
+  alert(`Imported ${imported} prospect${imported===1?"":"s"}.${skippedMsg}`);
 }
-function setupDialerImport(){
-  const input = $("#dialer-import-input");
-  $("#dialer-import-btn")?.addEventListener("click", () => input.click());
+function setupProspectFileImport(btnId, inputId){
+  const input = $(inputId);
+  $(btnId)?.addEventListener("click", () => input.click());
   input?.addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1862,6 +1901,25 @@ function setupDialerImport(){
       alert("Couldn't read that file: " + err.message);
     }
     input.value = "";
+  });
+}
+function setupDialerImport(){
+  setupProspectFileImport("#dialer-import-btn", "#dialer-import-input");
+  setupProspectFileImport("#prospecting-import-btn", "#prospecting-import-input");
+}
+// For lists tidied up in a Claude chat: paste the cleaned table straight in,
+// no need to save it as a file first.
+function setupPasteProspects(){
+  $$("[data-open-paste-prospects]").forEach(btn => btn.addEventListener("click", () => {
+    $("#paste-prospects-textarea").value = "";
+    openModal("paste-prospects-modal");
+  }));
+  $("#paste-prospects-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = $("#paste-prospects-textarea").value.trim();
+    if (!text) return;
+    closeModal("paste-prospects-modal");
+    await importProspectRows(mapImportRows(parseDelimited(text)));
   });
 }
 
@@ -2728,6 +2786,63 @@ function renderRegions(){
   }).join("");
 }
 
+function prospectCallerLabel(email){ return email ? email.split("@")[0] : ""; }
+function renderProspectFilters(){
+  const regionSel = $("#prospecting-filter-region");
+  const industrySel = $("#prospecting-filter-industry");
+  const callerSel = $("#prospecting-filter-caller");
+  if (regionSel){
+    const regions = dialerDistinctValues("region");
+    regionSel.innerHTML = `<option value="">All Regions</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
+    regionSel.value = state.dialerFilter.region;
+  }
+  if (industrySel){
+    const industries = dialerDistinctValues("industry");
+    industrySel.innerHTML = `<option value="">All Industries</option>` + industries.map(i => `<option value="${escapeHtml(i)}">${escapeHtml(i)}</option>`).join("");
+    industrySel.value = state.dialerFilter.industry;
+  }
+  if (callerSel){
+    const callers = dialerDistinctValues("last_called_by");
+    callerSel.innerHTML = `<option value="">Called By - Anyone</option>` + callers.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(prospectCallerLabel(c))}</option>`).join("");
+    callerSel.value = state.dialerFilter.caller;
+  }
+}
+// The master prospect list, shared team-wide, so everyone dialing off it -
+// Rocky, Max, and the new cold callers - can see who's already called who
+// and nobody works the same lead twice.
+function renderProspectList(){
+  const tbody = $("#prospecting-tbody");
+  if (!tbody) return;
+  renderProspectFilters();
+  const filtered = dialerFilteredProspects();
+  const neverCalled = filtered.filter(p => !p.calls_made).length;
+  const calledThisWeek = filtered.filter(p => p.last_called_at && (Date.now() - new Date(p.last_called_at).getTime()) < 7*86400e3).length;
+  const industries = new Set(filtered.map(p => p.industry).filter(Boolean)).size;
+  const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
+  st("#prospecting-stat-total", filtered.length);
+  st("#prospecting-stat-fresh", neverCalled);
+  st("#prospecting-stat-week", calledThisWeek);
+  st("#prospecting-stat-industries", industries);
+
+  if (!filtered.length){ tbody.innerHTML = `<tr><td colspan="7">${emptyState("No prospects yet. Import a list or paste one in above.")}</td></tr>`; return; }
+  const sorted = [...filtered].sort((a,b) => (a.name||"").localeCompare(b.name||""));
+  tbody.innerHTML = sorted.map(p => `
+    <tr data-id="${p.id}">
+      <td><div class="row-name">${escapeHtml(p.name)}</div><div class="row-sub">${escapeHtml(p.company||"")}</div></td>
+      <td>${escapeHtml(p.phone||"-")}</td>
+      <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
+      <td>${Number(p.calls_made||0) ? `<span class="badge gray">${Number(p.calls_made)}</span>` : `<span class="badge gold">New</span>`}</td>
+      <td>${p.last_called_at ? timeAgo(p.last_called_at) : "Never"}${p.last_called_by ? `<div class="row-sub">by ${escapeHtml(prospectCallerLabel(p.last_called_by))}</div>` : ""}</td>
+      <td style="max-width:220px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);">${escapeHtml(p.notes||"")}</span></td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="icon-btn" data-action="edit-prospect" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
+        <button class="icon-btn" data-action="convert-prospect" data-id="${p.id}" title="Move to Contacts">${ICONS.moveToContact}</button>
+        <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
+      </td>
+    </tr>
+  `).join("");
+}
+
 function renderAll(){
   renderDashboard();
   renderCallAnalytics();
@@ -2735,6 +2850,7 @@ function renderAll(){
   renderContacts();
   renderDeals();
   renderRegions();
+  renderProspectList();
   renderDialer();
   renderClients();
   renderOnboarding();
@@ -3535,10 +3651,10 @@ function setupModals(){
     }, "save");
   });
 
-  $("#dialer-add-btn")?.addEventListener("click", () => {
+  $$("#dialer-add-btn, #prospecting-add-btn").forEach(btn => btn.addEventListener("click", () => {
     $("#prospect-form").reset(); $("#prospect-form-id").value=""; $("#prospect-modal-title").textContent="Add Prospect";
     openModal("prospect-modal");
-  });
+  }));
   $("#prospect-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#prospect-form-id").value;
@@ -4004,10 +4120,17 @@ function setupSearchFilters(){
   $("#contact-search").addEventListener("input", (e) => { state.contactSearch = e.target.value; renderContacts(); });
   $("#contact-status-filter").addEventListener("change", (e) => { state.contactFilter = e.target.value; renderContacts(); });
 }
+// Dialer and Prospecting both read/filter the same shared prospect list, so
+// a filter changed on either page re-renders both.
+function renderProspectViews(){ renderDialer(); renderProspectList(); }
 function setupDialerFilters(){
-  $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderDialer(); });
-  $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderDialer(); });
-  $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderDialer(); });
+  $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
+  $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
+  $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
+  $("#prospecting-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
+  $("#prospecting-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
+  $("#prospecting-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
+  $("#prospecting-filter-caller")?.addEventListener("change", (e) => { state.dialerFilter.caller = e.target.value; renderProspectViews(); });
 }
 function setupTaskFilters(){
   $("#task-status-filter")?.addEventListener("change", (e) => { state.taskFilter.status = e.target.value; renderTasks(); });
@@ -4042,6 +4165,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupQualifyModal();
   setupCalendarNav();
   setupDialerImport();
+  setupPasteProspects();
   setupDialerFilters();
   setupCallWidget();
   setupTaskFilters();
