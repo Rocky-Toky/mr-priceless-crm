@@ -146,6 +146,14 @@ function clientProfileCompleteness(c){
   const filled = CLIENT_INFO_FIELDS.filter(f => c[f.key] != null && String(c[f.key]).trim() !== "").length;
   return { filled, total: CLIENT_INFO_FIELDS.length, pct: Math.round(filled / CLIENT_INFO_FIELDS.length * 100) };
 }
+// IMPORTANT: each step's saved progress is keyed by its position
+// (section index _ item index - see ONBOARDING_STEPS below). Only ever
+// APPEND new items to the end of a section's list (or append a whole new
+// section to the end of this array). Inserting one in the middle shifts
+// every later item's key and silently un-checks it for every client who'd
+// already ticked it - this happened once already (the derived Meta Ad
+// Account ID step landing mid-"Before The Call" bumped "Send the welcome
+// email" from key 0_2 to 0_3).
 const ONBOARDING_SECTIONS = [
   { section: "Before The Call", items: [
     "Book the onboarding call in with them.",
@@ -264,6 +272,9 @@ const state = {
   contactFilter: "",
   contactSearch: "",
   creativeFilter: { client: "", result: "", delivery: "", sort: "top" },
+  contentFilter: { search: "", client: "", type: "" },
+  clientsGallerySearch: "",
+  clientsCollapsedStages: new Set(),
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
@@ -1538,6 +1549,7 @@ function setupDragDrop(){
 }
 
 function contactName(id){ return state.contacts.find(c => c.id === id)?.name || ""; }
+function clientName(id){ return state.clients.find(c => c.id === id)?.name || ""; }
 function dealContactsFor(dealId){
   return state.dealContacts.filter(dc => dc.deal_id === dealId).map(dc => ({
     ...dc, name: contactName(dc.contact_id) || "(deleted contact)",
@@ -2077,75 +2089,77 @@ function renderClientsList(){
     }
   }
 
-  const board = $("#clients-kanban-board");
-  if (!board) return;
-  if (!state.clients.length){ board.innerHTML = emptyState("No clients yet. Add your first client to start planning their content."); return; }
-  board.innerHTML = CLIENT_STAGES.map(stage => {
-    const clients = state.clients.filter(c => (c.stage||"onboarding") === stage.key).sort((a,b) => (a.name||"").localeCompare(b.name||""));
+  const gallery = $("#clients-gallery");
+  if (!gallery) return;
+  if (!state.clients.length){ gallery.innerHTML = emptyState("No clients yet. Add your first client to get started."); return; }
+
+  const q = state.clientsGallerySearch.trim().toLowerCase();
+  gallery.innerHTML = CLIENT_STAGES.map(stage => {
+    const clients = state.clients.filter(c => (c.stage||"onboarding") === stage.key)
+      .filter(c => !q || (c.name||"").toLowerCase().includes(q))
+      .sort((a,b) => (a.name||"").localeCompare(b.name||""));
+    if (q && !clients.length) return "";
+    const open = state.clientsCollapsedStages.has(stage.key) ? "" : "open";
     return `
-      <div class="kanban-col" data-stage="${stage.key}">
-        <div class="kanban-col-head">
-          <h4>${stage.label}</h4>
+      <details class="clients-stage-section" data-stage="${stage.key}" ${open}>
+        <summary class="clients-stage-header">
+          <span class="clients-stage-dot"></span>
+          <h3>${stage.label}</h3>
           <span class="kanban-count">${clients.length}</span>
+        </summary>
+        <div class="clients-gallery-grid">
+          ${clients.length ? clients.map(c => renderClientGalleryCard(c)).join("") : `<div class="empty-state clients-gallery-empty"><p>No clients in this stage.</p></div>`}
         </div>
-        ${clients.map(c => {
-          const alerts = getClientAlerts(c);
-          const pieces = state.clientContent.filter(x => x.client_id === c.id);
-          const creatives = state.adCreatives.filter(x => x.client_id === c.id);
-          const running = runningCampaignsFor(c.id).length;
-          const quotePct = c.quote_target ? Math.min(100, Math.round((Number(c.quotes_sent||0) / c.quote_target) * 100)) : null;
-          const profile = clientProfileCompleteness(c);
-          const initial = (c.name||"?").trim().charAt(0).toUpperCase();
-          return `
-          <div class="client-card" draggable="true" data-id="${c.id}" data-action="view-client">
-            <div class="client-card-head">
-              <span class="client-card-avatar">${escapeHtml(initial)}</span>
-              <div class="client-card-head-text">
-                <h5>${escapeHtml(c.name)}</h5>
-                <div class="deal-contact">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</div>
-              </div>
-            </div>
-            ${quotePct != null ? `
-              <div class="onboarding-progress-bar" style="margin-top:8px;"><div class="onboarding-progress-fill" style="width:${quotePct}%;"></div></div>
-              <div class="onboarding-progress-label" style="margin-top:4px;">${c.quotes_sent||0} of ${c.quote_target} quotes</div>
-            ` : ""}
-            <div class="client-card-stats">
-              <span>${running} running</span>
-              <span>${pieces.length} content</span>
-              <span>${creatives.length} creative${creatives.length===1?"":"s"}</span>
-              <span class="client-card-profile ${profile.pct===100?'complete':''}" title="Client Info completeness">${profile.pct}% profile</span>
-            </div>
-            ${alerts.length ? `<div class="client-card-alerts">${alerts.map(a=>`<span class="badge ${a.type==='danger'?'red':'gold'}">${escapeHtml(a.text)}</span>`).join("")}</div>` : ""}
-          </div>
-        `;}).join("")}
-      </div>
+      </details>
     `;
   }).join("");
-  setupClientsDragDrop();
+  $$(".clients-stage-section", gallery).forEach(section => {
+    section.addEventListener("toggle", () => {
+      const key = section.dataset.stage;
+      if (section.open) state.clientsCollapsedStages.delete(key);
+      else state.clientsCollapsedStages.add(key);
+    });
+  });
 }
-function setupClientsDragDrop(){
-  let draggedId = null;
-  const board = $("#clients-kanban-board");
-  if (!board) return;
-  board.querySelectorAll(".client-card").forEach(card => {
-    card.addEventListener("dragstart", (e) => {
-      draggedId = card.dataset.id;
-      card.classList.add("dragging");
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-    });
-    card.addEventListener("dragend", () => card.classList.remove("dragging"));
-  });
-  board.querySelectorAll(".kanban-col").forEach(col => {
-    col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
-    col.addEventListener("dragleave", () => col.classList.remove("dragover"));
-    col.addEventListener("drop", async (e) => {
-      e.preventDefault();
-      col.classList.remove("dragover");
-      if (!draggedId) return;
-      await DataLayer.update("clients", draggedId, { stage: col.dataset.stage, stage_changed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-      if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
-    });
-  });
+function renderClientGalleryCard(c){
+  const alerts = getClientAlerts(c);
+  const pieces = state.clientContent.filter(x => x.client_id === c.id);
+  const creatives = state.adCreatives.filter(x => x.client_id === c.id);
+  const running = runningCampaignsFor(c.id).length;
+  const quotePct = c.quote_target ? Math.min(100, Math.round((Number(c.quotes_sent||0) / c.quote_target) * 100)) : null;
+  const profile = clientProfileCompleteness(c);
+  const initial = (c.name||"?").trim().charAt(0).toUpperCase();
+  return `
+    <div class="client-gallery-card">
+      <div class="client-gallery-card-top" data-action="view-client" data-id="${c.id}">
+        <span class="client-gallery-avatar">${escapeHtml(initial)}</span>
+        <div class="client-gallery-head-text">
+          <h4>${escapeHtml(c.name)}</h4>
+          <div class="client-gallery-cpl">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</div>
+        </div>
+      </div>
+      ${quotePct != null ? `
+        <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" style="width:${quotePct}%;"></div></div>
+        <div class="onboarding-progress-label">${c.quotes_sent||0} of ${c.quote_target} quotes</div>
+      ` : ""}
+      <div class="client-gallery-stats" data-action="view-client" data-id="${c.id}">
+        <span>${running} running</span>
+        <span>${pieces.length} content</span>
+        <span>${creatives.length} creative${creatives.length===1?"":"s"}</span>
+      </div>
+      <div class="client-gallery-profile" data-action="view-client" data-id="${c.id}" title="Client Info completeness">
+        <div class="client-info-progress-bar"><div class="client-info-progress-fill" style="width:${profile.pct}%;"></div></div>
+        <span class="client-card-profile ${profile.pct===100?'complete':''}">${profile.pct}% profile</span>
+      </div>
+      ${alerts.length ? `<div class="client-card-alerts">${alerts.map(a=>`<span class="badge ${a.type==='danger'?'red':'gold'}">${escapeHtml(a.text)}</span>`).join("")}</div>` : ""}
+      <div class="client-gallery-foot">
+        <label>Stage</label>
+        <select class="filter-select client-stage-select" data-id="${c.id}">
+          ${CLIENT_STAGES.map(s => `<option value="${s.key}" ${s.key===(c.stage||"onboarding")?"selected":""}>${s.label}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+  `;
 }
 function renderClientInfoGrid(c){
   const grid = $("#client-info-grid");
@@ -2226,29 +2240,6 @@ function renderClientDetail(c){
     }).join("");
   }
 
-  const pieces = state.clientContent.filter(x => x.client_id === c.id);
-  const board = $("#content-kanban-board");
-  board.innerHTML = CONTENT_STATUSES.map(st => {
-    const items = pieces.filter(p => p.status === st.key);
-    return `
-      <div class="kanban-col content-kanban-col" data-status="${st.key}">
-        <div class="kanban-col-head">
-          <h4>${st.label}</h4>
-          <span class="kanban-count">${items.length}</span>
-        </div>
-        ${items.map(p => `
-          <div class="content-card" draggable="true" data-id="${p.id}" data-action="edit-content">
-            <span class="badge ${CONTENT_TYPES[p.type]?.cls||'gray'}" style="margin-bottom:6px;">${CONTENT_TYPES[p.type]?.label||p.type}</span>
-            <h5>${escapeHtml(p.title)}</h5>
-            <div class="content-card-foot">
-              <button class="icon-btn" data-action="delete-content" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }).join("");
-  setupContentDragDrop();
 
   const creatives = state.adCreatives.filter(x => x.client_id === c.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
   const tbody = $("#ad-creatives-tbody");
@@ -2289,6 +2280,60 @@ function setupContentDragDrop(){
       await DataLayer.update("client_content", draggedId, { status: col.dataset.status, updated_at: new Date().toISOString() });
     });
   });
+}
+
+/* ───────── Render: Content Production (content pieces across every client) ───────── */
+function contentFilteredPieces(){
+  const f = state.contentFilter;
+  const q = f.search.trim().toLowerCase();
+  return state.clientContent.filter(p => {
+    if (f.client && p.client_id !== f.client) return false;
+    if (f.type && p.type !== f.type) return false;
+    if (q && ![p.title, p.notes, p.directions, p.script].some(v => (v||"").toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+function renderContentProduction(){
+  const board = $("#content-production-board");
+  if (!board) return;
+
+  const clientSel = $("#content-production-filter-client");
+  if (clientSel){
+    clientSel.innerHTML = `<option value="">All Clients</option>` + state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    clientSel.value = state.contentFilter.client;
+  }
+  const typeSel = $("#content-production-filter-type");
+  if (typeSel) typeSel.value = state.contentFilter.type;
+
+  const pieces = contentFilteredPieces();
+  const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
+  st("#content-stat-total", pieces.length);
+  st("#content-stat-idea", pieces.filter(p => p.status === "idea").length);
+  st("#content-stat-production", pieces.filter(p => p.status === "scripting" || p.status === "filming").length);
+  st("#content-stat-posted", pieces.filter(p => p.status === "posted").length);
+
+  board.innerHTML = CONTENT_STATUSES.map(st => {
+    const items = pieces.filter(p => p.status === st.key);
+    return `
+      <div class="kanban-col content-kanban-col" data-status="${st.key}">
+        <div class="kanban-col-head">
+          <h4>${st.label}</h4>
+          <span class="kanban-count">${items.length}</span>
+        </div>
+        ${items.map(p => `
+          <div class="content-card" draggable="true" data-id="${p.id}" data-action="edit-content">
+            <span class="badge ${CONTENT_TYPES[p.type]?.cls||'gray'}" style="margin-bottom:6px;">${CONTENT_TYPES[p.type]?.label||p.type}</span>
+            <h5>${escapeHtml(p.title)}</h5>
+            <div class="deal-contact">${escapeHtml(clientName(p.client_id) || "No client")}</div>
+            <div class="content-card-foot">
+              <button class="icon-btn" data-action="delete-content" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }).join("");
+  setupContentDragDrop();
 }
 
 /* ───────── Render: Onboarding (per-client tracker) ───────── */
@@ -2438,6 +2483,12 @@ async function refreshCreativeInsights(id){
   const { data, error } = await supabase.functions.invoke("creative-insights", { body: { creative_id: id } });
   if (error || data?.error){ alert("Couldn't refresh live stats: " + (data?.error || error.message)); }
   await DataLayer.fetchAll(); renderAll();
+}
+function populateContentClientSelect(selectedId){
+  const sel = $("#content-client");
+  if (!sel) return;
+  sel.innerHTML = state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+  sel.value = selectedId || "";
 }
 function populateAdCreativeClientSelect(selectedId){
   const sel = $("#ad-creative-client");
@@ -2967,6 +3018,7 @@ function renderAll(){
   renderClients();
   renderOnboarding();
   renderCreativeLibrary();
+  renderContentProduction();
   renderTasks();
   renderReporting();
   renderTeam();
@@ -3565,6 +3617,19 @@ function setupModals(){
     if (!ta) return;
     await saveOnboardingAnswer(ta.dataset.id, ta.dataset.step, ta.value);
   });
+  // Belt and braces: also autosave a moment after typing stops, rather than
+  // only on blur - a re-render (realtime, or just switching clients) landing
+  // before the field ever loses focus shouldn't be able to drop an answer.
+  const onboardingAnswerTimers = {};
+  $("#onboarding-steps-list")?.addEventListener("input", (e) => {
+    const ta = e.target.closest?.(".onboarding-answer-textarea");
+    if (!ta) return;
+    const timerKey = ta.dataset.id + ":" + ta.dataset.step;
+    clearTimeout(onboardingAnswerTimers[timerKey]);
+    onboardingAnswerTimers[timerKey] = setTimeout(() => {
+      saveOnboardingAnswer(ta.dataset.id, ta.dataset.step, ta.value);
+    }, 800);
+  });
 
   $$("[data-close]").forEach(btn => btn.addEventListener("click", () => closeModal(btn.dataset.close)));
   $$(".overlay").forEach(ov => {
@@ -3855,15 +3920,16 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
-  $("#add-content-btn")?.addEventListener("click", () => {
+  $("#add-content-production-btn")?.addEventListener("click", () => {
     $("#content-form").reset(); $("#content-form-id").value=""; $("#content-modal-title").textContent="Add Content";
+    populateContentClientSelect(state.contentFilter.client);
     openModal("content-modal");
   });
   $("#content-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#content-form-id").value;
     const row = {
-      client_id: state.selectedClientId,
+      client_id: $("#content-client").value,
       title: $("#content-title").value.trim(),
       type: $("#content-type").value,
       status: $("#content-status").value,
@@ -3872,11 +3938,22 @@ function setupModals(){
       notes: $("#content-notes").value.trim(),
       updated_at: new Date().toISOString(),
     };
-    if (!row.title) return;
+    if (!row.title || !row.client_id) return;
     if (id) await DataLayer.update("client_content", id, row);
     else await DataLayer.insert("client_content", row);
     closeModal("content-modal");
     if (!IS_CONFIGURED) return; renderAll();
+  });
+  $("#content-production-search")?.addEventListener("input", (e) => { state.contentFilter.search = e.target.value; renderContentProduction(); });
+  $("#content-production-filter-client")?.addEventListener("change", (e) => { state.contentFilter.client = e.target.value; renderContentProduction(); });
+  $("#content-production-filter-type")?.addEventListener("change", (e) => { state.contentFilter.type = e.target.value; renderContentProduction(); });
+
+  $("#clients-gallery-search")?.addEventListener("input", (e) => { state.clientsGallerySearch = e.target.value; renderClientsList(); });
+  $("#clients-gallery")?.addEventListener("change", async (e) => {
+    const sel = e.target.closest(".client-stage-select");
+    if (!sel) return;
+    await DataLayer.update("clients", sel.dataset.id, { stage: sel.value, stage_changed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
   });
 
   $("#add-ad-creative-btn")?.addEventListener("click", () => {
@@ -4176,6 +4253,7 @@ function setupModals(){
       if (!p) return;
       $("#content-form-id").value = p.id;
       $("#content-title").value = p.title||"";
+      populateContentClientSelect(p.client_id);
       $("#content-type").value = p.type||"video";
       $("#content-status").value = p.status||"idea";
       $("#content-directions").value = p.directions||"";

@@ -471,64 +471,62 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .ad-creative-thumb{width:56px;height:42px;border-radius:7px;object-fit:cover;border:1px solid var(--line);display:block;cursor:pointer;background:#f1eee6;}
 .ad-creative-thumb-empty{cursor:default;}
 #ad-creative-current-image .ad-creative-thumb{width:120px;height:90px;margin-bottom:8px;cursor:default;}
-.client-card{
-  background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
-  padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,0.04);cursor:grab;
-  transition:box-shadow .15s,transform .15s,opacity .15s,border-color .15s;
+/* ───────── Clients gallery ───────── */
+.clients-gallery{display:flex;flex-direction:column;gap:14px;}
+.clients-stage-section{
+  background:linear-gradient(175deg,var(--white),#fdfcfa);
+  border:1px solid var(--line);border-radius:18px;
+  box-shadow:0 1px 3px rgba(20,15,5,0.05);
+  overflow:hidden;
 }
-.client-card:hover{box-shadow:0 8px 20px rgba(20,15,5,0.1);transform:translateY(-2px);border-color:var(--gold-border);}
-.client-card:active{cursor:grabbing;}
-.client-card-head{display:flex;align-items:center;gap:9px;margin-bottom:2px;}
-.client-card-avatar{
-  width:28px;height:28px;border-radius:9px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
-  font-family:var(--font-display);font-size:12.5px;font-weight:800;color:var(--gold-deep);
+.clients-stage-header{
+  display:flex;align-items:center;gap:10px;padding:16px 20px;cursor:pointer;list-style:none;user-select:none;
+  border-bottom:1px solid transparent;transition:border-color .2s;
+}
+.clients-stage-section[open] .clients-stage-header{border-bottom-color:var(--line);}
+.clients-stage-header::-webkit-details-marker{display:none;}
+.clients-stage-header::before{
+  content:"›";font-size:20px;line-height:1;color:var(--text2);transform:rotate(90deg);transition:transform .2s;flex-shrink:0;
+}
+.clients-stage-section[open] .clients-stage-header::before{transform:rotate(-90deg);}
+.clients-stage-header h3{font-size:15px;font-weight:800;letter-spacing:-0.005em;}
+.clients-stage-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;background:var(--gold);}
+.clients-stage-header .kanban-count{margin-left:4px;}
+.clients-gallery-grid{
+  display:grid;grid-template-columns:repeat(auto-fill, minmax(270px, 1fr));
+  gap:14px;padding:6px 20px 20px;
+}
+.clients-gallery-empty{grid-column:1/-1;padding:24px 0;}
+.clients-stage-section[data-stage="quote_guarantee"] .clients-stage-dot{background:var(--black);}
+.clients-stage-section[data-stage="established"] .clients-stage-dot{background:var(--success);}
+.clients-stage-section[data-stage="at_risk"] .clients-stage-dot{background:var(--danger);}
+.clients-stage-section[data-stage="churned"] .clients-stage-dot{background:var(--text2);}
+
+.client-gallery-card{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px;box-shadow:0 1px 2px rgba(0,0,0,0.04);
+  transition:box-shadow .15s,transform .15s,border-color .15s;
+}
+.client-gallery-card:hover{box-shadow:0 10px 26px rgba(20,15,5,0.1);transform:translateY(-2px);border-color:var(--gold-border);}
+.client-gallery-card-top{display:flex;align-items:center;gap:12px;cursor:pointer;}
+.client-gallery-avatar{
+  width:46px;height:46px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  font-family:var(--font-display);font-size:19px;font-weight:800;color:var(--gold-deep);
   background:linear-gradient(150deg,var(--gold-soft),rgba(232,196,104,0.24));border:1px solid var(--gold-border);
 }
-.client-card-head-text{min-width:0;}
-.client-card h5{font-size:13.5px;font-weight:700;letter-spacing:-0.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.client-card .deal-contact{font-size:11.5px;color:var(--text2);}
-.client-card-stats{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:10.5px;color:var(--text2);margin-top:8px;}
-.client-card-profile{margin-left:auto;font-weight:700;color:var(--gold-deep);}
-.client-card-profile.complete{color:var(--success);}
-.client-card-alerts{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px;padding-top:9px;border-top:1px solid var(--line);}
+.client-gallery-head-text{min-width:0;}
+.client-gallery-head-text h4{font-size:16.5px;font-weight:800;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.client-gallery-cpl{font-size:12.5px;color:var(--text2);margin-top:1px;}
+.client-gallery-stats{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--text2);margin-top:12px;cursor:pointer;}
+.client-gallery-profile{display:flex;align-items:center;gap:10px;margin-top:10px;cursor:pointer;}
+.client-gallery-profile .client-info-progress-bar{flex:1;}
+.client-gallery-profile .client-card-profile{font-size:11px;font-weight:700;color:var(--gold-deep);flex-shrink:0;}
+.client-gallery-profile .client-card-profile.complete{color:var(--success);}
+.client-card-alerts{display:flex;flex-wrap:wrap;gap:5px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);}
 .client-card-alerts .badge{font-size:10px;padding:2px 7px;}
-.client-card.dragging{opacity:0.4;box-shadow:0 14px 32px rgba(0,0,0,0.22);transform:scale(1.03) rotate(-1deg);cursor:grabbing;}
-
-/* ───────── Clients kanban board ───────── */
-.clients-kanban{gap:16px;}
-.clients-kanban .kanban-col{
-  padding:16px 14px 14px;border-radius:16px;gap:12px;
-  background:linear-gradient(175deg,var(--white),#fdfcfa);
-  box-shadow:0 1px 3px rgba(20,15,5,0.05);
-  transition:box-shadow .2s,border-color .2s,background .2s;
-}
-.clients-kanban .kanban-col::before{height:4px;border-radius:16px 16px 0 0;opacity:0.5;}
-.clients-kanban .kanban-col-head{padding:0 2px 6px;border-bottom:1px solid var(--line);margin-bottom:2px;}
-.clients-kanban .kanban-col-head h4{font-size:12px;letter-spacing:0.07em;}
-.clients-kanban .kanban-count{background:var(--white);box-shadow:0 1px 2px rgba(20,15,5,0.05);}
-.clients-kanban .kanban-col:not(:has(.client-card))::after{
-  content:"Drag a client here";display:flex;align-items:center;justify-content:center;
-  min-height:64px;border:1.5px dashed var(--line);border-radius:11px;
-  color:var(--text2);font-size:11.5px;font-style:italic;margin-top:2px;
-}
-.clients-kanban .kanban-col.dragover{
-  background:var(--gold-soft);box-shadow:0 0 0 2px var(--gold-border), 0 10px 24px rgba(232,196,104,0.18);
-  transform:none;
-}
-.clients-kanban .kanban-col[data-stage="onboarding"]::before{background:linear-gradient(90deg,var(--gold-bright),var(--gold));opacity:0.9;}
-.clients-kanban .kanban-col[data-stage="quote_guarantee"]::before{background:linear-gradient(90deg,var(--black3),var(--black));opacity:0.9;}
-.clients-kanban .kanban-col[data-stage="quote_guarantee"] .kanban-col-head h4{color:var(--text);}
-.clients-kanban .kanban-col[data-stage="month_1"]::before,
-.clients-kanban .kanban-col[data-stage="month_2"]::before,
-.clients-kanban .kanban-col[data-stage="month_3"]::before{background:linear-gradient(90deg,var(--gold-bright),var(--gold));opacity:0.6;}
-.clients-kanban .kanban-col[data-stage="established"]{background:linear-gradient(175deg,#eef6f0,#e6f1e9);border-color:rgba(63,125,85,0.18);}
-.clients-kanban .kanban-col[data-stage="established"]::before{background:linear-gradient(90deg,var(--success),#5fae78);opacity:0.9;}
-.clients-kanban .kanban-col[data-stage="established"] .kanban-col-head h4{color:var(--success);}
-.clients-kanban .kanban-col[data-stage="at_risk"]{background:linear-gradient(175deg,#f6ece9,#f1e4e0);border-color:rgba(179,69,46,0.18);}
-.clients-kanban .kanban-col[data-stage="at_risk"]::before{background:linear-gradient(90deg,var(--danger),#c56347);opacity:0.9;}
-.clients-kanban .kanban-col[data-stage="at_risk"] .kanban-col-head h4{color:var(--danger);}
-.clients-kanban .kanban-col[data-stage="churned"]{background:linear-gradient(175deg,#f4f3f0,#eeece7);opacity:0.85;}
-.clients-kanban .kanban-col[data-stage="churned"]::before{opacity:0.3;}
+.client-gallery-foot{display:flex;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);}
+.client-gallery-foot label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;flex-shrink:0;}
+.client-gallery-foot .client-stage-select{flex:1;font-size:12.5px;padding:6px 10px;}
 
 /* ───────── Retention Alerts ───────── */
 .retention-alerts-panel{

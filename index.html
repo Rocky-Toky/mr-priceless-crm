@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=46">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=46">
+<link rel="stylesheet" href="css/style.css?v=47">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=47">
 </head>
 <body>
 
@@ -174,6 +174,10 @@
       <button class="nav-item" data-page="creative" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
         <span>Creative</span>
+      </button>
+      <button class="nav-item" data-page="content-production" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16v13H4z"/><path d="M4 7l2.5-4h3L8 7"/><path d="M13.5 3h3L18 7"/></svg>
+        <span>Content Production</span>
       </button>
       <button class="nav-item" data-page="todo" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
@@ -803,7 +807,7 @@
     <section class="page" id="page-clients">
       <div id="clients-list-view">
         <div class="page-header">
-          <div><h2>Clients</h2><p>Plan content, track cost per lead, and see what's worked.</p></div>
+          <div><h2>Clients</h2><p>Track cost per lead, retention, and how every client is tracking.</p></div>
           <button class="btn gold" id="add-client-btn">+ Add Client</button>
         </div>
         <div class="stat-grid stat-grid-5">
@@ -814,7 +818,13 @@
           <div class="stat-card"><div class="stat-label">Needs Attention</div><div class="stat-value" id="clients-stat-attention">0</div></div>
         </div>
         <div class="retention-alerts-panel" id="clients-alerts-panel" style="display:none;"></div>
-        <div class="kanban clients-kanban" id="clients-kanban-board"></div>
+        <div class="toolbar">
+          <div class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" id="clients-gallery-search" placeholder="Search clients...">
+          </div>
+        </div>
+        <div class="clients-gallery" id="clients-gallery"></div>
       </div>
 
       <div id="clients-detail-view" style="display:none;">
@@ -896,12 +906,6 @@
             </table>
           </div>
         </div>
-
-        <div class="page-header" style="margin-top:8px;">
-          <div><h3>Content Plan</h3><p>Next videos, directions, scripts - the whole pipeline.</p></div>
-          <button class="btn gold" id="add-content-btn">+ Add Content</button>
-        </div>
-        <div class="kanban" id="content-kanban-board"></div>
 
         <div class="page-header" style="margin-top:8px;">
           <div><h3>Ad Creatives Tried</h3></div>
@@ -1015,6 +1019,37 @@
         </select>
       </div>
       <div class="creative-grid" id="creative-library-grid"></div>
+    </section>
+
+    <!-- Content Production (content pieces across every client) -->
+    <section class="page" id="page-content-production">
+      <div class="page-header">
+        <div><h2>Content Production</h2><p>Every content piece across every client - from idea to posted.</p></div>
+        <button class="btn gold" id="add-content-production-btn">+ Add Content</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">Total Pieces</div><div class="stat-value" id="content-stat-total">0</div></div>
+        <div class="stat-card"><div class="stat-label">Ideas</div><div class="stat-value" id="content-stat-idea">0</div></div>
+        <div class="stat-card"><div class="stat-label">In Production</div><div class="stat-value" id="content-stat-production">0</div></div>
+        <div class="stat-card"><div class="stat-label">Posted</div><div class="stat-value" id="content-stat-posted">0</div></div>
+      </div>
+      <div class="toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="content-production-search" placeholder="Search title, notes...">
+        </div>
+        <select class="filter-select" id="content-production-filter-client">
+          <option value="">All Clients</option>
+        </select>
+        <select class="filter-select" id="content-production-filter-type">
+          <option value="">All Types</option>
+          <option value="video">Video</option>
+          <option value="script">Script</option>
+          <option value="post">Post</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="kanban" id="content-production-board"></div>
     </section>
 
     <!-- Reporting (Meta Ads client reports) -->
@@ -1506,6 +1541,7 @@
     <form id="content-form" class="modal-body">
       <input type="hidden" id="content-form-id">
       <div class="field"><label>Title</label><input type="text" id="content-title" required placeholder="e.g. Listing walkthrough - 14 Marama Rd"></div>
+      <div class="field"><label>Client</label><select id="content-client" required></select></div>
       <div class="field-row">
         <div class="field"><label>Type</label>
           <select id="content-type">
@@ -1716,10 +1752,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=46"></script>
-<script src="js/supabaseClient.js?v=46"></script>
-<script src="js/app.js?v=46"></script>
-<script src="js/meetings-tracker.js?v=46"></script>
-<script src="js/todo.js?v=46"></script>
+<script src="js/config.js?v=47"></script>
+<script src="js/supabaseClient.js?v=47"></script>
+<script src="js/app.js?v=47"></script>
+<script src="js/meetings-tracker.js?v=47"></script>
+<script src="js/todo.js?v=47"></script>
 </body>
 </html>
