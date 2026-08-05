@@ -234,6 +234,8 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .badge.green{background:rgba(63,125,85,0.1);color:var(--success);border-color:rgba(63,125,85,0.3);}
 .badge.red{background:rgba(179,69,46,0.1);color:var(--danger);border-color:rgba(179,69,46,0.3);}
 .badge.black{background:var(--black);color:var(--white);}
+.badge.blue{background:rgba(61,107,150,0.1);color:var(--pending);border-color:rgba(61,107,150,0.3);}
+.badge.purple{background:rgba(122,90,158,0.12);color:#6b4f96;border-color:rgba(122,90,158,0.35);}
 
 .icon-btn{
   width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--white);

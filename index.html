@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=45">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=45">
+<link rel="stylesheet" href="css/style.css?v=46">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=46">
 </head>
 <body>
 
@@ -337,6 +337,8 @@
             <select id="mb-person-select">
               <option value="rocky">Rocky</option>
               <option value="max">Max</option>
+              <option value="bailey">Bailey</option>
+              <option value="gabriel">Gabriel</option>
             </select>
           </div>
           <span class="mtr-streak-chip" id="streak-chip" style="display:none;">
@@ -455,32 +457,7 @@
         <div class="card-body">
           <div class="table-wrap" id="analytics-week-grid"></div>
 
-          <div class="analytics-month-grid">
-            <div class="analytics-person-card">
-              <h4>Rocky - This Month</h4>
-              <div class="analytics-person-stats">
-                <div><div class="stat-value" id="analytics-rocky-calls">0</div><div class="stat-label">Calls</div></div>
-                <div><div class="stat-value" id="analytics-rocky-meetings">0</div><div class="stat-label">Meetings</div></div>
-                <div><div class="stat-value" id="analytics-rocky-closed">0</div><div class="stat-label">Closed Deals</div></div>
-                <div><div class="stat-value" id="analytics-rocky-rate">0%</div><div class="stat-label">Conversion</div></div>
-              </div>
-              <div class="field"><label>Playbook used this month</label>
-                <select id="analytics-rocky-playbook"></select>
-              </div>
-            </div>
-            <div class="analytics-person-card">
-              <h4>Max - This Month</h4>
-              <div class="analytics-person-stats">
-                <div><div class="stat-value" id="analytics-max-calls">0</div><div class="stat-label">Calls</div></div>
-                <div><div class="stat-value" id="analytics-max-meetings">0</div><div class="stat-label">Meetings</div></div>
-                <div><div class="stat-value" id="analytics-max-closed">0</div><div class="stat-label">Closed Deals</div></div>
-                <div><div class="stat-value" id="analytics-max-rate">0%</div><div class="stat-label">Conversion</div></div>
-              </div>
-              <div class="field"><label>Playbook used this month</label>
-                <select id="analytics-max-playbook"></select>
-              </div>
-            </div>
-          </div>
+          <div class="analytics-month-grid" id="analytics-month-cards"></div>
 
           <h4 class="analytics-subhead">Playbook Performance</h4>
           <div class="table-wrap">
@@ -491,35 +468,7 @@
           </div>
 
           <h4 class="analytics-subhead" id="analytics-year-subhead" style="margin-top:24px;">This Year's Results</h4>
-          <div class="analytics-month-grid">
-            <div class="analytics-person-card">
-              <h4>Rocky</h4>
-              <div class="analytics-person-stats">
-                <div><div class="stat-value" id="analytics-rocky-year-calls">0</div><div class="stat-label">Calls</div></div>
-                <div><div class="stat-value" id="analytics-rocky-year-meetings">0</div><div class="stat-label">Meetings</div></div>
-                <div><div class="stat-value" id="analytics-rocky-year-closed">0</div><div class="stat-label">Closed Deals</div></div>
-                <div><div class="stat-value" id="analytics-rocky-year-rate">0%</div><div class="stat-label">Conversion</div></div>
-              </div>
-            </div>
-            <div class="analytics-person-card">
-              <h4>Max</h4>
-              <div class="analytics-person-stats">
-                <div><div class="stat-value" id="analytics-max-year-calls">0</div><div class="stat-label">Calls</div></div>
-                <div><div class="stat-value" id="analytics-max-year-meetings">0</div><div class="stat-label">Meetings</div></div>
-                <div><div class="stat-value" id="analytics-max-year-closed">0</div><div class="stat-label">Closed Deals</div></div>
-                <div><div class="stat-value" id="analytics-max-year-rate">0%</div><div class="stat-label">Conversion</div></div>
-              </div>
-            </div>
-            <div class="analytics-person-card analytics-team-card">
-              <h4>Team Combined</h4>
-              <div class="analytics-person-stats">
-                <div><div class="stat-value" id="analytics-team-year-calls">0</div><div class="stat-label">Calls</div></div>
-                <div><div class="stat-value" id="analytics-team-year-meetings">0</div><div class="stat-label">Meetings</div></div>
-                <div><div class="stat-value" id="analytics-team-year-closed">0</div><div class="stat-label">Closed Deals</div></div>
-                <div><div class="stat-value" id="analytics-team-year-rate">0%</div><div class="stat-label">Conversion</div></div>
-              </div>
-            </div>
-          </div>
+          <div class="analytics-month-grid" id="analytics-year-cards"></div>
         </div>
       </div>
     </section>
@@ -666,6 +615,8 @@
           <option value="">All (mine first)</option>
           <option value="rocky">Rocky</option>
           <option value="max">Max</option>
+          <option value="bailey">Bailey</option>
+          <option value="gabriel">Gabriel</option>
         </select>
       </div>
       <div class="card">
@@ -1320,6 +1271,8 @@
         <select id="book-meeting-assignee">
           <option value="rocky">Rocky</option>
           <option value="max">Max</option>
+          <option value="bailey">Bailey</option>
+          <option value="gabriel">Gabriel</option>
         </select>
       </div>
       <div class="modal-actions">
@@ -1363,6 +1316,8 @@
           <option value="">Unassigned</option>
           <option value="rocky">Rocky</option>
           <option value="max">Max</option>
+          <option value="bailey">Bailey</option>
+          <option value="gabriel">Gabriel</option>
         </select>
       </div>
       <div class="field">
@@ -1666,6 +1621,8 @@
             <option value="">Unassigned</option>
             <option value="rocky">Rocky</option>
             <option value="max">Max</option>
+            <option value="bailey">Bailey</option>
+            <option value="gabriel">Gabriel</option>
           </select>
         </div>
         <div class="field"><label>Contact (optional)</label><select id="task-contact-select"></select></div>
@@ -1759,10 +1716,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=45"></script>
-<script src="js/supabaseClient.js?v=45"></script>
-<script src="js/app.js?v=45"></script>
-<script src="js/meetings-tracker.js?v=45"></script>
-<script src="js/todo.js?v=45"></script>
+<script src="js/config.js?v=46"></script>
+<script src="js/supabaseClient.js?v=46"></script>
+<script src="js/app.js?v=46"></script>
+<script src="js/meetings-tracker.js?v=46"></script>
+<script src="js/todo.js?v=46"></script>
 </body>
 </html>

@@ -75,9 +75,11 @@ const TASK_CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 const ASSIGNEES = {
   rocky: { label: "Rocky", cls: "gold" },
   max: { label: "Max", cls: "black" },
+  bailey: { label: "Bailey", cls: "blue" },
+  gabriel: { label: "Gabriel", cls: "purple" },
 };
 function getAssigneeFirstPref(){ return localStorage.getItem("crm_task_assignee_first") || "rocky"; }
-function setAssigneeFirstPref(v){ if (v === "rocky" || v === "max") localStorage.setItem("crm_task_assignee_first", v); }
+function setAssigneeFirstPref(v){ if (ASSIGNEES[v]) localStorage.setItem("crm_task_assignee_first", v); }
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
@@ -1175,48 +1177,75 @@ function renderCallAnalytics(){
     d.assignee === p && d.stage === "closed_won" && (d.updated_at||d.created_at||"").slice(0, periodPrefix.length) === periodPrefix
   ).length;
 
+  // Person cards are built here rather than hardcoded per-name in HTML, so
+  // adding another cold caller to ASSIGNEES is all it takes for them to get
+  // their own analytics - no markup edits needed.
   const thisMonth = monthKey(new Date());
-  people.forEach(p => {
-    const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,7) === thisMonth);
-    const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
-    const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
-    const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
-    const closed = closedDealsFor(p, thisMonth);
-    const rate = calls ? Math.round(convos/calls*100) : 0;
-    const callsEl = $(`#analytics-${p}-calls`); if (callsEl) callsEl.textContent = calls;
-    const meetingsEl = $(`#analytics-${p}-meetings`); if (meetingsEl) meetingsEl.textContent = meetings;
-    const closedEl = $(`#analytics-${p}-closed`); if (closedEl) closedEl.textContent = closed;
-    const rateEl = $(`#analytics-${p}-rate`); if (rateEl) rateEl.textContent = rate + "%";
-    const usage = state.playbookUsage.find(u => u.person === p && u.month === thisMonth);
-    const select = $(`#analytics-${p}-playbook`);
-    if (select){
-      select.innerHTML = `<option value="">- Not set -</option>` + state.playbooks.map(pb => `<option value="${pb.id}">${escapeHtml(pb.title)}</option>`).join("");
-      select.value = usage?.playbook_id || "";
-    }
-  });
+  const monthCards = $("#analytics-month-cards");
+  if (monthCards){
+    monthCards.innerHTML = people.map(p => {
+      const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,7) === thisMonth);
+      const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
+      const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
+      const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
+      const closed = closedDealsFor(p, thisMonth);
+      const rate = calls ? Math.round(convos/calls*100) : 0;
+      const usage = state.playbookUsage.find(u => u.person === p && u.month === thisMonth);
+      const options = `<option value="">- Not set -</option>` + state.playbooks.map(pb => `<option value="${pb.id}" ${usage?.playbook_id===pb.id?"selected":""}>${escapeHtml(pb.title)}</option>`).join("");
+      return `
+        <div class="analytics-person-card">
+          <h4>${escapeHtml(ASSIGNEES[p].label)} - This Month</h4>
+          <div class="analytics-person-stats">
+            <div><div class="stat-value">${calls}</div><div class="stat-label">Calls</div></div>
+            <div><div class="stat-value">${meetings}</div><div class="stat-label">Meetings</div></div>
+            <div><div class="stat-value">${closed}</div><div class="stat-label">Closed Deals</div></div>
+            <div><div class="stat-value">${rate}%</div><div class="stat-label">Conversion</div></div>
+          </div>
+          <div class="field"><label>Playbook used this month</label>
+            <select data-playbook-person="${p}">${options}</select>
+          </div>
+        </div>`;
+    }).join("");
+  }
 
   const thisYear = String(new Date().getFullYear());
   const yearSubhead = $("#analytics-year-subhead");
   if (yearSubhead) yearSubhead.textContent = `This Year's Results (${thisYear})`;
   let teamYearCalls = 0, teamYearConvos = 0, teamYearMeetings = 0, teamYearClosed = 0;
-  people.forEach(p => {
-    const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,4) === thisYear);
-    const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
-    const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
-    const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
-    const closed = closedDealsFor(p, thisYear);
-    const rate = calls ? Math.round(convos/calls*100) : 0;
-    teamYearCalls += calls; teamYearConvos += convos; teamYearMeetings += meetings; teamYearClosed += closed;
-    const callsEl = $(`#analytics-${p}-year-calls`); if (callsEl) callsEl.textContent = calls;
-    const meetingsEl = $(`#analytics-${p}-year-meetings`); if (meetingsEl) meetingsEl.textContent = meetings;
-    const closedEl = $(`#analytics-${p}-year-closed`); if (closedEl) closedEl.textContent = closed;
-    const rateEl = $(`#analytics-${p}-year-rate`); if (rateEl) rateEl.textContent = rate + "%";
-  });
-  const teamYearRate = teamYearCalls ? Math.round(teamYearConvos/teamYearCalls*100) : 0;
-  const teamCallsEl = $("#analytics-team-year-calls"); if (teamCallsEl) teamCallsEl.textContent = teamYearCalls;
-  const teamMeetingsEl = $("#analytics-team-year-meetings"); if (teamMeetingsEl) teamMeetingsEl.textContent = teamYearMeetings;
-  const teamClosedEl = $("#analytics-team-year-closed"); if (teamClosedEl) teamClosedEl.textContent = teamYearClosed;
-  const teamRateEl = $("#analytics-team-year-rate"); if (teamRateEl) teamRateEl.textContent = teamYearRate + "%";
+  const yearCards = $("#analytics-year-cards");
+  if (yearCards){
+    const personCards = people.map(p => {
+      const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,4) === thisYear);
+      const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
+      const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
+      const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
+      const closed = closedDealsFor(p, thisYear);
+      const rate = calls ? Math.round(convos/calls*100) : 0;
+      teamYearCalls += calls; teamYearConvos += convos; teamYearMeetings += meetings; teamYearClosed += closed;
+      return `
+        <div class="analytics-person-card">
+          <h4>${escapeHtml(ASSIGNEES[p].label)}</h4>
+          <div class="analytics-person-stats">
+            <div><div class="stat-value">${calls}</div><div class="stat-label">Calls</div></div>
+            <div><div class="stat-value">${meetings}</div><div class="stat-label">Meetings</div></div>
+            <div><div class="stat-value">${closed}</div><div class="stat-label">Closed Deals</div></div>
+            <div><div class="stat-value">${rate}%</div><div class="stat-label">Conversion</div></div>
+          </div>
+        </div>`;
+    });
+    const teamYearRate = teamYearCalls ? Math.round(teamYearConvos/teamYearCalls*100) : 0;
+    const teamCard = `
+      <div class="analytics-person-card analytics-team-card">
+        <h4>Team Combined</h4>
+        <div class="analytics-person-stats">
+          <div><div class="stat-value">${teamYearCalls}</div><div class="stat-label">Calls</div></div>
+          <div><div class="stat-value">${teamYearMeetings}</div><div class="stat-label">Meetings</div></div>
+          <div><div class="stat-value">${teamYearClosed}</div><div class="stat-label">Closed Deals</div></div>
+          <div><div class="stat-value">${teamYearRate}%</div><div class="stat-label">Conversion</div></div>
+        </div>
+      </div>`;
+    yearCards.innerHTML = personCards.join("") + teamCard;
+  }
 
   const perfBody = $("#playbook-performance-tbody");
   if (perfBody){
@@ -1704,6 +1733,25 @@ function renderDialer(){
 // logged call, per outcome - short for "try again soon", long for
 // "leave this one alone for a good while".
 const CALL_COOLDOWN_DAYS = { no_answer: 1, call_back: 3, not_interested: 60, interested: 365, booked_meeting: 365 };
+// call_activity/playbook_usage key people by a short handle (rocky/max/...),
+// but dial_prospects attribution is a real login email - this bridges the
+// two by taking the part before the @, which only works if everyone's email
+// actually starts with their ASSIGNEES key (e.g. bailey@...).
+function personKeyFromEmail(email){
+  const key = (email||"").split("@")[0].toLowerCase();
+  return ASSIGNEES[key] ? key : null;
+}
+// Every logged call is a call for analytics purposes; a "Booked Meeting"
+// outcome additionally counts as a meeting - same shared counter the
+// Meetings Booked page's own tap counters feed into.
+async function bumpCallActivity(personKey, outcome){
+  if (!personKey) return;
+  const today = new Date().toISOString().slice(0,10);
+  const existing = state.callActivity.find(r => r.person === personKey && r.activity_date === today);
+  const patch = { calls: Number(existing?.calls||0) + 1 };
+  if (outcome === "booked_meeting") patch.meetings_booked = Number(existing?.meetings_booked||0) + 1;
+  await window.CRM_CALL_ACTIVITY.upsertToday(personKey, patch);
+}
 async function logDialOutcome(prospectId, outcome, note){
   const p = state.prospects.find(x => x.id === prospectId);
   if (!p) return;
@@ -1721,6 +1769,7 @@ async function logDialOutcome(prospectId, outcome, note){
     notes: [entry, p.notes].filter(Boolean).join("\n\n"),
     updated_at: new Date().toISOString(),
   });
+  await bumpCallActivity(personKeyFromEmail(who), outcome);
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
 }
@@ -4235,8 +4284,12 @@ function setupTaskFilters(){
 }
 
 function setupAnalyticsFilters(){
-  Object.keys(ASSIGNEES).forEach(p => {
-    $(`#analytics-${p}-playbook`)?.addEventListener("change", (e) => { savePlaybookUsage(p, e.target.value || null); });
+  // Delegated because the playbook selects are rebuilt on every render
+  // (see renderCallAnalytics) - a direct per-id listener would only survive
+  // until the first re-render wiped it out.
+  $("#analytics-month-cards")?.addEventListener("change", (e) => {
+    const select = e.target.closest("[data-playbook-person]");
+    if (select) savePlaybookUsage(select.dataset.playbookPerson, select.value || null);
   });
 }
 
