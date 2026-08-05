@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=39">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=39">
+<link rel="stylesheet" href="css/style.css?v=40">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=40">
 </head>
 <body>
 
@@ -41,6 +41,7 @@
       <p>Client CRM</p>
     </div>
     <div id="auth-error" class="auth-error"></div>
+    <div id="auth-message" class="auth-message"></div>
 
     <div class="auth-tabs">
       <button type="button" class="auth-tab active" data-mode="signin">Sign In</button>
@@ -51,11 +52,12 @@
         <label>Email</label>
         <input type="email" id="auth-email" required autocomplete="email">
       </div>
-      <div class="field" style="margin-bottom:16px;">
+      <div class="field" style="margin-bottom:8px;">
         <label>Password</label>
         <input type="password" id="auth-password" required autocomplete="current-password" minlength="6">
       </div>
-      <button type="submit" id="auth-submit" class="btn gold" style="width:100%;justify-content:center;">Sign In</button>
+      <button type="button" id="forgot-password-btn" class="auth-forgot-btn">Forgot password?</button>
+      <button type="submit" id="auth-submit" class="btn gold" style="width:100%;justify-content:center;margin-top:8px;">Sign In</button>
     </form>
 
     <div style="display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--text2-inverse);font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">
@@ -84,6 +86,26 @@
       Ask a teammate to add this email to the allowlist, then sign in again.
     </p>
     <button type="button" id="unauthorized-signout-btn" class="btn ghost" style="width:100%;justify-content:center;margin-top:16px;color:var(--text-inverse);border-color:var(--line-dark);">Sign out</button>
+  </div>
+</div>
+
+<!-- ───────── Reset password screen (reached via the emailed reset link) ───────── -->
+<div id="reset-password-screen" style="display:none;min-height:100vh;align-items:center;justify-content:center;background:var(--black);padding:20px;">
+  <div class="auth-box">
+    <div class="auth-brand">
+      <div class="brand-mark">MP</div>
+      <h1>Mr Priceless</h1>
+      <p>Client CRM</p>
+    </div>
+    <p class="auth-hint" style="margin-top:0;">Set a new password for your account.</p>
+    <div id="reset-password-error" class="auth-error"></div>
+    <form id="reset-password-form">
+      <div class="field" style="margin-bottom:16px;">
+        <label>New Password</label>
+        <input type="password" id="reset-password-input" required autocomplete="new-password" minlength="6">
+      </div>
+      <button type="submit" class="btn gold" style="width:100%;justify-content:center;">Set New Password</button>
+    </form>
   </div>
 </div>
 
@@ -1591,10 +1613,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=39"></script>
-<script src="js/supabaseClient.js?v=39"></script>
-<script src="js/app.js?v=39"></script>
-<script src="js/meetings-tracker.js?v=39"></script>
-<script src="js/todo.js?v=39"></script>
+<script src="js/config.js?v=40"></script>
+<script src="js/supabaseClient.js?v=40"></script>
+<script src="js/app.js?v=40"></script>
+<script src="js/meetings-tracker.js?v=40"></script>
+<script src="js/todo.js?v=40"></script>
 </body>
 </html>

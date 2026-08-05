@@ -735,7 +735,9 @@ async function initAuth(){
   else showAuth();
 
   supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === "SIGNED_IN" && session){
+    if (event === "PASSWORD_RECOVERY"){
+      showResetPassword();
+    } else if (event === "SIGNED_IN" && session){
       await handleSignedIn(session, /*freshLogin*/ true);
     } else if (event === "SIGNED_OUT"){
       state.user = null;
@@ -784,13 +786,21 @@ async function isAllowlisted(email){
 function showAuth(){
   $("#auth-screen").style.display = "flex";
   $("#unauthorized-screen").style.display = "none";
+  $("#reset-password-screen").style.display = "none";
   $("#app").classList.remove("visible");
 }
 function showUnauthorized(email){
   $("#auth-screen").style.display = "none";
   $("#unauthorized-screen").style.display = "flex";
+  $("#reset-password-screen").style.display = "none";
   $("#app").classList.remove("visible");
   $("#unauthorized-email").textContent = email;
+}
+function showResetPassword(){
+  $("#auth-screen").style.display = "none";
+  $("#unauthorized-screen").style.display = "none";
+  $("#reset-password-screen").style.display = "flex";
+  $("#app").classList.remove("visible");
 }
 function showApp(){
   $("#auth-screen").style.display = "none";
@@ -841,6 +851,7 @@ function setupEmailAuth(){
     mode = tab.dataset.mode;
     $$(".auth-tab").forEach(t => t.classList.toggle("active", t === tab));
     $("#auth-submit").textContent = mode === "signin" ? "Sign In" : "Create Account";
+    $("#forgot-password-btn").style.display = mode === "signin" ? "" : "none";
   }));
   $("#auth-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -862,6 +873,58 @@ function setupEmailAuth(){
       }
     } catch (err){
       errBox.textContent = err.message || "Something went wrong.";
+      errBox.classList.add("visible");
+    }
+  });
+
+  $("#forgot-password-btn")?.addEventListener("click", async () => {
+    const errBox = $("#auth-error");
+    const msgBox = $("#auth-message");
+    errBox.classList.remove("visible");
+    msgBox.classList.remove("visible");
+    const email = $("#auth-email").value.trim();
+    if (!email){
+      errBox.textContent = "Enter your email above first, then click Forgot password?.";
+      errBox.classList.add("visible");
+      return;
+    }
+    if (!IS_CONFIGURED){
+      msgBox.textContent = "Demo mode - password reset needs a connected Supabase project.";
+      msgBox.classList.add("visible");
+      return;
+    }
+    const btn = $("#forgot-password-btn");
+    const originalText = btn.textContent;
+    btn.textContent = "Sending...";
+    btn.disabled = true;
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (error) throw error;
+      msgBox.textContent = `If an account exists for ${email}, a reset link is on its way - check your inbox.`;
+      msgBox.classList.add("visible");
+    } catch (err){
+      errBox.textContent = err.message || "Couldn't send the reset email.";
+      errBox.classList.add("visible");
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  });
+
+  $("#reset-password-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errBox = $("#reset-password-error");
+    errBox.classList.remove("visible");
+    const password = $("#reset-password-input").value;
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      alert("Password updated - you're all set.");
+      location.reload();
+    } catch (err){
+      errBox.textContent = err.message || "Couldn't update your password.";
       errBox.classList.add("visible");
     }
   });

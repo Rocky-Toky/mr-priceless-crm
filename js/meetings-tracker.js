@@ -891,6 +891,7 @@ function finishEdit(idx,el){
 const MTR_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
 const MTR_EDIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
 
+const BONUS_LABELS=['☁️ Cloud 9','⚙️ Machine','🦾 Terminator'];
 function renderItem(idx){
   const list=idx<GOAL?document.getElementById('goal-list'):document.getElementById('bonus-list');
   const existing=list.children[idx<GOAL?idx:idx-GOAL];
@@ -899,6 +900,7 @@ function renderItem(idx){
   const badgeClass=m.done?'green':'gold';
   const badgeText=m.done?'Booked!':(isBonus?'Bonus':'Goal');
   const timeStr=m.time?new Date(m.time).toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit',hour12:true}):'';
+  const bonusLabel=BONUS_LABELS[idx-GOAL]||BONUS_LABELS[BONUS_LABELS.length-1];
   el.className=`mtr-row${isBonus?' bonus':''}${m.done?' done':''}`;
   el.innerHTML=`
     <div class="mtr-check">${MTR_CHECK_SVG}</div>
@@ -910,7 +912,7 @@ function renderItem(idx){
         <input class="mtr-row-name-edit" type="text" value="${m.name}" placeholder="Meeting name…">
       </div>
       <div class="mtr-row-meta">
-        <span>${isBonus?'☁️ Cloud 9 - booking '+(idx+1):'Booking '+(idx+1)+' of '+GOAL}</span>
+        <span>${isBonus?bonusLabel+' - booking '+(idx+1):'Booking '+(idx+1)+' of '+GOAL}</span>
         ${timeStr?`<span>· ${timeStr}</span>`:''}
       </div>
     </div>
