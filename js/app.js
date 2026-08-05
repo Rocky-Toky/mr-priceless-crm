@@ -332,13 +332,13 @@ function seedDemo(){
   const deal1 = uid();
   const dealKauriRevShare = uid();
   state.deals = [
-    { id:deal1, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", contract_type:"profit_share", percentage:15, value:0, stage:"negotiation", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental - Meta Ads retainer", contract_type:"retainer", value:2200, stage:"qualified", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal - SEO + Ads", contract_type:"retainer", value:3600, stage:"proposal", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - 10 quote guarantee", contract_type:"revenue_share", percentage:10, value:0, stage:"pending_results", notes:"Signed to the guarantee - 4 of 10 quotes delivered so far.", created_at:new Date(Date.now()-86400e3*9).toISOString(), updated_at:new Date(Date.now()-86400e3*1).toISOString() },
-    { id:uid(), contact_id:null, contact_name:"Grace Nguyen - Nguyen Dental Studio", title:"Nguyen Dental - Google Ads retainer", value:1800, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString() },
-    { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - SEO retainer", value:2600, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*48).toISOString(), updated_at:new Date(Date.now()-86400e3*42).toISOString() },
-    { id:dealKauriRevShare, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Spring listings campaign", contract_type:"revenue_share", percentage:8, value:0, stage:"closed_won", notes:"", created_at:new Date(Date.now()-86400e3*30).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
+    { id:deal1, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Full funnel rebuild", contract_type:"profit_share", percentage:15, value:0, stage:"negotiation", assignee:"rocky", notes:"", created_at:new Date(Date.now()-86400e3*14).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:c2, contact_name:"Ben Whitfield", title:"Summit Dental - Meta Ads retainer", contract_type:"retainer", value:2200, stage:"qualified", assignee:"max", notes:"", created_at:new Date(Date.now()-86400e3*20).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:c3, contact_name:"Priya Chand", title:"Chand Legal - SEO + Ads", contract_type:"retainer", value:3600, stage:"proposal", assignee:"rocky", notes:"", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - 10 quote guarantee", contract_type:"revenue_share", percentage:10, value:0, stage:"pending_results", assignee:"rocky", notes:"Signed to the guarantee - 4 of 10 quotes delivered so far.", created_at:new Date(Date.now()-86400e3*9).toISOString(), updated_at:new Date(Date.now()-86400e3*1).toISOString() },
+    { id:uid(), contact_id:null, contact_name:"Grace Nguyen - Nguyen Dental Studio", title:"Nguyen Dental - Google Ads retainer", value:1800, stage:"closed_won", assignee:"max", notes:"", created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date(Date.now()-86400e3*2).toISOString() },
+    { id:uid(), contact_id:null, contact_name:"Marlon Reeve - Reeve Builders", title:"Reeve Builders - SEO retainer", value:2600, stage:"closed_won", assignee:"rocky", notes:"", created_at:new Date(Date.now()-86400e3*48).toISOString(), updated_at:new Date(Date.now()-86400e3*42).toISOString() },
+    { id:dealKauriRevShare, contact_id:c1, contact_name:"Aroha Ngata", title:"Kauri - Spring listings campaign", contract_type:"revenue_share", percentage:8, value:0, stage:"closed_won", assignee:"rocky", notes:"", created_at:new Date(Date.now()-86400e3*30).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
     { id:uid(), contact_id:null, contact_name:"Sina Tuilagi - Tuilagi Landscaping", title:"Tuilagi Landscaping - Meta Ads", value:1200, stage:"closed_lost", notes:"Went with a cheaper freelancer.", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*8).toISOString() },
   ];
   state.calendarEvents = [
@@ -1167,15 +1167,21 @@ function renderCallAnalytics(){
     </table>
   `;
 
+  const closedDealsFor = (p, periodPrefix) => state.deals.filter(d =>
+    d.assignee === p && d.stage === "closed_won" && (d.updated_at||d.created_at||"").slice(0, periodPrefix.length) === periodPrefix
+  ).length;
+
   const thisMonth = monthKey(new Date());
   people.forEach(p => {
     const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,7) === thisMonth);
     const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
     const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
     const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
+    const closed = closedDealsFor(p, thisMonth);
     const rate = calls ? Math.round(convos/calls*100) : 0;
     const callsEl = $(`#analytics-${p}-calls`); if (callsEl) callsEl.textContent = calls;
     const meetingsEl = $(`#analytics-${p}-meetings`); if (meetingsEl) meetingsEl.textContent = meetings;
+    const closedEl = $(`#analytics-${p}-closed`); if (closedEl) closedEl.textContent = closed;
     const rateEl = $(`#analytics-${p}-rate`); if (rateEl) rateEl.textContent = rate + "%";
     const usage = state.playbookUsage.find(u => u.person === p && u.month === thisMonth);
     const select = $(`#analytics-${p}-playbook`);
@@ -1188,21 +1194,24 @@ function renderCallAnalytics(){
   const thisYear = String(new Date().getFullYear());
   const yearSubhead = $("#analytics-year-subhead");
   if (yearSubhead) yearSubhead.textContent = `This Year's Results (${thisYear})`;
-  let teamYearCalls = 0, teamYearConvos = 0, teamYearMeetings = 0;
+  let teamYearCalls = 0, teamYearConvos = 0, teamYearMeetings = 0, teamYearClosed = 0;
   people.forEach(p => {
     const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,4) === thisYear);
     const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
     const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
     const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
+    const closed = closedDealsFor(p, thisYear);
     const rate = calls ? Math.round(convos/calls*100) : 0;
-    teamYearCalls += calls; teamYearConvos += convos; teamYearMeetings += meetings;
+    teamYearCalls += calls; teamYearConvos += convos; teamYearMeetings += meetings; teamYearClosed += closed;
     const callsEl = $(`#analytics-${p}-year-calls`); if (callsEl) callsEl.textContent = calls;
     const meetingsEl = $(`#analytics-${p}-year-meetings`); if (meetingsEl) meetingsEl.textContent = meetings;
+    const closedEl = $(`#analytics-${p}-year-closed`); if (closedEl) closedEl.textContent = closed;
     const rateEl = $(`#analytics-${p}-year-rate`); if (rateEl) rateEl.textContent = rate + "%";
   });
   const teamYearRate = teamYearCalls ? Math.round(teamYearConvos/teamYearCalls*100) : 0;
   const teamCallsEl = $("#analytics-team-year-calls"); if (teamCallsEl) teamCallsEl.textContent = teamYearCalls;
   const teamMeetingsEl = $("#analytics-team-year-meetings"); if (teamMeetingsEl) teamMeetingsEl.textContent = teamYearMeetings;
+  const teamClosedEl = $("#analytics-team-year-closed"); if (teamClosedEl) teamClosedEl.textContent = teamYearClosed;
   const teamRateEl = $("#analytics-team-year-rate"); if (teamRateEl) teamRateEl.textContent = teamYearRate + "%";
 
   const perfBody = $("#playbook-performance-tbody");
@@ -1289,6 +1298,45 @@ function renderContacts(){
   `).join("");
 }
 
+/* ───────── Book Meeting (Meetings Booked page -> Contact + Deal) ───────── */
+async function bookMeeting(name, phone, person){
+  const digits = phone.replace(/\D/g,"");
+  let contact = digits ? state.contacts.find(c => (c.phone||"").replace(/\D/g,"") === digits) : null;
+  if (!contact) contact = await DataLayer.insert("contacts", { name, phone, status: "lead" });
+  if (!contact) return null;
+  const deal = await DataLayer.insert("deals", {
+    title: `${name} - Meeting Booked`,
+    contact_id: contact.id,
+    contact_name: name,
+    contract_type: "retainer",
+    value: 0,
+    percentage: null,
+    stage: "qualified",
+    assignee: person || null,
+    notes: "",
+  });
+  return deal;
+}
+function renderMeetingsPipeline(){
+  const tbody = $("#meetings-pipeline-tbody");
+  if (!tbody) return;
+  const booked = [...state.deals].filter(d => d.stage === "qualified")
+    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 15);
+  if (!booked.length){ tbody.innerHTML = `<tr><td colspan="5">${emptyState("No meetings booked yet. Use + Book Meeting above.")}</td></tr>`; return; }
+  tbody.innerHTML = booked.map(d => {
+    const contact = d.contact_id ? state.contacts.find(c => c.id === d.contact_id) : null;
+    const a = ASSIGNEES[d.assignee];
+    return `
+      <tr>
+        <td>${escapeHtml(d.contact_name||d.title)}</td>
+        <td>${escapeHtml(contact?.phone||"-")}</td>
+        <td>${a ? `<span class="badge ${a.cls}">${a.label}</span>` : "-"}</td>
+        <td>${fmtDate(d.created_at)}</td>
+        <td style="text-align:right;"><button class="btn ghost" data-action="view-meeting-deal" data-id="${d.id}">View Deal</button></td>
+      </tr>`;
+  }).join("");
+}
+
 /* ───────── Render: Deals (Kanban) ───────── */
 function renderDeals(){
   const listView = $("#deals-list-view");
@@ -1326,6 +1374,7 @@ function renderDealStageCol(stage){
           ${extraContacts.length ? `<div class="deal-extra-contacts">${extraContacts.map(dc => `${escapeHtml(dc.role||"Contact")}: ${escapeHtml(dc.name)}`).join(", ")}</div>` : ""}
           <div class="deal-card-foot">
             <span class="deal-value">${dealValueLabel(d)}</span>
+            ${d.assignee && ASSIGNEES[d.assignee] ? `<span class="badge ${ASSIGNEES[d.assignee].cls}">${ASSIGNEES[d.assignee].label}</span>` : ""}
             <button class="icon-btn" data-action="delete-deal" data-id="${d.id}" title="Delete">${ICONS.trash}</button>
           </div>
         </div>
@@ -1352,6 +1401,12 @@ function renderDealDetail(deal){
   $("#deal-detail-title").textContent = deal.title;
   $("#deal-detail-value").textContent = dealValueLabel(deal);
   $("#deal-detail-delete").dataset.id = deal.id;
+  const assigneeEl = $("#deal-detail-assignee");
+  if (assigneeEl){
+    const a = ASSIGNEES[deal.assignee];
+    assigneeEl.style.display = a ? "" : "none";
+    if (a){ assigneeEl.textContent = a.label; assigneeEl.className = `badge ${a.cls}`; }
+  }
 
   const contactsBody = $("#deal-detail-contacts");
   const extraContacts = dealContactsFor(deal.id);
@@ -2676,6 +2731,7 @@ function renderRegions(){
 function renderAll(){
   renderDashboard();
   renderCallAnalytics();
+  renderMeetingsPipeline();
   renderContacts();
   renderDeals();
   renderRegions();
@@ -3381,10 +3437,30 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#book-meeting-btn")?.addEventListener("click", () => {
+    $("#book-meeting-form").reset();
+    const assigneeSelect = $("#book-meeting-assignee");
+    if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
+    openModal("book-meeting-modal");
+  });
+  $("#book-meeting-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#book-meeting-name").value.trim();
+    const phone = $("#book-meeting-phone").value.trim();
+    const person = $("#book-meeting-assignee").value;
+    if (!name) return;
+    const rect = $("#book-meeting-btn").getBoundingClientRect();
+    const deal = await bookMeeting(name, phone, person);
+    closeModal("book-meeting-modal");
+    if (deal) window.bookMeetingInTracker?.(name, rect.left + rect.width/2, rect.top + rect.height/2);
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   $("#add-deal-btn").addEventListener("click", () => {
     $("#deal-form").reset();
     $("#deal-form-id").value = "";
     $("#deal-contract-type").value = "retainer";
+    $("#deal-assignee").value = "";
     toggleDealContractFields();
     $("#deal-modal-title").textContent = "New Deal";
     $("#deal-contacts-rows").innerHTML = "";
@@ -3412,6 +3488,7 @@ function setupModals(){
       stage: $("#deal-stage").value,
       contact_id: contactId,
       contact_name: contactId ? contactName(contactId) : "",
+      assignee: $("#deal-assignee").value || null,
       updated_at: new Date().toISOString(),
     };
     if (!row.title) return;
@@ -3733,6 +3810,7 @@ function setupModals(){
     }
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
     if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }
+    if (action === "view-meeting-deal"){ state.selectedDealId = id; $('.nav-item[data-page="deals"]')?.click(); renderDeals(); }
     if (action === "edit-deal"){
       const d = state.deals.find(x => x.id === (id || state.selectedDealId));
       if (!d) return;
@@ -3743,6 +3821,7 @@ function setupModals(){
       $("#deal-value").value = d.value||0;
       $("#deal-percentage").value = d.percentage||0;
       $("#deal-stage").value = d.stage||"qualified";
+      $("#deal-assignee").value = d.assignee||"";
       toggleDealContractFields();
       $("#deal-contacts-rows").innerHTML = "";
       $("#deal-modal-title").textContent = "Edit Deal";

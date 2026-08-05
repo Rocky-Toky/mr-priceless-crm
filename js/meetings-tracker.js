@@ -1046,6 +1046,49 @@ function resetDay(){
 }
 
 /* ══════════════════════════════════════════
+   BOOK MEETING (real name+phone -> pipeline deal)
+   Called from app.js once it's created the Contact + Deal, so this widget's
+   own celebration/sound/analytics logic fires exactly like a manual toggle.
+══════════════════════════════════════════ */
+window.bookMeetingInTracker = function(name, x, y){
+  const idx = state.meetings.findIndex(m => !m.done);
+  if (idx === -1){
+    // Every slot today is already booked - still log it and sync analytics,
+    // there's just no checklist row left to fill in.
+    addLog(`<strong>${name}</strong> booked - added to Deals pipeline`, 'green');
+    syncCallActivity();
+    return;
+  }
+  const m = state.meetings[idx];
+  m.name = name;
+  m.done = true;
+  m.time = new Date().toISOString();
+  save();
+
+  const isBonus = idx>=GOAL;
+  const done = state.meetings.filter(mm=>mm.done).length;
+  const goalDone = state.meetings.filter((mm,i)=>mm.done&&i<GOAL).length;
+
+  if (goalDone===GOAL && done===GOAL) playGoalFanfare();
+  else playTick(done - 1);
+  spawnParticles(x, y, isBonus?'gold':'normal');
+  spawnScorePop(x, y, isBonus);
+  flash(isBonus?'rgba(255,171,0,0.08)':'rgba(0,230,118,0.08)');
+  popVal('kpi-done'); popVal('kpi-rate');
+  addLog(`<strong>${name}</strong> booked - added to Deals pipeline`, isBonus?'amber':'green');
+  if (navigator.vibrate) navigator.vibrate(isBonus?[60,20,80,20,150]:[40,10,60]);
+
+  renderItem(idx);
+
+  if (goalDone===GOAL && !goalShown){ goalShown=true; setTimeout(()=>openModal('modal-goal'),350); }
+  if (done===CLOUD9 && !megaShown){ megaShown=true; setTimeout(()=>{ playSwoosh(); showMegaC9(); }, 1200); }
+  if (done===TOTAL && !insaneShown){ insaneShown=true; setTimeout(()=>{ playInsaneSound(); showInsane(); }, 400); }
+
+  updateStats();
+  syncCallActivity();
+};
+
+/* ══════════════════════════════════════════
    INIT
 ══════════════════════════════════════════ */
 document.getElementById('date-chip').textContent=formatDate();

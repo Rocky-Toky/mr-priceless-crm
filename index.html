@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=42">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=42">
+<link rel="stylesheet" href="css/style.css?v=43">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=43">
 </head>
 <body>
 
@@ -344,7 +344,8 @@
             <span id="streak-num">0</span> day streak
           </span>
           <button class="btn ghost" onclick="resetDay()">New Day</button>
-          <button class="btn gold" onclick="addMeeting()">+ Add Meeting</button>
+          <button class="btn ghost" onclick="addMeeting()">+ Add Slot</button>
+          <button class="btn gold" id="book-meeting-btn">+ Book Meeting</button>
         </div>
       </div>
 
@@ -440,7 +441,17 @@
       </div>
 
       <div class="card mtr-card-gap" style="margin-top:24px;">
-        <div class="card-header"><h3>Team Analytics</h3><span class="stat-sub">Calls, meetings booked, and conversion rate by person.</span></div>
+        <div class="card-header"><h3>Recently Booked Meetings</h3><span class="stat-sub">Booked from this page - automatically added to the Deals pipeline.</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Phone</th><th>Assigned</th><th>Booked</th><th></th></tr></thead>
+            <tbody id="meetings-pipeline-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card mtr-card-gap" style="margin-top:24px;">
+        <div class="card-header"><h3>Team Analytics</h3><span class="stat-sub">Calls, meetings booked, closed deals, and conversion rate by person.</span></div>
         <div class="card-body">
           <div class="table-wrap" id="analytics-week-grid"></div>
 
@@ -450,6 +461,7 @@
               <div class="analytics-person-stats">
                 <div><div class="stat-value" id="analytics-rocky-calls">0</div><div class="stat-label">Calls</div></div>
                 <div><div class="stat-value" id="analytics-rocky-meetings">0</div><div class="stat-label">Meetings</div></div>
+                <div><div class="stat-value" id="analytics-rocky-closed">0</div><div class="stat-label">Closed Deals</div></div>
                 <div><div class="stat-value" id="analytics-rocky-rate">0%</div><div class="stat-label">Conversion</div></div>
               </div>
               <div class="field"><label>Playbook used this month</label>
@@ -461,6 +473,7 @@
               <div class="analytics-person-stats">
                 <div><div class="stat-value" id="analytics-max-calls">0</div><div class="stat-label">Calls</div></div>
                 <div><div class="stat-value" id="analytics-max-meetings">0</div><div class="stat-label">Meetings</div></div>
+                <div><div class="stat-value" id="analytics-max-closed">0</div><div class="stat-label">Closed Deals</div></div>
                 <div><div class="stat-value" id="analytics-max-rate">0%</div><div class="stat-label">Conversion</div></div>
               </div>
               <div class="field"><label>Playbook used this month</label>
@@ -484,6 +497,7 @@
               <div class="analytics-person-stats">
                 <div><div class="stat-value" id="analytics-rocky-year-calls">0</div><div class="stat-label">Calls</div></div>
                 <div><div class="stat-value" id="analytics-rocky-year-meetings">0</div><div class="stat-label">Meetings</div></div>
+                <div><div class="stat-value" id="analytics-rocky-year-closed">0</div><div class="stat-label">Closed Deals</div></div>
                 <div><div class="stat-value" id="analytics-rocky-year-rate">0%</div><div class="stat-label">Conversion</div></div>
               </div>
             </div>
@@ -492,6 +506,7 @@
               <div class="analytics-person-stats">
                 <div><div class="stat-value" id="analytics-max-year-calls">0</div><div class="stat-label">Calls</div></div>
                 <div><div class="stat-value" id="analytics-max-year-meetings">0</div><div class="stat-label">Meetings</div></div>
+                <div><div class="stat-value" id="analytics-max-year-closed">0</div><div class="stat-label">Closed Deals</div></div>
                 <div><div class="stat-value" id="analytics-max-year-rate">0%</div><div class="stat-label">Conversion</div></div>
               </div>
             </div>
@@ -500,6 +515,7 @@
               <div class="analytics-person-stats">
                 <div><div class="stat-value" id="analytics-team-year-calls">0</div><div class="stat-label">Calls</div></div>
                 <div><div class="stat-value" id="analytics-team-year-meetings">0</div><div class="stat-label">Meetings</div></div>
+                <div><div class="stat-value" id="analytics-team-year-closed">0</div><div class="stat-label">Closed Deals</div></div>
                 <div><div class="stat-value" id="analytics-team-year-rate">0%</div><div class="stat-label">Conversion</div></div>
               </div>
             </div>
@@ -575,6 +591,7 @@
             <h2 id="deal-detail-title">Deal</h2>
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
+            <span class="badge" id="deal-detail-assignee" style="display:none;"></span>
             <span class="badge gold" id="deal-detail-value">$0</span>
             <button class="icon-btn" data-action="edit-deal" id="deal-detail-edit" title="Edit">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -1246,6 +1263,26 @@
 </div>
 
 <!-- ───────── Modal: Deal ───────── -->
+<div class="overlay" id="book-meeting-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Book a Meeting</h3><button class="modal-close" data-close="book-meeting-modal">&times;</button></div>
+    <form id="book-meeting-form" class="modal-body">
+      <div class="field"><label>Name</label><input type="text" id="book-meeting-name" required placeholder="e.g. Marlon Reeve"></div>
+      <div class="field"><label>Phone</label><input type="tel" id="book-meeting-phone" placeholder="e.g. 021 123 4567"></div>
+      <div class="field"><label>Assigned To</label>
+        <select id="book-meeting-assignee">
+          <option value="rocky">Rocky</option>
+          <option value="max">Max</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="book-meeting-modal">Cancel</button>
+        <button type="submit" class="btn gold">Book Meeting</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="overlay" id="deal-modal">
   <div class="modal">
     <div class="modal-header"><h3 id="deal-modal-title">New Deal</h3><button class="modal-close" data-close="deal-modal">&times;</button></div>
@@ -1273,6 +1310,13 @@
             <option value="closed_lost">Closed Lost</option>
           </select>
         </div>
+      </div>
+      <div class="field"><label>Assigned To</label>
+        <select id="deal-assignee">
+          <option value="">Unassigned</option>
+          <option value="rocky">Rocky</option>
+          <option value="max">Max</option>
+        </select>
       </div>
       <div class="field">
         <label>Additional Contacts</label>
@@ -1622,10 +1666,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=42"></script>
-<script src="js/supabaseClient.js?v=42"></script>
-<script src="js/app.js?v=42"></script>
-<script src="js/meetings-tracker.js?v=42"></script>
-<script src="js/todo.js?v=42"></script>
+<script src="js/config.js?v=43"></script>
+<script src="js/supabaseClient.js?v=43"></script>
+<script src="js/app.js?v=43"></script>
+<script src="js/meetings-tracker.js?v=43"></script>
+<script src="js/todo.js?v=43"></script>
 </body>
 </html>
