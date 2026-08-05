@@ -921,7 +921,12 @@ function renderItem(idx){
   if(!existing){
     el.addEventListener('click',e=>{
       if(el.classList.contains('editing')||e.target.closest('.mtr-edit-btn'))return;
-      toggle(idx,el,e);
+      const m = state.meetings[idx];
+      if (!m.done && window.openMeetingBookedPrompt){
+        window.openMeetingBookedPrompt(idx, e.clientX, e.clientY);
+      } else {
+        toggle(idx,el,e);
+      }
     });
     list.appendChild(el);
   }
@@ -1050,9 +1055,11 @@ function resetDay(){
    Called from app.js once it's created the Contact + Deal, so this widget's
    own celebration/sound/analytics logic fires exactly like a manual toggle.
 ══════════════════════════════════════════ */
-window.bookMeetingInTracker = function(name, x, y){
-  const idx = state.meetings.findIndex(m => !m.done);
-  if (idx === -1){
+window.bookMeetingInTracker = function(name, x, y, explicitIdx){
+  const idx = (explicitIdx !== undefined && explicitIdx !== null && explicitIdx !== "")
+    ? Number(explicitIdx)
+    : state.meetings.findIndex(m => !m.done);
+  if (idx === -1 || !state.meetings[idx] || state.meetings[idx].done){
     // Every slot today is already booked - still log it and sync analytics,
     // there's just no checklist row left to fill in.
     addLog(`<strong>${name}</strong> booked - added to Deals pipeline`, 'green');

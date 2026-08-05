@@ -25,6 +25,11 @@ const STAGES = [
   { key: "closed_lost", label: "Closed Lost" },
 ];
 const CLOSED_STAGES = new Set(["closed_won", "closed_lost"]);
+// A meeting counts as "closed" once its deal is far enough along to matter -
+// either it's landed in Pending Results or gone all the way to Closed Won.
+// Matches the same pair maybeCreateClientFromDeal() already uses to decide
+// a deal succeeded enough to spin up a Client record.
+const MEETING_CLOSE_STAGES = new Set(["pending_results", "closed_won"]);
 const CONTENT_STATUSES = [
   { key: "idea", label: "Idea" },
   { key: "scripting", label: "Scripting" },
@@ -278,6 +283,7 @@ const state = {
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
+  statsFilter: { person: "", range: "all", customFrom: "", customTo: "" },
 };
 
 const CAL_HOUR_START = 7;
@@ -373,7 +379,7 @@ function seedDemo(){
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
-    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, meta_ad_account_id:"act_1234567890", report_email:"aroha@kauriproperty.co.nz", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*32).toISOString(), created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString(),
+    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, monthly_ad_spend:1250, meta_ad_account_id:"act_1234567890", report_email:"aroha@kauriproperty.co.nz", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*32).toISOString(), created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString(),
       services:"Meta Ads management, weekly listing video content, monthly performance report.",
       client_rules:"All creative needs sign-off from Aroha before it goes live. No posting on Fridays (open home day). CC her PA on every email.",
       qualified_lead_structure:"Full name, phone number, and confirmed budget range. Must have viewed at least one listing page before enquiring.",
@@ -382,7 +388,7 @@ function seedDemo(){
       communication_preferences:"Weekly check-in call every Monday. Slack for anything urgent same-day.",
       renewal_date:new Date(Date.now()+86400e3*45).toISOString().slice(0,10),
       stage:"established", stage_changed_at:new Date(Date.now()-86400e3*20).toISOString() },
-    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString(),
+    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString(),
       services:"Meta Ads lead generation.",
       client_rules:"",
       qualified_lead_structure:"Name and phone number, must live within 15km of the practice.",
@@ -391,7 +397,7 @@ function seedDemo(){
       communication_preferences:"Email preferred. Monthly report call.",
       renewal_date:new Date(Date.now()+86400e3*8).toISOString().slice(0,10),
       stage:"month_1", stage_changed_at:new Date(Date.now()-86400e3*35).toISOString() },
-    { id:uid(), name:"Chand Legal", notes:"Just signed, kicking off this week.", cost_per_lead:null, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*5).toISOString(), updated_at:new Date().toISOString(),
+    { id:uid(), name:"Chand Legal", notes:"Just signed, kicking off this week.", cost_per_lead:null, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*5).toISOString(), updated_at:new Date().toISOString(),
       services:"SEO + Google Ads.",
       client_rules:"",
       qualified_lead_structure:"",
@@ -401,7 +407,7 @@ function seedDemo(){
       renewal_date:null,
       stage:"onboarding", stage_changed_at:new Date(Date.now()-86400e3*5).toISOString(),
       onboarding_progress:{ "0_0":true, "0_1":true, "0_2":true, "1_0":true } },
-    { id:uid(), name:"Reeve Builders", notes:"On the 10 quote guarantee - 4 of 10 delivered so far.", cost_per_lead:65, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*5).toISOString(), created_at:new Date(Date.now()-86400e3*140).toISOString(), updated_at:new Date().toISOString(),
+    { id:uid(), name:"Reeve Builders", notes:"On the 10 quote guarantee - 4 of 10 delivered so far.", cost_per_lead:65, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*5).toISOString(), created_at:new Date(Date.now()-86400e3*140).toISOString(), updated_at:new Date().toISOString(),
       services:"Meta Ads + SEO, quote guarantee.",
       client_rules:"",
       qualified_lead_structure:"",
@@ -1084,7 +1090,7 @@ function renderDashboard(){
   // Service Delivery view: client health & delivery instead of agency revenue
   const activeClients = state.clients.filter(c => c.stage !== "churned");
   const onboardingCount = state.clients.filter(c => c.stage === "onboarding").length;
-  const adSpendManaged = state.adCreatives.reduce((s,a) => s + (Number(a.spend)||0), 0);
+  const adSpendManaged = activeClients.reduce((s,c) => s + (Number(c.monthly_ad_spend)||0), 0);
   $("#stat-ad-spend-managed").textContent = fmtMoney(adSpendManaged);
   $("#stat-active-clients").textContent = activeClients.length;
   $("#stat-active-clients-sub").textContent = `${onboardingCount} currently onboarding`;
@@ -1187,6 +1193,17 @@ function renderCallAnalytics(){
   const closedDealsFor = (p, periodPrefix) => state.deals.filter(d =>
     d.assignee === p && d.stage === "closed_won" && (d.updated_at||d.created_at||"").slice(0, periodPrefix.length) === periodPrefix
   ).length;
+  // Meeting conversion is deal-record based (not the tap counter above) so
+  // "booked" and "closed" are counted from the same source and stay
+  // internally consistent - a meeting is "booked" the moment its deal is
+  // created, and "closed" once that same deal reaches MEETING_CLOSE_STAGES,
+  // regardless of when the close happened.
+  const meetingsBookedFor = (p, periodPrefix) => state.deals.filter(d =>
+    d.assignee === p && (d.created_at||"").slice(0, periodPrefix.length) === periodPrefix
+  ).length;
+  const closedMeetingsFor = (p, periodPrefix) => state.deals.filter(d =>
+    d.assignee === p && MEETING_CLOSE_STAGES.has(d.stage) && (d.created_at||"").slice(0, periodPrefix.length) === periodPrefix
+  ).length;
 
   // Person cards are built here rather than hardcoded per-name in HTML, so
   // adding another cold caller to ASSIGNEES is all it takes for them to get
@@ -1201,6 +1218,9 @@ function renderCallAnalytics(){
       const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
       const closed = closedDealsFor(p, thisMonth);
       const rate = calls ? Math.round(convos/calls*100) : 0;
+      const meetingsBooked = meetingsBookedFor(p, thisMonth);
+      const closedMeetings = closedMeetingsFor(p, thisMonth);
+      const meetingRate = meetingsBooked ? Math.round(closedMeetings/meetingsBooked*100) : 0;
       const usage = state.playbookUsage.find(u => u.person === p && u.month === thisMonth);
       const options = `<option value="">- Not set -</option>` + state.playbooks.map(pb => `<option value="${pb.id}" ${usage?.playbook_id===pb.id?"selected":""}>${escapeHtml(pb.title)}</option>`).join("");
       return `
@@ -1211,6 +1231,8 @@ function renderCallAnalytics(){
             <div><div class="stat-value">${meetings}</div><div class="stat-label">Meetings</div></div>
             <div><div class="stat-value">${closed}</div><div class="stat-label">Closed Deals</div></div>
             <div><div class="stat-value">${rate}%</div><div class="stat-label">Conversion</div></div>
+            <div><div class="stat-value">${closedMeetings}</div><div class="stat-label">Closed Meetings</div></div>
+            <div><div class="stat-value">${meetingRate}%</div><div class="stat-label">Meeting Conversion</div></div>
           </div>
           <div class="field"><label>Playbook used this month</label>
             <select data-playbook-person="${p}">${options}</select>
@@ -1222,7 +1244,7 @@ function renderCallAnalytics(){
   const thisYear = String(new Date().getFullYear());
   const yearSubhead = $("#analytics-year-subhead");
   if (yearSubhead) yearSubhead.textContent = `This Year's Results (${thisYear})`;
-  let teamYearCalls = 0, teamYearConvos = 0, teamYearMeetings = 0, teamYearClosed = 0;
+  let teamYearCalls = 0, teamYearConvos = 0, teamYearMeetings = 0, teamYearClosed = 0, teamYearMeetingsBooked = 0, teamYearClosedMeetings = 0;
   const yearCards = $("#analytics-year-cards");
   if (yearCards){
     const personCards = people.map(p => {
@@ -1232,7 +1254,11 @@ function renderCallAnalytics(){
       const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
       const closed = closedDealsFor(p, thisYear);
       const rate = calls ? Math.round(convos/calls*100) : 0;
+      const meetingsBooked = meetingsBookedFor(p, thisYear);
+      const closedMeetings = closedMeetingsFor(p, thisYear);
+      const meetingRate = meetingsBooked ? Math.round(closedMeetings/meetingsBooked*100) : 0;
       teamYearCalls += calls; teamYearConvos += convos; teamYearMeetings += meetings; teamYearClosed += closed;
+      teamYearMeetingsBooked += meetingsBooked; teamYearClosedMeetings += closedMeetings;
       return `
         <div class="analytics-person-card">
           <h4>${escapeHtml(ASSIGNEES[p].label)}</h4>
@@ -1241,10 +1267,13 @@ function renderCallAnalytics(){
             <div><div class="stat-value">${meetings}</div><div class="stat-label">Meetings</div></div>
             <div><div class="stat-value">${closed}</div><div class="stat-label">Closed Deals</div></div>
             <div><div class="stat-value">${rate}%</div><div class="stat-label">Conversion</div></div>
+            <div><div class="stat-value">${closedMeetings}</div><div class="stat-label">Closed Meetings</div></div>
+            <div><div class="stat-value">${meetingRate}%</div><div class="stat-label">Meeting Conversion</div></div>
           </div>
         </div>`;
     });
     const teamYearRate = teamYearCalls ? Math.round(teamYearConvos/teamYearCalls*100) : 0;
+    const teamYearMeetingRate = teamYearMeetingsBooked ? Math.round(teamYearClosedMeetings/teamYearMeetingsBooked*100) : 0;
     const teamCard = `
       <div class="analytics-person-card analytics-team-card">
         <h4>Team Combined</h4>
@@ -1253,6 +1282,8 @@ function renderCallAnalytics(){
           <div><div class="stat-value">${teamYearMeetings}</div><div class="stat-label">Meetings</div></div>
           <div><div class="stat-value">${teamYearClosed}</div><div class="stat-label">Closed Deals</div></div>
           <div><div class="stat-value">${teamYearRate}%</div><div class="stat-label">Conversion</div></div>
+          <div><div class="stat-value">${teamYearClosedMeetings}</div><div class="stat-label">Closed Meetings</div></div>
+          <div><div class="stat-value">${teamYearMeetingRate}%</div><div class="stat-label">Meeting Conversion</div></div>
         </div>
       </div>`;
     yearCards.innerHTML = personCards.join("") + teamCard;
@@ -1343,19 +1374,20 @@ function renderContacts(){
 }
 
 /* ───────── Book Meeting (Meetings Booked page -> Contact + Deal) ───────── */
-async function bookMeeting(name, phone, person){
+async function bookMeeting(name, phone, person, extra={}){
   const digits = phone.replace(/\D/g,"");
   let contact = digits ? state.contacts.find(c => (c.phone||"").replace(/\D/g,"") === digits) : null;
-  if (!contact) contact = await DataLayer.insert("contacts", { name, phone, status: "lead" });
+  if (!contact) contact = await DataLayer.insert("contacts", { name, phone, company: extra.company||"", email: extra.email||"", status: "lead" });
   if (!contact) return null;
+  const stage = extra.stage || "qualified";
   const deal = await DataLayer.insert("deals", {
-    title: `${name} - Meeting Booked`,
+    title: `${name} - ${STAGES.find(s => s.key === stage)?.label || "Meeting Booked"}`,
     contact_id: contact.id,
     contact_name: name,
     contract_type: "retainer",
     value: 0,
     percentage: null,
-    stage: "qualified",
+    stage,
     assignee: person || null,
     notes: "",
   });
@@ -1571,6 +1603,7 @@ function openEditClientModal(c){
   $("#client-form-id").value = c.id;
   $("#client-name").value = c.name||"";
   $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
+  $("#client-monthly-ad-spend").value = c.monthly_ad_spend != null ? c.monthly_ad_spend : "";
   $("#client-notes").value = c.notes||"";
   $("#client-meta-account").value = c.meta_ad_account_id||"";
   $("#client-report-frequency").value = c.report_frequency||"monthly";
@@ -2190,6 +2223,8 @@ function renderClientDetail(c){
   stageBadge.textContent = stageInfo.label;
   stageBadge.className = `badge ${stageInfo.cls}`;
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
+  const monthlySpendEl = $("#client-detail-monthly-spend");
+  if (monthlySpendEl) monthlySpendEl.textContent = c.monthly_ad_spend != null ? fmtMoney(c.monthly_ad_spend) : "Not set";
   $("#client-detail-notes").textContent = c.notes || "No notes yet.";
   $("#client-detail-quotes").textContent = c.quotes_sent || 0;
   const banner = $("#quote-guarantee-banner");
@@ -3026,7 +3061,101 @@ function renderAll(){
   renderPlaybooks();
   renderEmailTemplates();
   renderExpenses();
+  renderStatistics();
   fillContactDropdowns();
+}
+
+/* ───────── Render: Statistics (long-term, any person / any time range) ───────── */
+function statsRangeBounds(range, customFrom, customTo){
+  const today = new Date();
+  const toStr = d => d.toISOString().slice(0,10);
+  const startOfMonth = d => new Date(d.getFullYear(), d.getMonth(), 1);
+  const endOfMonth = d => new Date(d.getFullYear(), d.getMonth()+1, 0);
+  switch (range){
+    case "today": return { from: toStr(today), to: toStr(today) };
+    case "yesterday": { const y = new Date(today); y.setDate(y.getDate()-1); return { from: toStr(y), to: toStr(y) }; }
+    case "7d": { const f = new Date(today); f.setDate(f.getDate()-6); return { from: toStr(f), to: toStr(today) }; }
+    case "30d": { const f = new Date(today); f.setDate(f.getDate()-29); return { from: toStr(f), to: toStr(today) }; }
+    case "month": return { from: toStr(startOfMonth(today)), to: toStr(endOfMonth(today)) };
+    case "last_month": { const lm = new Date(today.getFullYear(), today.getMonth()-1, 1); return { from: toStr(startOfMonth(lm)), to: toStr(endOfMonth(lm)) }; }
+    case "year": return { from: `${today.getFullYear()}-01-01`, to: `${today.getFullYear()}-12-31` };
+    case "custom": return { from: customFrom || null, to: customTo || null };
+    case "all": default: return { from: null, to: null };
+  }
+}
+function inStatsRange(dateStr, bounds){
+  if (!dateStr) return false;
+  const d = dateStr.slice(0,10);
+  if (bounds.from && d < bounds.from) return false;
+  if (bounds.to && d > bounds.to) return false;
+  return true;
+}
+// Meetings booked/closed here are counted from deal records (same approach
+// as the Team Analytics "Meeting Conversion" figure) so the two line up;
+// Calls/Conversations still come from the daily call_activity tap counters.
+function statsForPerson(p, bounds){
+  const rows = state.callActivity.filter(r => r.person === p && inStatsRange(r.activity_date, bounds));
+  const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
+  const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
+  const dealsBooked = state.deals.filter(d => d.assignee === p && inStatsRange(d.created_at, bounds));
+  const meetingsBooked = dealsBooked.length;
+  const closedMeetings = dealsBooked.filter(d => MEETING_CLOSE_STAGES.has(d.stage)).length;
+  const closedDeals = state.deals.filter(d => d.assignee === p && d.stage === "closed_won" && inStatsRange(d.updated_at||d.created_at, bounds)).length;
+  const callRate = calls ? Math.round(convos/calls*100) : 0;
+  const meetingRate = meetingsBooked ? Math.round(closedMeetings/meetingsBooked*100) : 0;
+  return { calls, convos, meetingsBooked, closedMeetings, closedDeals, callRate, meetingRate };
+}
+function renderStatistics(){
+  const grid = $("#stats-summary-grid");
+  if (!grid) return;
+  const f = state.statsFilter;
+  const bounds = statsRangeBounds(f.range, f.customFrom, f.customTo);
+  const people = Object.keys(ASSIGNEES);
+  const scope = f.person ? [f.person] : people;
+  const totals = scope.reduce((acc, p) => {
+    const s = statsForPerson(p, bounds);
+    acc.calls += s.calls; acc.convos += s.convos; acc.meetingsBooked += s.meetingsBooked;
+    acc.closedMeetings += s.closedMeetings; acc.closedDeals += s.closedDeals;
+    return acc;
+  }, { calls:0, convos:0, meetingsBooked:0, closedMeetings:0, closedDeals:0 });
+  const callRate = totals.calls ? Math.round(totals.convos/totals.calls*100) : 0;
+  const meetingRate = totals.meetingsBooked ? Math.round(totals.closedMeetings/totals.meetingsBooked*100) : 0;
+
+  grid.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Calls</div><div class="stat-value">${totals.calls}</div><div class="stat-sub">${totals.convos} conversations</div></div>
+    <div class="stat-card"><div class="stat-label">Call Conversion</div><div class="stat-value">${callRate}%</div><div class="stat-sub">conversations / calls</div></div>
+    <div class="stat-card"><div class="stat-label">Meetings Booked</div><div class="stat-value">${totals.meetingsBooked}</div><div class="stat-sub">${totals.closedDeals} closed deals</div></div>
+    <div class="stat-card"><div class="stat-label">Meeting Conversion</div><div class="stat-value">${meetingRate}%</div><div class="stat-sub">${totals.closedMeetings} closed meetings</div></div>
+  `;
+
+  const tbody = $("#stats-breakdown-tbody");
+  if (tbody){
+    const rows = scope.map(p => {
+      const s = statsForPerson(p, bounds);
+      return `<tr>
+        <td>${escapeHtml(ASSIGNEES[p].label)}</td>
+        <td>${s.calls}</td>
+        <td>${s.convos}</td>
+        <td>${s.callRate}%</td>
+        <td>${s.meetingsBooked}</td>
+        <td>${s.closedMeetings}</td>
+        <td>${s.meetingRate}%</td>
+        <td>${s.closedDeals}</td>
+      </tr>`;
+    }).join("");
+    const totalRow = scope.length > 1 ? `
+      <tr style="font-weight:700;">
+        <td>Team Total</td>
+        <td>${totals.calls}</td>
+        <td>${totals.convos}</td>
+        <td>${callRate}%</td>
+        <td>${totals.meetingsBooked}</td>
+        <td>${totals.closedMeetings}</td>
+        <td>${meetingRate}%</td>
+        <td>${totals.closedDeals}</td>
+      </tr>` : "";
+    tbody.innerHTML = rows + totalRow;
+  }
 }
 
 /* ───────── Render: Expenses ───────── */
@@ -3732,20 +3861,42 @@ function setupModals(){
 
   $("#book-meeting-btn")?.addEventListener("click", () => {
     $("#book-meeting-form").reset();
+    $("#book-meeting-slot-idx").value = "";
+    $("#book-meeting-stage").value = "qualified";
     const assigneeSelect = $("#book-meeting-assignee");
     if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
     openModal("book-meeting-modal");
   });
+  // Also opened directly from a "Meeting booked N" checklist row (see
+  // window.openMeetingBookedPrompt below) - same modal, but pre-armed with
+  // which slot to mark done so the celebration lands on the right row.
+  window.openMeetingBookedPrompt = function(idx, x, y){
+    $("#book-meeting-form").reset();
+    $("#book-meeting-slot-idx").value = idx;
+    $("#book-meeting-stage").value = "qualified";
+    const assigneeSelect = $("#book-meeting-assignee");
+    if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
+    $("#book-meeting-form").dataset.x = x; $("#book-meeting-form").dataset.y = y;
+    openModal("book-meeting-modal");
+  };
   $("#book-meeting-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const form = e.target;
     const name = $("#book-meeting-name").value.trim();
     const phone = $("#book-meeting-phone").value.trim();
+    const company = $("#book-meeting-company").value.trim();
+    const email = $("#book-meeting-email").value.trim();
     const person = $("#book-meeting-assignee").value;
+    const stage = $("#book-meeting-stage").value;
+    const slotIdx = $("#book-meeting-slot-idx").value;
     if (!name) return;
-    const rect = $("#book-meeting-btn").getBoundingClientRect();
-    const deal = await bookMeeting(name, phone, person);
+    const btnRect = $("#book-meeting-btn").getBoundingClientRect();
+    const x = form.dataset.x ? Number(form.dataset.x) : btnRect.left + btnRect.width/2;
+    const y = form.dataset.y ? Number(form.dataset.y) : btnRect.top + btnRect.height/2;
+    delete form.dataset.x; delete form.dataset.y;
+    const deal = await bookMeeting(name, phone, person, { company, email, stage });
     closeModal("book-meeting-modal");
-    if (deal) window.bookMeetingInTracker?.(name, rect.left + rect.width/2, rect.top + rect.height/2);
+    if (deal) window.bookMeetingInTracker?.(name, x, y, slotIdx);
     if (!IS_CONFIGURED) return; renderAll();
   });
 
@@ -3885,6 +4036,7 @@ function setupModals(){
     const row = {
       name: $("#client-name").value.trim(),
       cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
+      monthly_ad_spend: $("#client-monthly-ad-spend").value !== "" ? Number($("#client-monthly-ad-spend").value) : null,
       quote_target: $("#client-quote-target").value !== "" ? Number($("#client-quote-target").value) : null,
       notes: $("#client-notes").value.trim(),
       meta_ad_account_id: $("#client-meta-account").value.trim(),
@@ -4371,6 +4523,24 @@ function setupAnalyticsFilters(){
   });
 }
 
+function setupStatisticsFilters(){
+  const fromField = $("#stats-custom-from-field");
+  const toField = $("#stats-custom-to-field");
+  $("#stats-person-filter")?.addEventListener("change", (e) => {
+    state.statsFilter.person = e.target.value;
+    renderStatistics();
+  });
+  $("#stats-range-filter")?.addEventListener("change", (e) => {
+    state.statsFilter.range = e.target.value;
+    const isCustom = e.target.value === "custom";
+    if (fromField) fromField.style.display = isCustom ? "" : "none";
+    if (toField) toField.style.display = isCustom ? "" : "none";
+    renderStatistics();
+  });
+  $("#stats-custom-from")?.addEventListener("change", (e) => { state.statsFilter.customFrom = e.target.value; renderStatistics(); });
+  $("#stats-custom-to")?.addEventListener("change", (e) => { state.statsFilter.customTo = e.target.value; renderStatistics(); });
+}
+
 function setupQualifyModal(){
   $("#qualify-yes")?.addEventListener("click", () => resolveMeetingReview("qualified"));
   $("#qualify-internal")?.addEventListener("click", () => resolveMeetingReview("internal"));
@@ -4392,6 +4562,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCallWidget();
   setupTaskFilters();
   setupAnalyticsFilters();
+  setupStatisticsFilters();
   initAuth();
 });
 })();

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=47">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=47">
+<link rel="stylesheet" href="css/style.css?v=48">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=48">
 </head>
 <body>
 
@@ -163,6 +163,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span>Tasks</span>
       </button>
+      <button class="nav-item" data-page="statistics" data-workspace="sales">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="13" width="3" height="5"/><rect x="12" y="9" width="3" height="9"/><rect x="17" y="5" width="3" height="13"/></svg>
+        <span>Statistics</span>
+      </button>
       <button class="nav-item" data-page="clients" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/></svg>
         <span>Clients</span>
@@ -255,9 +259,9 @@
       <div data-workspace="delivery">
         <div class="stat-grid">
           <div class="stat-card stat-card-spend">
-            <div class="stat-label">Ad Spend Under Management</div>
+            <div class="stat-label">Monthly Ad Spend</div>
             <div class="stat-value" id="stat-ad-spend-managed">$0</div>
-            <div class="stat-sub" id="stat-ad-spend-managed-sub">All-time, across every synced client</div>
+            <div class="stat-sub" id="stat-ad-spend-managed-sub">This month, across every active client</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Active Clients</div>
@@ -857,8 +861,9 @@
           <div class="quote-guarantee-sub" id="quote-guarantee-sub">10 remaining to hit the guarantee</div>
         </div>
 
-        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
+        <div class="stat-grid" style="grid-template-columns:repeat(5,1fr);">
           <div class="stat-card"><div class="stat-label">Cost Per Lead</div><div class="stat-value" id="client-detail-cpl">-</div></div>
+          <div class="stat-card"><div class="stat-label">Monthly Ad Spend</div><div class="stat-value" id="client-detail-monthly-spend">-</div></div>
           <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="client-detail-campaigns-running">0</div></div>
           <div class="stat-card"><div class="stat-label">Total Campaigns</div><div class="stat-value" id="client-detail-campaigns-total">0</div></div>
           <div class="stat-card">
@@ -1171,6 +1176,64 @@
         </div>
       </div>
     </section>
+
+    <!-- Statistics (long-term activity data, any person, any time range) -->
+    <section class="page" id="page-statistics">
+      <div class="page-header">
+        <div><h2>Statistics</h2><p>Calls, meetings, and conversion rates for the whole team - filter by person and time range.</p></div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <div class="field-row" style="align-items:flex-end;flex-wrap:wrap;">
+            <div class="field">
+              <label>Person</label>
+              <select id="stats-person-filter">
+                <option value="">Whole Team</option>
+                <option value="rocky">Rocky</option>
+                <option value="max">Max</option>
+                <option value="bailey">Bailey</option>
+                <option value="gabriel">Gabriel</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Time Range</label>
+              <select id="stats-range-filter">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="month">This Month</option>
+                <option value="last_month">Last Month</option>
+                <option value="year">This Year</option>
+                <option value="all" selected>All Time</option>
+                <option value="custom">Custom Range</option>
+              </select>
+            </div>
+            <div class="field" id="stats-custom-from-field" style="display:none;">
+              <label>From</label>
+              <input type="date" id="stats-custom-from">
+            </div>
+            <div class="field" id="stats-custom-to-field" style="display:none;">
+              <label>To</label>
+              <input type="date" id="stats-custom-to">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stat-grid" id="stats-summary-grid" style="grid-template-columns:repeat(4,1fr);"></div>
+
+      <div class="card mtr-card-gap">
+        <div class="card-header"><h3>By Person</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Person</th><th>Calls</th><th>Conversations</th><th>Call Conversion</th><th>Meetings Booked</th><th>Closed Meetings</th><th>Meeting Conversion</th><th>Closed Deals</th></tr></thead>
+            <tbody id="stats-breakdown-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -1300,15 +1363,32 @@
   <div class="modal">
     <div class="modal-header"><h3>Book a Meeting</h3><button class="modal-close" data-close="book-meeting-modal">&times;</button></div>
     <form id="book-meeting-form" class="modal-body">
+      <input type="hidden" id="book-meeting-slot-idx">
       <div class="field"><label>Name</label><input type="text" id="book-meeting-name" required placeholder="e.g. Marlon Reeve"></div>
-      <div class="field"><label>Phone</label><input type="tel" id="book-meeting-phone" placeholder="e.g. 021 123 4567"></div>
-      <div class="field"><label>Assigned To</label>
-        <select id="book-meeting-assignee">
-          <option value="rocky">Rocky</option>
-          <option value="max">Max</option>
-          <option value="bailey">Bailey</option>
-          <option value="gabriel">Gabriel</option>
-        </select>
+      <div class="field-row">
+        <div class="field"><label>Company</label><input type="text" id="book-meeting-company" placeholder="e.g. Reeve Builders"></div>
+        <div class="field"><label>Phone</label><input type="tel" id="book-meeting-phone" placeholder="e.g. 021 123 4567"></div>
+      </div>
+      <div class="field"><label>Email</label><input type="email" id="book-meeting-email" placeholder="e.g. marlon@reevebuilders.co.nz"></div>
+      <div class="field-row">
+        <div class="field"><label>Assigned To</label>
+          <select id="book-meeting-assignee">
+            <option value="rocky">Rocky</option>
+            <option value="max">Max</option>
+            <option value="bailey">Bailey</option>
+            <option value="gabriel">Gabriel</option>
+          </select>
+        </div>
+        <div class="field"><label>Pipeline Stage</label>
+          <select id="book-meeting-stage">
+            <option value="qualified">Meeting Booked</option>
+            <option value="proposal">Proposal Meeting</option>
+            <option value="negotiation">Negotiation</option>
+            <option value="pending_results">Pending Results</option>
+            <option value="closed_won">Closed Won</option>
+            <option value="closed_lost">Closed Lost</option>
+          </select>
+        </div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="book-meeting-modal">Cancel</button>
@@ -1484,7 +1564,10 @@
         </div>
         <div class="field"><label>Cost Per Lead Target (NZD)</label><input type="number" id="client-cpl" min="0" step="0.01" placeholder="e.g. 25"></div>
       </div>
-      <div class="field" id="client-quote-target-field" style="display:none;"><label>Quote Target</label><input type="number" id="client-quote-target" min="1" step="1" placeholder="e.g. 10"></div>
+      <div class="field-row">
+        <div class="field"><label>Monthly Ad Spend (NZD)</label><input type="number" id="client-monthly-ad-spend" min="0" step="1" placeholder="e.g. 1250"></div>
+        <div class="field" id="client-quote-target-field" style="display:none;"><label>Quote Target</label><input type="number" id="client-quote-target" min="1" step="1" placeholder="e.g. 10"></div>
+      </div>
       <div class="field"><label>Notes</label><textarea id="client-notes" placeholder="Anything worth knowing about this client..."></textarea></div>
 
       <div class="modal-section-label">Meta &amp; Reporting</div>
@@ -1752,10 +1835,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=47"></script>
-<script src="js/supabaseClient.js?v=47"></script>
-<script src="js/app.js?v=47"></script>
-<script src="js/meetings-tracker.js?v=47"></script>
-<script src="js/todo.js?v=47"></script>
+<script src="js/config.js?v=48"></script>
+<script src="js/supabaseClient.js?v=48"></script>
+<script src="js/app.js?v=48"></script>
+<script src="js/meetings-tracker.js?v=48"></script>
+<script src="js/todo.js?v=48"></script>
 </body>
 </html>
