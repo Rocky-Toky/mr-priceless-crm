@@ -134,7 +134,7 @@ const CLIENT_INFO_FIELDS = [
   { key: "client_rules", label: "Client Rules", hint: "Anything they're particular about, so nobody has to learn it the hard way." },
   { key: "key_contacts", label: "Key Contacts", hint: "Who the decision makers are and how to reach them." },
   { key: "communication_preferences", label: "Communication Preferences", hint: "Preferred channel, cadence, response expectations.", wide: true },
-  { key: "qualified_lead_structure", label: "Qualified Lead Structure", hint: "What actually counts as a good lead for this client." },
+  { key: "qualified_lead_structure", label: "Qualified Lead Structure", hint: "What actually counts as a good lead for this client - fills in automatically as you answer the qualifying questions on their Onboarding checklist." },
   { key: "branding_expectations", label: "Branding Expectations", hint: "Tone, colours, logo use - what to avoid." },
 ];
 function clientProfileCompleteness(c){
@@ -156,11 +156,12 @@ const ONBOARDING_SECTIONS = [
     "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that.",
   ]},
   { section: "Define What A Good Lead Looks Like For Them", items: [
-    "Ask what they consider a job they're happy to quote for.",
-    "Confirm their budget and timeline expectations.",
-    "Confirm their average job value.",
-    "Confirm the type of work they want to chase right now.",
-    "Confirm how far out from their base they're willing to quote.",
+    { text: "Ask what they consider a job they're happy to quote for.", answerable: true, fieldLabel: "What Counts As A Good Lead" },
+    { text: "Confirm their budget and timeline expectations.", answerable: true, fieldLabel: "Budget & Timeline Expectations" },
+    { text: "Confirm their average job value.", answerable: true, fieldLabel: "Average Job Value" },
+    { text: "Confirm the type of work they want to chase right now.", answerable: true, fieldLabel: "Ideal Work Right Now" },
+    { text: "Confirm how far out from their base they're willing to quote.", answerable: true, fieldLabel: "Service Radius" },
+    { text: "Confirm whether they can quote after hours or on weekends.", answerable: true, fieldLabel: "After-Hours / Weekend Quoting" },
   ]},
   { section: "Set Up Their Calendar", items: [
     "Confirm they're on Google Calendar and get the app downloaded on their phone - mention it syncs offline so it works anywhere.",
@@ -188,7 +189,40 @@ const ONBOARDING_SECTIONS = [
     "Let them know they can call anytime - if anything feels off, or they want to go deeper on strategy and what's actually happening behind the ads, we're always happy to jump on a call and sort it out together.",
   ]},
 ];
-const ONBOARDING_STEPS = ONBOARDING_SECTIONS.flatMap((s, si) => s.items.map((label, ii) => ({ key: `${si}_${ii}`, section: s.section, label })));
+const ONBOARDING_ANSWER_SUFFIX = "_answer";
+const ONBOARDING_STEPS = ONBOARDING_SECTIONS.flatMap((s, si) => s.items.map((item, ii) => {
+  const isObj = typeof item === "object";
+  return {
+    key: `${si}_${ii}`,
+    section: s.section,
+    label: isObj ? item.text : item,
+    answerable: isObj ? Boolean(item.answerable) : false,
+    fieldLabel: isObj ? item.fieldLabel : null,
+  };
+}));
+// Builds the client's Qualified Lead Structure text from every answered
+// onboarding qualifying question, so it's always a live mirror of what was
+// actually said on the call rather than something typed up separately after.
+function composeQualifiedLeadStructure(progress){
+  return ONBOARDING_STEPS
+    .filter(s => s.answerable)
+    .map(s => {
+      const answer = String(progress?.[s.key + ONBOARDING_ANSWER_SUFFIX] || "").trim();
+      return answer ? `${s.fieldLabel}: ${answer}` : null;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+async function saveOnboardingAnswer(clientId, stepKey, value){
+  const c = state.clients.find(x => x.id === clientId);
+  if (!c) return;
+  const progress = { ...(c.onboarding_progress || {}) };
+  progress[stepKey + ONBOARDING_ANSWER_SUFFIX] = value;
+  const qualified_lead_structure = composeQualifiedLeadStructure(progress);
+  c.onboarding_progress = progress;
+  c.qualified_lead_structure = qualified_lead_structure;
+  await DataLayer.update("clients", clientId, { onboarding_progress: progress, qualified_lead_structure });
+}
 
 const state = {
   page: "dashboard",
@@ -2104,18 +2138,43 @@ function renderOnboardingDetail(c){
   $("#onboarding-detail-progress-label").textContent = `${done} of ${ONBOARDING_STEPS.length} steps complete`;
   const progress = c.onboarding_progress || {};
 
+  // If a realtime update re-renders this list while someone's mid-typing an
+  // answer, preserve their unsaved text + cursor instead of clobbering it.
+  const listEl = $("#onboarding-steps-list");
+  const activeEl = document.activeElement;
+  const isEditingAnswer = listEl && activeEl && activeEl.classList?.contains("onboarding-answer-textarea") && listEl.contains(activeEl);
+  const activeStepKey = isEditingAnswer ? activeEl.dataset.step : null;
+  const activeValue = isEditingAnswer ? activeEl.value : null;
+  const activeSelStart = isEditingAnswer ? activeEl.selectionStart : null;
+  const activeSelEnd = isEditingAnswer ? activeEl.selectionEnd : null;
+
   let lastSection = null;
   const rows = ONBOARDING_STEPS.map(s => {
     const isDone = Boolean(progress[s.key]);
     const sectionHeader = s.section !== lastSection ? `<div class="onboarding-section-head">${escapeHtml(s.section)}</div>` : "";
     lastSection = s.section;
+    const answerBlock = s.answerable ? `
+      <div class="onboarding-step-answer">
+        <label>${escapeHtml(s.fieldLabel)}</label>
+        <textarea class="onboarding-answer-textarea" rows="2" data-id="${c.id}" data-step="${s.key}" placeholder="Type their answer as you go...">${escapeHtml(progress[s.key + ONBOARDING_ANSWER_SUFFIX] || "")}</textarea>
+      </div>` : "";
     return `${sectionHeader}
       <div class="onboarding-step-row ${isDone?'done':''}" data-action="toggle-onboarding-step" data-id="${c.id}" data-step="${s.key}">
         <div class="mtr-check task-check ${isDone?'done':''}">${TASK_CHECK_SVG}</div>
         <div class="onboarding-step-label">${escapeHtml(s.label)}</div>
-      </div>`;
+      </div>${answerBlock}`;
   }).join("");
   $("#onboarding-steps-list").innerHTML = rows;
+
+  if (activeStepKey){
+    const restored = listEl.querySelector(`.onboarding-answer-textarea[data-step="${activeStepKey}"]`);
+    if (restored){
+      restored.value = activeValue;
+      restored.focus();
+      if (activeSelStart != null) restored.setSelectionRange(activeSelStart, activeSelEnd);
+    }
+  }
+
   const completeBtn = $("#onboarding-complete-btn");
   if (completeBtn){
     completeBtn.dataset.id = c.id;
@@ -3178,6 +3237,12 @@ const ICONS = {
 function openModal(id){ $("#"+id).classList.add("visible"); }
 function closeModal(id){ $("#"+id).classList.remove("visible"); }
 function setupModals(){
+  $("#onboarding-steps-list")?.addEventListener("focusout", async (e) => {
+    const ta = e.target.closest?.(".onboarding-answer-textarea");
+    if (!ta) return;
+    await saveOnboardingAnswer(ta.dataset.id, ta.dataset.step, ta.value);
+  });
+
   $$("[data-close]").forEach(btn => btn.addEventListener("click", () => closeModal(btn.dataset.close)));
   $$(".overlay").forEach(ov => {
     if (ov.id === "qualify-modal") return; // requires an explicit Yes/No answer

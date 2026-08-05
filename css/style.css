@@ -513,6 +513,15 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .onboarding-step-row:hover{background:var(--gold-soft);}
 .onboarding-step-label{font-size:13.5px;color:var(--text);}
 .onboarding-step-row.done .onboarding-step-label{color:var(--text2);text-decoration:line-through;}
+.onboarding-step-answer{margin:0 4px 12px 40px;}
+.onboarding-step-answer label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gold-deep);margin-bottom:5px;}
+.onboarding-answer-textarea{
+  width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--paper);
+  font-size:13px;font-family:inherit;color:var(--text);resize:vertical;min-height:38px;
+  transition:border-color .15s,background .15s;
+}
+.onboarding-answer-textarea:focus{outline:none;border-color:var(--gold-border);background:var(--white);}
+.onboarding-answer-textarea::placeholder{color:var(--text2);}
 
 /* ───────── Creative Library ───────── */
 .creative-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(272px, 1fr));gap:18px;}
