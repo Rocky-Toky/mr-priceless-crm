@@ -145,6 +145,7 @@ const ONBOARDING_SECTIONS = [
   { section: "Before The Call", items: [
     "Book the onboarding call in with them.",
     "Prep their CRM setup ahead of time so it's ready to demo.",
+    { text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
     "Send the welcome email.",
   ]},
   { section: "Open With Energy", items: [
@@ -198,6 +199,7 @@ const ONBOARDING_STEPS = ONBOARDING_SECTIONS.flatMap((s, si) => s.items.map((ite
     label: isObj ? item.text : item,
     answerable: isObj ? Boolean(item.answerable) : false,
     fieldLabel: isObj ? item.fieldLabel : null,
+    derivedFrom: isObj ? item.derivedFrom || null : null,
   };
 }));
 // Builds the client's Qualified Lead Structure text from every answered
@@ -1464,6 +1466,22 @@ function toggleClientQuoteTargetField(){
   const field = $("#client-quote-target-field");
   if (field) field.style.display = $("#client-stage")?.value === "quote_guarantee" ? "" : "none";
 }
+function openEditClientModal(c){
+  state.selectedClientId = c.id;
+  $("#client-form-id").value = c.id;
+  $("#client-name").value = c.name||"";
+  $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
+  $("#client-notes").value = c.notes||"";
+  $("#client-meta-account").value = c.meta_ad_account_id||"";
+  $("#client-report-frequency").value = c.report_frequency||"monthly";
+  $("#client-report-email").value = c.report_email||"";
+  $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
+  $("#client-stage").value = c.stage||"onboarding";
+  $("#client-quote-target").value = c.quote_target != null ? c.quote_target : "";
+  toggleClientQuoteTargetField();
+  $("#client-modal-title").textContent = "Edit Client";
+  openModal("client-modal");
+}
 function toggleExpenseTypeFields(){
   const isProfit = $("#expense-type")?.value === "profit";
   const categoryField = $("#expense-category-field");
@@ -1975,17 +1993,24 @@ function renderClientDetail(c){
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   $("#client-detail-notes").textContent = c.notes || "No notes yet.";
   $("#client-detail-quotes").textContent = c.quotes_sent || 0;
-  const quoteProgress = $("#client-detail-quote-progress");
-  if (quoteProgress){
-    if (c.quote_target){
-      quoteProgress.style.display = "";
-      const pct = Math.min(100, Math.round((Number(c.quotes_sent||0) / c.quote_target) * 100));
-      $("#client-detail-quote-progress-fill").style.width = pct + "%";
-      $("#client-detail-quote-progress-label").textContent = `${c.quotes_sent||0} of ${c.quote_target} quotes`;
-    } else {
-      quoteProgress.style.display = "none";
+  const banner = $("#quote-guarantee-banner");
+  const isQuoteGuarantee = c.stage === "quote_guarantee" && c.quote_target;
+  if (banner){
+    banner.style.display = isQuoteGuarantee ? "" : "none";
+    if (isQuoteGuarantee){
+      const sent = Number(c.quotes_sent || 0);
+      const pct = Math.min(100, Math.round((sent / c.quote_target) * 100));
+      $("#quote-guarantee-sent").textContent = sent;
+      $("#quote-guarantee-target").textContent = c.quote_target;
+      $("#quote-guarantee-fill").style.width = pct + "%";
+      const remaining = Math.max(0, c.quote_target - sent);
+      $("#quote-guarantee-sub").textContent = remaining > 0
+        ? `${remaining} more to hit the guarantee`
+        : "Guarantee delivered - nice work.";
     }
   }
+  const quoteButtons = $("#client-detail-quote-buttons");
+  if (quoteButtons) quoteButtons.style.display = isQuoteGuarantee ? "none" : "";
 
   renderClientInfoGrid(c);
 
@@ -2082,9 +2107,13 @@ function setupContentDragDrop(){
 }
 
 /* ───────── Render: Onboarding (per-client tracker) ───────── */
-function onboardingDoneCount(client){
+function isOnboardingStepDone(client, step){
+  if (step.derivedFrom) return Boolean(client[step.derivedFrom]);
   const progress = client.onboarding_progress || {};
-  return ONBOARDING_STEPS.filter(s => progress[s.key]).length;
+  return Boolean(progress[step.key]);
+}
+function onboardingDoneCount(client){
+  return ONBOARDING_STEPS.filter(s => isOnboardingStepDone(client, s)).length;
 }
 function renderOnboarding(){
   const listView = $("#onboarding-list-view");
@@ -2150,7 +2179,7 @@ function renderOnboardingDetail(c){
 
   let lastSection = null;
   const rows = ONBOARDING_STEPS.map(s => {
-    const isDone = Boolean(progress[s.key]);
+    const isDone = isOnboardingStepDone(c, s);
     const sectionHeader = s.section !== lastSection ? `<div class="onboarding-section-head">${escapeHtml(s.section)}</div>` : "";
     lastSection = s.section;
     const answerBlock = s.answerable ? `
@@ -2158,6 +2187,16 @@ function renderOnboardingDetail(c){
         <label>${escapeHtml(s.fieldLabel)}</label>
         <textarea class="onboarding-answer-textarea" rows="2" data-id="${c.id}" data-step="${s.key}" placeholder="Type their answer as you go...">${escapeHtml(progress[s.key + ONBOARDING_ANSWER_SUFFIX] || "")}</textarea>
       </div>` : "";
+    if (s.derivedFrom){
+      // Auto-detected from the client's own data - no manual toggle, clicking
+      // it jumps straight to Edit Client so there's nothing to remember to tick.
+      return `${sectionHeader}
+        <div class="onboarding-step-row derived ${isDone?'done':''}" data-action="onboarding-edit-client" data-id="${c.id}" title="${isDone?'Already set':'Click to add it'}">
+          <div class="mtr-check task-check ${isDone?'done':''}">${TASK_CHECK_SVG}</div>
+          <div class="onboarding-step-label">${escapeHtml(s.label)}</div>
+          <span class="onboarding-step-auto">${isDone ? 'Auto-detected ✓' : 'Auto-detects - click to add'}</span>
+        </div>`;
+    }
     return `${sectionHeader}
       <div class="onboarding-step-row ${isDone?'done':''}" data-action="toggle-onboarding-step" data-id="${c.id}" data-step="${s.key}">
         <div class="mtr-check task-check ${isDone?'done':''}">${TASK_CHECK_SVG}</div>
@@ -3765,20 +3804,11 @@ function setupModals(){
     }
     if (action === "edit-client-header"){
       const c = state.clients.find(x => x.id === state.selectedClientId);
-      if (!c) return;
-      $("#client-form-id").value = c.id;
-      $("#client-name").value = c.name||"";
-      $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
-      $("#client-notes").value = c.notes||"";
-      $("#client-meta-account").value = c.meta_ad_account_id||"";
-      $("#client-report-frequency").value = c.report_frequency||"monthly";
-      $("#client-report-email").value = c.report_email||"";
-      $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
-      $("#client-stage").value = c.stage||"onboarding";
-      $("#client-quote-target").value = c.quote_target != null ? c.quote_target : "";
-      toggleClientQuoteTargetField();
-      $("#client-modal-title").textContent = "Edit Client";
-      openModal("client-modal");
+      if (c) openEditClientModal(c);
+    }
+    if (action === "onboarding-edit-client"){
+      const c = state.clients.find(x => x.id === id);
+      if (c) openEditClientModal(c);
     }
     if (action === "edit-client-info"){
       const c = state.clients.find(x => x.id === state.selectedClientId);

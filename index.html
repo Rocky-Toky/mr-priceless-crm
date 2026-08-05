@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=41">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=41">
+<link rel="stylesheet" href="css/style.css?v=42">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=42">
 </head>
 <body>
 
@@ -799,7 +799,7 @@
           <div class="stat-card"><div class="stat-label">Needs Attention</div><div class="stat-value" id="clients-stat-attention">0</div></div>
         </div>
         <div class="retention-alerts-panel" id="clients-alerts-panel" style="display:none;"></div>
-        <div class="kanban" id="clients-kanban-board"></div>
+        <div class="kanban clients-kanban" id="clients-kanban-board"></div>
       </div>
 
       <div id="clients-detail-view" style="display:none;">
@@ -819,6 +819,19 @@
           </div>
         </div>
 
+        <div class="quote-guarantee-banner" id="quote-guarantee-banner" style="display:none;">
+          <div class="quote-guarantee-top">
+            <span class="quote-guarantee-badge">Quote Guarantee</span>
+            <div class="quote-guarantee-actions">
+              <button type="button" class="icon-btn light" data-action="quote-decrement" title="Remove one">−</button>
+              <button type="button" class="icon-btn light" data-action="quote-increment" title="Add one">+</button>
+            </div>
+          </div>
+          <div class="quote-guarantee-count"><span id="quote-guarantee-sent">0</span> of <span id="quote-guarantee-target">10</span> quotes delivered</div>
+          <div class="quote-guarantee-bar"><div class="quote-guarantee-fill" id="quote-guarantee-fill" style="width:0%;"></div></div>
+          <div class="quote-guarantee-sub" id="quote-guarantee-sub">10 remaining to hit the guarantee</div>
+        </div>
+
         <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
           <div class="stat-card"><div class="stat-label">Cost Per Lead</div><div class="stat-value" id="client-detail-cpl">-</div></div>
           <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="client-detail-campaigns-running">0</div></div>
@@ -827,14 +840,10 @@
             <div class="stat-label">Quotes Sent</div>
             <div style="display:flex;align-items:center;gap:10px;">
               <div class="stat-value" id="client-detail-quotes">0</div>
-              <div style="display:flex;gap:4px;margin-left:auto;">
+              <div style="display:flex;gap:4px;margin-left:auto;" id="client-detail-quote-buttons">
                 <button type="button" class="icon-btn" data-action="quote-decrement" title="Remove one">−</button>
                 <button type="button" class="icon-btn" data-action="quote-increment" title="Add one">+</button>
               </div>
-            </div>
-            <div id="client-detail-quote-progress" style="display:none;margin-top:10px;">
-              <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" id="client-detail-quote-progress-fill" style="width:0%;"></div></div>
-              <div class="onboarding-progress-label" id="client-detail-quote-progress-label" style="margin-top:4px;"></div>
             </div>
           </div>
         </div>
@@ -1613,10 +1622,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=41"></script>
-<script src="js/supabaseClient.js?v=41"></script>
-<script src="js/app.js?v=41"></script>
-<script src="js/meetings-tracker.js?v=41"></script>
-<script src="js/todo.js?v=41"></script>
+<script src="js/config.js?v=42"></script>
+<script src="js/supabaseClient.js?v=42"></script>
+<script src="js/app.js?v=42"></script>
+<script src="js/meetings-tracker.js?v=42"></script>
+<script src="js/todo.js?v=42"></script>
 </body>
 </html>
