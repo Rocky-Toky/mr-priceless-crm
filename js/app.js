@@ -83,6 +83,25 @@ const ASSIGNEES = {
   bailey: { label: "Bailey", cls: "blue" },
   gabriel: { label: "Gabriel", cls: "purple" },
 };
+// Real login emails don't reliably reduce to their ASSIGNEES key (Max's is
+// maximus.smith@..., not max@...), so this is an explicit map rather than a
+// guess from the email's local part. Keep in sync with the allowlist.
+const EMAIL_TO_ASSIGNEE = {
+  "rockyoneill02@gmail.com": "rocky",
+  "maximus.smith@mrpriceless.com": "max",
+  "bailey.hanlon@mrpriceless.com": "bailey",
+  "gabriel.irvan@mrpriceless.com": "gabriel",
+};
+// Bailey and Gabriel are sales-only hires - Service Delivery stays
+// Rocky/Max only.
+const DELIVERY_RESTRICTED_EMAILS = new Set([
+  "bailey.hanlon@mrpriceless.com",
+  "gabriel.irvan@mrpriceless.com",
+]);
+function canAccessDelivery(){
+  const email = (state.user?.email || "").toLowerCase();
+  return !DELIVERY_RESTRICTED_EMAILS.has(email);
+}
 function getAssigneeFirstPref(){ return localStorage.getItem("crm_task_assignee_first") || "rocky"; }
 function setAssigneeFirstPref(v){ if (ASSIGNEES[v]) localStorage.setItem("crm_task_assignee_first", v); }
 const OUTCOMES = {
@@ -974,6 +993,9 @@ function showApp(){
   if (emailChip) emailChip.textContent = state.user.email;
   const initial = $("#user-initial");
   if (initial) initial.textContent = (state.user.email||"?").charAt(0).toUpperCase();
+  // setupNav() ran at page load before state.user existed, so the delivery
+  // workspace restriction needs re-checking now that we know who's signed in.
+  applyWorkspace();
   renderAll();
 }
 
@@ -1105,9 +1127,17 @@ function setWorkspace(w){
   applyWorkspace();
 }
 function applyWorkspace(){
-  const ws = getWorkspace();
+  let ws = getWorkspace();
+  if (ws === "delivery" && !canAccessDelivery()){
+    ws = "sales";
+    try { localStorage.setItem(WORKSPACE_KEY, ws); } catch(e){}
+  }
   const select = $("#workspace-select");
-  if (select) select.value = ws;
+  if (select){
+    select.value = ws;
+    const deliveryOption = select.querySelector('option[value="delivery"]');
+    if (deliveryOption) deliveryOption.style.display = canAccessDelivery() ? "" : "none";
+  }
   document.body.classList.toggle("workspace-sales", ws === "sales");
   document.body.classList.toggle("workspace-delivery", ws === "delivery");
   $$("[data-workspace]").forEach(el => {
@@ -1261,166 +1291,25 @@ function emptyState(msg){ return `<div class="empty-state"><p>${escapeHtml(msg)}
 
 /* ───────── Render: Call Analytics (Meetings Booked) ───────── */
 function monthKey(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); }
-function callActivityFor(person, dateStr){ return state.callActivity.find(r => r.person === person && r.activity_date === dateStr); }
-function renderCallAnalytics(){
-  const grid = $("#analytics-week-grid");
-  if (!grid) return;
-
+// Calls/meetings/conversion breakdowns now live on the Statistics page -
+// this just keeps the one input that isn't a report: which playbook each
+// person is actually running with this month.
+function renderPlaybookUsagePicker(){
+  const wrap = $("#playbook-usage-cards");
+  if (!wrap) return;
   const people = Object.keys(ASSIGNEES);
-  const monday = startOfWeek(new Date());
-  const days = Array.from({length:7}, (_,i) => { const d = new Date(monday); d.setDate(monday.getDate()+i); return d; });
-  const todayStr = new Date().toISOString().slice(0,10);
-
-  grid.innerHTML = `
-    <table>
-      <thead>
-        <tr><th>Day</th>${people.map(p => `<th colspan="2">${ASSIGNEES[p].label}</th>`).join("")}</tr>
-        <tr><th></th>${people.map(() => `<th>Calls</th><th>Meetings</th>`).join("")}</tr>
-      </thead>
-      <tbody>
-        ${days.map(d => {
-          const dateStr = d.toISOString().slice(0,10);
-          const isToday = dateStr === todayStr;
-          const label = d.toLocaleDateString("en-NZ", {weekday:"short", day:"numeric"});
-          return `<tr${isToday?' class="analytics-today-row"':''}>
-            <td>${label}</td>
-            ${people.map(p => {
-              const row = callActivityFor(p, dateStr);
-              return `<td>${row?.calls ?? "-"}</td><td>${row?.meetings_booked ?? "-"}</td>`;
-            }).join("")}
-          </tr>`;
-        }).join("")}
-      </tbody>
-    </table>
-  `;
-
-  const closedDealsFor = (p, periodPrefix) => state.deals.filter(d =>
-    d.assignee === p && d.stage === "closed_won" && (d.updated_at||d.created_at||"").slice(0, periodPrefix.length) === periodPrefix
-  ).length;
-  // Meeting conversion is deal-record based (not the tap counter above) so
-  // "booked" and "closed" are counted from the same source and stay
-  // internally consistent - a meeting is "booked" the moment its deal is
-  // created, and "closed" once that same deal reaches MEETING_CLOSE_STAGES,
-  // regardless of when the close happened.
-  const meetingsBookedFor = (p, periodPrefix) => state.deals.filter(d =>
-    d.assignee === p && (d.created_at||"").slice(0, periodPrefix.length) === periodPrefix
-  ).length;
-  const closedMeetingsFor = (p, periodPrefix) => state.deals.filter(d =>
-    d.assignee === p && MEETING_CLOSE_STAGES.has(d.stage) && (d.created_at||"").slice(0, periodPrefix.length) === periodPrefix
-  ).length;
-
-  // Person cards are built here rather than hardcoded per-name in HTML, so
-  // adding another cold caller to ASSIGNEES is all it takes for them to get
-  // their own analytics - no markup edits needed.
   const thisMonth = monthKey(new Date());
-  const monthCards = $("#analytics-month-cards");
-  if (monthCards){
-    monthCards.innerHTML = people.map(p => {
-      const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,7) === thisMonth);
-      const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
-      const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
-      const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
-      const closed = closedDealsFor(p, thisMonth);
-      const rate = calls ? Math.round(convos/calls*100) : 0;
-      const meetingsBooked = meetingsBookedFor(p, thisMonth);
-      const closedMeetings = closedMeetingsFor(p, thisMonth);
-      const meetingRate = meetingsBooked ? Math.round(closedMeetings/meetingsBooked*100) : 0;
-      const usage = state.playbookUsage.find(u => u.person === p && u.month === thisMonth);
-      const options = `<option value="">- Not set -</option>` + state.playbooks.map(pb => `<option value="${pb.id}" ${usage?.playbook_id===pb.id?"selected":""}>${escapeHtml(pb.title)}</option>`).join("");
-      return `
-        <div class="analytics-person-card">
-          <h4>${escapeHtml(ASSIGNEES[p].label)} - This Month</h4>
-          <div class="analytics-person-stats">
-            <div><div class="stat-value">${calls}</div><div class="stat-label">Calls</div></div>
-            <div><div class="stat-value">${meetings}</div><div class="stat-label">Meetings</div></div>
-            <div><div class="stat-value">${closed}</div><div class="stat-label">Closed Deals</div></div>
-            <div><div class="stat-value">${rate}%</div><div class="stat-label">Conversion</div></div>
-            <div><div class="stat-value">${closedMeetings}</div><div class="stat-label">Closed Meetings</div></div>
-            <div><div class="stat-value">${meetingRate}%</div><div class="stat-label">Meeting Conversion</div></div>
-          </div>
-          <div class="field"><label>Playbook used this month</label>
-            <select data-playbook-person="${p}">${options}</select>
-          </div>
-        </div>`;
-    }).join("");
-  }
-
-  const thisYear = String(new Date().getFullYear());
-  const yearSubhead = $("#analytics-year-subhead");
-  if (yearSubhead) yearSubhead.textContent = `This Year's Results (${thisYear})`;
-  let teamYearCalls = 0, teamYearConvos = 0, teamYearMeetings = 0, teamYearClosed = 0, teamYearMeetingsBooked = 0, teamYearClosedMeetings = 0;
-  const yearCards = $("#analytics-year-cards");
-  if (yearCards){
-    const personCards = people.map(p => {
-      const rows = state.callActivity.filter(r => r.person === p && r.activity_date.slice(0,4) === thisYear);
-      const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
-      const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
-      const meetings = rows.reduce((s,r) => s + (r.meetings_booked||0), 0);
-      const closed = closedDealsFor(p, thisYear);
-      const rate = calls ? Math.round(convos/calls*100) : 0;
-      const meetingsBooked = meetingsBookedFor(p, thisYear);
-      const closedMeetings = closedMeetingsFor(p, thisYear);
-      const meetingRate = meetingsBooked ? Math.round(closedMeetings/meetingsBooked*100) : 0;
-      teamYearCalls += calls; teamYearConvos += convos; teamYearMeetings += meetings; teamYearClosed += closed;
-      teamYearMeetingsBooked += meetingsBooked; teamYearClosedMeetings += closedMeetings;
-      return `
-        <div class="analytics-person-card">
-          <h4>${escapeHtml(ASSIGNEES[p].label)}</h4>
-          <div class="analytics-person-stats">
-            <div><div class="stat-value">${calls}</div><div class="stat-label">Calls</div></div>
-            <div><div class="stat-value">${meetings}</div><div class="stat-label">Meetings</div></div>
-            <div><div class="stat-value">${closed}</div><div class="stat-label">Closed Deals</div></div>
-            <div><div class="stat-value">${rate}%</div><div class="stat-label">Conversion</div></div>
-            <div><div class="stat-value">${closedMeetings}</div><div class="stat-label">Closed Meetings</div></div>
-            <div><div class="stat-value">${meetingRate}%</div><div class="stat-label">Meeting Conversion</div></div>
-          </div>
-        </div>`;
-    });
-    const teamYearRate = teamYearCalls ? Math.round(teamYearConvos/teamYearCalls*100) : 0;
-    const teamYearMeetingRate = teamYearMeetingsBooked ? Math.round(teamYearClosedMeetings/teamYearMeetingsBooked*100) : 0;
-    const teamCard = `
-      <div class="analytics-person-card analytics-team-card">
-        <h4>Team Combined</h4>
-        <div class="analytics-person-stats">
-          <div><div class="stat-value">${teamYearCalls}</div><div class="stat-label">Calls</div></div>
-          <div><div class="stat-value">${teamYearMeetings}</div><div class="stat-label">Meetings</div></div>
-          <div><div class="stat-value">${teamYearClosed}</div><div class="stat-label">Closed Deals</div></div>
-          <div><div class="stat-value">${teamYearRate}%</div><div class="stat-label">Conversion</div></div>
-          <div><div class="stat-value">${teamYearClosedMeetings}</div><div class="stat-label">Closed Meetings</div></div>
-          <div><div class="stat-value">${teamYearMeetingRate}%</div><div class="stat-label">Meeting Conversion</div></div>
+  wrap.innerHTML = people.map(p => {
+    const usage = state.playbookUsage.find(u => u.person === p && u.month === thisMonth);
+    const options = `<option value="">- Not set -</option>` + state.playbooks.map(pb => `<option value="${pb.id}" ${usage?.playbook_id===pb.id?"selected":""}>${escapeHtml(pb.title)}</option>`).join("");
+    return `
+      <div class="analytics-person-card">
+        <h4>${escapeHtml(ASSIGNEES[p].label)}</h4>
+        <div class="field"><label>Playbook used this month</label>
+          <select data-playbook-person="${p}">${options}</select>
         </div>
       </div>`;
-    yearCards.innerHTML = personCards.join("") + teamCard;
-  }
-
-  const perfBody = $("#playbook-performance-tbody");
-  if (perfBody){
-    const perf = {};
-    state.playbookUsage.forEach(u => {
-      if (!u.playbook_id) return;
-      const rows = state.callActivity.filter(r => r.person === u.person && r.activity_date.slice(0,7) === u.month);
-      if (!perf[u.playbook_id]) perf[u.playbook_id] = { months: new Set(), calls:0, convos:0, meetings:0 };
-      const bucket = perf[u.playbook_id];
-      bucket.months.add(`${u.person}:${u.month}`);
-      rows.forEach(r => { bucket.calls += r.calls||0; bucket.convos += r.conversations||0; bucket.meetings += r.meetings_booked||0; });
-    });
-    const ids = Object.keys(perf);
-    if (!ids.length){ perfBody.innerHTML = `<tr><td colspan="5">${emptyState("No playbook usage logged yet. Pick what you used above.")}</td></tr>`; }
-    else {
-      perfBody.innerHTML = ids.map(id => {
-        const pb = state.playbooks.find(x => x.id === id);
-        const b = perf[id];
-        const rate = b.calls ? Math.round(b.convos/b.calls*100) : 0;
-        return `<tr>
-          <td>${escapeHtml(pb?.title || "Deleted playbook")}</td>
-          <td>${b.months.size}</td>
-          <td>${b.calls}</td>
-          <td>${b.meetings}</td>
-          <td>${rate}%</td>
-        </tr>`;
-      }).join("");
-    }
-  }
+  }).join("");
 }
 async function savePlaybookUsage(person, playbookId){
   const thisMonth = monthKey(new Date());
@@ -1465,7 +1354,7 @@ window.CRM_CALL_ACTIVITY = {
         );
       } catch(e){ console.error("Couldn't sync call activity:", e); }
     }
-    renderCallAnalytics();
+    renderStatistics();
   },
 };
 // Switching "Tracking as" on the Meetings Booked page changes whose focus
@@ -1911,8 +1800,14 @@ const CALL_COOLDOWN_DAYS = { no_answer: 1, call_back: 3, not_interested: 60, int
 // two by taking the part before the @, which only works if everyone's email
 // actually starts with their ASSIGNEES key (e.g. bailey@...).
 function personKeyFromEmail(email){
-  const key = (email||"").split("@")[0].toLowerCase();
-  return ASSIGNEES[key] ? key : null;
+  const e = (email||"").toLowerCase();
+  if (EMAIL_TO_ASSIGNEE[e]) return EMAIL_TO_ASSIGNEE[e];
+  // Fallback for anyone not yet in the explicit map: try the email's local
+  // part whole, then just its first "."-separated token.
+  const local = e.split("@")[0];
+  if (ASSIGNEES[local]) return local;
+  const first = local.split(".")[0];
+  return ASSIGNEES[first] ? first : null;
 }
 // Every logged call is a call for analytics purposes; a "Booked Meeting"
 // outcome additionally counts as a meeting - same shared counter the
@@ -3092,7 +2987,11 @@ function renderRegions(){
   }).join("");
 }
 
-function prospectCallerLabel(email){ return email ? email.split("@")[0] : ""; }
+function prospectCallerLabel(email){
+  const key = personKeyFromEmail(email);
+  if (key) return ASSIGNEES[key].label;
+  return email ? email.split("@")[0] : "";
+}
 function renderProspectFilters(){
   const regionSel = $("#prospecting-filter-region");
   const industrySel = $("#prospecting-filter-industry");
@@ -3108,7 +3007,12 @@ function renderProspectFilters(){
     industrySel.value = state.dialerFilter.industry;
   }
   if (callerSel){
-    const callers = dialerDistinctValues("last_called_by");
+    // Always list the whole team, not just whoever has actually logged a
+    // call so far - otherwise a new hire stays invisible in this filter
+    // until their first call.
+    const knownEmails = Object.keys(EMAIL_TO_ASSIGNEE);
+    const otherCallers = dialerDistinctValues("last_called_by").filter(c => !knownEmails.includes(c));
+    const callers = [...knownEmails, ...otherCallers];
     callerSel.innerHTML = `<option value="">Called By - Anyone</option>` + callers.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(prospectCallerLabel(c))}</option>`).join("");
     callerSel.value = state.dialerFilter.caller;
   }
@@ -3267,7 +3171,7 @@ function renderTeamFocusPanel(){
 
 function renderAll(){
   renderDashboard();
-  renderCallAnalytics();
+  renderPlaybookUsagePicker();
   renderMeetingsPipeline();
   renderContacts();
   renderDeals();
@@ -4770,9 +4674,9 @@ function setupTaskFilters(){
 
 function setupAnalyticsFilters(){
   // Delegated because the playbook selects are rebuilt on every render
-  // (see renderCallAnalytics) - a direct per-id listener would only survive
-  // until the first re-render wiped it out.
-  $("#analytics-month-cards")?.addEventListener("change", (e) => {
+  // (see renderPlaybookUsagePicker) - a direct per-id listener would only
+  // survive until the first re-render wiped it out.
+  $("#playbook-usage-cards")?.addEventListener("change", (e) => {
     const select = e.target.closest("[data-playbook-person]");
     if (select) savePlaybookUsage(select.dataset.playbookPerson, select.value || null);
   });
