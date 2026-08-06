@@ -20,8 +20,7 @@ create policy "allowlisted full access" on rules
 
 alter publication supabase_realtime add table rules;
 
-insert into rules (title, sort_order) values
-  ('Meta Ads', 0),
-  ('Google Ads', 1),
-  ('Landing Pages & Websites', 2),
-  ('SEO', 3);
+insert into rules (title, sort_order)
+select v.title, v.sort_order
+from (values ('Meta Ads', 0), ('Google Ads', 1), ('Landing Pages & Websites', 2), ('SEO', 3)) as v(title, sort_order)
+where not exists (select 1 from rules r where r.title = v.title);
