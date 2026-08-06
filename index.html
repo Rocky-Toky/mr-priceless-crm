@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=48">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=48">
+<link rel="stylesheet" href="css/style.css?v=49">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=49">
 </head>
 <body>
 
@@ -662,6 +662,11 @@
         <div class="card-body" id="prospecting-region-progress"></div>
       </div>
 
+      <div class="card">
+        <div class="card-header"><h3>Team Focus</h3><span class="stat-sub">Optional - point someone at a vertical and it surfaces at the top of the shared list for them, without hiding anything from anyone else.</span></div>
+        <div class="card-body" id="prospecting-team-focus" style="display:flex;flex-wrap:wrap;gap:16px;"></div>
+      </div>
+
       <div class="toolbar" style="margin-top:24px;">
         <div class="search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
@@ -679,14 +684,7 @@
         <button class="btn ghost" id="prospecting-show-snoozed">Show recently called</button>
       </div>
 
-      <div class="card">
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Business</th><th>Phone</th><th>Region / Industry</th><th>Status</th><th>Notes</th><th></th></tr></thead>
-            <tbody id="prospecting-tbody"></tbody>
-          </table>
-        </div>
-      </div>
+      <div id="prospecting-groups" class="clients-gallery"></div>
 
       <h3 class="analytics-subhead" style="margin-top:28px;">Region Notes</h3>
       <div class="card">
@@ -1835,10 +1833,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=48"></script>
-<script src="js/supabaseClient.js?v=48"></script>
-<script src="js/app.js?v=48"></script>
-<script src="js/meetings-tracker.js?v=48"></script>
-<script src="js/todo.js?v=48"></script>
+<script src="js/config.js?v=49"></script>
+<script src="js/supabaseClient.js?v=49"></script>
+<script src="js/app.js?v=49"></script>
+<script src="js/meetings-tracker.js?v=49"></script>
+<script src="js/todo.js?v=49"></script>
 </body>
 </html>

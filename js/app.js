@@ -272,6 +272,8 @@ const state = {
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
   prospectingShowSnoozed: false,
+  prospectingCollapsedRegions: new Set(),
+  teamFocus: { rocky: null, max: null, bailey: null, gabriel: null },
   taskFilter: { status: "open", priority: "", sort: "due_date", assignee: "" },
   team: [],
   contactFilter: "",
@@ -376,6 +378,7 @@ function seedDemo(){
     { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", website:"reevebuilders.co.nz", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", snoozed_until:new Date(Date.now()+86400e3*1).toISOString(), notes:"[Aug 3, 1:30pm - max] No Answer: Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", website:"", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:new Date(Date.now()-3600e3*1).toISOString(), notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"M. Reeve", phone:"021 555 0111", company:"Reeve Builders Ltd", email:"", website:"", region:"North Shore", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"bailey@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
@@ -647,13 +650,14 @@ Cheers,
     { id:uid(), person:"rocky", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), person:"max", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
+  state.teamFocus = { rocky:null, max:"Landscaping", bailey:null, gabriel:null };
 }
 
 /* ───────── Data layer ───────── */
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, et, ex, ca, pu] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, et, ex, ca, pu, tf] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -672,6 +676,7 @@ const DataLayer = {
       supabase.from("expenses").select("*").order("expense_date",{ascending:false}),
       supabase.from("call_activity").select("*").order("activity_date",{ascending:false}),
       supabase.from("playbook_usage").select("*").order("month",{ascending:false}),
+      supabase.from("team_focus").select("*"),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -691,6 +696,8 @@ const DataLayer = {
     state.expenses = ex.data || [];
     state.callActivity = ca.data || [];
     state.playbookUsage = pu.data || [];
+    state.teamFocus = { rocky: null, max: null, bailey: null, gabriel: null };
+    (tf.data || []).forEach(row => { state.teamFocus[row.person] = row.industry || null; });
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -773,6 +780,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"expenses" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"call_activity" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"playbook_usage" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"team_focus" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -1326,6 +1334,23 @@ async function savePlaybookUsage(person, playbookId){
   else await DataLayer.insert("playbook_usage", row);
   if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
 }
+// Which vertical (industry) each person is focused on right now, so their
+// pick of the shared prospect list surfaces at the top for them without
+// hiding anything from the rest of the team - keyed by person, not id, so
+// this bypasses the generic id-based DataLayer and upserts directly.
+async function saveTeamFocus(person, industry){
+  if (!ASSIGNEES[person]) return;
+  state.teamFocus[person] = industry || null;
+  if (IS_CONFIGURED){
+    try {
+      await supabase.from("team_focus").upsert(
+        { person, industry: industry || null, updated_at: new Date().toISOString() },
+        { onConflict: "person" }
+      );
+    } catch(e){ console.error("Couldn't save team focus:", e); }
+  }
+  renderProspectList();
+}
 window.CRM_CALL_ACTIVITY = {
   async upsertToday(person, patch){
     if (!person) return;
@@ -1346,6 +1371,13 @@ window.CRM_CALL_ACTIVITY = {
     }
     renderCallAnalytics();
   },
+};
+// Switching "Tracking as" on the Meetings Booked page changes whose focus
+// vertical should be surfacing at the top of the shared Prospecting list -
+// meetings-tracker.js calls this after setActivePerson() so that list
+// updates immediately instead of waiting for the next unrelated re-render.
+window.CRM_REFRESH_PROSPECTING = function(){
+  if (typeof renderProspectList === "function") renderProspectList();
 };
 
 /* ───────── Render: Contacts ───────── */
@@ -1972,6 +2004,26 @@ function prospectDedupKey(p){
   const phoneDigits = digitsOnly(p.phone);
   if (phoneDigits) return "phone:" + phoneDigits;
   return "name:" + (p.name||"").trim().toLowerCase() + "|" + (p.company||"").trim().toLowerCase();
+}
+// Catches duplicates that make it onto the list some other way than
+// importProspectRows (manually added, or imported before this existed) -
+// same phone number, or same business/contact name, are both grounds for
+// a flag. Two callers ending up with the same lead under a different spelling
+// is exactly what this needs to catch, so it checks phone and name separately
+// rather than requiring both to match.
+function prospectDuplicateIds(list){
+  const byPhone = {}, byName = {};
+  list.forEach(p => {
+    const phoneDigits = digitsOnly(p.phone);
+    if (phoneDigits) (byPhone[phoneDigits] = byPhone[phoneDigits] || []).push(p);
+    const nameKey = (p.company || p.name || "").trim().toLowerCase();
+    if (nameKey) (byName[nameKey] = byName[nameKey] || []).push(p);
+  });
+  const dupeIds = new Set();
+  [byPhone, byName].forEach(groups => {
+    Object.values(groups).forEach(g => { if (g.length > 1) g.forEach(p => dupeIds.add(p.id)); });
+  });
+  return dupeIds;
 }
 // The whole point of a shared list: two different cold callers uploading
 // overlapping Google Maps scrapes should never end up with the same lead
@@ -2986,41 +3038,12 @@ function renderRegionProgress(){
     </div>
   `).join("");
 }
-// The master prospect list, shared team-wide, so everyone dialing off it -
-// Rocky, Max, and the new cold callers - can see who's already called who.
-// Logging a call snoozes a business out of this view for a few days, which
-// is what actually stops the same lead getting called twice.
-function renderProspectList(){
-  const tbody = $("#prospecting-tbody");
-  if (!tbody) return;
-  renderProspectFilters();
-  renderRegionProgress();
-  const baseFiltered = dialerFilteredProspects();
-  const snoozedCount = baseFiltered.filter(isSnoozed).length;
-  const filtered = state.prospectingShowSnoozed ? baseFiltered : baseFiltered.filter(p => !isSnoozed(p));
-  const neverCalled = baseFiltered.filter(p => !p.calls_made).length;
-  const industries = new Set(baseFiltered.map(p => p.industry).filter(Boolean)).size;
-  const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
-  st("#prospecting-stat-total", baseFiltered.length);
-  st("#prospecting-stat-ready", baseFiltered.length - snoozedCount);
-  st("#prospecting-stat-snoozed", snoozedCount);
-  st("#prospecting-stat-fresh", neverCalled);
-  st("#prospecting-stat-industries", industries);
-
-  const toggle = $("#prospecting-show-snoozed");
-  if (toggle) toggle.textContent = state.prospectingShowSnoozed ? `Hide recently called (${snoozedCount})` : `Show recently called (${snoozedCount})`;
-
-  if (!filtered.length){
-    tbody.innerHTML = `<tr><td colspan="6">${emptyState(baseFiltered.length ? "Everyone matching this filter has been called recently - toggle above to see them anyway." : "No prospects yet. Import a list or paste one in above.")}</td></tr>`;
-    return;
-  }
-  const sorted = [...filtered].sort((a,b) => (a.name||"").localeCompare(b.name||""));
-  tbody.innerHTML = sorted.map(p => {
-    const website = p.website ? (/^https?:\/\//i.test(p.website) ? p.website : "https://" + p.website) : "";
-    return `
+function renderProspectRow(p, opts={}){
+  const website = p.website ? (/^https?:\/\//i.test(p.website) ? p.website : "https://" + p.website) : "";
+  return `
     <tr data-id="${p.id}">
       <td>
-        <div class="row-name">${escapeHtml(p.name)}</div>
+        <div class="row-name">${escapeHtml(p.name)}${opts.dupe ? ` <span class="badge red" title="Shares a phone number or business name with another prospect on the list">Possible Duplicate</span>` : ""}</div>
         <div class="row-sub">${escapeHtml(p.company||"")}${website ? ` · <a href="${escapeHtml(website)}" target="_blank" rel="noopener">Website ↗</a>` : ""}</div>
       </td>
       <td>${escapeHtml(p.phone||"-")}</td>
@@ -3037,8 +3060,113 @@ function renderProspectList(){
         <button class="icon-btn" data-action="convert-prospect" data-id="${p.id}" title="Move to Contacts">${ICONS.moveToContact}</button>
         <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
       </td>
-    </tr>
-  `;}).join("");
+    </tr>`;
+}
+function prospectTableSection(rows, opts={}){
+  return `<div class="table-wrap"><table><thead><tr><th>Business</th><th>Phone</th><th>Region / Industry</th><th>Status</th><th>Notes</th><th></th></tr></thead><tbody>${rows.map(p => renderProspectRow(p, opts)).join("")}</tbody></table></div>`;
+}
+function prospectRegionSection({ key, dotColor, title, rows, dupe=false }){
+  const open = !state.prospectingCollapsedRegions.has(key) ? "open" : "";
+  const sorted = [...rows].sort((a,b) => (a.name||"").localeCompare(b.name||""));
+  return `
+    <details class="clients-stage-section prospect-region-section${dupe?" prospect-duplicates-section":""}" data-region="${escapeHtml(key)}" ${open}>
+      <summary class="clients-stage-header">
+        <span class="clients-stage-dot"${dotColor ? ` style="background:${dotColor};"` : ""}></span>
+        <h3>${title}</h3>
+        <span class="kanban-count">${rows.length}</span>
+      </summary>
+      <div class="prospect-region-table">${prospectTableSection(sorted, { dupe })}</div>
+    </details>`;
+}
+// The master prospect list, shared team-wide, so everyone dialing off it -
+// Rocky, Max, and the new cold callers - can see who's already called who.
+// Logging a call snoozes a business out of this view for a few days, which
+// is what actually stops the same lead getting called twice. Grouped by
+// region so the "map" of where the team is calling is obvious at a glance;
+// a person's assigned focus vertical (see team_focus) is pinned above the
+// regions without hiding anything else from the shared pool; and anything
+// sharing a phone number or business name with another row gets flagged and
+// pushed to its own section at the very bottom instead of silently sitting
+// in the regular flow, so nobody calls the same business twice.
+function renderProspectList(){
+  const groupsWrap = $("#prospecting-groups");
+  if (!groupsWrap) return;
+  renderProspectFilters();
+  renderRegionProgress();
+  renderTeamFocusPanel();
+  const baseFiltered = dialerFilteredProspects();
+  const snoozedCount = baseFiltered.filter(isSnoozed).length;
+  const filtered = state.prospectingShowSnoozed ? baseFiltered : baseFiltered.filter(p => !isSnoozed(p));
+  const neverCalled = baseFiltered.filter(p => !p.calls_made).length;
+  const industries = new Set(baseFiltered.map(p => p.industry).filter(Boolean)).size;
+  const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
+  st("#prospecting-stat-total", baseFiltered.length);
+  st("#prospecting-stat-ready", baseFiltered.length - snoozedCount);
+  st("#prospecting-stat-snoozed", snoozedCount);
+  st("#prospecting-stat-fresh", neverCalled);
+  st("#prospecting-stat-industries", industries);
+
+  const toggle = $("#prospecting-show-snoozed");
+  if (toggle) toggle.textContent = state.prospectingShowSnoozed ? `Hide recently called (${snoozedCount})` : `Show recently called (${snoozedCount})`;
+
+  if (!filtered.length){
+    groupsWrap.innerHTML = emptyState(baseFiltered.length ? "Everyone matching this filter has been called recently - toggle above to see them anyway." : "No prospects yet. Import a list or paste one in above.");
+    return;
+  }
+
+  // Checked against the whole shared list, not just what's currently visible,
+  // so a duplicate still gets flagged even when its sibling is hidden by the
+  // snoozed-call cooldown - otherwise the one row left showing would look
+  // like a fresh, never-called lead.
+  const dupeIds = prospectDuplicateIds(state.prospects);
+  const clean = filtered.filter(p => !dupeIds.has(p.id));
+  const dupes = filtered.filter(p => dupeIds.has(p.id));
+
+  const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+  const focusIndustry = activePerson ? state.teamFocus[activePerson] : null;
+  const focusList = focusIndustry ? clean.filter(p => (p.industry||"") === focusIndustry) : [];
+  const restList = focusIndustry ? clean.filter(p => (p.industry||"") !== focusIndustry) : clean;
+
+  const regionGroups = {};
+  restList.forEach(p => { const r = p.region || "No Region Set"; (regionGroups[r] = regionGroups[r] || []).push(p); });
+  const regionNames = Object.keys(regionGroups).sort((a,b) => a.localeCompare(b));
+
+  let html = "";
+  if (focusList.length){
+    html += prospectRegionSection({ key:"__focus__", dotColor:"var(--gold)", title:`⭐ Your Focus - ${escapeHtml(focusIndustry)}`, rows:focusList });
+  }
+  regionNames.forEach(r => {
+    html += prospectRegionSection({ key:r, title:escapeHtml(r), rows:regionGroups[r] });
+  });
+  if (dupes.length){
+    html += prospectRegionSection({ key:"__dupes__", dotColor:"var(--danger)", title:"⚠ Possible Duplicates", rows:dupes, dupe:true });
+  }
+
+  groupsWrap.innerHTML = html;
+  $$(".prospect-region-section", groupsWrap).forEach(section => {
+    section.addEventListener("toggle", () => {
+      const key = section.dataset.region;
+      if (section.open) state.prospectingCollapsedRegions.delete(key);
+      else state.prospectingCollapsedRegions.add(key);
+    });
+  });
+}
+// A small panel letting Rocky point a person at a vertical - everyone still
+// shares the same underlying list, this just changes what surfaces to the
+// top when that person is the one browsing it (see getActivePerson).
+function renderTeamFocusPanel(){
+  const wrap = $("#prospecting-team-focus");
+  if (!wrap) return;
+  const industries = dialerDistinctValues("industry");
+  const people = Object.keys(ASSIGNEES);
+  wrap.innerHTML = people.map(p => {
+    const options = `<option value="">No focus - see everything</option>` + industries.map(i => `<option value="${escapeHtml(i)}" ${state.teamFocus[p]===i?"selected":""}>${escapeHtml(i)}</option>`).join("");
+    return `
+      <div class="field" style="min-width:180px;">
+        <label>${escapeHtml(ASSIGNEES[p].label)}</label>
+        <select data-team-focus-person="${p}">${options}</select>
+      </div>`;
+  }).join("");
 }
 
 function renderAll(){
@@ -4501,6 +4629,12 @@ function setupDialerFilters(){
   $("#prospecting-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
   $("#prospecting-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
   $("#prospecting-filter-caller")?.addEventListener("change", (e) => { state.dialerFilter.caller = e.target.value; renderProspectViews(); });
+  // Delegated because the focus selects are rebuilt on every render (see
+  // renderTeamFocusPanel) - a direct per-id listener would be wiped out.
+  $("#prospecting-team-focus")?.addEventListener("change", (e) => {
+    const select = e.target.closest("[data-team-focus-person]");
+    if (select) saveTeamFocus(select.dataset.teamFocusPerson, select.value || null);
+  });
 }
 function setupTaskFilters(){
   $("#task-status-filter")?.addEventListener("change", (e) => { state.taskFilter.status = e.target.value; renderTasks(); });

@@ -867,29 +867,9 @@ function toggle(idx, el, e){
 }
 
 /* ══════════════════════════════════════════
-   EDIT NAME
-══════════════════════════════════════════ */
-function startEdit(idx,el){
-  el.classList.add('editing');
-  const input=el.querySelector('.mtr-row-name-edit');
-  input.value=state.meetings[idx].name;
-  setTimeout(()=>{input.focus();input.select();},10);
-  input.onkeydown=e=>{if(e.key==='Enter'||e.key==='Escape')finishEdit(idx,el);};
-  input.onblur=()=>finishEdit(idx,el);
-}
-function finishEdit(idx,el){
-  if(!el.classList.contains('editing'))return;
-  const val=el.querySelector('.mtr-row-name-edit').value.trim();
-  if(val) state.meetings[idx].name=val;
-  el.classList.remove('editing'); save(); renderItem(idx);
-  addLog(`Renamed to <strong>${state.meetings[idx].name}</strong>`,'reset');
-}
-
-/* ══════════════════════════════════════════
    RENDER ITEM
 ══════════════════════════════════════════ */
 const MTR_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
-const MTR_EDIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
 
 const BONUS_LABELS=['☁️ Cloud 9','⚙️ Machine','🦾 Terminator'];
 function renderItem(idx){
@@ -906,21 +886,16 @@ function renderItem(idx){
     <div class="mtr-check">${MTR_CHECK_SVG}</div>
     <div class="mtr-row-content">
       <div class="mtr-row-name-wrap">
-        <div class="mtr-row-name-display">
-          <span class="mtr-row-name">${m.name}</span>
-        </div>
-        <input class="mtr-row-name-edit" type="text" value="${m.name}" placeholder="Meeting name…">
+        <span class="mtr-row-name">${m.name}</span>
       </div>
       <div class="mtr-row-meta">
         <span>${isBonus?bonusLabel+' - booking '+(idx+1):'Booking '+(idx+1)+' of '+GOAL}</span>
         ${timeStr?`<span>· ${timeStr}</span>`:''}
       </div>
     </div>
-    <button class="mtr-edit-btn" title="Rename">${MTR_EDIT_SVG}</button>
     <span class="badge ${badgeClass}">${badgeText}</span>`;
   if(!existing){
     el.addEventListener('click',e=>{
-      if(el.classList.contains('editing')||e.target.closest('.mtr-edit-btn'))return;
       const m = state.meetings[idx];
       if (!m.done && window.openMeetingBookedPrompt){
         window.openMeetingBookedPrompt(idx, e.clientX, e.clientY);
@@ -930,12 +905,6 @@ function renderItem(idx){
     });
     list.appendChild(el);
   }
-  // el.innerHTML is rebuilt on every call (even when existing), which destroys
-  // and recreates this button - so its listener must be re-attached every time,
-  // not just on first creation like the row's own click listener above.
-  el.querySelector('.mtr-edit-btn').addEventListener('click',e=>{
-    e.stopPropagation(); startEdit(idx,el);
-  });
 }
 
 /* ══════════════════════════════════════════
@@ -1029,9 +998,6 @@ function addMeeting(){
   const isBonus=state.meetings.length>=GOAL;
   state.meetings.push({name:`Meeting ${state.meetings.length+1}`,done:false,time:null,bonus:isBonus});
   save(); renderAll();
-  const idx=state.meetings.length-1;
-  const list=idx<GOAL?document.getElementById('goal-list'):document.getElementById('bonus-list');
-  if(list.lastElementChild) startEdit(idx,list.lastElementChild);
 }
 
 function resetDay(){
@@ -1106,6 +1072,7 @@ if(personSelect){
     setActivePerson(e.target.value);
     state = await loadState();
     renderAll();
+    window.CRM_REFRESH_PROSPECTING?.();
   });
 }
 (async () => {
