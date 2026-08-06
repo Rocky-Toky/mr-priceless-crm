@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=62">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=62">
+<link rel="stylesheet" href="css/style.css?v=63">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=63">
 </head>
 <body>
 
@@ -1072,6 +1072,27 @@
         </div>
       </div>
 
+      <div class="card" style="margin-top:28px;">
+        <div class="card-header">
+          <h3>Meta Lead Center Import</h3>
+          <input type="file" id="lead-import-input" accept=".csv,.xlsx,.xls" style="display:none;">
+          <button class="btn gold" id="lead-import-btn">+ Import Leads CSV</button>
+        </div>
+        <p style="color:var(--text2);font-size:13px;padding:0 20px 4px;">Meta has no API for the Intake/Qualified/DQ'd status you set inside Leads Center - export a CSV from there and drop it in here to keep a running count.</p>
+        <div class="stat-grid" style="padding:0 20px;">
+          <div class="stat-card"><div class="stat-label">Total Leads Imported</div><div class="stat-value" id="lead-import-total">0</div></div>
+          <div class="stat-card"><div class="stat-label">Intake</div><div class="stat-value" id="lead-import-intake">0</div></div>
+          <div class="stat-card"><div class="stat-label">Qualified</div><div class="stat-value" id="lead-import-qualified">0</div></div>
+          <div class="stat-card"><div class="stat-label">DQ'd</div><div class="stat-value" id="lead-import-dq">0</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Client</th><th>Intake</th><th>Qualified</th><th>DQ'd</th><th>Other</th><th>Total</th></tr></thead>
+            <tbody id="lead-import-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <h3 class="analytics-subhead" style="margin-top:28px;">Client Ad Reports (Automated Email)</h3>
       <div class="stat-grid">
         <div class="stat-card"><div class="stat-label">Clients Connected</div><div class="stat-value" id="reporting-stat-configured">0</div></div>
@@ -1612,6 +1633,21 @@
   </div>
 </div>
 
+<!-- ───────── Modal: Lead Center Import - which client ───────── -->
+<div class="overlay" id="lead-import-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Which client are these leads for?</h3><button class="modal-close" data-close="lead-import-modal">&times;</button></div>
+    <form id="lead-import-form" class="modal-body">
+      <p style="color:var(--text2);font-size:13px;">Found <strong id="lead-import-count">0</strong> leads in that file - a Leads Center export is for one Page/client at a time, so pick which one this batch belongs to.</p>
+      <div class="field"><label>Client</label><select id="lead-import-client" required></select></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="lead-import-modal">Cancel</button>
+        <button type="submit" class="btn gold">Import</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ───────── Modal: Prospecting Region ───────── -->
 <div class="overlay" id="region-modal">
   <div class="modal">
@@ -1917,10 +1953,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=62"></script>
-<script src="js/supabaseClient.js?v=62"></script>
-<script src="js/app.js?v=62"></script>
-<script src="js/meetings-tracker.js?v=62"></script>
-<script src="js/todo.js?v=62"></script>
+<script src="js/config.js?v=63"></script>
+<script src="js/supabaseClient.js?v=63"></script>
+<script src="js/app.js?v=63"></script>
+<script src="js/meetings-tracker.js?v=63"></script>
+<script src="js/todo.js?v=63"></script>
 </body>
 </html>

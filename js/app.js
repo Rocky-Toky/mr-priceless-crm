@@ -294,6 +294,7 @@ const state = {
   expenses: [],
   callActivity: [],
   creativeSnapshots: [],
+  clientLeads: [],
   playbookUsage: [],
   selectedClientId: null,
   selectedOnboardingClientId: null,
@@ -466,6 +467,13 @@ function seedDemo(){
     { id:uid(), client_id:cl1, campaign_id:campAucklandLeadGen, name:"Drone listing reel v1", result:"winner", notes:"Lowest CPL so far, keep scaling.", meta_ad_id:"120211234567890123", impressions:18420, clicks:512, spend:284.50, results:11, cost_per_result:25.86, insights_updated_at:new Date(Date.now()-3600e3*3).toISOString(), created_at:new Date(Date.now()-86400e3*20).toISOString() },
     { id:uid(), client_id:cl1, campaign_id:campAucklandLeadGen, name:"Static \"just sold\" carousel", result:"killed", meta_ad_id:"120211234567890124", impressions:9310, clicks:118, spend:96.20, results:2, cost_per_result:48.10, insights_updated_at:new Date(Date.now()-86400e3*14).toISOString(), notes:"CTR too low, paused after 3 days.", created_at:new Date(Date.now()-86400e3*15).toISOString() },
     { id:uid(), client_id:cl2, name:"Before/after smile carousel", result:"testing", notes:"", created_at:new Date(Date.now()-86400e3*2).toISOString() },
+  ];
+  state.clientLeads = [
+    { id:uid(), client_id:cl1, external_lead_id:"1001", name:"Renee Ford", email:"renee.ford@example.com", phone:"021 555 0201", status:"Qualified", form_name:"Free Appraisal Form", lead_created_at:new Date(Date.now()-86400e3*3).toISOString(), imported_at:new Date(Date.now()-86400e3*1).toISOString() },
+    { id:uid(), client_id:cl1, external_lead_id:"1002", name:"Tama Wiremu", email:"tama.w@example.com", phone:"021 555 0202", status:"Intake", form_name:"Free Appraisal Form", lead_created_at:new Date(Date.now()-86400e3*2).toISOString(), imported_at:new Date(Date.now()-86400e3*1).toISOString() },
+    { id:uid(), client_id:cl1, external_lead_id:"1003", name:"Hana Wilson", email:"hana.wilson@example.com", phone:"021 555 0203", status:"DQ'd", form_name:"Free Appraisal Form", lead_created_at:new Date(Date.now()-86400e3*4).toISOString(), imported_at:new Date(Date.now()-86400e3*1).toISOString() },
+    { id:uid(), client_id:cl2, external_lead_id:"2001", name:"Jordan Lee", email:"jordan.lee@example.com", phone:"027 555 0301", status:"Intake", form_name:"Whitening Promo Form", lead_created_at:new Date(Date.now()-86400e3*1).toISOString(), imported_at:new Date(Date.now()-86400e3*1).toISOString() },
+    { id:uid(), client_id:cl2, external_lead_id:"2002", name:"Amy Zhang", email:"amy.zhang@example.com", phone:"027 555 0302", status:"Qualified", form_name:"Whitening Promo Form", lead_created_at:new Date(Date.now()-86400e3*5).toISOString(), imported_at:new Date(Date.now()-86400e3*1).toISOString() },
   ];
   state.dealContacts = [];
   state.tasks = [
@@ -788,7 +796,7 @@ Cheers,
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -810,6 +818,7 @@ const DataLayer = {
       supabase.from("playbook_usage").select("*").order("month",{ascending:false}),
       supabase.from("team_focus").select("*"),
       supabase.from("creative_weekly_snapshots").select("*"),
+      supabase.from("client_leads").select("*").order("created_at",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -833,6 +842,7 @@ const DataLayer = {
     state.teamFocus = { rocky: null, max: null, bailey: null, gabriel: null };
     (tf.data || []).forEach(row => { state.teamFocus[row.person] = row.industry || null; });
     state.creativeSnapshots = cws.data || [];
+    state.clientLeads = clead.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -906,6 +916,7 @@ function stateArray(table){
     client_reports: state.clientReports, notes: state.notes, playbooks: state.playbooks,
     rules: state.rules, email_templates: state.emailTemplates,
     expenses: state.expenses, call_activity: state.callActivity, playbook_usage: state.playbookUsage,
+    client_leads: state.clientLeads,
   }[table];
 }
 
@@ -936,6 +947,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"playbook_usage" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"creative_weekly_snapshots" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"team_focus" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"client_leads" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -2281,6 +2293,176 @@ function setupPasteProspects(){
   });
 }
 
+/* ───────── Meta Lead Center import (manual CSV, since Meta's Leads Center
+   has no API for its own status field - only the raw lead submission is
+   ever exposed via Graph API, so a status breakdown can only come from
+   whatever CSV a person exports by hand from Leads Center itself) ───────── */
+// Meta's Leads Center CSV column names aren't officially documented and
+// can vary, so headers are matched by keyword rather than an exact name.
+// Exact matches are tried first (across every candidate, in priority order)
+// before falling back to substrings, so a generic word like "id" can't
+// accidentally grab an unrelated column like "form_id".
+function findLeadCol(headers, ...names){
+  for (const n of names){ const i = headers.findIndex(h => h === n); if (i > -1) return i; }
+  for (const n of names){ const i = headers.findIndex(h => h.includes(n)); if (i > -1) return i; }
+  return -1;
+}
+function toIsoOrNull(s){
+  if (!s) return null;
+  const t = Date.parse(s);
+  return isNaN(t) ? null : new Date(t).toISOString();
+}
+function mapLeadImportRows(rows){
+  if (!rows.length) return null;
+  const headers = rows[0].map(h => String(h||"").trim().toLowerCase());
+  const idIdx = findLeadCol(headers, "lead id","leadgen_id","lead_id","id");
+  const nameIdx = findLeadCol(headers, "full_name","full name","name");
+  const emailIdx = findLeadCol(headers, "email");
+  const phoneIdx = findLeadCol(headers, "phone_number","phone number","phone","mobile");
+  const statusIdx = findLeadCol(headers, "lead_status","lead status","status","stage");
+  const formIdx = findLeadCol(headers, "form_name","form name","form_id","form");
+  const createdIdx = findLeadCol(headers, "created_time","created time","created","date");
+  const matchCount = [idIdx,nameIdx,emailIdx,phoneIdx,statusIdx,formIdx,createdIdx].filter(i => i > -1).length;
+  if (matchCount < 2) return null;
+  return rows.slice(1).map(r => ({
+    external_lead_id: idIdx>-1 ? String(r[idIdx]||"").trim() : "",
+    name: nameIdx>-1 ? String(r[nameIdx]||"").trim() : "",
+    email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
+    phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
+    status: statusIdx>-1 ? String(r[statusIdx]||"").trim() : "",
+    form_name: formIdx>-1 ? String(r[formIdx]||"").trim() : "",
+    created_time: createdIdx>-1 ? String(r[createdIdx]||"").trim() : "",
+  })).filter(l => l.name || l.email || l.phone || l.external_lead_id);
+}
+// A lead's identity for re-import purposes, since exporting overlapping date
+// ranges (or the same range twice) should update a lead's status in place
+// rather than create a second row for it.
+function leadDedupKey(l){
+  if (l.external_lead_id) return "id:" + l.external_lead_id;
+  const phoneDigits = digitsOnly(l.phone);
+  if (phoneDigits) return "phone:" + phoneDigits;
+  if (l.email) return "email:" + l.email.trim().toLowerCase();
+  return "name:" + (l.name||"").trim().toLowerCase() + "|" + (l.created_time||"");
+}
+// Loosely buckets whatever raw status text Leads Center exported into the
+// three buckets used for reporting. Disqualified is checked before qualified
+// since "qualified" is a substring of "disqualified". Anything that doesn't
+// match a known label lands in Other rather than being silently miscounted.
+function classifyLeadStatus(raw){
+  const s = String(raw||"").trim().toLowerCase();
+  if (!s) return "Intake";
+  if (s.includes("disqualif") || /\bdq\b/.test(s) || s.includes("not interested") || s.includes("not qualif")) return "DQ'd";
+  if (s.includes("qualif")) return "Qualified";
+  if (s.includes("intake") || s.includes("new")) return "Intake";
+  return "Other";
+}
+let pendingLeadImportRows = null;
+function promptLeadImportClient(leads){
+  if (!leads || !leads.length){ alert("Couldn't find recognisable columns (name/email/phone/status) in that file."); return; }
+  pendingLeadImportRows = leads;
+  $("#lead-import-count").textContent = leads.length;
+  const select = $("#lead-import-client");
+  if (select) select.innerHTML = state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+  openModal("lead-import-modal");
+}
+async function importClientLeads(clientId, leads){
+  if (!leads.length){ alert("No rows found to import."); return; }
+  const existing = state.clientLeads.filter(l => l.client_id === clientId);
+  const byKey = new Map(existing.map(l => [leadDedupKey(l), l]));
+  const toInsert = [], toUpdate = [];
+  leads.forEach(l => {
+    const patch = {
+      client_id: clientId, external_lead_id: l.external_lead_id||"", name: l.name||"",
+      email: l.email||"", phone: l.phone||"", status: l.status||"",
+      form_name: l.form_name||"", lead_created_at: toIsoOrNull(l.created_time),
+    };
+    const match = byKey.get(leadDedupKey(l));
+    if (match) toUpdate.push({ id: match.id, patch });
+    else toInsert.push(patch);
+  });
+  if (!IS_CONFIGURED){
+    toInsert.forEach(patch => state.clientLeads.unshift({ id:uid(), imported_at:new Date().toISOString(), ...patch }));
+    toUpdate.forEach(({id,patch}) => { const row = state.clientLeads.find(l => l.id === id); if (row) Object.assign(row, patch); });
+    renderAll();
+  } else {
+    if (toInsert.length){
+      const { error } = await supabase.from("client_leads").insert(toInsert);
+      if (error){ alert("Import failed: " + error.message); return; }
+    }
+    for (const { id, patch } of toUpdate){
+      await supabase.from("client_leads").update(patch).eq("id", id);
+    }
+    await DataLayer.fetchAll();
+    renderAll();
+  }
+  alert(`Imported ${toInsert.length} new lead${toInsert.length===1?"":"s"}, updated ${toUpdate.length} existing.`);
+}
+function setupLeadImport(){
+  const input = $("#lead-import-input");
+  $("#lead-import-btn")?.addEventListener("click", () => input.click());
+  input?.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const isExcel = /\.xlsx?$/i.test(file.name);
+      let rows;
+      if (isExcel){
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+      } else {
+        rows = parseCsv(await file.text());
+      }
+      promptLeadImportClient(mapLeadImportRows(rows));
+    } catch (err){
+      alert("Couldn't read that file: " + err.message);
+    }
+    input.value = "";
+  });
+  $("#lead-import-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const clientId = $("#lead-import-client").value;
+    const leads = pendingLeadImportRows || [];
+    pendingLeadImportRows = null;
+    closeModal("lead-import-modal");
+    await importClientLeads(clientId, leads);
+  });
+}
+function renderLeadCenterImport(){
+  const tbody = $("#lead-import-tbody");
+  if (!tbody) return;
+  const byClient = {};
+  state.clientLeads.forEach(l => {
+    const client = state.clients.find(c => c.id === l.client_id);
+    const key = l.client_id;
+    if (!byClient[key]) byClient[key] = { name: client ? client.name : "Unknown client", Intake:0, Qualified:0, "DQ'd":0, Other:0, total:0 };
+    byClient[key][classifyLeadStatus(l.status)]++;
+    byClient[key].total++;
+  });
+  const rows = Object.values(byClient).sort((a,b) => b.total - a.total);
+  const totals = rows.reduce((acc,r) => {
+    acc.Intake += r.Intake; acc.Qualified += r.Qualified; acc["DQ'd"] += r["DQ'd"]; acc.Other += r.Other; acc.total += r.total;
+    return acc;
+  }, { Intake:0, Qualified:0, "DQ'd":0, Other:0, total:0 });
+
+  $("#lead-import-total").textContent = totals.total;
+  $("#lead-import-intake").textContent = totals.Intake;
+  $("#lead-import-qualified").textContent = totals.Qualified;
+  $("#lead-import-dq").textContent = totals["DQ'd"];
+
+  tbody.innerHTML = rows.length ? rows.map(r => `
+    <tr>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${r.Intake}</td>
+      <td>${r.Qualified}</td>
+      <td>${r["DQ'd"]}</td>
+      <td>${r.Other}</td>
+      <td><strong>${r.total}</strong></td>
+    </tr>
+  `).join("") : `<tr><td colspan="6">${emptyState("No leads imported yet - export a CSV from Meta's Leads Center and import it above.")}</td></tr>`;
+}
+
 /* ───────── Render: Clients (retention workspace) ───────── */
 function clientAvgCPL(){
   const withCpl = state.clients.filter(c => c.cost_per_lead != null && c.cost_per_lead !== "");
@@ -3477,6 +3659,7 @@ function renderAll(){
   renderTasks();
   renderReporting();
   renderWeeklyReport();
+  renderLeadCenterImport();
   renderTeam();
   renderCalendarGrid();
   renderPlaybooks();
@@ -5211,6 +5394,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCalendarNav();
   setupDialerImport();
   setupPasteProspects();
+  setupLeadImport();
   setupDialerFilters();
   setupCallWidget();
   setupTaskFilters();
