@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=59">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=59">
+<link rel="stylesheet" href="css/style.css?v=60">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=60">
 </head>
 <body>
 
@@ -190,6 +190,10 @@
       <button class="nav-item" data-page="reporting" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
         <span>Reporting</span>
+      </button>
+      <button class="nav-item" data-page="rules" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg>
+        <span>Rules</span>
       </button>
       <button class="nav-item" data-page="expenses" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
@@ -1055,6 +1059,18 @@
       </div>
     </section>
 
+    <!-- Rules (per-channel standards, shared with the whole team) -->
+    <section class="page" id="page-rules">
+      <div class="page-header">
+        <div><h2>Rules</h2><p>Standards for running ads and building pages, so the whole team works the same way for every client.</p></div>
+        <button class="btn gold" id="add-rule-btn">+ Add Rule List</button>
+      </div>
+      <div class="playbook-layout">
+        <aside class="playbook-list" id="rules-list"></aside>
+        <div class="playbook-viewer" id="rule-viewer"></div>
+      </div>
+    </section>
+
     <!-- Expenses -->
     <section class="page" id="page-expenses">
       <div class="page-header">
@@ -1266,7 +1282,7 @@
       <div class="field"><label>Title</label><input type="text" id="playbook-title" required placeholder="e.g. Cold Call 1"></div>
       <div class="field">
         <label>Script / Notes</label>
-        <div class="pb-editor-toolbar">
+        <div class="pb-editor-toolbar" data-target="playbook-content">
           <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="bold" title="Bold selected text"><strong>B</strong></button>
           <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="heading" title="Turn line into a heading">Heading</button>
           <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="bullet" title="Turn line into a bullet point">• Bullet</button>
@@ -1279,6 +1295,33 @@
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="playbook-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Playbook</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Rule List ───────── -->
+<div class="overlay" id="rule-modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header"><h3 id="rule-modal-title">Add Rule List</h3><button class="modal-close" data-close="rule-modal">&times;</button></div>
+    <form id="rule-form" class="modal-body">
+      <input type="hidden" id="rule-form-id">
+      <div class="field"><label>Title</label><input type="text" id="rule-title" required placeholder="e.g. Meta Ads"></div>
+      <div class="field">
+        <label>Rules</label>
+        <div class="pb-editor-toolbar" data-target="rule-content">
+          <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="bold" title="Bold selected text"><strong>B</strong></button>
+          <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="heading" title="Turn line into a heading">Heading</button>
+          <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="bullet" title="Turn line into a bullet point">• Bullet</button>
+          <span class="pb-toolbar-hint">Select text first, then click Bold. Headings and bullets apply to the current line.</span>
+        </div>
+        <textarea id="rule-content" rows="10" placeholder="Write the rules for this channel here..."></textarea>
+        <div class="pb-toolbar-hint" style="margin-top:8px;">Live preview - this is what the saved rule list will look like:</div>
+        <div class="playbook-content pb-live-preview" id="rule-content-preview"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="rule-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save Rules</button>
       </div>
     </form>
   </div>
@@ -1845,10 +1888,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=59"></script>
-<script src="js/supabaseClient.js?v=59"></script>
-<script src="js/app.js?v=59"></script>
-<script src="js/meetings-tracker.js?v=59"></script>
-<script src="js/todo.js?v=59"></script>
+<script src="js/config.js?v=60"></script>
+<script src="js/supabaseClient.js?v=60"></script>
+<script src="js/app.js?v=60"></script>
+<script src="js/meetings-tracker.js?v=60"></script>
+<script src="js/todo.js?v=60"></script>
 </body>
 </html>

@@ -286,6 +286,8 @@ const state = {
   notes: [],
   playbooks: [],
   selectedPlaybookId: null,
+  rules: [],
+  selectedRuleId: null,
   emailTemplates: [],
   selectedEmailTemplateId: null,
   expenses: [],
@@ -689,6 +691,12 @@ Never argue. Agree with the feeling first, then reframe - arguing makes people d
 - You're not selling, you're finding out if it's a fit - and if it's not, that's fine too.
 - Every "no" gets you closer to a "yes" - don't take a knockback personally, it's not about you.` },
   ];
+  state.rules = [
+    { id:uid(), title:"Meta Ads", sort_order:0, content:"", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
+    { id:uid(), title:"Google Ads", sort_order:1, content:"", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
+    { id:uid(), title:"Landing Pages & Websites", sort_order:2, content:"", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
+    { id:uid(), title:"SEO", sort_order:3, content:"", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
+  ];
   state.emailTemplates = [
     { id:uid(), title:"Welcome Email", sort_order:0, created_at:new Date(Date.now()-86400e3*30).toISOString(), updated_at:new Date(Date.now()-86400e3*30).toISOString(),
       subject: "Welcome to Mr Priceless - here's what happens next",
@@ -778,7 +786,7 @@ Cheers,
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, et, ex, ca, pu, tf] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -793,6 +801,7 @@ const DataLayer = {
       supabase.from("client_reports").select("*").order("created_at",{ascending:false}),
       supabase.from("notes").select("*").order("created_at",{ascending:false}),
       supabase.from("playbooks").select("*").order("sort_order",{ascending:true}),
+      supabase.from("rules").select("*").order("sort_order",{ascending:true}),
       supabase.from("email_templates").select("*").order("sort_order",{ascending:true}),
       supabase.from("expenses").select("*").order("expense_date",{ascending:false}),
       supabase.from("call_activity").select("*").order("activity_date",{ascending:false}),
@@ -813,6 +822,7 @@ const DataLayer = {
     state.clientReports = crep.data || [];
     state.notes = nt.data || [];
     state.playbooks = pb.data || [];
+    state.rules = ru.data || [];
     state.emailTemplates = et.data || [];
     state.expenses = ex.data || [];
     state.callActivity = ca.data || [];
@@ -890,7 +900,7 @@ function stateArray(table){
     clients: state.clients, client_content: state.clientContent, client_ad_creatives: state.adCreatives,
     client_campaigns: state.campaigns, deal_contacts: state.dealContacts, tasks: state.tasks,
     client_reports: state.clientReports, notes: state.notes, playbooks: state.playbooks,
-    email_templates: state.emailTemplates,
+    rules: state.rules, email_templates: state.emailTemplates,
     expenses: state.expenses, call_activity: state.callActivity, playbook_usage: state.playbookUsage,
   }[table];
 }
@@ -915,6 +925,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"client_reports" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"playbooks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"rules" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"email_templates" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"expenses" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"call_activity" }, async () => { await DataLayer.fetchAll(); renderAll(); })
@@ -3358,6 +3369,7 @@ function renderAll(){
   renderTeam();
   renderCalendarGrid();
   renderPlaybooks();
+  renderRules();
   renderEmailTemplates();
   renderExpenses();
   renderStatistics();
@@ -3528,9 +3540,12 @@ function renderPlaybookMarkdown(raw, checked){
   closeList();
   return { html, total: checkIdx };
 }
-function updatePlaybookPreview(){
-  const ta = $("#playbook-content");
-  const preview = $("#playbook-content-preview");
+// Shared by every "rich-ish text" editor that uses the Bold/Heading/Bullet
+// toolbar (Playbooks, Rules, ...) - textareaId's preview div is always
+// textareaId + "-preview" by convention.
+function updateLivePreview(textareaId){
+  const ta = $("#" + textareaId);
+  const preview = $("#" + textareaId + "-preview");
   if (!ta || !preview) return;
   preview.innerHTML = renderPlaybookMarkdown(ta.value, {}).html;
 }
@@ -3603,6 +3618,57 @@ function renderPlaybooks(){
     </div>
     ${progressHtml}
     <div class="playbook-content" data-playbook="${p.id}">${contentHtml || `<p style="color:var(--text2);">No content yet - click the edit icon to write it.</p>`}</div>
+  `;
+}
+
+/* ───────── Rules (per-channel standards, shared with the whole team) ───────── */
+function ruleIcon(title){
+  const t = String(title||"").toLowerCase();
+  if (t.includes("meta") || t.includes("facebook") || t.includes("instagram")) return ICONS.megaphone;
+  if (t.includes("google") && (t.includes("ad") || t.includes("ads"))) return ICONS.megaphone;
+  if (t.includes("seo")) return ICONS.search;
+  if (t.includes("landing") || t.includes("website") || t.includes("web")) return ICONS.globe;
+  return ICONS.shield;
+}
+function renderRules(){
+  const listEl = $("#rules-list");
+  const viewer = $("#rule-viewer");
+  if (!listEl || !viewer) return;
+  const list = [...state.rules].sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
+  if (!list.length){
+    listEl.innerHTML = "";
+    viewer.innerHTML = `<div class="playbook-empty"><div class="playbook-empty-icon">${ICONS.shield}</div>No rule lists yet.<br>Add one for Meta Ads, Google Ads, Landing Pages, SEO, or anything else.</div>`;
+    return;
+  }
+  if (!state.selectedRuleId || !list.find(r => r.id === state.selectedRuleId)){
+    state.selectedRuleId = list[0].id;
+  }
+  listEl.innerHTML = list.map(r => {
+    const sub = escapeHtml((r.content||"").replace(/[#*\n-]/g," ").trim().slice(0,42)) || "No rules written yet";
+    return `
+    <button type="button" class="playbook-list-item ${r.id === state.selectedRuleId ? "active" : ""}" data-action="select-rule" data-id="${r.id}">
+      <span class="playbook-list-item-icon">${ruleIcon(r.title)}</span>
+      <span class="playbook-list-item-text">
+        <div class="playbook-list-item-title">${escapeHtml(r.title)}</div>
+        <div class="playbook-list-item-sub">${sub}</div>
+      </span>
+    </button>
+  `;
+  }).join("");
+  const r = list.find(x => x.id === state.selectedRuleId);
+  const { html: contentHtml } = renderPlaybookMarkdown(r.content, {});
+  viewer.innerHTML = `
+    <div class="playbook-viewer-head">
+      <div class="playbook-viewer-head-title">
+        <span class="playbook-viewer-icon">${ruleIcon(r.title)}</span>
+        <div><h3>${escapeHtml(r.title)}</h3><p>Updated ${fmtDate(r.updated_at||r.created_at)}</p></div>
+      </div>
+      <div class="playbook-viewer-actions">
+        <button class="icon-btn" data-action="edit-rule" data-id="${r.id}" title="Edit">${ICONS.edit}</button>
+        <button class="icon-btn" data-action="delete-rule" data-id="${r.id}" title="Delete">${ICONS.trash}</button>
+      </div>
+    </div>
+    <div class="playbook-content" data-rule="${r.id}">${contentHtml || `<p style="color:var(--text2);">No rules written yet - click the edit icon to add them.</p>`}</div>
   `;
 }
 
@@ -4040,6 +4106,9 @@ const ICONS = {
   megaphone: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-5v12L3 13v-2z"/><path d="M11.6 16.8L13 21a2 2 0 01-3.8 1.3L7 17"/></svg>`,
   alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`,
   refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/></svg>`,
+  shield: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg>`,
+  globe: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 010 20 15 15 0 010-20z"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>`,
 };
 
 /* ───────── Modals ───────── */
@@ -4092,7 +4161,7 @@ function setupModals(){
 
   $("#add-playbook-btn")?.addEventListener("click", () => {
     $("#playbook-form").reset(); $("#playbook-form-id").value=""; $("#playbook-modal-title").textContent="Add Playbook";
-    updatePlaybookPreview();
+    updateLivePreview("playbook-content");
     openModal("playbook-modal");
   });
   $("#playbook-form")?.addEventListener("submit", async (e) => {
@@ -4112,15 +4181,18 @@ function setupModals(){
     closeModal("playbook-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
-  // Nobody writing a playbook should need to know the **bold**/## markdown
-  // syntax by heart - these buttons apply it to the textarea selection so
-  // juniors can format scripts without a syntax guide. The textarea itself
-  // can only ever show plain text (asterisks and hashes, not actual bold),
-  // so without the live preview below it these buttons look like they do
-  // nothing - the preview is what proves the click actually worked.
+  // Nobody writing a playbook or rule should need to know the **bold**/##
+  // markdown syntax by heart - these buttons apply it to the textarea
+  // selection so juniors can format docs without a syntax guide. The
+  // textarea itself can only ever show plain text (asterisks and hashes,
+  // not actual bold), so without the live preview below it these buttons
+  // look like they do nothing - the preview is what proves the click
+  // actually worked. Scoped by the toolbar's data-target so the same markup
+  // and handler serve every editor that includes it (Playbooks, Rules, ...).
   $$(".pb-toolbar-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      const ta = $("#playbook-content");
+      const targetId = btn.closest(".pb-editor-toolbar")?.dataset.target;
+      const ta = $("#" + targetId);
       if (!ta) return;
       const format = btn.dataset.pbFormat;
       const start = ta.selectionStart, end = ta.selectionEnd;
@@ -4138,10 +4210,34 @@ function setupModals(){
         ta.focus();
         ta.setSelectionRange(cursor, cursor);
       }
-      updatePlaybookPreview();
+      updateLivePreview(targetId);
     });
   });
-  $("#playbook-content")?.addEventListener("input", updatePlaybookPreview);
+  $("#playbook-content")?.addEventListener("input", () => updateLivePreview("playbook-content"));
+
+  $("#add-rule-btn")?.addEventListener("click", () => {
+    $("#rule-form").reset(); $("#rule-form-id").value=""; $("#rule-modal-title").textContent="Add Rule List";
+    updateLivePreview("rule-content");
+    openModal("rule-modal");
+  });
+  $("#rule-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = $("#rule-form-id").value;
+    const row = {
+      title: $("#rule-title").value.trim(),
+      content: $("#rule-content").value.trim(),
+    };
+    if (!row.title) return;
+    if (id) await DataLayer.update("rules", id, row);
+    else {
+      row.sort_order = state.rules.length;
+      const created = await DataLayer.insert("rules", row);
+      if (created) state.selectedRuleId = created.id;
+    }
+    closeModal("rule-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+  $("#rule-content")?.addEventListener("input", () => updateLivePreview("rule-content"));
 
   $("#add-email-template-btn")?.addEventListener("click", () => {
     $("#email-template-form").reset(); $("#email-template-form-id").value=""; $("#email-template-modal-title").textContent="Add Email Template";
@@ -4549,12 +4645,27 @@ function setupModals(){
       $("#playbook-title").value = p.title||"";
       $("#playbook-content").value = p.content||"";
       $("#playbook-modal-title").textContent = "Edit Playbook";
-      updatePlaybookPreview();
+      updateLivePreview("playbook-content");
       openModal("playbook-modal");
     }
     if (action === "delete-playbook" && confirm("Delete this playbook?")){
       if (state.selectedPlaybookId === id) state.selectedPlaybookId = null;
       await DataLayer.remove("playbooks", id);
+    }
+    if (action === "select-rule"){ state.selectedRuleId = id; renderRules(); }
+    if (action === "edit-rule"){
+      const r = state.rules.find(x => x.id === id);
+      if (!r) return;
+      $("#rule-form-id").value = r.id;
+      $("#rule-title").value = r.title||"";
+      $("#rule-content").value = r.content||"";
+      $("#rule-modal-title").textContent = "Edit Rule List";
+      updateLivePreview("rule-content");
+      openModal("rule-modal");
+    }
+    if (action === "delete-rule" && confirm("Delete this rule list?")){
+      if (state.selectedRuleId === id) state.selectedRuleId = null;
+      await DataLayer.remove("rules", id);
     }
     if (action === "select-email-template"){ state.selectedEmailTemplateId = id; renderEmailTemplates(); }
     if (action === "edit-email-template"){
