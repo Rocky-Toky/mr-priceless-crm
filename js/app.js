@@ -3621,7 +3621,13 @@ function renderPlaybooks(){
   `;
 }
 
-/* ───────── Rules (per-channel standards, shared with the whole team) ───────── */
+/* ───────── Rules (per-channel standards, shared with the whole team) ─────────
+   Built for "extensive and text-heavy" content specifically: a flat wall of
+   text doesn't scale once a category has a dozen rules in it, so each ##
+   heading in the content becomes its own collapsible card instead of one
+   long scroll - people can scan just the headings, open only what's
+   relevant, or search across all of them instead of reading top to bottom
+   every time. */
 function ruleIcon(title){
   const t = String(title||"").toLowerCase();
   if (t.includes("meta") || t.includes("facebook") || t.includes("instagram")) return ICONS.megaphone;
@@ -3629,6 +3635,27 @@ function ruleIcon(title){
   if (t.includes("seo")) return ICONS.search;
   if (t.includes("landing") || t.includes("website") || t.includes("web")) return ICONS.globe;
   return ICONS.shield;
+}
+// Splits raw ##-headed content into sections instead of one flowing block -
+// reuses renderPlaybookMarkdown per-section so bold/bullets/numbering all
+// still work exactly the same, just scoped to the lines under each heading.
+function parseRuleSections(raw){
+  const lines = String(raw||"").split("\n");
+  const segments = [];
+  let current = { heading: null, lines: [] };
+  for (const line of lines){
+    const h = line.trim().match(/^##\s+(.*)$/);
+    if (h){
+      segments.push(current);
+      current = { heading: h[1], lines: [] };
+    } else {
+      current.lines.push(line);
+    }
+  }
+  segments.push(current);
+  return segments
+    .map(seg => ({ heading: seg.heading, html: renderPlaybookMarkdown(seg.lines.join("\n"), {}).html }))
+    .filter(seg => seg.heading || seg.html.trim());
 }
 function renderRules(){
   const listEl = $("#rules-list");
@@ -3644,7 +3671,8 @@ function renderRules(){
     state.selectedRuleId = list[0].id;
   }
   listEl.innerHTML = list.map(r => {
-    const sub = escapeHtml((r.content||"").replace(/[#*\n-]/g," ").trim().slice(0,42)) || "No rules written yet";
+    const sectionCount = parseRuleSections(r.content).filter(s => s.heading).length;
+    const sub = sectionCount ? `${sectionCount} section${sectionCount===1?"":"s"}` : "No rules written yet";
     return `
     <button type="button" class="playbook-list-item ${r.id === state.selectedRuleId ? "active" : ""}" data-action="select-rule" data-id="${r.id}">
       <span class="playbook-list-item-icon">${ruleIcon(r.title)}</span>
@@ -3656,7 +3684,38 @@ function renderRules(){
   `;
   }).join("");
   const r = list.find(x => x.id === state.selectedRuleId);
-  const { html: contentHtml } = renderPlaybookMarkdown(r.content, {});
+  const parsed = parseRuleSections(r.content);
+  const intro = parsed.find(s => !s.heading);
+  const sections = parsed.filter(s => s.heading);
+  const bodyHtml = (!intro && !sections.length)
+    ? `<p style="color:var(--text2);padding:0 38px 38px;">No rules written yet - click the edit icon to add them.</p>`
+    : `
+    ${sections.length ? `
+    <div class="rule-toolbar">
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" id="rule-search" placeholder="Search these rules...">
+      </div>
+      <button type="button" class="btn ghost sm" id="rule-expand-all">Expand All</button>
+      <button type="button" class="btn ghost sm" id="rule-collapse-all">Collapse All</button>
+    </div>` : ""}
+    ${intro ? `<div class="playbook-content rule-intro">${intro.html}</div>` : ""}
+    <div class="rule-sections">
+      ${sections.map(s => {
+        const ruleCount = (s.html.match(/<li|<p>/g)||[]).length;
+        return `
+        <details class="clients-stage-section rule-section-item">
+          <summary class="clients-stage-header">
+            <span class="clients-stage-dot"></span>
+            <h3>${escapeHtml(s.heading)}</h3>
+            <span class="kanban-count">${ruleCount || 0} rule${ruleCount===1?"":"s"}</span>
+          </summary>
+          <div class="playbook-content rule-section-body">${s.html || `<p style="color:var(--text2);">No detail added yet.</p>`}</div>
+        </details>
+      `;
+      }).join("")}
+    </div>
+  `;
   viewer.innerHTML = `
     <div class="playbook-viewer-head">
       <div class="playbook-viewer-head-title">
@@ -3668,8 +3727,28 @@ function renderRules(){
         <button class="icon-btn" data-action="delete-rule" data-id="${r.id}" title="Delete">${ICONS.trash}</button>
       </div>
     </div>
-    <div class="playbook-content" data-rule="${r.id}">${contentHtml || `<p style="color:var(--text2);">No rules written yet - click the edit icon to add them.</p>`}</div>
+    ${bodyHtml}
   `;
+  wireRuleSectionControls();
+}
+// Search filters which section cards show at all (rather than just
+// highlighting text) since the whole point is cutting down what you have to
+// scan through - typing "budget" should leave only the relevant card(s)
+// visible, open, and ready to read.
+function wireRuleSectionControls(){
+  const search = $("#rule-search");
+  const items = $$(".rule-section-item");
+  search?.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    items.forEach(el => {
+      if (!q){ el.style.display = ""; el.open = false; return; }
+      const matches = el.innerText.toLowerCase().includes(q);
+      el.style.display = matches ? "" : "none";
+      if (matches) el.open = true;
+    });
+  });
+  $("#rule-expand-all")?.addEventListener("click", () => items.forEach(el => { el.open = true; }));
+  $("#rule-collapse-all")?.addEventListener("click", () => items.forEach(el => { el.open = false; }));
 }
 
 /* ───────── Email Templates ───────── */

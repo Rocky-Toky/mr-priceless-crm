@@ -412,6 +412,14 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 }
 .playbook-empty-icon svg{width:24px;height:24px;}
 
+/* ───────── Rules: collapsible sections + search, for text-heavy content ───────── */
+.rule-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:24px 38px 0;}
+.rule-toolbar .search{flex:1;min-width:200px;}
+.rule-intro.playbook-content{padding:20px 38px 0;max-width:none;}
+.rule-sections{display:flex;flex-direction:column;gap:10px;padding:20px 38px 34px;}
+.rule-section-item .clients-stage-header .kanban-count{margin-left:auto;}
+.rule-section-body.playbook-content{padding:2px 20px 20px 50px;max-width:none;}
+
 .email-template-field{padding:20px 38px;border-bottom:1px solid var(--line);}
 .email-template-field:last-child{border-bottom:none;}
 .email-template-field-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
