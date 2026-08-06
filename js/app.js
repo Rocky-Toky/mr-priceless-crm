@@ -181,9 +181,14 @@ function clientProfileCompleteness(c){
 const ONBOARDING_SECTIONS = [
   { section: "Before The Call", items: [
     "Book the onboarding call in with them.",
-    "Prep their CRM setup ahead of time so it's ready to demo.",
+    "Set up their pipeline ahead of time so it's ready to demo.",
     { text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
     "Send the welcome email.",
+    "Set up their Meta integration.",
+    "Set up their phone number.",
+    "Sync their calendar.",
+    "Get them to upload their photos/images.",
+    "Get Max to set up the Zapier integration.",
   ]},
   { section: "Open With Energy", items: [
     "Come in genuinely excited - smiling, good energy, stoked to have them on board.",
@@ -1869,6 +1874,23 @@ async function bumpCallActivity(personKey, outcome){
   if (outcome === "booked_meeting") patch.meetings_booked = Number(existing?.meetings_booked||0) + 1;
   await window.CRM_CALL_ACTIVITY.upsertToday(personKey, patch);
 }
+// Bridges a Prospecting/Dialer "Booked Meeting" outcome into the real Book
+// Meeting form - name/phone/company are already known from the prospect
+// record, so there's no reason to make whoever's calling retype them; they
+// just confirm assignee/stage and submit to create the actual Contact + Deal.
+function openBookMeetingModalFromProspect(p){
+  if (!p) return;
+  $("#book-meeting-form").reset();
+  $("#book-meeting-slot-idx").value = "";
+  $("#book-meeting-name").value = p.name || p.company || "";
+  $("#book-meeting-phone").value = p.phone || "";
+  $("#book-meeting-company").value = p.company || "";
+  $("#book-meeting-email").value = p.email || "";
+  $("#book-meeting-stage").value = "qualified";
+  const assigneeSelect = $("#book-meeting-assignee");
+  if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
+  openModal("book-meeting-modal");
+}
 async function logDialOutcome(prospectId, outcome, note, region){
   const p = state.prospects.find(x => x.id === prospectId);
   if (!p) return;
@@ -1890,8 +1912,16 @@ async function logDialOutcome(prospectId, outcome, note, region){
   await DataLayer.update("dial_prospects", prospectId, update);
   await bumpCallActivity(personKeyFromEmail(who), outcome);
   // Booking a meeting off a prospect is the whole point of the call - jump
-  // straight to the Meetings Booked page so it's right there to log/tick off.
-  if (outcome === "booked_meeting") $('.nav-item[data-page="cold-calls"]')?.click();
+  // straight to the Meetings Booked page and pop the actual Book Meeting
+  // form, pre-filled with what we already know about them, so the deal
+  // gets created right there instead of just leaving a note that says
+  // "booked" with nothing to show for it in the pipeline. The prospect
+  // itself is already flagged above (snoozed ~a year out) so it drops out
+  // of the call queue and nobody rings them again.
+  if (outcome === "booked_meeting"){
+    $('.nav-item[data-page="cold-calls"]')?.click();
+    openBookMeetingModalFromProspect(p);
+  }
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
 }
