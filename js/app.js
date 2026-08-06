@@ -394,8 +394,8 @@ function seedDemo(){
     { id:uid(), region:"North Shore", calls_made:38, meetings_booked:2, notes:"Started this week, more to go.", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.prospects = [
-    { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", website:"reevebuilders.co.nz", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", snoozed_until:new Date(Date.now()+86400e3*1).toISOString(), notes:"[Aug 3, 1:30pm - max] No Answer: Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", website:"", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", website:"reevebuilders.co.nz", google_rating:"4.8 (63)", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", snoozed_until:new Date(Date.now()+86400e3*1).toISOString(), notes:"[Aug 3, 1:30pm - max] No Answer: Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", website:"", google_rating:"4.5 (21)", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:new Date(Date.now()-3600e3*1).toISOString(), notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"M. Reeve", phone:"021 555 0111", company:"Reeve Builders Ltd", email:"", website:"", region:"North Shore", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"bailey@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
   ];
@@ -1965,26 +1965,76 @@ function parseDelimited(text){
   }
   return parseCsv(text);
 }
+// A Google Maps scrape (or a Claude-tidied version of one) doesn't always
+// come with clean column headers, so these sniff a cell's own shape rather
+// than relying on its column position.
+function looksLikePhone(s){
+  const t = String(s||"").trim();
+  if (!t) return false;
+  const digits = t.replace(/\D/g,"");
+  return digits.length >= 7 && digits.length <= 12 && /^[+()0-9\s.-]+$/.test(t);
+}
+function looksLikeWebsite(s){
+  const t = String(s||"").trim().toLowerCase();
+  if (!t) return false;
+  return /^(https?:\/\/|www\.)/.test(t) || /\.(co\.nz|com|nz|org|net|io|co)(\/|$|\s)/.test(t);
+}
+function looksLikeRating(s){
+  const t = String(s||"").trim();
+  return /^\d(\.\d)?\s*(★|stars?)?\s*(\(\s*\d+\s*\))?$/i.test(t) || /^\d(\.\d)?\s*\(\d+\)/.test(t);
+}
 function mapImportRows(rows){
   if (!rows.length) return [];
   const headers = rows[0].map(h => String(h||"").trim().toLowerCase());
   const findCol = (...names) => headers.findIndex(h => names.some(n => h === n || h.includes(n)));
   const nameIdx = findCol("name","full name","contact");
-  const phoneIdx = findCol("phone","mobile","number","tel");
+  const phoneIdx = findCol("phone","mobile","number","tel","cell");
   const companyIdx = findCol("company","organisation","organization","business");
   const emailIdx = findCol("email");
-  const regionIdx = findCol("region","area","suburb","location","territory","address");
+  const regionIdx = findCol("region","area","suburb","location","territory","address","city");
   const industryIdx = findCol("industry","sector","niche","category","vertical","type");
-  const websiteIdx = findCol("website","url","site");
-  return rows.slice(1).map(r => ({
-    name: (nameIdx>-1 ? r[nameIdx] : "") || "Unknown",
-    phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
-    company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
-    email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
-    region: regionIdx>-1 ? String(r[regionIdx]||"").trim() : "",
-    industry: industryIdx>-1 ? String(r[industryIdx]||"").trim() : "",
-    website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
-  })).filter(p => p.name || p.phone);
+  const websiteIdx = findCol("website","url","site","web");
+  const ratingIdx = findCol("rating","reviews","stars","google");
+  const anyHeaderMatched = [nameIdx,phoneIdx,companyIdx,emailIdx,regionIdx,industryIdx,websiteIdx,ratingIdx].some(i => i > -1);
+
+  if (anyHeaderMatched){
+    return rows.slice(1).map(r => ({
+      name: (nameIdx>-1 ? String(r[nameIdx]||"").trim() : "") || (companyIdx>-1 ? String(r[companyIdx]||"").trim() : "") || "Unknown",
+      phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
+      company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
+      email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
+      region: regionIdx>-1 ? String(r[regionIdx]||"").trim() : "",
+      industry: industryIdx>-1 ? String(r[industryIdx]||"").trim() : "",
+      website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
+      google_rating: ratingIdx>-1 ? String(r[ratingIdx]||"").trim() : "",
+    })).filter(p => (p.name && p.name !== "Unknown") || p.phone);
+  }
+
+  // No recognisable header row at all - most likely a raw scrape pasted
+  // straight in with no column titles. Sniff each cell by what it looks
+  // like instead of trusting its position, so phone/website/rating still
+  // land in the right field even without headers to match against. Anything
+  // left over after that (region, industry, whatever else was in the scrape)
+  // can't be reliably told apart by position alone, so it goes into notes
+  // instead of risking it landing in the wrong field silently - a blank
+  // region you fill in by hand beats a wrong one you don't notice.
+  return rows.map(r => {
+    const cells = r.map(c => String(c||"").trim()).filter(Boolean);
+    let phone = "", website = "", rating = "";
+    const leftover = [];
+    cells.forEach(c => {
+      if (!phone && looksLikePhone(c)) phone = c;
+      else if (!website && looksLikeWebsite(c)) website = c;
+      else if (!rating && looksLikeRating(c)) rating = c;
+      else leftover.push(c);
+    });
+    return {
+      name: leftover[0] || "Unknown",
+      phone, website, google_rating: rating,
+      company: "", region: "", industry: "", email: "",
+      notes: leftover.slice(1).join(" · "),
+    };
+  }).filter(p => p.name !== "Unknown" || p.phone);
 }
 const digitsOnly = (s) => (s||"").replace(/\D/g,"");
 // A prospect's identity for dedup purposes: prefer matching on phone number
@@ -2030,8 +2080,8 @@ async function importProspectRows(prospects){
     seenInBatch.add(key);
     await DataLayer.insert("dial_prospects", {
       name: p.name, phone: p.phone, company: p.company, email: p.email, website: p.website||"",
-      region: p.region||"", industry: p.industry||"",
-      calls_made: 0, last_called_at: null, last_outcome: null, last_called_by: null, snoozed_until: null, notes: "",
+      region: p.region||"", industry: p.industry||"", google_rating: p.google_rating||"",
+      calls_made: 0, last_called_at: null, last_outcome: null, last_called_by: null, snoozed_until: null, notes: p.notes||"",
     });
     imported++;
   }
@@ -3040,22 +3090,25 @@ function renderRegionProgress(){
 }
 function renderProspectRow(p, opts={}){
   const website = p.website ? (/^https?:\/\//i.test(p.website) ? p.website : "https://" + p.website) : "";
+  const called = Number(p.calls_made||0);
   return `
     <tr data-id="${p.id}">
       <td>
         <div class="row-name">${escapeHtml(p.name)}${opts.dupe ? ` <span class="badge red" title="Shares a phone number or business name with another prospect on the list">Possible Duplicate</span>` : ""}</div>
         <div class="row-sub">${escapeHtml(p.company||"")}${website ? ` · <a href="${escapeHtml(website)}" target="_blank" rel="noopener">Website ↗</a>` : ""}</div>
+        ${p.google_rating ? `<div class="row-sub">⭐ ${escapeHtml(p.google_rating)}</div>` : ""}
       </td>
       <td>${escapeHtml(p.phone||"-")}</td>
       <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
       <td>
-        ${Number(p.calls_made||0) ? `<span class="badge gray">${Number(p.calls_made)} called</span>` : `<span class="badge gold">New</span>`}
+        <button class="btn ${called ? "ghost" : "gold"} prospect-call-btn" data-action="log-prospect-call" data-id="${p.id}">
+          ${called ? `✓ Called (${called}) - log again` : "Not Called - Tap to Mark"}
+        </button>
         ${isSnoozed(p) ? `<div class="row-sub" style="margin-top:4px;">Cooling down til ${fmtDate(p.snoozed_until)}</div>` : ""}
         ${p.last_called_at ? `<div class="row-sub">${timeAgo(p.last_called_at)}${p.last_called_by ? " by "+escapeHtml(prospectCallerLabel(p.last_called_by)) : ""}</div>` : ""}
       </td>
       <td style="max-width:240px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);white-space:pre-line;">${escapeHtml(p.notes||"")}</span></td>
       <td style="text-align:right;white-space:nowrap;">
-        <button class="btn ghost" data-action="log-prospect-call" data-id="${p.id}" style="padding:6px 12px;font-size:12.5px;">Mark Called</button>
         <button class="icon-btn" data-action="edit-prospect" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
         <button class="icon-btn" data-action="convert-prospect" data-id="${p.id}" title="Move to Contacts">${ICONS.moveToContact}</button>
         <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
@@ -4147,6 +4200,7 @@ function setupModals(){
       website: $("#prospect-website").value.trim(),
       region: $("#prospect-region").value.trim(),
       industry: $("#prospect-industry").value.trim(),
+      google_rating: $("#prospect-google-rating").value.trim(),
       notes: $("#prospect-notes").value.trim(),
     };
     if (!row.name) return;
@@ -4471,6 +4525,7 @@ function setupModals(){
       $("#prospect-website").value = p.website||"";
       $("#prospect-region").value = p.region||"";
       $("#prospect-industry").value = p.industry||"";
+      $("#prospect-google-rating").value = p.google_rating||"";
       $("#prospect-notes").value = p.notes||"";
       $("#prospect-modal-title").textContent = "Edit Prospect";
       openModal("prospect-modal");

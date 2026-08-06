@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=51">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=51">
+<link rel="stylesheet" href="css/style.css?v=52">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=52">
 </head>
 <body>
 
@@ -354,7 +354,7 @@
             <span id="streak-num">0</span> day streak
           </span>
           <button class="btn ghost" onclick="resetDay()">New Day</button>
-          <button class="btn ghost" onclick="addMeeting()">+ Add Slot</button>
+          <button class="btn ghost" id="add-slot-btn" onclick="addMeeting()">+ Add Slot</button>
           <button class="btn gold" id="book-meeting-btn">+ Book Meeting</button>
         </div>
       </div>
@@ -1470,6 +1470,7 @@
         <div class="field"><label>Region</label><input type="text" id="prospect-region" placeholder="e.g. Auckland CBD"></div>
         <div class="field"><label>Industry</label><input type="text" id="prospect-industry" placeholder="e.g. Real Estate"></div>
       </div>
+      <div class="field"><label>Google Rating</label><input type="text" id="prospect-google-rating" placeholder="e.g. 4.8 (127 reviews)"></div>
       <div class="field"><label>Notes</label><textarea id="prospect-notes" placeholder="Anything worth knowing before you call..."></textarea></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="prospect-modal">Cancel</button>
@@ -1827,10 +1828,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=51"></script>
-<script src="js/supabaseClient.js?v=51"></script>
-<script src="js/app.js?v=51"></script>
-<script src="js/meetings-tracker.js?v=51"></script>
-<script src="js/todo.js?v=51"></script>
+<script src="js/config.js?v=52"></script>
+<script src="js/supabaseClient.js?v=52"></script>
+<script src="js/app.js?v=52"></script>
+<script src="js/meetings-tracker.js?v=52"></script>
+<script src="js/todo.js?v=52"></script>
 </body>
 </html>

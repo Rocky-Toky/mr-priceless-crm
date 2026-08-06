@@ -991,10 +991,12 @@ function renderAll(){
   insaneShown=state.meetings.filter(m=>m.done).length>=TOTAL;
   state.meetings.forEach((_,i)=>renderItem(i));
   updateStats(); renderLog(); renderCounters();
+  const addSlotBtn = document.getElementById('add-slot-btn');
+  if (addSlotBtn) addSlotBtn.disabled = state.meetings.length >= TOTAL;
 }
 
 function addMeeting(){
-  if(state.meetings.length>=8)return;
+  if(state.meetings.length>=TOTAL)return;
   const isBonus=state.meetings.length>=GOAL;
   state.meetings.push({name:`Meeting ${state.meetings.length+1}`,done:false,time:null,bonus:isBonus});
   save(); renderAll();
