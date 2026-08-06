@@ -2165,20 +2165,6 @@ function parseDelimited(text){
   }
   return parseCsv(text);
 }
-// A Google Maps scrape (or a Claude-tidied version of one) doesn't always
-// come with clean column headers, so these sniff a cell's own shape rather
-// than relying on its column position.
-function looksLikePhone(s){
-  const t = String(s||"").trim();
-  if (!t) return false;
-  const digits = t.replace(/\D/g,"");
-  return digits.length >= 7 && digits.length <= 12 && /^[+()0-9\s.-]+$/.test(t);
-}
-function looksLikeWebsite(s){
-  const t = String(s||"").trim().toLowerCase();
-  if (!t) return false;
-  return /^(https?:\/\/|www\.)/.test(t) || /\.(co\.nz|com|nz|org|net|io|co)(\/|$|\s)/.test(t);
-}
 function looksLikeRating(s){
   const t = String(s||"").trim();
   return /^\d(\.\d)?\s*(★|stars?)?\s*(\(\s*\d+\s*\))?$/i.test(t) || /^\d(\.\d)?\s*\(\d+\)/.test(t);
@@ -2221,45 +2207,26 @@ function mapImportRows(rows){
   // "business" company keyword on its own and get mistaken for a header
   // row, silently swallowing the only row on a one-line paste.
   const headerMatchCount = [nameIdx,phoneIdx,companyIdx,emailIdx,websiteIdx,ratingIdx,reviewsIdx].filter(i => i > -1).length;
-  const anyHeaderMatched = headerMatchCount >= 2;
+  // No recognisable header row used to fall back to guessing a prospect out
+  // of each unlabeled line by sniffing which cell looked like a phone number
+  // or a website - but a raw Google Maps scrape is full of stray lines that
+  // don't look like anything (review snippets, "Closed - Opens 7am" hours,
+  // "Directions"/"Delivery" UI text), and every one of those silently became
+  // a fake prospect with no phone number. Rejecting the paste outright and
+  // asking for header columns is far safer than guessing.
+  if (headerMatchCount < 2) return null;
 
-  if (anyHeaderMatched){
-    return rows.slice(1).map(r => ({
-      // We never actually know an owner/contact's name from a business
-      // listing scrape, so fall back to the business name rather than a
-      // fake "Unknown" placeholder - an empty name still renders fine.
-      name: (nameIdx>-1 ? String(r[nameIdx]||"").trim() : "") || (companyIdx>-1 ? String(r[companyIdx]||"").trim() : ""),
-      phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
-      company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
-      email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
-      website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
-      google_rating: combineRating(ratingIdx>-1 ? r[ratingIdx] : "", reviewsIdx>-1 ? r[reviewsIdx] : ""),
-    })).filter(p => p.name || p.phone);
-  }
-
-  // No recognisable header row at all - most likely a raw scrape pasted
-  // straight in with no column titles. Sniff each cell by what it looks
-  // like instead of trusting its position, so phone/website/rating still
-  // land in the right field even without headers to match against. Anything
-  // left over after that can't be reliably told apart by position alone, so
-  // it goes into notes instead of risking it landing in the wrong field.
-  return rows.map(r => {
-    const cells = r.map(c => String(c||"").trim()).filter(Boolean);
-    let phone = "", website = "", rating = "";
-    const leftover = [];
-    cells.forEach(c => {
-      if (!phone && looksLikePhone(c)) phone = c;
-      else if (!website && looksLikeWebsite(c)) website = c;
-      else if (!rating && looksLikeRating(c)) rating = c;
-      else leftover.push(c);
-    });
-    return {
-      name: leftover[0] || "",
-      phone, website, google_rating: rating,
-      company: "", email: "",
-      notes: leftover.slice(1).join(" · "),
-    };
-  }).filter(p => p.name || p.phone);
+  return rows.slice(1).map(r => ({
+    // We never actually know an owner/contact's name from a business
+    // listing scrape, so fall back to the business name rather than a
+    // fake "Unknown" placeholder - an empty name still renders fine.
+    name: (nameIdx>-1 ? String(r[nameIdx]||"").trim() : "") || (companyIdx>-1 ? String(r[companyIdx]||"").trim() : ""),
+    phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
+    company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
+    email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
+    website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
+    google_rating: combineRating(ratingIdx>-1 ? r[ratingIdx] : "", reviewsIdx>-1 ? r[reviewsIdx] : ""),
+  })).filter(p => p.name || p.phone);
 }
 const digitsOnly = (s) => (s||"").replace(/\D/g,"");
 // A prospect's identity for dedup purposes: prefer matching on phone number
@@ -2320,6 +2287,10 @@ async function importProspectRows(prospects){
 // in there.
 let pendingImportRows = null;
 function promptImportRegionIndustry(rows){
+  if (rows === null){
+    alert("Couldn't find column headers in that list (Name, Phone, Company, Website, Rating, etc.). Add a header row before pasting or importing so each column lands in the right field - raw scrapes with no headers aren't accepted any more, since they were the cause of stray review text and \"Closed - Opens 7am\" lines getting imported as fake prospects.");
+    return;
+  }
   if (!rows.length){ alert("No rows found to import."); return; }
   pendingImportRows = rows;
   $("#import-details-count").textContent = rows.length;
@@ -3720,8 +3691,16 @@ function renderProspectList(){
   const focusList = focusIndustry ? clean.filter(p => (p.industry||"") === focusIndustry) : [];
   const restList = focusIndustry ? clean.filter(p => (p.industry||"") !== focusIndustry) : clean;
 
+  // Grouped by region AND industry together, not just region - a region
+  // full of several different trades mixed into one flat section is exactly
+  // what made a bad import (or just a busy list) hard to work through.
   const regionGroups = {};
-  restList.forEach(p => { const r = p.region || "No Region Set"; (regionGroups[r] = regionGroups[r] || []).push(p); });
+  restList.forEach(p => {
+    const region = p.region || "No Region Set";
+    const industry = p.industry || "No Industry Set";
+    const key = `${region} · ${industry}`;
+    (regionGroups[key] = regionGroups[key] || []).push(p);
+  });
   const regionNames = Object.keys(regionGroups).sort((a,b) => a.localeCompare(b));
 
   let html = "";
