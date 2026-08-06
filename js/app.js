@@ -3497,6 +3497,12 @@ function renderPlaybookMarkdown(raw, checked){
   closeList();
   return { html, total: checkIdx };
 }
+function updatePlaybookPreview(){
+  const ta = $("#playbook-content");
+  const preview = $("#playbook-content-preview");
+  if (!ta || !preview) return;
+  preview.innerHTML = renderPlaybookMarkdown(ta.value, {}).html;
+}
 function getPlaybookChecklist(id){
   try { return JSON.parse(localStorage.getItem("pb-checklist-"+id) || "{}"); } catch { return {}; }
 }
@@ -4055,6 +4061,7 @@ function setupModals(){
 
   $("#add-playbook-btn")?.addEventListener("click", () => {
     $("#playbook-form").reset(); $("#playbook-form-id").value=""; $("#playbook-modal-title").textContent="Add Playbook";
+    updatePlaybookPreview();
     openModal("playbook-modal");
   });
   $("#playbook-form")?.addEventListener("submit", async (e) => {
@@ -4076,7 +4083,10 @@ function setupModals(){
   });
   // Nobody writing a playbook should need to know the **bold**/## markdown
   // syntax by heart - these buttons apply it to the textarea selection so
-  // juniors can format scripts without a syntax guide.
+  // juniors can format scripts without a syntax guide. The textarea itself
+  // can only ever show plain text (asterisks and hashes, not actual bold),
+  // so without the live preview below it these buttons look like they do
+  // nothing - the preview is what proves the click actually worked.
   $$(".pb-toolbar-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const ta = $("#playbook-content");
@@ -4097,8 +4107,10 @@ function setupModals(){
         ta.focus();
         ta.setSelectionRange(cursor, cursor);
       }
+      updatePlaybookPreview();
     });
   });
+  $("#playbook-content")?.addEventListener("input", updatePlaybookPreview);
 
   $("#add-email-template-btn")?.addEventListener("click", () => {
     $("#email-template-form").reset(); $("#email-template-form-id").value=""; $("#email-template-modal-title").textContent="Add Email Template";
@@ -4506,6 +4518,7 @@ function setupModals(){
       $("#playbook-title").value = p.title||"";
       $("#playbook-content").value = p.content||"";
       $("#playbook-modal-title").textContent = "Edit Playbook";
+      updatePlaybookPreview();
       openModal("playbook-modal");
     }
     if (action === "delete-playbook" && confirm("Delete this playbook?")){

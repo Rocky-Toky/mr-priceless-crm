@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=56">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=56">
+<link rel="stylesheet" href="css/style.css?v=57">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=57">
 </head>
 <body>
 
@@ -1277,7 +1277,9 @@
           <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="bullet" title="Turn line into a bullet point">• Bullet</button>
           <span class="pb-toolbar-hint">Select text first, then click Bold. Headings and bullets apply to the current line.</span>
         </div>
-        <textarea id="playbook-content" rows="14" placeholder="Write the script or process here..."></textarea>
+        <textarea id="playbook-content" rows="10" placeholder="Write the script or process here..."></textarea>
+        <div class="pb-toolbar-hint" style="margin-top:8px;">Live preview - this is what the saved playbook will look like:</div>
+        <div class="playbook-content pb-live-preview" id="playbook-content-preview"></div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="playbook-modal">Cancel</button>
@@ -1832,10 +1834,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=56"></script>
-<script src="js/supabaseClient.js?v=56"></script>
-<script src="js/app.js?v=56"></script>
-<script src="js/meetings-tracker.js?v=56"></script>
-<script src="js/todo.js?v=56"></script>
+<script src="js/config.js?v=57"></script>
+<script src="js/supabaseClient.js?v=57"></script>
+<script src="js/app.js?v=57"></script>
+<script src="js/meetings-tracker.js?v=57"></script>
+<script src="js/todo.js?v=57"></script>
 </body>
 </html>
