@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=49">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=49">
+<link rel="stylesheet" href="css/style.css?v=50">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=50">
 </head>
 <body>
 
@@ -1284,7 +1284,16 @@
     <form id="playbook-form" class="modal-body">
       <input type="hidden" id="playbook-form-id">
       <div class="field"><label>Title</label><input type="text" id="playbook-title" required placeholder="e.g. Cold Call 1"></div>
-      <div class="field"><label>Script / Notes</label><textarea id="playbook-content" rows="14" placeholder="Write the script or process here..."></textarea></div>
+      <div class="field">
+        <label>Script / Notes</label>
+        <div class="pb-editor-toolbar">
+          <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="bold" title="Bold selected text"><strong>B</strong></button>
+          <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="heading" title="Turn line into a heading">Heading</button>
+          <button type="button" class="btn ghost pb-toolbar-btn" data-pb-format="bullet" title="Turn line into a bullet point">• Bullet</button>
+          <span class="pb-toolbar-hint">Select text first, then click Bold. Headings and bullets apply to the current line.</span>
+        </div>
+        <textarea id="playbook-content" rows="14" placeholder="Write the script or process here..."></textarea>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="playbook-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Playbook</button>
@@ -1833,10 +1842,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=49"></script>
-<script src="js/supabaseClient.js?v=49"></script>
-<script src="js/app.js?v=49"></script>
-<script src="js/meetings-tracker.js?v=49"></script>
-<script src="js/todo.js?v=49"></script>
+<script src="js/config.js?v=50"></script>
+<script src="js/supabaseClient.js?v=50"></script>
+<script src="js/app.js?v=50"></script>
+<script src="js/meetings-tracker.js?v=50"></script>
+<script src="js/todo.js?v=50"></script>
 </body>
 </html>
