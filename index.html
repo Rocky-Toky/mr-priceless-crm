@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=61">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=61">
+<link rel="stylesheet" href="css/style.css?v=62">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=62">
 </head>
 <body>
 
@@ -1042,8 +1042,37 @@
     <!-- Reporting (Meta Ads client reports) -->
     <section class="page" id="page-reporting">
       <div class="page-header">
-        <div><h2>Reporting</h2><p>Automated Meta Ads performance reports for your clients.</p></div>
+        <div><h2>Reporting</h2><p>Live weekly performance across every creative, plus automated Meta Ads reports for clients.</p></div>
       </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Weekly Report</h3>
+          <span class="stat-sub" id="weekly-report-range"></span>
+        </div>
+        <div class="stat-grid" style="padding:0 20px;">
+          <div class="stat-card"><div class="stat-label">Ad Spend This Week</div><div class="stat-value" id="weekly-report-spend">$0</div></div>
+          <div class="stat-card"><div class="stat-label">Results This Week</div><div class="stat-value" id="weekly-report-results">0</div></div>
+          <div class="stat-card"><div class="stat-label">Blended Cost / Result</div><div class="stat-value" id="weekly-report-cpl">-</div></div>
+          <div class="stat-card"><div class="stat-label">Meetings Booked</div><div class="stat-value" id="weekly-report-meetings">0</div></div>
+        </div>
+        <h4 class="card-subhead">Live Creative Performance</h4>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Client</th><th>Spend This Week</th><th>Results This Week</th><th>Cost / Result</th><th>Lifetime Spend</th></tr></thead>
+            <tbody id="weekly-report-creatives-tbody"></tbody>
+          </table>
+        </div>
+        <h4 class="card-subhead">Team Results This Week</h4>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Person</th><th>Calls</th><th>Conversations</th><th>Meetings Booked</th><th>Closed Deals</th></tr></thead>
+            <tbody id="weekly-report-team-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <h3 class="analytics-subhead" style="margin-top:28px;">Client Ad Reports (Automated Email)</h3>
       <div class="stat-grid">
         <div class="stat-card"><div class="stat-label">Clients Connected</div><div class="stat-value" id="reporting-stat-configured">0</div></div>
         <div class="stat-card"><div class="stat-label">Due Now</div><div class="stat-value" id="reporting-stat-due">0</div></div>
@@ -1888,10 +1917,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=61"></script>
-<script src="js/supabaseClient.js?v=61"></script>
-<script src="js/app.js?v=61"></script>
-<script src="js/meetings-tracker.js?v=61"></script>
-<script src="js/todo.js?v=61"></script>
+<script src="js/config.js?v=62"></script>
+<script src="js/supabaseClient.js?v=62"></script>
+<script src="js/app.js?v=62"></script>
+<script src="js/meetings-tracker.js?v=62"></script>
+<script src="js/todo.js?v=62"></script>
 </body>
 </html>

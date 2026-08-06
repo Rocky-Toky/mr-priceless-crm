@@ -78,6 +78,18 @@
 .mtr-row-name-wrap{display:flex;align-items:center;}
 .mtr-row-name{font-size:14px;font-weight:600;color:var(--text);}
 .mtr-row.done .mtr-row-name{color:var(--gold-deep);}
+/* The rename input sits in the DOM alongside the display span the whole
+   time (todoStartEdit/todoFinishEdit just toggle a class) - without this,
+   both show at once, which reads as a second, weirder copy of the task
+   name floating next to the real one. */
+.mtr-row-name-edit{display:none;}
+.mtr-row.editing .mtr-row-name-display{display:none;}
+.mtr-row.editing .mtr-row-name-edit{
+  display:block;font-size:14px;font-weight:600;color:var(--text);
+  border:1px solid var(--gold-border);border-radius:7px;padding:5px 9px;
+  background:var(--white);width:100%;max-width:320px;
+}
+.mtr-row.editing .mtr-row-name-edit:focus{outline:none;border-color:var(--gold);}
 .mtr-row-meta{font-size:11.5px;color:var(--text2);margin-top:2px;display:flex;align-items:center;gap:8px;}
 
 /* ─── Sidebar: ring ─── */

@@ -226,6 +226,7 @@ const ONBOARDING_SECTIONS = [
   ]},
   { section: "Lock In The Ongoing Cadence", items: [
     "Set up a recurring fortnightly catch-up to go through progress, goals, and the pipeline together.",
+    "Set a reminder to call them in 1 week for a quick update - share genuine excitement and let them know how everything's tracking so far.",
   ]},
   { section: "Close It Out", items: [
     "Tell them again how excited we are to work with them - we don't take on just anyone, and we're genuinely looking to build a long-term partnership.",
@@ -292,6 +293,7 @@ const state = {
   selectedEmailTemplateId: null,
   expenses: [],
   callActivity: [],
+  creativeSnapshots: [],
   playbookUsage: [],
   selectedClientId: null,
   selectedOnboardingClientId: null,
@@ -786,7 +788,7 @@ Cheers,
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -807,6 +809,7 @@ const DataLayer = {
       supabase.from("call_activity").select("*").order("activity_date",{ascending:false}),
       supabase.from("playbook_usage").select("*").order("month",{ascending:false}),
       supabase.from("team_focus").select("*"),
+      supabase.from("creative_weekly_snapshots").select("*"),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -829,6 +832,7 @@ const DataLayer = {
     state.playbookUsage = pu.data || [];
     state.teamFocus = { rocky: null, max: null, bailey: null, gabriel: null };
     (tf.data || []).forEach(row => { state.teamFocus[row.person] = row.industry || null; });
+    state.creativeSnapshots = cws.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -930,6 +934,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"expenses" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"call_activity" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"playbook_usage" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"creative_weekly_snapshots" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"team_focus" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
@@ -3033,6 +3038,110 @@ function checkOverdueTasksPopup(){
   openModal("overdue-tasks-modal");
 }
 
+/* ───────── Weekly Report (live creative performance + team results) ─────────
+   Meta ad insights are synced as lifetime-cumulative totals (date_preset=
+   maximum), so "this week's" spend/results can only be known by diffing
+   against a baseline taken at the start of the week - there's no daily
+   breakdown stored anywhere. Rather than needing a real cron job for that,
+   the baseline is taken lazily the first time anyone loads Reporting after
+   a new week starts, so a Monday baseline is always in place well before
+   Friday's report is checked. */
+function mondayOf(d){
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0,0,0,0);
+  return date;
+}
+function isoDateStr(d){ return d.toISOString().slice(0,10); }
+async function ensureWeeklyCreativeSnapshot(){
+  if (!IS_CONFIGURED) return;
+  const weekStart = isoDateStr(mondayOf(new Date()));
+  if (state.creativeSnapshots.some(s => s.week_start === weekStart)) return;
+  const synced = state.adCreatives.filter(c => c.insights_updated_at);
+  if (!synced.length) return;
+  const rows = synced.map(c => ({
+    creative_id: c.id, week_start: weekStart,
+    spend: Number(c.spend||0), impressions: Number(c.impressions||0),
+    clicks: Number(c.clicks||0), results: Number(c.results||0),
+  }));
+  const { error } = await supabase.from("creative_weekly_snapshots").upsert(rows, { onConflict: "creative_id,week_start" });
+  if (!error){ await DataLayer.fetchAll(); renderWeeklyReport(); }
+}
+function creativeWeeklyDelta(creative){
+  const weekStart = isoDateStr(mondayOf(new Date()));
+  const baseline = state.creativeSnapshots.find(s => s.creative_id === creative.id && s.week_start === weekStart);
+  const base = baseline || { spend:0, impressions:0, clicks:0, results:0 };
+  return {
+    spend: Math.max(0, Number(creative.spend||0) - Number(base.spend||0)),
+    results: Math.max(0, Number(creative.results||0) - Number(base.results||0)),
+  };
+}
+function renderWeeklyReport(){
+  const rangeEl = $("#weekly-report-range");
+  if (!rangeEl) return;
+  const monday = mondayOf(new Date());
+  const sunday = new Date(monday); sunday.setDate(sunday.getDate()+6);
+  rangeEl.textContent = `Week of ${fmtDate(monday)} - ${fmtDate(sunday)}`;
+
+  const synced = state.adCreatives.filter(c => c.insights_updated_at);
+  let totalSpend = 0, totalResults = 0;
+  const byClient = {};
+  synced.forEach(c => {
+    const delta = creativeWeeklyDelta(c);
+    totalSpend += delta.spend; totalResults += delta.results;
+    const client = state.clients.find(cl => cl.id === c.client_id);
+    const key = client ? client.id : "unassigned";
+    if (!byClient[key]) byClient[key] = { name: client ? client.name : "Unassigned", spend:0, results:0, lifetimeSpend:0 };
+    byClient[key].spend += delta.spend;
+    byClient[key].results += delta.results;
+    byClient[key].lifetimeSpend += Number(c.spend||0);
+  });
+  $("#weekly-report-spend").textContent = fmtMoney(totalSpend);
+  $("#weekly-report-results").textContent = totalResults.toLocaleString();
+  $("#weekly-report-cpl").textContent = totalResults > 0 ? fmtMoney(totalSpend/totalResults) : "-";
+
+  const creativeRows = Object.values(byClient).sort((a,b) => b.spend - a.spend);
+  const creativesTbody = $("#weekly-report-creatives-tbody");
+  if (creativesTbody){
+    creativesTbody.innerHTML = creativeRows.length ? creativeRows.map(r => `
+      <tr>
+        <td>${escapeHtml(r.name)}</td>
+        <td>${fmtMoney(r.spend)}</td>
+        <td>${r.results.toLocaleString()}</td>
+        <td>${r.results > 0 ? fmtMoney(r.spend/r.results) : "-"}</td>
+        <td>${fmtMoney(r.lifetimeSpend)}</td>
+      </tr>
+    `).join("") : `<tr><td colspan="5">${emptyState("No live-synced creatives yet - sync a creative's insights from the Creative Library to start tracking weekly performance.")}</td></tr>`;
+  }
+
+  const bounds = { from: isoDateStr(monday), to: isoDateStr(new Date()) };
+  const people = Object.keys(ASSIGNEES);
+  const teamRows = people.map(p => ({ p, ...statsForPerson(p, bounds) }));
+  const totals = teamRows.reduce((acc,r) => {
+    acc.calls += r.calls; acc.convos += r.convos; acc.meetingsBooked += r.meetingsBooked; acc.closedDeals += r.closedDeals;
+    return acc;
+  }, { calls:0, convos:0, meetingsBooked:0, closedDeals:0 });
+  $("#weekly-report-meetings").textContent = totals.meetingsBooked;
+  const teamTbody = $("#weekly-report-team-tbody");
+  if (teamTbody){
+    teamTbody.innerHTML = teamRows.map(r => `
+      <tr>
+        <td>${escapeHtml(ASSIGNEES[r.p].label)}</td>
+        <td>${r.calls}</td>
+        <td>${r.convos}</td>
+        <td>${r.meetingsBooked}</td>
+        <td>${r.closedDeals}</td>
+      </tr>
+    `).join("") + `
+      <tr style="font-weight:700;">
+        <td>Total</td><td>${totals.calls}</td><td>${totals.convos}</td><td>${totals.meetingsBooked}</td><td>${totals.closedDeals}</td>
+      </tr>
+    `;
+  }
+}
+
 /* ───────── Render: Reporting (Meta Ads client reports) ───────── */
 function reportDueLabel(client){
   if (client.report_frequency === "off") return "Off";
@@ -3066,6 +3175,7 @@ function renderReporting(){
       </tr>
     `;
   }).join("");
+  ensureWeeklyCreativeSnapshot();
 }
 async function sendReportNow(clientId){
   const client = state.clients.find(c => c.id === clientId);
@@ -3366,6 +3476,7 @@ function renderAll(){
   renderContentProduction();
   renderTasks();
   renderReporting();
+  renderWeeklyReport();
   renderTeam();
   renderCalendarGrid();
   renderPlaybooks();
@@ -3517,9 +3628,14 @@ function renderPlaybookMarkdown(raw, checked){
   for (const rawLine of lines){
     const line = rawLine.trim();
     if (!line){ closeList(); continue; }
-    const h = line.match(/^##\s+(.*)$/);
+    // Accepts both the toolbar's own output (##, -) and whatever a person
+    // types by hand from muscle memory (#, *) - a single "#" or "*" used to
+    // just show up literally in the text since only the toolbar's exact
+    // syntax matched, which looked broken to anyone who already knows
+    // regular markdown.
+    const h = line.match(/^#{1,6}\s+(.*)$/);
     if (h){ closeList(); html += `<h4>${inline(h[1])}</h4>`; continue; }
-    const task = line.match(/^-\s*\[[ xX]?\]\s+(.*)$/);
+    const task = line.match(/^[-*]\s*\[[ xX]?\]\s+(.*)$/);
     if (task){
       if (listType !== "checklist"){ closeList(); html += `<ul class="pb-checklist">`; listType = "checklist"; }
       const idx = checkIdx++;
@@ -3532,7 +3648,7 @@ function renderPlaybookMarkdown(raw, checked){
     }
     const ol = line.match(/^\d+\.\s+(.*)$/);
     if (ol){ if (listType !== "ol"){ closeList(); html += "<ol>"; listType = "ol"; } html += `<li>${inline(ol[1])}</li>`; continue; }
-    const ul = line.match(/^[-•]\s+(.*)$/);
+    const ul = line.match(/^[-*•]\s+(.*)$/);
     if (ul){ if (listType !== "ul"){ closeList(); html += "<ul>"; listType = "ul"; } html += `<li>${inline(ul[1])}</li>`; continue; }
     closeList();
     html += `<p>${inline(line)}</p>`;
