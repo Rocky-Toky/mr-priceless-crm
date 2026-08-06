@@ -826,6 +826,8 @@ const DataLayer = {
     }
     const { data, error } = await supabase.from(table).insert(row).select().single();
     if (error){ alert(error.message); return null; }
+    stateArray(table)?.unshift(data);
+    renderAll();
     return data;
   },
   async update(table, id, patch){
@@ -838,6 +840,10 @@ const DataLayer = {
     }
     const { data, error } = await supabase.from(table).update(patch).eq("id", id).select().single();
     if (error){ alert(error.message); return null; }
+    const arr = stateArray(table);
+    const idx = arr ? arr.findIndex(x => x.id === id) : -1;
+    if (idx > -1) arr[idx] = data;
+    renderAll();
     return data;
   },
   async remove(table, id){
@@ -858,6 +864,18 @@ const DataLayer = {
     }
     const { error } = await supabase.from(table).delete().eq("id", id);
     if (error){ alert(error.message); return; }
+    const arr = stateArray(table);
+    const idx = arr ? arr.findIndex(x => x.id === id) : -1;
+    if (idx > -1) arr.splice(idx,1);
+    if (table === "clients"){
+      state.clientContent = state.clientContent.filter(x => x.client_id !== id);
+      state.adCreatives = state.adCreatives.filter(x => x.client_id !== id);
+      state.campaigns = state.campaigns.filter(x => x.client_id !== id);
+    }
+    if (table === "deals"){
+      state.dealContacts = state.dealContacts.filter(x => x.deal_id !== id);
+    }
+    renderAll();
   }
 };
 function stateArray(table){
