@@ -113,7 +113,6 @@ const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
   not_interested: { label: "Not Interested", cls: "red" },
-  interested: { label: "Interested", cls: "green" },
   booked_meeting: { label: "Booked Meeting", cls: "black" },
 };
 const CONTACT_STATUS = {
@@ -305,7 +304,7 @@ const state = {
   selectedOnboardingClientId: null,
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
-  prospectingShowSnoozed: false,
+  prospectingView: "active",
   prospectingCollapsedRegions: new Set(),
   teamFocus: { rocky: null, max: null, bailey: null, gabriel: null, raheem: null, thor: null },
   taskFilter: { status: "open", priority: "", sort: "due_date", assignee: "" },
@@ -408,12 +407,13 @@ function seedDemo(){
     { id:uid(), region:"Auckland CBD", calls_made:64, meetings_booked:6, notes:"Worked through the Queen St + Britomart lists.", created_at:new Date(Date.now()-86400e3*12).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), region:"North Shore", calls_made:38, meetings_booked:2, notes:"Started this week, more to go.", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
   ];
+  const graceProspectId = uid();
   state.prospects = [
     { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", website:"reevebuilders.co.nz", google_rating:"4.8 (63)", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", snoozed_until:new Date(Date.now()+86400e3*1).toISOString(), notes:"[Aug 3, 1:30pm - max] No Answer: Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", website:"", google_rating:"4.5 (21)", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:new Date(Date.now()-3600e3*1).toISOString(), notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:graceProspectId, name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:null, notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"M. Reeve", phone:"021 555 0111", company:"Reeve Builders Ltd", email:"", website:"", region:"North Shore", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"bailey@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), name:"", phone:"022 555 0177", company:"Coastal Concrete Ltd", email:"", website:"", region:"", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"", phone:"022 555 0177", company:"Coastal Concrete Ltd", email:"", website:"", region:"", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-86400e3*4).toISOString(), last_outcome:"not_interested", last_called_by:"max@mrpriceless.co.nz", snoozed_until:null, notes:"[Aug 2, 2:15pm - max] Not Interested: Already locked into a contract with another agency until next year.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
@@ -486,6 +486,7 @@ function seedDemo(){
     { id:uid(), title:"Follow up with Priya Chand re: proposal", notes:"She wanted pricing broken out by service.", due_date:new Date(Date.now()-86400e3*1).toISOString().slice(0,10), priority:"urgent", assignee:"max", status:"open", contact_id:c3, deal_id:null, created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), title:"Prep Summit Dental ad creative review", notes:"", due_date:new Date(Date.now()+86400e3*5).toISOString().slice(0,10), priority:"medium", assignee:"rocky", status:"open", contact_id:c2, deal_id:null, created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), title:"Renew domain for agency site", notes:"", due_date:null, priority:"low", assignee:null, status:"open", contact_id:null, deal_id:null, created_at:new Date(Date.now()-86400e3*6).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), title:"Follow up with Grace Nguyen", notes:"Wants a call back next week once their new hygienist starts.", due_date:new Date(Date.now()+86400e3*4).toISOString().slice(0,10), priority:"medium", assignee:"rocky", status:"open", contact_id:null, deal_id:null, prospect_id:graceProspectId, created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
   ];
   state.clientReports = [
     { id:uid(), client_id:cl1, period_start:new Date(Date.now()-86400e3*62).toISOString().slice(0,10), period_end:new Date(Date.now()-86400e3*32).toISOString().slice(0,10),
@@ -1733,13 +1734,21 @@ const OUTCOME_BUTTONS = [
   { key:"no_answer", label:"No Answer", cls:"ghost" },
   { key:"call_back", label:"Call Back", cls:"ghost" },
   { key:"not_interested", label:"Not Interested", cls:"ghost" },
-  { key:"interested", label:"Interested", cls:"gold" },
   { key:"booked_meeting", label:"Booked Meeting", cls:"gold" },
 ];
 // Logging a call snoozes a prospect for a few days so it drops out of
 // everyone's "ready to call" view - the actual mechanism that stops two
 // different reps (or the same rep twice) from calling the same business.
 function isSnoozed(p){ return !!p.snoozed_until && new Date(p.snoozed_until) > new Date(); }
+// Call Back and Not Interested aren't timer-based cooldowns like the rest -
+// they park a prospect out of the callable pool indefinitely (into their own
+// Follow Up / Not Interested views) until someone actually logs a fresh call
+// against them or hits Reactivate, rather than a snoozed_until date expiring.
+function isParked(p){ return p.last_outcome === "call_back" || p.last_outcome === "not_interested"; }
+// "Returning" = still on a timer-based cooldown (no_answer cadence, or the
+// long booked_meeting snooze) - these flow back into the active pool on
+// their own once snoozed_until passes, unlike parked prospects.
+function isReturning(p){ return !isParked(p) && isSnoozed(p); }
 function dialerFilteredProspects(){
   const f = state.dialerFilter;
   const q = f.search.trim().toLowerCase();
@@ -1757,8 +1766,9 @@ function dialerDistinctValues(field){
 function dialerQueue(){
   // The power dialer only ever wants to surface prospects that are actually
   // callable right now - anyone still cooling down after a recent call stays
-  // out of the queue until they're due again.
-  return dialerFilteredProspects().filter(p => !isSnoozed(p)).sort((a,b) => {
+  // out of the queue until they're due again, and anyone parked (Follow Up /
+  // Not Interested) stays out until someone actions them from those views.
+  return dialerFilteredProspects().filter(p => !isParked(p) && !isSnoozed(p)).sort((a,b) => {
     const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
     const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
     return ta - tb;
@@ -1852,7 +1862,9 @@ function renderDialer(){
 // logged call, per outcome - short for "try again soon", long for
 // "leave this one alone for a good while". No_answer isn't a flat cooldown -
 // see NO_ANSWER_CADENCE_BUSINESS_DAYS below for the 3-touch schedule.
-const CALL_COOLDOWN_DAYS = { call_back: 3, not_interested: 60, interested: 365, booked_meeting: 365 };
+// Call Back and Not Interested aren't timer-based at all any more (see
+// isParked) - they're parked until actioned rather than snoozed for N days.
+const CALL_COOLDOWN_DAYS = { booked_meeting: 365 };
 // The no-answer cadence: call 1 happens the day you dial, call 2 two
 // business days after that, call 3 four business days after call 2 - then
 // the business gets parked (long cooldown) rather than called forever.
@@ -1871,7 +1883,11 @@ function addBusinessDays(date, days){
 }
 // Works out when a prospect should next be callable, given the outcome just
 // logged and how many times they'd already been called before this call.
+// Returns null for outcomes that park a prospect indefinitely instead of on
+// a timer (see isParked) - there's no "next call date" for those, only a
+// manual reactivation or a fresh call.
 function nextCallDate(outcome, priorCallsMade){
+  if (outcome === "call_back" || outcome === "not_interested") return null;
   const now = new Date();
   if (outcome === "no_answer"){
     const attempt = priorCallsMade + 1;
@@ -1924,7 +1940,7 @@ function openBookMeetingModalFromProspect(p){
   if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
   openModal("book-meeting-modal");
 }
-async function logDialOutcome(prospectId, outcome, note, region){
+async function logDialOutcome(prospectId, outcome, note, region, followupDate){
   const p = state.prospects.find(x => x.id === prospectId);
   if (!p) return;
   const who = state.user ? state.user.email : "demo";
@@ -1932,18 +1948,33 @@ async function logDialOutcome(prospectId, outcome, note, region){
   const label = OUTCOMES[outcome]?.label || outcome;
   const entry = `[${stamp} - ${who.split("@")[0]}] ${label}${note ? ": " + note : ""}`;
   const priorCallsMade = Number(p.calls_made||0);
+  const next = nextCallDate(outcome, priorCallsMade);
   const update = {
     calls_made: priorCallsMade + 1,
     last_called_at: new Date().toISOString(),
     last_outcome: outcome,
     last_called_by: who,
-    snoozed_until: nextCallDate(outcome, priorCallsMade).toISOString(),
+    snoozed_until: next ? next.toISOString() : null,
     notes: [entry, p.notes].filter(Boolean).join("\n\n"),
     updated_at: new Date().toISOString(),
   };
   if (region) update.region = region;
   await DataLayer.update("dial_prospects", prospectId, update);
   await bumpCallActivity(personKeyFromEmail(who), outcome);
+  // A Call Back isn't just a cooldown any more - it has to leave behind an
+  // actual task, since a follow-up you only remember by stumbling back onto
+  // the Follow Up list is a follow-up that gets missed.
+  if (outcome === "call_back" && followupDate){
+    await DataLayer.insert("tasks", {
+      title: `Follow up with ${p.name || p.company || "prospect"}`,
+      notes: note || "",
+      due_date: followupDate,
+      priority: "medium",
+      assignee: personKeyFromEmail(who),
+      prospect_id: prospectId,
+      status: "open",
+    });
+  }
   // Booking a meeting off a prospect is the whole point of the call - jump
   // straight to the Meetings Booked page and pop the actual Book Meeting
   // form, pre-filled with what we already know about them, so the deal
@@ -1957,6 +1988,58 @@ async function logDialOutcome(prospectId, outcome, note, region){
   }
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
+}
+// Clears a parked prospect (Follow Up / Not Interested) back to a clean
+// slate, for when someone was marked into one of those pools by mistake, or
+// a business that said no last time is worth trying again. Doesn't touch
+// any task that was already created off a Call Back - that task's lifecycle
+// is its own thing once it exists.
+async function reactivateProspect(id){
+  await DataLayer.update("dial_prospects", id, { last_outcome: null, snoozed_until: null });
+}
+// Shared by the Prospecting row's "Log Call" button and the Dialer's
+// one-click outcome buttons - Call Back and Not Interested both need a
+// required field filled in (a follow-up date, or a reason why) before they
+// can be logged, so both entry points open this same modal instead of the
+// Dialer being able to fire them off with no note captured at all.
+function openLogCallModal(p, outcome){
+  if (!p) return;
+  $("#log-call-prospect-id").value = p.id;
+  $("#log-call-title").textContent = `Log Call - ${p.name || p.company || "Prospect"}`;
+  $("#log-call-outcome").value = outcome || "no_answer";
+  $("#log-call-notes").value = "";
+  const followupInput = $("#log-call-followup-date");
+  if (followupInput) followupInput.value = "";
+  const regionField = $("#log-call-region-field");
+  const regionInput = $("#log-call-region");
+  const needsRegion = !p.region;
+  if (regionField) regionField.style.display = needsRegion ? "" : "none";
+  if (regionInput){ regionInput.required = needsRegion; regionInput.value = ""; }
+  updateLogCallModalFields();
+  openModal("log-call-modal");
+}
+// Toggles the Log Call modal's outcome-specific fields - a required reason
+// for Not Interested, a required follow-up date for Call Back - based on
+// whichever outcome is currently selected in the dropdown.
+function updateLogCallModalFields(){
+  const outcome = $("#log-call-outcome")?.value;
+  const notesInput = $("#log-call-notes");
+  const notesLabel = $("#log-call-notes-label");
+  const followupField = $("#log-call-followup-field");
+  const followupInput = $("#log-call-followup-date");
+  const hint = $("#log-call-hint");
+  const isNotInterested = outcome === "not_interested";
+  const isCallBack = outcome === "call_back";
+  if (notesInput) notesInput.required = isNotInterested;
+  if (notesLabel) notesLabel.textContent = isNotInterested ? "Notes - why aren't they interested? (required)" : "Notes (optional)";
+  if (followupField) followupField.style.display = isCallBack ? "" : "none";
+  if (followupInput && !isCallBack) followupInput.value = "";
+  if (followupInput) followupInput.required = isCallBack;
+  if (hint) hint.textContent = isNotInterested
+    ? "This moves them into the Not Interested list - they won't show up to call again unless someone reactivates them."
+    : isCallBack
+    ? "This moves them into the Follow Up list until the task above is done."
+    : "This drops them off the \"ready to call\" list for a few days so nobody calls them again too soon.";
 }
 
 /* ───────── Twilio Voice (real outbound calling from the Dialer) ───────── */
@@ -3531,11 +3614,14 @@ function renderProspectRow(p, opts={}){
         <button class="btn ${called ? "ghost" : "gold"} prospect-call-btn" data-action="log-prospect-call" data-id="${p.id}">
           ${calledLabel}
         </button>
-        ${isSnoozed(p) ? `<div class="row-sub" style="margin-top:4px;">Cooling down til ${fmtDate(p.snoozed_until)}</div>` : ""}
+        ${p.last_outcome === "not_interested" ? `<div class="row-sub" style="margin-top:4px;">Marked Not Interested</div>` : ""}
+        ${p.last_outcome === "call_back" ? `<div class="row-sub" style="margin-top:4px;">Follow-up scheduled</div>` : ""}
+        ${isReturning(p) ? `<div class="row-sub" style="margin-top:4px;">Cooling down til ${fmtDate(p.snoozed_until)}</div>` : ""}
         ${p.last_called_at ? `<div class="row-sub">${timeAgo(p.last_called_at)}${p.last_called_by ? " by "+escapeHtml(prospectCallerLabel(p.last_called_by)) : ""}</div>` : ""}
       </td>
       <td style="max-width:240px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);white-space:pre-line;">${escapeHtml(p.notes||"")}</span></td>
       <td style="text-align:right;white-space:nowrap;">
+        ${isParked(p) ? `<button class="icon-btn" data-action="reactivate-prospect" data-id="${p.id}" title="Move back to active pool">${ICONS.refresh}</button>` : ""}
         <button class="icon-btn" data-action="edit-prospect" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
         <button class="icon-btn" data-action="convert-prospect" data-id="${p.id}" title="Move to Contacts">${ICONS.moveToContact}</button>
         <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
@@ -3574,35 +3660,63 @@ function renderProspectList(){
   renderProspectFilters();
   renderTeamFocusPanel();
   const baseFiltered = dialerFilteredProspects();
-  const snoozedCount = baseFiltered.filter(isSnoozed).length;
-  const filtered = state.prospectingShowSnoozed ? baseFiltered : baseFiltered.filter(p => !isSnoozed(p));
+
+  // Not Interested and Call Back are parked out of the normal flow entirely
+  // (see isParked) rather than just snoozed on a timer, so they get their
+  // own dedicated views instead of cluttering the region-grouped active list
+  // or silently resurfacing after a cooldown expires.
+  const notInterested = baseFiltered.filter(p => p.last_outcome === "not_interested");
+  const followUp = baseFiltered.filter(p => p.last_outcome === "call_back");
+  const returning = baseFiltered.filter(isReturning);
+  const activePool = baseFiltered.filter(p => !isParked(p) && !isSnoozed(p));
+
   const neverCalled = baseFiltered.filter(p => !p.calls_made).length;
   const industries = new Set(baseFiltered.map(p => p.industry).filter(Boolean)).size;
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
   st("#prospecting-stat-total", baseFiltered.length);
-  st("#prospecting-stat-ready", baseFiltered.length - snoozedCount);
-  st("#prospecting-stat-snoozed", snoozedCount);
+  st("#prospecting-stat-ready", activePool.length);
+  st("#prospecting-stat-snoozed", returning.length);
   st("#prospecting-stat-fresh", neverCalled);
   st("#prospecting-stat-industries", industries);
 
-  const toggle = $("#prospecting-show-snoozed");
-  if (toggle) toggle.textContent = state.prospectingShowSnoozed ? `Hide recently called (${snoozedCount})` : `Show recently called (${snoozedCount})`;
+  const viewCounts = { active: activePool.length, follow_up: followUp.length, not_interested: notInterested.length, returning: returning.length };
+  const viewLabels = { active: "Active", follow_up: "Follow Up", not_interested: "Not Interested", returning: "Returning" };
+  const viewSelect = $("#prospecting-view-select");
+  if (viewSelect){
+    Array.from(viewSelect.options).forEach(opt => { opt.textContent = `${viewLabels[opt.value]} (${viewCounts[opt.value]})`; });
+    viewSelect.value = state.prospectingView;
+  }
+
+  const view = state.prospectingView || "active";
+  const filtered = { active: activePool, follow_up: followUp, not_interested: notInterested, returning: returning }[view] || activePool;
 
   if (!filtered.length){
-    groupsWrap.innerHTML = emptyState(baseFiltered.length ? "Everyone matching this filter has been called recently - toggle above to see them anyway." : "No prospects yet. Import a list or paste one in above.");
+    const emptyMsg = {
+      active: baseFiltered.length ? "Nobody's ready to call right now - check Follow Up or Returning." : "No prospects yet. Import a list or paste one in above.",
+      follow_up: "No follow-ups scheduled.",
+      not_interested: "Nobody's been marked Not Interested.",
+      returning: "Nobody's currently cooling down.",
+    }[view];
+    groupsWrap.innerHTML = emptyState(emptyMsg);
     return;
   }
 
-  // Checked against the whole shared list, not just what's currently visible,
-  // so a duplicate still gets flagged even when its sibling is hidden by the
-  // snoozed-call cooldown - otherwise the one row left showing would look
-  // like a fresh, never-called lead.
-  const dupeIds = prospectDuplicateIds(state.prospects);
-  const clean = filtered.filter(p => !dupeIds.has(p.id));
-  const dupes = filtered.filter(p => dupeIds.has(p.id));
+  // Duplicates and the focus-industry pin-to-top only make sense against the
+  // active calling pool - the other views are already a narrow, purposeful
+  // list, not something to further reorganise.
+  let clean = filtered, dupes = [];
+  if (view === "active"){
+    // Checked against the whole shared list, not just what's currently
+    // visible, so a duplicate still gets flagged even when its sibling is
+    // parked or cooling down - otherwise the one row left showing would look
+    // like a fresh, never-called lead.
+    const dupeIds = prospectDuplicateIds(state.prospects);
+    clean = filtered.filter(p => !dupeIds.has(p.id));
+    dupes = filtered.filter(p => dupeIds.has(p.id));
+  }
 
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
-  const focusIndustry = activePerson ? state.teamFocus[activePerson] : null;
+  const focusIndustry = view === "active" && activePerson ? state.teamFocus[activePerson] : null;
   const focusList = focusIndustry ? clean.filter(p => (p.industry||"") === focusIndustry) : [];
   const restList = focusIndustry ? clean.filter(p => (p.industry||"") !== focusIndustry) : clean;
 
@@ -4824,17 +4938,19 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#log-call-outcome")?.addEventListener("change", updateLogCallModalFields);
   $("#log-call-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#log-call-prospect-id").value;
     const outcome = $("#log-call-outcome").value;
     const note = $("#log-call-notes").value.trim();
     const region = $("#log-call-region").value.trim();
+    const followupDate = $("#log-call-followup-date").value || null;
     closeModal("log-call-modal");
-    await logDialOutcome(id, outcome, note, region);
+    await logDialOutcome(id, outcome, note, region, followupDate);
   });
-  $("#prospecting-show-snoozed")?.addEventListener("click", () => {
-    state.prospectingShowSnoozed = !state.prospectingShowSnoozed;
+  $("#prospecting-view-select")?.addEventListener("change", (e) => {
+    state.prospectingView = e.target.value;
     renderProspectList();
   });
 
@@ -5167,22 +5283,22 @@ function setupModals(){
       }
     }
     if (action === "log-prospect-call"){
-      const p = state.prospects.find(x => x.id === id);
-      if (!p) return;
-      $("#log-call-prospect-id").value = id;
-      $("#log-call-title").textContent = `Log Call - ${p.name || p.company || "Prospect"}`;
-      $("#log-call-outcome").value = "no_answer";
-      $("#log-call-notes").value = "";
-      const regionField = $("#log-call-region-field");
-      const regionInput = $("#log-call-region");
-      const needsRegion = !p.region;
-      if (regionField) regionField.style.display = needsRegion ? "" : "none";
-      if (regionInput){ regionInput.required = needsRegion; regionInput.value = ""; }
-      openModal("log-call-modal");
+      openLogCallModal(state.prospects.find(x => x.id === id), "no_answer");
     }
     if (action === "dial-tel") await logDialOutcome(id, "dialed");
     if (action === "start-call") await startCall(id);
-    if (action === "dial-outcome") await logDialOutcome(id, outcome);
+    if (action === "dial-outcome"){
+      // Call Back and Not Interested both need a required field captured
+      // (a follow-up date, or a reason why) that a one-click button can't
+      // supply, so those two route through the same modal Prospecting uses
+      // instead of logging instantly like No Answer / Booked Meeting do.
+      if (outcome === "call_back" || outcome === "not_interested"){
+        openLogCallModal(state.prospects.find(x => x.id === id), outcome);
+      } else {
+        await logDialOutcome(id, outcome);
+      }
+    }
+    if (action === "reactivate-prospect") await reactivateProspect(id);
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
     if (action === "view-onboarding-client"){ state.selectedOnboardingClientId = id; renderOnboarding(); }
