@@ -1995,7 +1995,12 @@ function mapImportRows(rows){
   const industryIdx = findCol("industry","sector","niche","category","vertical","type");
   const websiteIdx = findCol("website","url","site","web");
   const ratingIdx = findCol("rating","reviews","stars","google");
-  const anyHeaderMatched = [nameIdx,phoneIdx,companyIdx,emailIdx,regionIdx,industryIdx,websiteIdx,ratingIdx].some(i => i > -1);
+  // Require at least 2 columns to look like headers, not just 1 - a single
+  // business named e.g. "Test Business" would otherwise false-match the
+  // "business" company keyword on its own and get mistaken for a header
+  // row, silently swallowing the only row on a one-line paste.
+  const headerMatchCount = [nameIdx,phoneIdx,companyIdx,emailIdx,regionIdx,industryIdx,websiteIdx,ratingIdx].filter(i => i > -1).length;
+  const anyHeaderMatched = headerMatchCount >= 2;
 
   if (anyHeaderMatched){
     return rows.slice(1).map(r => ({
