@@ -82,10 +82,15 @@ const ASSIGNEES = {
   max: { label: "Max", cls: "black" },
   bailey: { label: "Bailey", cls: "blue" },
   gabriel: { label: "Gabriel", cls: "purple" },
+  raheem: { label: "Raheem", cls: "green" },
+  thor: { label: "Thor", cls: "red" },
 };
 // Real login emails don't reliably reduce to their ASSIGNEES key (Max's is
 // maximus.smith@..., not max@...), so this is an explicit map rather than a
 // guess from the email's local part. Keep in sync with the allowlist.
+// Raheem and Thor aren't in here yet - no login emails for them yet, so they
+// can be picked as an assignee but can't sign in or be auto-matched from
+// call activity until their emails are added here and to the allowlist.
 const EMAIL_TO_ASSIGNEE = {
   "rockyoneill02@gmail.com": "rocky",
   "maximus.smith@mrpriceless.com": "max",
@@ -302,7 +307,7 @@ const state = {
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
   prospectingShowSnoozed: false,
   prospectingCollapsedRegions: new Set(),
-  teamFocus: { rocky: null, max: null, bailey: null, gabriel: null },
+  teamFocus: { rocky: null, max: null, bailey: null, gabriel: null, raheem: null, thor: null },
   taskFilter: { status: "open", priority: "", sort: "due_date", assignee: "" },
   team: [],
   contactFilter: "",
@@ -789,7 +794,7 @@ Cheers,
     { id:uid(), person:"rocky", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), person:"max", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
-  state.teamFocus = { rocky:null, max:"Landscaping", bailey:null, gabriel:null };
+  state.teamFocus = { rocky:null, max:"Landscaping", bailey:null, gabriel:null, raheem:null, thor:null };
 }
 
 /* ───────── Data layer ───────── */
@@ -839,7 +844,7 @@ const DataLayer = {
     state.expenses = ex.data || [];
     state.callActivity = ca.data || [];
     state.playbookUsage = pu.data || [];
-    state.teamFocus = { rocky: null, max: null, bailey: null, gabriel: null };
+    state.teamFocus = { rocky: null, max: null, bailey: null, gabriel: null, raheem: null, thor: null };
     (tf.data || []).forEach(row => { state.teamFocus[row.person] = row.industry || null; });
     state.creativeSnapshots = cws.data || [];
     state.clientLeads = clead.data || [];
