@@ -2024,7 +2024,7 @@ function looksLikeReviewOrDuration(s){
   const t = String(s||"").trim();
   if (!t) return false;
   if (/\d+\+?\s*(yrs?|years?)\b/i.test(t)) return true;
-  return /(fast|efficient|friendly|excellent|quick|reasonable|outstanding|punctual|communicative|recommend|professional|tidy|prompt|neat|lovely|painless|hassle|great|quality|leak|replace|communication|quote|notable|review|fantastic|experience)/i.test(t);
+  return /(fast|efficient|friendly|excellent|quick|reasonable|outstanding|punctual|communicative|recommend|professional|tidy|prompt|neat|lovely|painless|hassle|great|quality|leak|replace|communication|quote|notable|review|fantastic|experience|brand new|\bfresh\b|amazing|impressed|perfect|awesome|impeccable|flawless)/i.test(t);
 }
 function mapImportRows(rows){
   if (!rows.length) return [];
