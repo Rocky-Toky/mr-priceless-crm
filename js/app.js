@@ -398,6 +398,7 @@ function seedDemo(){
     { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", website:"", google_rating:"4.5 (21)", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:new Date(Date.now()-3600e3*1).toISOString(), notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"M. Reeve", phone:"021 555 0111", company:"Reeve Builders Ltd", email:"", website:"", region:"North Shore", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"bailey@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"", phone:"022 555 0177", company:"Coastal Concrete Ltd", email:"", website:"", region:"", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
@@ -1793,8 +1794,38 @@ function renderDialer(){
 }
 // How long a business drops out of the "ready to call" view after a
 // logged call, per outcome - short for "try again soon", long for
-// "leave this one alone for a good while".
-const CALL_COOLDOWN_DAYS = { no_answer: 1, call_back: 3, not_interested: 60, interested: 365, booked_meeting: 365 };
+// "leave this one alone for a good while". No_answer isn't a flat cooldown -
+// see NO_ANSWER_CADENCE_BUSINESS_DAYS below for the 3-touch schedule.
+const CALL_COOLDOWN_DAYS = { call_back: 3, not_interested: 60, interested: 365, booked_meeting: 365 };
+// The no-answer cadence: call 1 happens the day you dial, call 2 two
+// business days after that, call 3 four business days after call 2 - then
+// the business gets parked (long cooldown) rather than called forever.
+// Indexed by attempt number about to be logged (1st, 2nd, 3rd+ no-answer).
+const NO_ANSWER_CADENCE_BUSINESS_DAYS = { 1: 2, 2: 4 };
+const NO_ANSWER_PARK_DAYS = 60;
+function addBusinessDays(date, days){
+  const d = new Date(date);
+  let added = 0;
+  while (added < days){
+    d.setDate(d.getDate() + 1);
+    const day = d.getDay(); // 0 = Sunday, 6 = Saturday
+    if (day !== 0 && day !== 6) added++;
+  }
+  return d;
+}
+// Works out when a prospect should next be callable, given the outcome just
+// logged and how many times they'd already been called before this call.
+function nextCallDate(outcome, priorCallsMade){
+  const now = new Date();
+  if (outcome === "no_answer"){
+    const attempt = priorCallsMade + 1;
+    const businessDays = NO_ANSWER_CADENCE_BUSINESS_DAYS[attempt];
+    if (businessDays) return addBusinessDays(now, businessDays);
+    return new Date(now.getTime() + NO_ANSWER_PARK_DAYS*86400e3);
+  }
+  const cooldownDays = CALL_COOLDOWN_DAYS[outcome] ?? 4;
+  return new Date(now.getTime() + cooldownDays*86400e3);
+}
 // call_activity/playbook_usage key people by a short handle (rocky/max/...),
 // but dial_prospects attribution is a real login email - this bridges the
 // two by taking the part before the @, which only works if everyone's email
@@ -1820,23 +1851,25 @@ async function bumpCallActivity(personKey, outcome){
   if (outcome === "booked_meeting") patch.meetings_booked = Number(existing?.meetings_booked||0) + 1;
   await window.CRM_CALL_ACTIVITY.upsertToday(personKey, patch);
 }
-async function logDialOutcome(prospectId, outcome, note){
+async function logDialOutcome(prospectId, outcome, note, region){
   const p = state.prospects.find(x => x.id === prospectId);
   if (!p) return;
   const who = state.user ? state.user.email : "demo";
   const stamp = new Date().toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" });
   const label = OUTCOMES[outcome]?.label || outcome;
   const entry = `[${stamp} - ${who.split("@")[0]}] ${label}${note ? ": " + note : ""}`;
-  const cooldownDays = CALL_COOLDOWN_DAYS[outcome] ?? 4;
-  await DataLayer.update("dial_prospects", prospectId, {
-    calls_made: Number(p.calls_made||0) + 1,
+  const priorCallsMade = Number(p.calls_made||0);
+  const update = {
+    calls_made: priorCallsMade + 1,
     last_called_at: new Date().toISOString(),
     last_outcome: outcome,
     last_called_by: who,
-    snoozed_until: new Date(Date.now() + cooldownDays*86400e3).toISOString(),
+    snoozed_until: nextCallDate(outcome, priorCallsMade).toISOString(),
     notes: [entry, p.notes].filter(Boolean).join("\n\n"),
     updated_at: new Date().toISOString(),
-  });
+  };
+  if (region) update.region = region;
+  await DataLayer.update("dial_prospects", prospectId, update);
   await bumpCallActivity(personKeyFromEmail(who), outcome);
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
@@ -1983,6 +2016,16 @@ function looksLikeRating(s){
   const t = String(s||"").trim();
   return /^\d(\.\d)?\s*(★|stars?)?\s*(\(\s*\d+\s*\))?$/i.test(t) || /^\d(\.\d)?\s*\(\d+\)/.test(t);
 }
+// A column literally named "Region" or "Industry" in a scrape can still
+// hold review-snippet text or a "10+ yrs in business" duration instead of
+// what the header promises - this catches that so it gets dropped rather
+// than shown as if it were real region/industry data.
+function looksLikeReviewOrDuration(s){
+  const t = String(s||"").trim();
+  if (!t) return false;
+  if (/\d+\+?\s*(yrs?|years?)\b/i.test(t)) return true;
+  return /(fast|efficient|friendly|excellent|quick|reasonable|outstanding|punctual|communicative|recommend|professional|tidy|prompt|neat|lovely|painless|hassle|great|quality|leak|replace|communication|quote|notable|review|fantastic|experience)/i.test(t);
+}
 function mapImportRows(rows){
   if (!rows.length) return [];
   const headers = rows[0].map(h => String(h||"").trim().toLowerCase());
@@ -2003,16 +2046,29 @@ function mapImportRows(rows){
   const anyHeaderMatched = headerMatchCount >= 2;
 
   if (anyHeaderMatched){
-    return rows.slice(1).map(r => ({
-      name: (nameIdx>-1 ? String(r[nameIdx]||"").trim() : "") || (companyIdx>-1 ? String(r[companyIdx]||"").trim() : "") || "Unknown",
-      phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
-      company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
-      email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
-      region: regionIdx>-1 ? String(r[regionIdx]||"").trim() : "",
-      industry: industryIdx>-1 ? String(r[industryIdx]||"").trim() : "",
-      website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
-      google_rating: ratingIdx>-1 ? String(r[ratingIdx]||"").trim() : "",
-    })).filter(p => (p.name && p.name !== "Unknown") || p.phone);
+    return rows.slice(1).map(r => {
+      const region = regionIdx>-1 ? String(r[regionIdx]||"").trim() : "";
+      const industry = industryIdx>-1 ? String(r[industryIdx]||"").trim() : "";
+      const rating = ratingIdx>-1 ? String(r[ratingIdx]||"").trim() : "";
+      return {
+        // We never actually know an owner/contact's name from a business
+        // listing scrape, so fall back to the business name rather than a
+        // fake "Unknown" placeholder - an empty name still renders fine.
+        name: (nameIdx>-1 ? String(r[nameIdx]||"").trim() : "") || (companyIdx>-1 ? String(r[companyIdx]||"").trim() : ""),
+        phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
+        company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
+        email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
+        // A column named "Region"/"Industry" can still hold review text or
+        // "10+ yrs" in a messy scrape - drop it rather than show it as if
+        // it were real.
+        region: looksLikeReviewOrDuration(region) ? "" : region,
+        industry: looksLikeReviewOrDuration(industry) ? "" : industry,
+        website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
+        // Same idea for rating - only keep it if it actually looks like a
+        // star rating / review count, not a full review sentence.
+        google_rating: looksLikeRating(rating) ? rating : "",
+      };
+    }).filter(p => p.name || p.phone);
   }
 
   // No recognisable header row at all - most likely a raw scrape pasted
@@ -2034,12 +2090,12 @@ function mapImportRows(rows){
       else leftover.push(c);
     });
     return {
-      name: leftover[0] || "Unknown",
+      name: leftover[0] || "",
       phone, website, google_rating: rating,
       company: "", region: "", industry: "", email: "",
       notes: leftover.slice(1).join(" · "),
     };
-  }).filter(p => p.name !== "Unknown" || p.phone);
+  }).filter(p => p.name || p.phone);
 }
 const digitsOnly = (s) => (s||"").replace(/\D/g,"");
 // A prospect's identity for dedup purposes: prefer matching on phone number
@@ -3096,18 +3152,26 @@ function renderRegionProgress(){
 function renderProspectRow(p, opts={}){
   const website = p.website ? (/^https?:\/\//i.test(p.website) ? p.website : "https://" + p.website) : "";
   const called = Number(p.calls_made||0);
+  // No separate contact name is ever known from a business listing scrape -
+  // the company name IS the identity, so it's what shows front and centre
+  // when there's no name on file.
+  const displayName = p.name || p.company || "";
+  const showCompanyLine = p.company && p.company !== displayName;
+  const calledLabel = called === 0
+    ? "Not Called - Tap to Mark"
+    : (called < 3 ? `Called ${called} of 3 - log again` : `Called ${called}x - log again`);
   return `
     <tr data-id="${p.id}">
       <td>
-        <div class="row-name">${escapeHtml(p.name)}${opts.dupe ? ` <span class="badge red" title="Shares a phone number or business name with another prospect on the list">Possible Duplicate</span>` : ""}</div>
-        <div class="row-sub">${escapeHtml(p.company||"")}${website ? ` · <a href="${escapeHtml(website)}" target="_blank" rel="noopener">Website ↗</a>` : ""}</div>
+        <div class="row-name">${escapeHtml(displayName)}${opts.dupe ? ` <span class="badge red" title="Shares a phone number or business name with another prospect on the list">Possible Duplicate</span>` : ""}</div>
+        <div class="row-sub">${showCompanyLine ? escapeHtml(p.company) : ""}${website ? ` · <a href="${escapeHtml(website)}" target="_blank" rel="noopener">Website ↗</a>` : ""}</div>
         ${p.google_rating ? `<div class="row-sub">⭐ ${escapeHtml(p.google_rating)}</div>` : ""}
       </td>
       <td>${escapeHtml(p.phone||"-")}</td>
       <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
       <td>
         <button class="btn ${called ? "ghost" : "gold"} prospect-call-btn" data-action="log-prospect-call" data-id="${p.id}">
-          ${called ? `✓ Called (${called}) - log again` : "Not Called - Tap to Mark"}
+          ${calledLabel}
         </button>
         ${isSnoozed(p) ? `<div class="row-sub" style="margin-top:4px;">Cooling down til ${fmtDate(p.snoozed_until)}</div>` : ""}
         ${p.last_called_at ? `<div class="row-sub">${timeAgo(p.last_called_at)}${p.last_called_by ? " by "+escapeHtml(prospectCallerLabel(p.last_called_by)) : ""}</div>` : ""}
@@ -4225,8 +4289,9 @@ function setupModals(){
     const id = $("#log-call-prospect-id").value;
     const outcome = $("#log-call-outcome").value;
     const note = $("#log-call-notes").value.trim();
+    const region = $("#log-call-region").value.trim();
     closeModal("log-call-modal");
-    await logDialOutcome(id, outcome, note);
+    await logDialOutcome(id, outcome, note, region);
   });
   $("#prospecting-show-snoozed")?.addEventListener("click", () => {
     state.prospectingShowSnoozed = !state.prospectingShowSnoozed;
@@ -4549,9 +4614,14 @@ function setupModals(){
       const p = state.prospects.find(x => x.id === id);
       if (!p) return;
       $("#log-call-prospect-id").value = id;
-      $("#log-call-title").textContent = `Log Call - ${p.name}`;
+      $("#log-call-title").textContent = `Log Call - ${p.name || p.company || "Prospect"}`;
       $("#log-call-outcome").value = "no_answer";
       $("#log-call-notes").value = "";
+      const regionField = $("#log-call-region-field");
+      const regionInput = $("#log-call-region");
+      const needsRegion = !p.region;
+      if (regionField) regionField.style.display = needsRegion ? "" : "none";
+      if (regionInput){ regionInput.required = needsRegion; regionInput.value = ""; }
       openModal("log-call-modal");
     }
     if (action === "filter-prospect-region"){
