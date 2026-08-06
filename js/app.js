@@ -1889,6 +1889,9 @@ async function logDialOutcome(prospectId, outcome, note, region){
   if (region) update.region = region;
   await DataLayer.update("dial_prospects", prospectId, update);
   await bumpCallActivity(personKeyFromEmail(who), outcome);
+  // Booking a meeting off a prospect is the whole point of the call - jump
+  // straight to the Meetings Booked page so it's right there to log/tick off.
+  if (outcome === "booked_meeting") $('.nav-item[data-page="cold-calls"]')?.click();
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
 }
@@ -2034,16 +2037,28 @@ function looksLikeRating(s){
   const t = String(s||"").trim();
   return /^\d(\.\d)?\s*(★|stars?)?\s*(\(\s*\d+\s*\))?$/i.test(t) || /^\d(\.\d)?\s*\(\d+\)/.test(t);
 }
-// A column literally named "Region" or "Industry" in a scrape can still
-// hold review-snippet text or a "10+ yrs in business" duration instead of
-// what the header promises - this catches that so it gets dropped rather
-// than shown as if it were real region/industry data.
-function looksLikeReviewOrDuration(s){
-  const t = String(s||"").trim();
-  if (!t) return false;
-  if (/\d+\+?\s*(yrs?|years?)\b/i.test(t)) return true;
-  return /(fast|efficient|friendly|excellent|quick|reasonable|outstanding|punctual|communicative|recommend|professional|tidy|prompt|neat|lovely|painless|hassle|great|quality|leak|replace|communication|quote|notable|review|fantastic|experience|brand new|\bfresh\b|amazing|impressed|perfect|awesome|impeccable|flawless)/i.test(t);
+// Combines a separate star-rating cell and review-count cell into one
+// display string ("4.8 (63)") - a scrape often puts these in two different
+// columns, and only ever reading one of them is how the review count used
+// to silently go missing. Falls back gracefully if only one side is present,
+// or if the rating cell already has both combined in it.
+function combineRating(starsRaw, reviewsRaw){
+  const stars = String(starsRaw||"").trim();
+  const reviews = String(reviewsRaw||"").trim().replace(/\D/g,"");
+  if (looksLikeRating(stars) && /\(\d+\)/.test(stars)) return stars; // already combined
+  const starsOnly = stars.match(/^\d(\.\d)?/)?.[0] || (looksLikeRating(stars) ? stars : "");
+  if (starsOnly && reviews) return `${starsOnly} (${reviews})`;
+  if (looksLikeRating(stars)) return stars;
+  if (reviews) return `${reviews} reviews`;
+  return "";
 }
+// Region/industry are no longer parsed out of import columns at all - a
+// scrape's "region" column is just as likely to be a street address, and
+// there's no way to tell a real region name from an address by shape alone.
+// Instead the whole batch gets asked for a single Region + Industry once at
+// import time (see promptImportRegionIndustry) and every row gets tagged
+// with that, which also means every row in one paste shares one clean value
+// instead of whatever inconsistent text the source happened to have.
 function mapImportRows(rows){
   if (!rows.length) return [];
   const headers = rows[0].map(h => String(h||"").trim().toLowerCase());
@@ -2052,51 +2067,36 @@ function mapImportRows(rows){
   const phoneIdx = findCol("phone","mobile","number","tel","cell");
   const companyIdx = findCol("company","organisation","organization","business");
   const emailIdx = findCol("email");
-  const regionIdx = findCol("region","area","suburb","location","territory","address","city");
-  const industryIdx = findCol("industry","sector","niche","category","vertical","type");
   const websiteIdx = findCol("website","url","site","web");
-  const ratingIdx = findCol("rating","reviews","stars","google");
+  const ratingIdx = findCol("rating","stars","google");
+  const reviewsIdx = findCol("reviews","review count","num reviews","number of reviews");
   // Require at least 2 columns to look like headers, not just 1 - a single
   // business named e.g. "Test Business" would otherwise false-match the
   // "business" company keyword on its own and get mistaken for a header
   // row, silently swallowing the only row on a one-line paste.
-  const headerMatchCount = [nameIdx,phoneIdx,companyIdx,emailIdx,regionIdx,industryIdx,websiteIdx,ratingIdx].filter(i => i > -1).length;
+  const headerMatchCount = [nameIdx,phoneIdx,companyIdx,emailIdx,websiteIdx,ratingIdx,reviewsIdx].filter(i => i > -1).length;
   const anyHeaderMatched = headerMatchCount >= 2;
 
   if (anyHeaderMatched){
-    return rows.slice(1).map(r => {
-      const region = regionIdx>-1 ? String(r[regionIdx]||"").trim() : "";
-      const industry = industryIdx>-1 ? String(r[industryIdx]||"").trim() : "";
-      const rating = ratingIdx>-1 ? String(r[ratingIdx]||"").trim() : "";
-      return {
-        // We never actually know an owner/contact's name from a business
-        // listing scrape, so fall back to the business name rather than a
-        // fake "Unknown" placeholder - an empty name still renders fine.
-        name: (nameIdx>-1 ? String(r[nameIdx]||"").trim() : "") || (companyIdx>-1 ? String(r[companyIdx]||"").trim() : ""),
-        phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
-        company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
-        email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
-        // A column named "Region"/"Industry" can still hold review text or
-        // "10+ yrs" in a messy scrape - drop it rather than show it as if
-        // it were real.
-        region: looksLikeReviewOrDuration(region) ? "" : region,
-        industry: looksLikeReviewOrDuration(industry) ? "" : industry,
-        website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
-        // Same idea for rating - only keep it if it actually looks like a
-        // star rating / review count, not a full review sentence.
-        google_rating: looksLikeRating(rating) ? rating : "",
-      };
-    }).filter(p => p.name || p.phone);
+    return rows.slice(1).map(r => ({
+      // We never actually know an owner/contact's name from a business
+      // listing scrape, so fall back to the business name rather than a
+      // fake "Unknown" placeholder - an empty name still renders fine.
+      name: (nameIdx>-1 ? String(r[nameIdx]||"").trim() : "") || (companyIdx>-1 ? String(r[companyIdx]||"").trim() : ""),
+      phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
+      company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
+      email: emailIdx>-1 ? String(r[emailIdx]||"").trim() : "",
+      website: websiteIdx>-1 ? String(r[websiteIdx]||"").trim() : "",
+      google_rating: combineRating(ratingIdx>-1 ? r[ratingIdx] : "", reviewsIdx>-1 ? r[reviewsIdx] : ""),
+    })).filter(p => p.name || p.phone);
   }
 
   // No recognisable header row at all - most likely a raw scrape pasted
   // straight in with no column titles. Sniff each cell by what it looks
   // like instead of trusting its position, so phone/website/rating still
   // land in the right field even without headers to match against. Anything
-  // left over after that (region, industry, whatever else was in the scrape)
-  // can't be reliably told apart by position alone, so it goes into notes
-  // instead of risking it landing in the wrong field silently - a blank
-  // region you fill in by hand beats a wrong one you don't notice.
+  // left over after that can't be reliably told apart by position alone, so
+  // it goes into notes instead of risking it landing in the wrong field.
   return rows.map(r => {
     const cells = r.map(c => String(c||"").trim()).filter(Boolean);
     let phone = "", website = "", rating = "";
@@ -2110,7 +2110,7 @@ function mapImportRows(rows){
     return {
       name: leftover[0] || "",
       phone, website, google_rating: rating,
-      company: "", region: "", industry: "", email: "",
+      company: "", email: "",
       notes: leftover.slice(1).join(" · "),
     };
   }).filter(p => p.name || p.phone);
@@ -2168,6 +2168,19 @@ async function importProspectRows(prospects){
   const skippedMsg = skipped ? ` ${skipped} skipped - already on the list.` : "";
   alert(`Imported ${imported} prospect${imported===1?"":"s"}.${skippedMsg}`);
 }
+// Holds a parsed batch between "file selected / list pasted" and "Region +
+// Industry confirmed" - the import itself doesn't run until that modal is
+// submitted, since every row in the batch gets tagged with whatever's typed
+// in there.
+let pendingImportRows = null;
+function promptImportRegionIndustry(rows){
+  if (!rows.length){ alert("No rows found to import."); return; }
+  pendingImportRows = rows;
+  $("#import-details-count").textContent = rows.length;
+  $("#import-details-region").value = "";
+  $("#import-details-industry").value = "";
+  openModal("import-details-modal");
+}
 function setupProspectFileImport(btnId, inputId){
   const input = $(inputId);
   $(btnId)?.addEventListener("click", () => input.click());
@@ -2181,10 +2194,10 @@ function setupProspectFileImport(btnId, inputId){
         const wb = XLSX.read(buf, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
-        await importProspectRows(mapImportRows(rows));
+        promptImportRegionIndustry(mapImportRows(rows));
       } else {
         const text = await file.text();
-        await importProspectRows(mapImportRows(parseCsv(text)));
+        promptImportRegionIndustry(mapImportRows(parseCsv(text)));
       }
     } catch (err){
       alert("Couldn't read that file: " + err.message);
@@ -2208,7 +2221,17 @@ function setupPasteProspects(){
     const text = $("#paste-prospects-textarea").value.trim();
     if (!text) return;
     closeModal("paste-prospects-modal");
-    await importProspectRows(mapImportRows(parseDelimited(text)));
+    promptImportRegionIndustry(mapImportRows(parseDelimited(text)));
+  });
+  $("#import-details-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const region = $("#import-details-region").value.trim();
+    const industry = $("#import-details-industry").value.trim();
+    const rows = pendingImportRows || [];
+    pendingImportRows = null;
+    closeModal("import-details-modal");
+    rows.forEach(p => { p.region = region; p.industry = industry; });
+    await importProspectRows(rows);
   });
 }
 
@@ -3146,27 +3169,6 @@ function renderProspectFilters(){
     callerSel.value = state.dialerFilter.caller;
   }
 }
-// Which regions are mostly worked through vs which are still fresh - the
-// "map" of where the team's cold-calling effort is actually going.
-function renderRegionProgress(){
-  const wrap = $("#prospecting-region-progress");
-  if (!wrap) return;
-  const regions = dialerDistinctValues("region");
-  if (!regions.length){ wrap.innerHTML = emptyState("No regions yet - add a Region when importing or adding a prospect."); return; }
-  const rows = regions.map(r => {
-    const inRegion = state.prospects.filter(p => (p.region||"") === r);
-    const called = inRegion.filter(p => Number(p.calls_made||0) > 0).length;
-    const pct = inRegion.length ? Math.round((called/inRegion.length)*100) : 0;
-    return { region: r, total: inRegion.length, called, pct };
-  }).sort((a,b) => b.total - a.total);
-  wrap.innerHTML = rows.map(x => `
-    <div class="region-progress-row" data-action="filter-prospect-region" data-id="${escapeHtml(x.region)}" style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer;">
-      <div style="width:150px;flex-shrink:0;font-weight:600;font-size:13.5px;">${escapeHtml(x.region)}</div>
-      <div class="playbook-progress-bar"><div class="playbook-progress-fill" style="width:${x.pct}%"></div></div>
-      <div style="width:120px;flex-shrink:0;text-align:right;color:var(--text2);font-size:12.5px;">${x.called} / ${x.total} called</div>
-    </div>
-  `).join("");
-}
 function renderProspectRow(p, opts={}){
   const website = p.website ? (/^https?:\/\//i.test(p.website) ? p.website : "https://" + p.website) : "";
   const called = Number(p.calls_made||0);
@@ -3232,7 +3234,6 @@ function renderProspectList(){
   const groupsWrap = $("#prospecting-groups");
   if (!groupsWrap) return;
   renderProspectFilters();
-  renderRegionProgress();
   renderTeamFocusPanel();
   const baseFiltered = dialerFilteredProspects();
   const snoozedCount = baseFiltered.filter(isSnoozed).length;
@@ -4654,10 +4655,6 @@ function setupModals(){
       if (regionField) regionField.style.display = needsRegion ? "" : "none";
       if (regionInput){ regionInput.required = needsRegion; regionInput.value = ""; }
       openModal("log-call-modal");
-    }
-    if (action === "filter-prospect-region"){
-      state.dialerFilter.region = id;
-      renderProspectViews();
     }
     if (action === "dial-tel") await logDialOutcome(id, "dialed");
     if (action === "start-call") await startCall(id);

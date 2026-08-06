@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=57">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=57">
+<link rel="stylesheet" href="css/style.css?v=58">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=58">
 </head>
 <body>
 
@@ -136,7 +136,7 @@
         <span>Meetings Booked</span>
       </button>
       <button class="nav-item" data-page="dialer" data-workspace="sales">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="6" cy="5" r="1.7"/><circle cx="12" cy="5" r="1.7"/><circle cx="18" cy="5" r="1.7"/><circle cx="6" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18" cy="12" r="1.7"/><circle cx="6" cy="19" r="1.7"/><circle cx="12" cy="19" r="1.7"/><circle cx="18" cy="19" r="1.7"/></svg>
         <span>Dialer</span>
       </button>
       <button class="nav-item" data-page="deals" data-workspace="sales">
@@ -640,11 +640,6 @@
         <div class="stat-card"><div class="stat-label">Cooling Down</div><div class="stat-value" id="prospecting-stat-snoozed">0</div></div>
         <div class="stat-card"><div class="stat-label">Never Called</div><div class="stat-value" id="prospecting-stat-fresh">0</div></div>
         <div class="stat-card"><div class="stat-label">Industries</div><div class="stat-value" id="prospecting-stat-industries">0</div></div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><h3>Region Progress</h3><span class="stat-sub">Which regions are mostly worked through vs still fresh - click one to filter below.</span></div>
-        <div class="card-body" id="prospecting-region-progress"></div>
       </div>
 
       <div class="card">
@@ -1518,12 +1513,28 @@
     <form id="paste-prospects-form" class="modal-body">
       <div class="field">
         <label>Paste a tidied list (from a Claude chat, a spreadsheet, or a CSV)</label>
-        <textarea id="paste-prospects-textarea" rows="12" placeholder="Name, Phone, Company, Industry, Region&#10;Marlon Reeve, 021 555 0111, Reeve Builders, Construction, Auckland CBD&#10;..." style="font-family:var(--font-mono, monospace);font-size:12.5px;"></textarea>
+        <textarea id="paste-prospects-textarea" rows="12" placeholder="Name, Phone, Company, Rating&#10;Marlon Reeve, 021 555 0111, Reeve Builders, 4.8 (63)&#10;..." style="font-family:var(--font-mono, monospace);font-size:12.5px;"></textarea>
       </div>
-      <p style="color:var(--text2);font-size:12.5px;">Matches columns by header name (Name, Phone, Company, Industry, Region, Email) in any order. Anyone already on the shared list - by phone number or by name - is skipped automatically.</p>
+      <p style="color:var(--text2);font-size:12.5px;">Matches columns by header name (Name, Phone, Company, Email, Website, Rating) in any order. You'll be asked for the Region and Industry next - every business in this paste gets tagged with the same one, so keep each paste to a single region/industry. Anyone already on the shared list - by phone number or by name - is skipped automatically.</p>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="paste-prospects-modal">Cancel</button>
-        <button type="submit" class="btn gold">Import Pasted List</button>
+        <button type="submit" class="btn gold">Next: Region &amp; Industry</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Import Region / Industry (applies to whole batch) ───────── -->
+<div class="overlay" id="import-details-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Region &amp; Industry</h3><button class="modal-close" data-close="import-details-modal">&times;</button></div>
+    <form id="import-details-form" class="modal-body">
+      <p style="color:var(--text2);font-size:13px;">Applying to <strong id="import-details-count">0</strong> businesses - every one gets tagged with the same Region and Industry below.</p>
+      <div class="field"><label>Region</label><input type="text" id="import-details-region" required placeholder="e.g. Auckland, Hawkes Bay, Wellington, New Plymouth"></div>
+      <div class="field"><label>Industry</label><input type="text" id="import-details-industry" placeholder="e.g. Roofing"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="import-details-modal">Cancel</button>
+        <button type="submit" class="btn gold">Import</button>
       </div>
     </form>
   </div>
@@ -1834,10 +1845,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=57"></script>
-<script src="js/supabaseClient.js?v=57"></script>
-<script src="js/app.js?v=57"></script>
-<script src="js/meetings-tracker.js?v=57"></script>
-<script src="js/todo.js?v=57"></script>
+<script src="js/config.js?v=58"></script>
+<script src="js/supabaseClient.js?v=58"></script>
+<script src="js/app.js?v=58"></script>
+<script src="js/meetings-tracker.js?v=58"></script>
+<script src="js/todo.js?v=58"></script>
 </body>
 </html>
