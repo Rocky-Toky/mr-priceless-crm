@@ -2247,7 +2247,7 @@ function mapImportRows(rows){
   if (!rows.length) return [];
   const headers = rows[0].map(h => String(h||"").trim().toLowerCase());
   const findCol = (...names) => headers.findIndex(h => names.some(n => h === n || h.includes(n)));
-  const nameIdx = findCol("name","full name","contact");
+  const nameIdx = findCol("name","full name","contact","owner","owner name","contact name");
   const phoneIdx = findCol("phone","mobile","number","tel","cell");
   const companyIdx = findCol("company","organisation","organization","business");
   const emailIdx = findCol("email");
@@ -2269,9 +2269,9 @@ function mapImportRows(rows){
   if (headerMatchCount < 2) return null;
 
   return rows.slice(1).map(r => ({
-    // We never actually know an owner/contact's name from a business
-    // listing scrape, so fall back to the business name rather than a
-    // fake "Unknown" placeholder - an empty name still renders fine.
+    // Some lists come with an owner/contact name column, some don't (a raw
+    // Google Maps scrape never has one) - fall back to the business name
+    // rather than a fake "Unknown" placeholder when it's missing.
     name: (nameIdx>-1 ? String(r[nameIdx]||"").trim() : "") || (companyIdx>-1 ? String(r[companyIdx]||"").trim() : ""),
     phone: phoneIdx>-1 ? String(r[phoneIdx]||"").trim() : "",
     company: companyIdx>-1 ? String(r[companyIdx]||"").trim() : "",
@@ -3644,9 +3644,9 @@ function renderProspectFilters(){
 function renderProspectRow(p, opts={}){
   const website = p.website ? (/^https?:\/\//i.test(p.website) ? p.website : "https://" + p.website) : "";
   const called = Number(p.calls_made||0);
-  // No separate contact name is ever known from a business listing scrape -
-  // the company name IS the identity, so it's what shows front and centre
-  // when there's no name on file.
+  // Show the owner/contact name front and centre when it's known (that's
+  // who to actually ask for on the call), falling back to the business
+  // name when it isn't.
   const displayName = p.name || p.company || "";
   const showCompanyLine = p.company && p.company !== displayName;
   const calledLabel = called === 0
@@ -4972,7 +4972,7 @@ function setupModals(){
       google_rating: $("#prospect-google-rating").value.trim(),
       notes: $("#prospect-notes").value.trim(),
     };
-    if (!row.name) return;
+    if (!row.company && !row.name) return;
     if (id){
       row.updated_at = new Date().toISOString();
       await DataLayer.update("dial_prospects", id, row);
