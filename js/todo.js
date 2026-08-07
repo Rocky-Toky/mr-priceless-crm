@@ -215,8 +215,8 @@ function todoRenderItem(idx){
         ${timeStr?`<span>· done ${timeStr}</span>`:''}
       </div>
     </div>
-    <button class="mtr-edit-btn" title="Rename">${TODO_EDIT_SVG}</button>
-    <button class="mtr-edit-btn" title="Delete">${TODO_TRASH_SVG}</button>
+    <button class="icon-btn" title="Rename">${TODO_EDIT_SVG}</button>
+    <button class="icon-btn" title="Delete">${TODO_TRASH_SVG}</button>
     <span class="badge ${t.done?'green':'gold'}">${t.done?'Done!':'Priority'}</span>`;
   if (!existing){
     el.addEventListener('click', e => {

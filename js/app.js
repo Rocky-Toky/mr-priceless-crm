@@ -256,6 +256,8 @@ const ONBOARDING_SECTIONS = [
     "Confirm they're on Google Calendar and get the app downloaded on their phone - mention it syncs offline so it works anywhere.",
     "Explain quotes get booked straight into whatever shows as free, so they need to block off every slot they're actually available - including travel time to and from quotes.",
     "Walk them through setting recurring blocks for their regular hours or days off, so they're not manually updating their calendar every week.",
+    "Get their calendar synced with GHL, so bookings and their calendar stay lined up on both sides.",
+    "Check their Google Calendar sharing is set to \"See all event details\", not \"See only free/busy\" - otherwise quotes booked in just show as a blocked-out busy slot with none of the actual details.",
   ]},
   { section: "Demo The CRM", items: [
     "Walk them through the Tasks section.",
