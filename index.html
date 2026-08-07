@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=67">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=67">
+<link rel="stylesheet" href="css/style.css?v=68">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=68">
 </head>
 <body>
 
@@ -1573,8 +1573,8 @@
         <div class="field"><label>Website</label><input type="text" id="prospect-website" placeholder="e.g. reevebuilders.co.nz"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Region</label><input type="text" id="prospect-region" placeholder="e.g. Auckland CBD"></div>
-        <div class="field"><label>Industry</label><input type="text" id="prospect-industry" placeholder="e.g. Real Estate"></div>
+        <div class="field"><label>Region</label><select id="prospect-region"></select></div>
+        <div class="field"><label>Industry</label><select id="prospect-industry"></select></div>
       </div>
       <div class="field"><label>Google Rating</label><input type="text" id="prospect-google-rating" placeholder="e.g. 4.8 (127 reviews)"></div>
       <div class="field"><label>Notes</label><textarea id="prospect-notes" placeholder="Anything worth knowing before you call..."></textarea></div>
@@ -1602,7 +1602,7 @@
       </div>
       <div class="field" id="log-call-region-field" style="display:none;">
         <label>Region</label>
-        <input type="text" id="log-call-region" placeholder="e.g. Auckland CBD">
+        <select id="log-call-region"></select>
       </div>
       <div class="field" id="log-call-followup-field" style="display:none;">
         <label>Follow-up Date</label>
@@ -1643,8 +1643,8 @@
     <div class="modal-header"><h3>Region &amp; Industry</h3><button class="modal-close" data-close="import-details-modal">&times;</button></div>
     <form id="import-details-form" class="modal-body">
       <p style="color:var(--text2);font-size:13px;">Applying to <strong id="import-details-count">0</strong> businesses - every one gets tagged with the same Region and Industry below.</p>
-      <div class="field"><label>Region</label><input type="text" id="import-details-region" required placeholder="e.g. Auckland, Hawkes Bay, Wellington, New Plymouth"></div>
-      <div class="field"><label>Industry</label><input type="text" id="import-details-industry" placeholder="e.g. Roofing"></div>
+      <div class="field"><label>Region</label><select id="import-details-region" required></select></div>
+      <div class="field"><label>Industry</label><select id="import-details-industry"></select></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="import-details-modal">Cancel</button>
         <button type="submit" class="btn gold">Import</button>
@@ -1861,6 +1861,14 @@
     <div class="modal-header"><h3 id="task-modal-title">Add Task</h3><button class="modal-close" data-close="task-modal">&times;</button></div>
     <form id="task-form" class="modal-body">
       <input type="hidden" id="task-form-id">
+      <div class="field" id="task-prospect-info" style="display:none;">
+        <label>From Prospect</label>
+        <div class="card" style="padding:12px 14px;background:#faf9f5;box-shadow:none;">
+          <div class="row-name" id="task-prospect-name"></div>
+          <div class="row-sub" id="task-prospect-details"></div>
+          <div class="row-sub" id="task-prospect-notes" style="white-space:pre-line;margin-top:6px;"></div>
+        </div>
+      </div>
       <div class="field"><label>Title</label><input type="text" id="task-title" required placeholder="e.g. Send Kauri contract for signature"></div>
       <div class="field-row">
         <div class="field"><label>Due Date</label><input type="date" id="task-due-date"></div>
@@ -1976,10 +1984,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=67"></script>
-<script src="js/supabaseClient.js?v=67"></script>
-<script src="js/app.js?v=67"></script>
-<script src="js/meetings-tracker.js?v=67"></script>
-<script src="js/todo.js?v=67"></script>
+<script src="js/config.js?v=68"></script>
+<script src="js/supabaseClient.js?v=68"></script>
+<script src="js/app.js?v=68"></script>
+<script src="js/meetings-tracker.js?v=68"></script>
+<script src="js/todo.js?v=68"></script>
 </body>
 </html>

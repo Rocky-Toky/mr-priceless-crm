@@ -109,6 +109,45 @@ function canAccessDelivery(){
 }
 function getAssigneeFirstPref(){ return localStorage.getItem("crm_task_assignee_first") || "rocky"; }
 function setAssigneeFirstPref(v){ if (ASSIGNEES[v]) localStorage.setItem("crm_task_assignee_first", v); }
+// Fixed pick-lists for a prospect's Region and Industry, so everyone picks
+// from the same canonical set instead of typing free text that drifts apart
+// ("Auckland" vs "Auckalnd" vs "Akl") and never lines up across the team.
+const NZ_REGIONS = [
+  "Ashburton", "Auckland", "Auckland CBD", "Bay of Plenty", "Blenheim", "Cambridge",
+  "Canterbury", "Christchurch", "Dunedin", "East Auckland", "Gisborne", "Gore",
+  "Greymouth", "Hamilton", "Hastings", "Hawkes Bay", "Invercargill", "Kapiti Coast",
+  "Kerikeri", "Levin", "Lower Hutt", "Manawatu-Whanganui", "Marlborough", "Masterton",
+  "Motueka", "Napier", "Nelson", "New Plymouth", "North Shore", "Northland", "Oamaru",
+  "Otago", "Paihia", "Palmerston North", "Picton", "Porirua", "Pukekohe", "Queenstown",
+  "Rangiora", "Rotorua", "South Auckland", "Southland", "Taranaki", "Tasman", "Taupo",
+  "Tauranga", "Timaru", "Upper Hutt", "Waikato", "Wanaka", "Wellington", "West Auckland",
+  "West Coast", "Whakatane", "Whangarei", "Whanganui",
+];
+const HOME_SERVICES_INDUSTRIES = [
+  "Aluminium Joinery", "Blinds & Curtains", "Builders", "Carpentry", "Carpet Cleaning",
+  "Chimney Sweep", "Concreting", "Construction", "Deck Building", "Demolition",
+  "Driveways & Paving", "Electrical", "Excavation", "Fencing", "Flooring",
+  "Gardening & Lawn Care", "Glazing", "Guttering", "Handyman Services",
+  "Heat Pump Installation", "House Cleaning", "House Painting", "HVAC", "Insulation",
+  "Irrigation", "Kitchen & Bathroom Renovation", "Landscaping", "Locksmith",
+  "Moving & Removals", "Pest Control", "Plastering", "Plumbing", "Pool Services",
+  "Retaining Walls", "Roofing", "Rubbish Removal", "Scaffolding", "Security Systems",
+  "Septic Tank Services", "Skip Bin Hire", "Solar Installation", "Tiling",
+  "Tree Services", "Waterproofing", "Window Cleaning",
+];
+function populateStaticSelect(id, options, placeholder){
+  const el = $(id);
+  if (!el) return;
+  el.innerHTML = (placeholder ? `<option value="">${escapeHtml(placeholder)}</option>` : "")
+    + options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
+}
+function populateRegionIndustrySelects(){
+  populateStaticSelect("#prospect-region", NZ_REGIONS, "- Select a region -");
+  populateStaticSelect("#prospect-industry", HOME_SERVICES_INDUSTRIES, "- Select an industry -");
+  populateStaticSelect("#log-call-region", NZ_REGIONS, "- Select a region -");
+  populateStaticSelect("#import-details-region", NZ_REGIONS, "- Select a region -");
+  populateStaticSelect("#import-details-industry", HOME_SERVICES_INDUSTRIES, "- Select an industry -");
+}
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
@@ -414,7 +453,7 @@ function seedDemo(){
   state.prospects = [
     { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", website:"reevebuilders.co.nz", google_rating:"4.8 (63)", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", snoozed_until:new Date(Date.now()+86400e3*1).toISOString(), notes:"[Aug 3, 1:30pm - max] No Answer: Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", website:"", google_rating:"4.5 (21)", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
-    { id:graceProspectId, name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"Dental", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:null, notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
+    { id:graceProspectId, name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:null, notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"M. Reeve", phone:"021 555 0111", company:"Reeve Builders Ltd", email:"", website:"", region:"North Shore", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"bailey@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"", phone:"022 555 0177", company:"Coastal Concrete Ltd", email:"", website:"", region:"", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-86400e3*4).toISOString(), last_outcome:"not_interested", last_called_by:"max@mrpriceless.co.nz", snoozed_until:null, notes:"[Aug 2, 2:15pm - max] Not Interested: Already locked into a contract with another agency until next year.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
@@ -3227,7 +3266,12 @@ function renderTasks(){
   if (!list.length){ tbody.innerHTML = `<tr><td colspan="7">${emptyState("No tasks match. Add one to get started.")}</td></tr>`; return; }
   tbody.innerHTML = list.map(t => {
     const isOverdue = t.status === "open" && t.due_date && t.due_date < todayStr;
-    const linked = [t.contact_id ? contactName(t.contact_id) : "", t.deal_id ? dealTitle(t.deal_id) : ""].filter(Boolean);
+    const prospect = t.prospect_id ? state.prospects.find(p => p.id === t.prospect_id) : null;
+    const linked = [
+      t.contact_id ? contactName(t.contact_id) : "",
+      t.deal_id ? dealTitle(t.deal_id) : "",
+      prospect ? (prospect.name || prospect.company || "Prospect") + (prospect.company && prospect.company !== prospect.name ? ` - ${prospect.company}` : "") : "",
+    ].filter(Boolean);
     return `
     <tr data-id="${t.id}">
       <td style="width:34px;"><div class="mtr-check task-check ${t.status==='done'?'done':''}" data-action="toggle-task" data-id="${t.id}">${TASK_CHECK_SVG}</div></td>
@@ -3247,6 +3291,26 @@ function renderTasks(){
     </tr>
   `;}).join("");
 }
+// Shows the prospect a Follow Up task was auto-created from (see
+// logDialOutcome's call_back branch) right at the top of the task modal, so
+// clicking the task actually surfaces who it's about instead of just a
+// title with no context.
+function renderTaskProspectInfo(t){
+  const infoField = $("#task-prospect-info");
+  if (!infoField) return;
+  const p = t.prospect_id ? state.prospects.find(x => x.id === t.prospect_id) : null;
+  if (!p){ infoField.style.display = "none"; return; }
+  infoField.style.display = "";
+  const displayName = p.name || p.company || "Prospect";
+  const showCompanyLine = p.company && p.company !== displayName;
+  $("#task-prospect-name").textContent = displayName;
+  $("#task-prospect-details").textContent = [
+    showCompanyLine ? p.company : "",
+    p.phone || "",
+    [p.region, p.industry].filter(Boolean).join(" · "),
+  ].filter(Boolean).join(" · ");
+  $("#task-prospect-notes").textContent = p.notes || "";
+}
 function openEditTaskModal(id){
   const t = state.tasks.find(x => x.id === id);
   if (!t) return;
@@ -3258,6 +3322,7 @@ function openEditTaskModal(id){
   $("#task-notes").value = t.notes||"";
   $("#task-contact-select").value = t.contact_id||"";
   $("#task-deal-select").value = t.deal_id||"";
+  renderTaskProspectInfo(t);
   $("#task-modal-title").textContent = "Edit Task";
   openModal("task-modal");
 }
@@ -5095,6 +5160,7 @@ function setupModals(){
 
   $("#add-task-btn")?.addEventListener("click", () => {
     $("#task-form").reset(); $("#task-form-id").value=""; $("#task-modal-title").textContent="Add Task";
+    renderTaskProspectInfo({});
     openModal("task-modal");
   });
   $("#task-form")?.addEventListener("submit", async (e) => {
@@ -5495,6 +5561,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupEmailAuth();
   setupNav();
   setupModals();
+  populateRegionIndustrySelects();
   setupSearchFilters();
   setupTeam();
   setupQualifyModal();
