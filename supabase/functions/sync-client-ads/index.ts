@@ -7,9 +7,15 @@
 //   - finds-or-creates a matching client_ad_creatives row by meta_ad_id,
 //     and writes the live spend/impressions/clicks/results onto it
 //
-// Body: { client_id }. Caller must be a signed-in, allowlisted user.
+// Two ways to trigger it:
+//  1. Manual "Sync" button in Creative Library: body { client_id }, caller
+//     is a signed-in allowlisted user. Syncs just that one client.
+//  2. Scheduled (see sql/044_daily_creative_sync.sql cron job): no body,
+//     header x-cron-secret matches CREATIVE_SYNC_CRON_SECRET. Loops through
+//     every client that has a Meta Ad Account ID set and syncs each in turn,
+//     so creative data flows in automatically once a day without anyone
+//     having to click Sync.
 
-// sync-client-ads
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -72,6 +78,150 @@ function computeDeliveryStatus(ad: any): string | null {
   return map[es] || es.toLowerCase();
 }
 
+// Syncs one client's whole Meta ad account. Shared by both the manual,
+// single-client path and the cron path that loops over every client.
+async function syncOneClient(admin: any, metaToken: string, clientId: string, rawMetaAdAccountId: string) {
+  const metaAdAccountId = String(rawMetaAdAccountId).startsWith("act_")
+    ? String(rawMetaAdAccountId)
+    : `act_${rawMetaAdAccountId}`;
+
+  const filtering = JSON.stringify([
+    { field: "effective_status", operator: "IN", value: RELEVANT_STATUSES },
+  ]);
+
+  const ads: any[] = [];
+  let pagesFetched = 0;
+
+  // Try the rich field set (includes adset learning-phase info) first; if
+  // the account/token can't access that nested field, fall back to the
+  // basic set rather than failing the whole sync.
+  let nextUrl: string | null = buildAdsUrl(metaAdAccountId, RICH_FIELDS, filtering, metaToken);
+  let resp = await fetch(nextUrl);
+  let pageJson = await resp.json();
+  if (!resp.ok) {
+    nextUrl = buildAdsUrl(metaAdAccountId, BASIC_FIELDS, filtering, metaToken);
+    resp = await fetch(nextUrl);
+    pageJson = await resp.json();
+    if (!resp.ok) throw new Error(pageJson?.error?.message || "Meta API error");
+  }
+  ads.push(...(pageJson?.data ?? []));
+  nextUrl = pageJson?.paging?.next ?? null;
+  pagesFetched += 1;
+
+  while (nextUrl && pagesFetched < 10) {
+    const pageResp = await fetch(nextUrl);
+    const pageData = await pageResp.json();
+    if (!pageResp.ok) {
+      throw new Error(pageData?.error?.message || "Meta API error");
+    }
+    ads.push(...(pageData?.data ?? []));
+    nextUrl = pageData?.paging?.next ?? null;
+    pagesFetched += 1;
+  }
+
+  const [{ data: existingCampaigns }, { data: existingCreatives }] = await Promise.all([
+    admin.from("client_campaigns").select("id, client_id, name, platform, status").eq("client_id", clientId),
+    admin.from("client_ad_creatives").select("id, client_id, meta_ad_id, name, result, campaign_id, image_url").eq("client_id", clientId),
+  ]);
+
+  const campaignByName = new Map<string, any>();
+  for (const row of existingCampaigns ?? []) {
+    if (row?.name) campaignByName.set(row.name, row);
+  }
+
+  const creativeByMetaId = new Map<string, any>();
+  for (const row of existingCreatives ?? []) {
+    if (row?.meta_ad_id != null) creativeByMetaId.set(String(row.meta_ad_id), row);
+  }
+
+  let campaignsCreated = 0;
+  let creativesCreated = 0;
+  let creativesUpdated = 0;
+
+  for (const ad of ads) {
+    const campaignName = ad?.campaign?.name;
+    let campaignId: string | null = null;
+
+    if (campaignName) {
+      const existing = campaignByName.get(campaignName);
+      if (!existing) {
+        const { data: insertedCampaign } = await admin
+          .from("client_campaigns")
+          .insert({
+            client_id: clientId,
+            name: campaignName,
+            platform: "Meta",
+            status: ad?.effective_status === "ACTIVE" ? "active" : "paused",
+          })
+          .select("id")
+          .maybeSingle();
+
+        campaignId = insertedCampaign?.id ?? null;
+        if (campaignId) campaignByName.set(campaignName, { id: campaignId, name: campaignName });
+        campaignsCreated += 1;
+      } else {
+        campaignId = existing?.id ?? null;
+      }
+    }
+
+    const insights = ad?.insights?.data?.[0] ?? {};
+    const actions = insights?.actions ?? [];
+    const costPerActionType = insights?.cost_per_action_type ?? [];
+
+    const leadAction = actions.find((a: any) =>
+      ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"].includes(a?.action_type)
+    );
+    const results = leadAction ? Math.round(Number(leadAction.value)) : null;
+    const leadCost = leadAction ? costPerActionType.find((c: any) => c?.action_type === leadAction?.action_type) : null;
+    const spend = Number(insights?.spend || 0);
+    const costPerResult = leadCost ? Number(leadCost.value) : (results ? spend / results : null);
+
+    const patch = {
+      campaign_id: campaignId,
+      impressions: Math.round(Number(insights?.impressions || 0)),
+      clicks: Math.round(Number(insights?.clicks || 0)),
+      spend,
+      results,
+      cost_per_result: costPerResult,
+      delivery_status: computeDeliveryStatus(ad),
+      insights_updated_at: new Date().toISOString(),
+    };
+
+    const creativeImageUrl: string | null = ad?.creative?.image_url || ad?.creative?.thumbnail_url || null;
+    const adId = ad?.id;
+    const existingCreative = adId != null ? creativeByMetaId.get(String(adId)) : undefined;
+
+    if (existingCreative) {
+      const updatePatch: Record<string, unknown> = { ...patch };
+      // Don't clobber a manually-uploaded image with Meta's version.
+      if (creativeImageUrl && !existingCreative.image_url) {
+        updatePatch.image_url = creativeImageUrl;
+      }
+      await admin.from("client_ad_creatives").update(updatePatch).eq("id", existingCreative.id);
+      creativesUpdated += 1;
+    } else {
+      const insertPayload = {
+        client_id: clientId,
+        meta_ad_id: ad?.id,
+        name: ad?.name,
+        result: "testing",
+        image_url: creativeImageUrl,
+        ...patch,
+      };
+      await admin.from("client_ad_creatives").insert(insertPayload);
+      creativesCreated += 1;
+      if (ad?.id != null) creativeByMetaId.set(String(ad.id), insertPayload);
+    }
+  }
+
+  return {
+    ads_found: ads.length,
+    campaigns_created: campaignsCreated,
+    creatives_created: creativesCreated,
+    creatives_updated: creativesUpdated,
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { status: 200, headers: { ...corsHeaders } });
@@ -81,6 +231,7 @@ Deno.serve(async (req: Request) => {
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const META_SYSTEM_USER_TOKEN = Deno.env.get("META_SYSTEM_USER_TOKEN");
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+  const CREATIVE_SYNC_CRON_SECRET = Deno.env.get("CREATIVE_SYNC_CRON_SECRET");
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_ANON_KEY) {
     return json({ error: "Server misconfigured: missing Supabase environment variables." }, 500);
@@ -89,11 +240,40 @@ Deno.serve(async (req: Request) => {
     return json({ error: "META_SYSTEM_USER_TOKEN secret is not set on this project yet." }, 500);
   }
 
-  const authHeader = req.headers.get("Authorization") ?? "";
-
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
   });
+
+  const isCron = Boolean(CREATIVE_SYNC_CRON_SECRET) && req.headers.get("x-cron-secret") === CREATIVE_SYNC_CRON_SECRET;
+
+  // ───────── Scheduled path: every client with an ad account, no login ─────────
+  if (isCron) {
+    const { data: clients, error: clientsError } = await supabaseAdmin
+      .from("clients")
+      .select("id, meta_ad_account_id")
+      .not("meta_ad_account_id", "is", null)
+      .neq("meta_ad_account_id", "");
+
+    if (clientsError) {
+      return json({ error: clientsError.message }, 500);
+    }
+
+    const results: Record<string, unknown>[] = [];
+    for (const client of clients ?? []) {
+      try {
+        const summary = await syncOneClient(supabaseAdmin, META_SYSTEM_USER_TOKEN, client.id, client.meta_ad_account_id);
+        results.push({ client_id: client.id, ok: true, ...summary });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        results.push({ client_id: client.id, ok: false, error: message });
+      }
+    }
+
+    return json({ ok: true, clients_synced: results.length, results });
+  }
+
+  // ───────── Manual path: one client, signed-in allowlisted user ─────────
+  const authHeader = req.headers.get("Authorization") ?? "";
   const supabaseAuthed = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: false },
     global: { headers: { Authorization: authHeader } },
@@ -141,147 +321,10 @@ Deno.serve(async (req: Request) => {
   if (!rawMetaAdAccountId) {
     return json({ error: "This client has no Meta Ad Account ID set." }, 400);
   }
-  const metaAdAccountId = String(rawMetaAdAccountId).startsWith("act_")
-    ? String(rawMetaAdAccountId)
-    : `act_${rawMetaAdAccountId}`;
 
   try {
-    const filtering = JSON.stringify([
-      { field: "effective_status", operator: "IN", value: RELEVANT_STATUSES },
-    ]);
-
-    const ads: any[] = [];
-    let pagesFetched = 0;
-
-    // Try the rich field set (includes adset learning-phase info) first; if
-    // the account/token can't access that nested field, fall back to the
-    // basic set rather than failing the whole sync.
-    let nextUrl: string | null = buildAdsUrl(metaAdAccountId, RICH_FIELDS, filtering, META_SYSTEM_USER_TOKEN);
-    let resp = await fetch(nextUrl);
-    let pageJson = await resp.json();
-    if (!resp.ok) {
-      nextUrl = buildAdsUrl(metaAdAccountId, BASIC_FIELDS, filtering, META_SYSTEM_USER_TOKEN);
-      resp = await fetch(nextUrl);
-      pageJson = await resp.json();
-      if (!resp.ok) throw new Error(pageJson?.error?.message || "Meta API error");
-    }
-    ads.push(...(pageJson?.data ?? []));
-    nextUrl = pageJson?.paging?.next ?? null;
-    pagesFetched += 1;
-
-    while (nextUrl && pagesFetched < 10) {
-      const pageResp = await fetch(nextUrl);
-      const pageData = await pageResp.json();
-      if (!pageResp.ok) {
-        throw new Error(pageData?.error?.message || "Meta API error");
-      }
-      ads.push(...(pageData?.data ?? []));
-      nextUrl = pageData?.paging?.next ?? null;
-      pagesFetched += 1;
-    }
-
-    const [{ data: existingCampaigns }, { data: existingCreatives }] = await Promise.all([
-      supabaseAdmin.from("client_campaigns").select("id, client_id, name, platform, status").eq("client_id", clientId),
-      supabaseAdmin.from("client_ad_creatives").select("id, client_id, meta_ad_id, name, result, campaign_id, image_url").eq("client_id", clientId),
-    ]);
-
-    const campaignByName = new Map<string, any>();
-    for (const row of existingCampaigns ?? []) {
-      if (row?.name) campaignByName.set(row.name, row);
-    }
-
-    const creativeByMetaId = new Map<string, any>();
-    for (const row of existingCreatives ?? []) {
-      if (row?.meta_ad_id != null) creativeByMetaId.set(String(row.meta_ad_id), row);
-    }
-
-    let campaignsCreated = 0;
-    let creativesCreated = 0;
-    let creativesUpdated = 0;
-
-    for (const ad of ads) {
-      const campaignName = ad?.campaign?.name;
-      let campaignId: string | null = null;
-
-      if (campaignName) {
-        const existing = campaignByName.get(campaignName);
-        if (!existing) {
-          const { data: insertedCampaign } = await supabaseAdmin
-            .from("client_campaigns")
-            .insert({
-              client_id: clientId,
-              name: campaignName,
-              platform: "Meta",
-              status: ad?.effective_status === "ACTIVE" ? "active" : "paused",
-            })
-            .select("id")
-            .maybeSingle();
-
-          campaignId = insertedCampaign?.id ?? null;
-          if (campaignId) campaignByName.set(campaignName, { id: campaignId, name: campaignName });
-          campaignsCreated += 1;
-        } else {
-          campaignId = existing?.id ?? null;
-        }
-      }
-
-      const insights = ad?.insights?.data?.[0] ?? {};
-      const actions = insights?.actions ?? [];
-      const costPerActionType = insights?.cost_per_action_type ?? [];
-
-      const leadAction = actions.find((a: any) =>
-        ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"].includes(a?.action_type)
-      );
-      const results = leadAction ? Math.round(Number(leadAction.value)) : null;
-      const leadCost = leadAction ? costPerActionType.find((c: any) => c?.action_type === leadAction?.action_type) : null;
-      const spend = Number(insights?.spend || 0);
-      const costPerResult = leadCost ? Number(leadCost.value) : (results ? spend / results : null);
-
-      const patch = {
-        campaign_id: campaignId,
-        impressions: Math.round(Number(insights?.impressions || 0)),
-        clicks: Math.round(Number(insights?.clicks || 0)),
-        spend,
-        results,
-        cost_per_result: costPerResult,
-        delivery_status: computeDeliveryStatus(ad),
-        insights_updated_at: new Date().toISOString(),
-      };
-
-      const creativeImageUrl: string | null = ad?.creative?.image_url || ad?.creative?.thumbnail_url || null;
-      const adId = ad?.id;
-      const existingCreative = adId != null ? creativeByMetaId.get(String(adId)) : undefined;
-
-      if (existingCreative) {
-        const updatePatch: Record<string, unknown> = { ...patch };
-        // Don't clobber a manually-uploaded image with Meta's version.
-        if (creativeImageUrl && !existingCreative.image_url) {
-          updatePatch.image_url = creativeImageUrl;
-        }
-        await supabaseAdmin.from("client_ad_creatives").update(updatePatch).eq("id", existingCreative.id);
-        creativesUpdated += 1;
-      } else {
-        const insertPayload = {
-          client_id: clientId,
-          meta_ad_id: ad?.id,
-          name: ad?.name,
-          result: "testing",
-          image_url: creativeImageUrl,
-          ...patch,
-        };
-        await supabaseAdmin.from("client_ad_creatives").insert(insertPayload);
-        creativesCreated += 1;
-        if (ad?.id != null) creativeByMetaId.set(String(ad.id), insertPayload);
-      }
-    }
-
-    return json({
-      ok: true,
-      ads_found: ads.length,
-      campaigns_created: campaignsCreated,
-      creatives_created: creativesCreated,
-      creatives_updated: creativesUpdated,
-    });
+    const summary = await syncOneClient(supabaseAdmin, META_SYSTEM_USER_TOKEN, clientId, rawMetaAdAccountId);
+    return json({ ok: true, ...summary });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return json({ error: message }, 500);
