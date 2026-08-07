@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=66">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=66">
+<link rel="stylesheet" href="css/style.css?v=67">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=67">
 </head>
 <body>
 
@@ -852,9 +852,10 @@
           <div class="quote-guarantee-sub" id="quote-guarantee-sub">10 remaining to hit the guarantee</div>
         </div>
 
-        <div class="stat-grid" style="grid-template-columns:repeat(5,1fr);">
+        <div class="stat-grid" style="grid-template-columns:repeat(6,1fr);">
           <div class="stat-card"><div class="stat-label">Cost Per Lead</div><div class="stat-value" id="client-detail-cpl">-</div></div>
           <div class="stat-card"><div class="stat-label">Monthly Ad Spend</div><div class="stat-value" id="client-detail-monthly-spend">-</div></div>
+          <div class="stat-card"><div class="stat-label">Ad Start Date</div><div class="stat-value" id="client-detail-ad-start-date" style="font-size:20px;">-</div></div>
           <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="client-detail-campaigns-running">0</div></div>
           <div class="stat-card"><div class="stat-label">Total Campaigns</div><div class="stat-value" id="client-detail-campaigns-total">0</div></div>
           <div class="stat-card">
@@ -1709,6 +1710,7 @@
 
       <div class="modal-section-label">Meta &amp; Reporting</div>
       <div class="field"><label>Meta Ad Account ID</label><input type="text" id="client-meta-account" placeholder="e.g. 1234567890 (act_ prefix added automatically)"></div>
+      <div class="field"><label>Ad Start Date</label><input type="date" id="client-ad-start-date"></div>
       <div class="field-row">
         <div class="field"><label>Report Frequency</label>
           <select id="client-report-frequency">
@@ -1974,10 +1976,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=66"></script>
-<script src="js/supabaseClient.js?v=66"></script>
-<script src="js/app.js?v=66"></script>
-<script src="js/meetings-tracker.js?v=66"></script>
-<script src="js/todo.js?v=66"></script>
+<script src="js/config.js?v=67"></script>
+<script src="js/supabaseClient.js?v=67"></script>
+<script src="js/app.js?v=67"></script>
+<script src="js/meetings-tracker.js?v=67"></script>
+<script src="js/todo.js?v=67"></script>
 </body>
 </html>

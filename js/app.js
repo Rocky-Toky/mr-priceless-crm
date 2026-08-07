@@ -193,6 +193,9 @@ const ONBOARDING_SECTIONS = [
     "Sync their calendar.",
     "Get them to upload their photos/images.",
     "Get Max to set up the Zapier integration.",
+    "Make 3 ad creatives for Meta - 2 proven High Performers and 1 new one to Test.",
+    "Halfway between booking the call and the call itself, give them a quick ring to reinforce the excitement, confirm they've got the calendar invite, and let them know we're already setting up their CRM.",
+    { text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
   ]},
   { section: "Open With Energy", items: [
     "Come in genuinely excited - smiling, good energy, stoked to have them on board.",
@@ -1681,6 +1684,7 @@ function openEditClientModal(c){
   $("#client-monthly-ad-spend").value = c.monthly_ad_spend != null ? c.monthly_ad_spend : "";
   $("#client-notes").value = c.notes||"";
   $("#client-meta-account").value = c.meta_ad_account_id||"";
+  $("#client-ad-start-date").value = c.ad_start_date||"";
   $("#client-report-frequency").value = c.report_frequency||"monthly";
   $("#client-report-email").value = c.report_email||"";
   $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
@@ -2707,6 +2711,8 @@ function renderClientDetail(c){
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   const monthlySpendEl = $("#client-detail-monthly-spend");
   if (monthlySpendEl) monthlySpendEl.textContent = c.monthly_ad_spend != null ? fmtMoney(c.monthly_ad_spend) : "Not set";
+  const adStartEl = $("#client-detail-ad-start-date");
+  if (adStartEl) adStartEl.textContent = c.ad_start_date ? fmtDate(c.ad_start_date) : "Not set";
   $("#client-detail-notes").textContent = c.notes || "No notes yet.";
   $("#client-detail-quotes").textContent = c.quotes_sent || 0;
   const banner = $("#quote-guarantee-banner");
@@ -4952,6 +4958,7 @@ function setupModals(){
       quote_target: $("#client-quote-target").value !== "" ? Number($("#client-quote-target").value) : null,
       notes: $("#client-notes").value.trim(),
       meta_ad_account_id: $("#client-meta-account").value.trim(),
+      ad_start_date: $("#client-ad-start-date").value || null,
       report_frequency: $("#client-report-frequency").value,
       report_email: $("#client-report-email").value.trim(),
       stage,
