@@ -347,6 +347,7 @@ const state = {
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
   prospectingView: "active",
+  regionDataFilter: "",
   prospectingCollapsedRegions: new Set(),
   teamFocus: { rocky: null, max: null, bailey: null, gabriel: null, raheem: null, thor: null },
   taskFilter: { status: "open", priority: "", sort: "due_date", assignee: "" },
@@ -3577,29 +3578,29 @@ function renderReportHistoryModal(clientId){
 }
 
 /* ───────── Render: Prospecting (by region) ───────── */
-function renderRegions(){
-  const tbody = $("#regions-tbody");
-  if (!tbody) return;
-  if (!state.regions.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No regions yet. Add the first region you're calling through.")}</td></tr>`; return; }
-  const sorted = [...state.regions].sort((a,b) => (a.region||"").localeCompare(b.region||""));
-  tbody.innerHTML = sorted.map(r => {
-    const calls = Number(r.calls_made||0);
-    const meetings = Number(r.meetings_booked||0);
-    const conversion = calls > 0 ? Math.round((meetings/calls)*100) + "%" : "-";
-    return `
-    <tr data-id="${r.id}">
-      <td><div class="row-name">${escapeHtml(r.region)}</div></td>
-      <td>${calls.toLocaleString()}</td>
-      <td>${meetings.toLocaleString()}</td>
-      <td>${conversion}</td>
-      <td style="max-width:260px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);">${escapeHtml(r.notes||"")}</span></td>
-      <td style="text-align:right;white-space:nowrap;">
-        <button class="icon-btn" data-action="edit-region" data-id="${r.id}" title="Edit">${ICONS.edit}</button>
-        <button class="icon-btn" data-action="delete-region" data-id="${r.id}" title="Delete">${ICONS.trash}</button>
-      </td>
-    </tr>
-  `;
-  }).join("");
+// Replaces the old manually-typed-in region rollup rows with a live
+// breakdown computed straight from the prospects themselves, picked via a
+// dropdown - the numbers can't drift from reality since there's nothing to
+// manually keep in sync any more.
+function renderRegionData(){
+  const select = $("#region-data-select");
+  if (!select) return;
+  const regions = dialerDistinctValues("region");
+  const wanted = state.regionDataFilter || "";
+  select.innerHTML = `<option value="">All Regions</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
+  select.value = regions.includes(wanted) ? wanted : "";
+  state.regionDataFilter = select.value;
+
+  const filtered = state.regionDataFilter ? state.prospects.filter(p => p.region === state.regionDataFilter) : state.prospects;
+  const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
+  st("#region-data-total", filtered.length);
+  st("#region-data-calls", filtered.reduce((s,p) => s + Number(p.calls_made||0), 0).toLocaleString());
+  st("#region-data-bookings", filtered.filter(p => p.last_outcome === "booked_meeting").length);
+  st("#region-data-nevercalled", filtered.filter(p => !p.calls_made).length);
+  st("#region-data-followups", filtered.filter(p => p.last_outcome === "call_back").length);
+  st("#region-data-notinterested", filtered.filter(p => p.last_outcome === "not_interested").length);
+  st("#region-data-returning", filtered.filter(isReturning).length);
+  st("#region-data-noanswer", filtered.filter(p => p.last_outcome === "no_answer").length);
 }
 
 function prospectCallerLabel(email){
@@ -3818,7 +3819,7 @@ function renderAll(){
   renderMeetingsPipeline();
   renderContacts();
   renderDeals();
-  renderRegions();
+  renderRegionData();
   renderProspectList();
   renderDialer();
   renderClients();
@@ -4922,22 +4923,9 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
-  $("#add-region-btn")?.addEventListener("click", () => { $("#region-form").reset(); $("#region-form-id").value=""; $("#region-modal-title").textContent="Add Region"; openModal("region-modal"); });
-  $("#region-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const id = $("#region-form-id").value;
-    const row = {
-      region: $("#region-name").value.trim(),
-      calls_made: Number($("#region-calls").value || 0),
-      meetings_booked: Number($("#region-meetings").value || 0),
-      notes: $("#region-notes").value.trim(),
-      updated_at: new Date().toISOString(),
-    };
-    if (!row.region) return;
-    if (id) await DataLayer.update("prospecting_regions", id, row);
-    else await DataLayer.insert("prospecting_regions", row);
-    closeModal("region-modal");
-    if (!IS_CONFIGURED) return; renderAll();
+  $("#region-data-select")?.addEventListener("change", (e) => {
+    state.regionDataFilter = e.target.value;
+    renderRegionData();
   });
 
   $("#event-form")?.addEventListener("submit", async (e) => {
@@ -5304,7 +5292,6 @@ function setupModals(){
     }
     if (action === "back-to-deals"){ state.selectedDealId = null; renderDeals(); }
     if (action === "mark-deal-called") await markDealCalled(state.selectedDealId);
-    if (action === "delete-region" && confirm("Delete this region?")) await DataLayer.remove("prospecting_regions", id);
     if (action === "delete-prospect" && confirm("Delete this prospect?")) await DataLayer.remove("dial_prospects", id);
     if (action === "edit-prospect"){
       const p = state.prospects.find(x => x.id === id);
@@ -5459,17 +5446,6 @@ function setupModals(){
     if (action === "delete-task" && confirm("Delete this task?")) await DataLayer.remove("tasks", id);
     if (action === "send-report-now") await sendReportNow(id);
     if (action === "view-report-history") renderReportHistoryModal(id);
-    if (action === "edit-region"){
-      const r = state.regions.find(x => x.id === id);
-      if (!r) return;
-      $("#region-form-id").value = r.id;
-      $("#region-name").value = r.region||"";
-      $("#region-calls").value = r.calls_made||0;
-      $("#region-meetings").value = r.meetings_booked||0;
-      $("#region-notes").value = r.notes||"";
-      $("#region-modal-title").textContent = "Edit Region";
-      openModal("region-modal");
-    }
     if (action === "edit-contact"){
       const c = state.contacts.find(x => x.id === id);
       if (!c) return;

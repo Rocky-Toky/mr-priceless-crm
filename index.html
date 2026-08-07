@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=68">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=68">
+<link rel="stylesheet" href="css/style.css?v=69">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=69">
 </head>
 <body>
 
@@ -679,14 +679,25 @@
 
       <div id="prospecting-groups" class="clients-gallery"></div>
 
-      <h3 class="analytics-subhead" style="margin-top:28px;">Region Notes</h3>
+      <h3 class="analytics-subhead" style="margin-top:28px;">Region Data</h3>
       <div class="card">
-        <div class="card-header"><h3>Region Rollups</h3><button class="btn ghost" id="add-region-btn" style="margin-left:auto;">+ Add Region</button></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Region</th><th>Calls Made</th><th>Meetings Booked</th><th>Conversion</th><th>Notes</th><th></th></tr></thead>
-            <tbody id="regions-tbody"></tbody>
-          </table>
+        <div class="card-body">
+          <div class="field" style="max-width:280px;">
+            <label>Region</label>
+            <select id="region-data-select">
+              <option value="">All Regions</option>
+            </select>
+          </div>
+          <div class="stat-grid" style="margin-top:14px;grid-template-columns:repeat(4,1fr);">
+            <div class="stat-card"><div class="stat-label">Total Prospects</div><div class="stat-value" id="region-data-total">0</div></div>
+            <div class="stat-card"><div class="stat-label">Calls Made</div><div class="stat-value" id="region-data-calls">0</div></div>
+            <div class="stat-card"><div class="stat-label">Bookings</div><div class="stat-value" id="region-data-bookings">0</div></div>
+            <div class="stat-card"><div class="stat-label">Never Called</div><div class="stat-value" id="region-data-nevercalled">0</div></div>
+            <div class="stat-card"><div class="stat-label">Follow Up</div><div class="stat-value" id="region-data-followups">0</div></div>
+            <div class="stat-card"><div class="stat-label">Not Interested</div><div class="stat-value" id="region-data-notinterested">0</div></div>
+            <div class="stat-card"><div class="stat-label">Returning</div><div class="stat-value" id="region-data-returning">0</div></div>
+            <div class="stat-card"><div class="stat-label">No Answer</div><div class="stat-value" id="region-data-noanswer">0</div></div>
+          </div>
         </div>
       </div>
     </section>
@@ -1576,7 +1587,7 @@
         <div class="field"><label>Region</label><select id="prospect-region"></select></div>
         <div class="field"><label>Industry</label><select id="prospect-industry"></select></div>
       </div>
-      <div class="field"><label>Google Rating</label><input type="text" id="prospect-google-rating" placeholder="e.g. 4.8 (127 reviews)"></div>
+      <div class="field"><label>Google Rating</label><input type="text" id="prospect-google-rating" placeholder="e.g. 4.8 (127 reviews)" style="padding:13px 16px;font-size:15px;"></div>
       <div class="field"><label>Notes</label><textarea id="prospect-notes" placeholder="Anything worth knowing before you call..."></textarea></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="prospect-modal">Cancel</button>
@@ -1668,25 +1679,6 @@
   </div>
 </div>
 
-<!-- ───────── Modal: Prospecting Region ───────── -->
-<div class="overlay" id="region-modal">
-  <div class="modal">
-    <div class="modal-header"><h3 id="region-modal-title">Add Region</h3><button class="modal-close" data-close="region-modal">&times;</button></div>
-    <form id="region-form" class="modal-body">
-      <input type="hidden" id="region-form-id">
-      <div class="field"><label>Region</label><input type="text" id="region-name" required placeholder="e.g. Auckland CBD"></div>
-      <div class="field-row">
-        <div class="field"><label>Calls Made</label><input type="number" id="region-calls" min="0" step="1" value="0"></div>
-        <div class="field"><label>Meetings Booked</label><input type="number" id="region-meetings" min="0" step="1" value="0"></div>
-      </div>
-      <div class="field"><label>Notes</label><textarea id="region-notes" placeholder="Which streets/lists called through, contacts to follow up..."></textarea></div>
-      <div class="modal-actions">
-        <button type="button" class="btn ghost" data-close="region-modal">Cancel</button>
-        <button type="submit" class="btn gold">Save Region</button>
-      </div>
-    </form>
-  </div>
-</div>
 
 <!-- ───────── Modal: Client ───────── -->
 <div class="overlay" id="client-modal">
@@ -1984,10 +1976,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=68"></script>
-<script src="js/supabaseClient.js?v=68"></script>
-<script src="js/app.js?v=68"></script>
-<script src="js/meetings-tracker.js?v=68"></script>
-<script src="js/todo.js?v=68"></script>
+<script src="js/config.js?v=69"></script>
+<script src="js/supabaseClient.js?v=69"></script>
+<script src="js/app.js?v=69"></script>
+<script src="js/meetings-tracker.js?v=69"></script>
+<script src="js/todo.js?v=69"></script>
 </body>
 </html>
