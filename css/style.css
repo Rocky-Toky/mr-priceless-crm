@@ -619,7 +619,11 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
   font-family:var(--font-display);font-size:36px;font-weight:800;color:rgba(21,19,15,0.14);
   background:linear-gradient(150deg,#f1eee6,#e7e1d2);letter-spacing:-0.02em;
 }
-.creative-card-badge{position:absolute;top:10px;right:10px;box-shadow:0 3px 10px rgba(0,0,0,0.22);}
+.creative-card-badge{position:absolute;top:10px;right:10px;box-shadow:0 3px 10px rgba(0,0,0,0.35);background:#2a2a2a;color:#fff;border-color:transparent;}
+.creative-card-badge.green{background:var(--success);color:#fff;}
+.creative-card-badge.gold{background:var(--gold);color:#fff;}
+.creative-card-badge.red{background:var(--danger);color:#fff;}
+.creative-card-badge.gray{background:#2a2a2a;color:#fff;}
 .creative-card-delivery{position:absolute;top:10px;left:10px;box-shadow:0 3px 10px rgba(0,0,0,0.35);display:flex;align-items:center;gap:5px;background:#2a2a2a;color:#fff;border-color:transparent;}
 .creative-card-delivery::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
 .creative-card-delivery.green{background:var(--success);color:#fff;}
