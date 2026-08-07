@@ -65,6 +65,12 @@ const DELIVERY_STATUS = {
   with_issues: { label: "With Issues", cls: "red", group: "attention" },
   pending_billing: { label: "Pending Billing", cls: "red", group: "attention" },
 };
+// Fatigue is Rocky's own manual call on a creative - never computed from
+// performance numbers, so this only ever changes via the dropdown he sets.
+const FATIGUE_STATUS = {
+  fatiguing: { label: "Fatiguing", cls: "fatiguing" },
+  fatigued: { label: "Fully Fatigued", cls: "fatigued" },
+};
 const CAMPAIGN_STATUSES = {
   active: { label: "Active", cls: "green" },
   paused: { label: "Paused", cls: "gray" },
@@ -3162,8 +3168,22 @@ function renderCreativeLibrary(){
     return matchesClient && matchesResult && matchesDelivery;
   });
 
+  // Priority tier ahead of whatever sort is picked below: fatiguing actives
+  // need attention right now, so they always lead; then every other active
+  // creative; everything else (paused/attention/unsynced) comes last. This
+  // is layered on top of - not instead of - the chosen sort, and never looks
+  // at performance numbers to decide fatigue, only the flag Rocky sets.
+  const priorityTier = (a) => {
+    const running = DELIVERY_STATUS[a.delivery_status]?.group === "running";
+    if (running && a.fatigue_status === "fatiguing") return 0;
+    if (running) return 1;
+    return 2;
+  };
+
   const sort = state.creativeFilter.sort || "top";
   filtered.sort((a,b) => {
+    const tierDiff = priorityTier(a) - priorityTier(b);
+    if (tierDiff !== 0) return tierDiff;
     if (sort === "top") return topScore(b) - topScore(a);
     if (sort === "cpl"){
       const av = a.cost_per_result, bv = b.cost_per_result;
@@ -3182,18 +3202,29 @@ function renderCreativeLibrary(){
     const client = state.clients.find(c => c.id === a.client_id);
     const initial = (client?.name || "?").trim().charAt(0).toUpperCase();
     const delivery = DELIVERY_STATUS[a.delivery_status];
+    const fatigue = FATIGUE_STATUS[a.fatigue_status];
+    const cardTierCls = a.fatigue_status === "fatiguing" ? "is-fatiguing" : a.fatigue_status === "fatigued" ? "is-fatigued" : "";
     return `
-    <div class="creative-card">
+    <div class="creative-card ${cardTierCls}">
       <div class="creative-card-media">
         ${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="creative-card-img" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="creative-card-img-empty">${escapeHtml(initial)}</div>`}
         ${delivery ? `<span class="badge creative-card-delivery ${delivery.cls}">${delivery.label}</span>` : ""}
         <span class="badge creative-card-badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span>
+        ${fatigue ? `<span class="badge creative-card-fatigue ${fatigue.cls}">${fatigue.label}</span>` : ""}
       </div>
       <div class="creative-card-body">
         <div class="creative-card-name">${escapeHtml(a.name)}</div>
         <div class="creative-card-client">${escapeHtml(client?.name || "Unknown client")}${a.campaign_id ? ` · ${escapeHtml(campaignName(a.campaign_id))}` : ""}</div>
         ${a.notes ? `<div class="creative-card-notes">${escapeHtml(a.notes)}</div>` : ""}
         ${creativeMetricsBlock(a, tierClsFor(a))}
+        <div class="field" style="margin-bottom:11px;">
+          <label>Fatigue Status</label>
+          <select class="creative-fatigue-select" data-id="${a.id}">
+            <option value="" ${!a.fatigue_status ? "selected" : ""}>Not flagged</option>
+            <option value="fatiguing" ${a.fatigue_status === "fatiguing" ? "selected" : ""}>Fatiguing</option>
+            <option value="fatigued" ${a.fatigue_status === "fatigued" ? "selected" : ""}>Fully Fatigued</option>
+          </select>
+        </div>
         <div class="creative-card-foot">
           <span>${a.impressions != null ? Number(a.impressions).toLocaleString()+" impr · " : ""}${a.insights_updated_at ? "Updated "+timeAgo(a.insights_updated_at) : fmtDate(a.created_at)}</span>
           <div class="creative-card-foot-actions">
@@ -3429,31 +3460,6 @@ function renderWeeklyReport(){
         <td>${fmtMoney(r.lifetimeSpend)}</td>
       </tr>
     `).join("") : `<tr><td colspan="5">${emptyState("No live-synced creatives yet - sync a creative's insights from the Creative Library to start tracking weekly performance.")}</td></tr>`;
-  }
-
-  const bounds = { from: isoDateStr(monday), to: isoDateStr(new Date()) };
-  const people = Object.keys(ASSIGNEES);
-  const teamRows = people.map(p => ({ p, ...statsForPerson(p, bounds) }));
-  const totals = teamRows.reduce((acc,r) => {
-    acc.calls += r.calls; acc.convos += r.convos; acc.meetingsBooked += r.meetingsBooked; acc.closedDeals += r.closedDeals;
-    return acc;
-  }, { calls:0, convos:0, meetingsBooked:0, closedDeals:0 });
-  $("#weekly-report-meetings").textContent = totals.meetingsBooked;
-  const teamTbody = $("#weekly-report-team-tbody");
-  if (teamTbody){
-    teamTbody.innerHTML = teamRows.map(r => `
-      <tr>
-        <td>${escapeHtml(ASSIGNEES[r.p].label)}</td>
-        <td>${r.calls}</td>
-        <td>${r.convos}</td>
-        <td>${r.meetingsBooked}</td>
-        <td>${r.closedDeals}</td>
-      </tr>
-    `).join("") + `
-      <tr style="font-weight:700;">
-        <td>Total</td><td>${totals.calls}</td><td>${totals.convos}</td><td>${totals.meetingsBooked}</td><td>${totals.closedDeals}</td>
-      </tr>
-    `;
   }
 }
 
@@ -5101,6 +5107,12 @@ function setupModals(){
   $("#creative-filter-result")?.addEventListener("change", (e) => { state.creativeFilter.result = e.target.value; renderCreativeLibrary(); });
   $("#creative-filter-delivery")?.addEventListener("change", (e) => { state.creativeFilter.delivery = e.target.value; renderCreativeLibrary(); });
   $("#creative-filter-sort")?.addEventListener("change", (e) => { state.creativeFilter.sort = e.target.value; renderCreativeLibrary(); });
+  $("#creative-library-grid")?.addEventListener("change", async (e) => {
+    const sel = e.target.closest(".creative-fatigue-select");
+    if (!sel) return;
+    await DataLayer.update("client_ad_creatives", sel.dataset.id, { fatigue_status: sel.value || null });
+    if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
+  });
   $("#ad-creative-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#ad-creative-form-id").value;
