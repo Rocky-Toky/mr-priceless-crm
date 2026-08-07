@@ -2204,19 +2204,6 @@ function parseCsv(text){
   if (field.length || row.length){ row.push(field); rows.push(row); }
   return rows.filter(r => r.some(v => v.trim() !== ""));
 }
-// Pasting a tidied table straight out of a Claude chat usually comes through
-// tab-separated (that's how browsers copy rendered HTML tables); typing or
-// pasting a plain CSV is comma-separated. Pick whichever the first line has
-// more of, so both paths work without asking the user to choose a format.
-function parseDelimited(text){
-  const firstLine = text.split(/\r?\n/, 1)[0] || "";
-  const tabCount = (firstLine.match(/\t/g)||[]).length;
-  const commaCount = (firstLine.match(/,/g)||[]).length;
-  if (tabCount > commaCount){
-    return text.split(/\r?\n/).map(line => line.split("\t")).filter(r => r.some(v => v.trim() !== ""));
-  }
-  return parseCsv(text);
-}
 function looksLikeRating(s){
   const t = String(s||"").trim();
   return /^\d(\.\d)?\s*(★|stars?)?\s*(\(\s*\d+\s*\))?$/i.test(t) || /^\d(\.\d)?\s*\(\d+\)/.test(t);
@@ -2241,7 +2228,7 @@ function combineRating(starsRaw, reviewsRaw){
 // there's no way to tell a real region name from an address by shape alone.
 // Instead the whole batch gets asked for a single Region + Industry once at
 // import time (see promptImportRegionIndustry) and every row gets tagged
-// with that, which also means every row in one paste shares one clean value
+// with that, which also means every row in one import shares one clean value
 // instead of whatever inconsistent text the source happened to have.
 function mapImportRows(rows){
   if (!rows.length) return [];
@@ -2257,14 +2244,14 @@ function mapImportRows(rows){
   // Require at least 2 columns to look like headers, not just 1 - a single
   // business named e.g. "Test Business" would otherwise false-match the
   // "business" company keyword on its own and get mistaken for a header
-  // row, silently swallowing the only row on a one-line paste.
+  // row, silently swallowing the only row on a one-line import.
   const headerMatchCount = [nameIdx,phoneIdx,companyIdx,emailIdx,websiteIdx,ratingIdx,reviewsIdx].filter(i => i > -1).length;
   // No recognisable header row used to fall back to guessing a prospect out
   // of each unlabeled line by sniffing which cell looked like a phone number
   // or a website - but a raw Google Maps scrape is full of stray lines that
   // don't look like anything (review snippets, "Closed - Opens 7am" hours,
   // "Directions"/"Delivery" UI text), and every one of those silently became
-  // a fake prospect with no phone number. Rejecting the paste outright and
+  // a fake prospect with no phone number. Rejecting the import outright and
   // asking for header columns is far safer than guessing.
   if (headerMatchCount < 2) return null;
 
@@ -2333,8 +2320,8 @@ async function importProspectRows(prospects){
   const skippedMsg = skipped ? ` ${skipped} skipped - already on the list.` : "";
   alert(`Imported ${imported} prospect${imported===1?"":"s"}.${skippedMsg}`);
 }
-// Holds a parsed batch between "file selected / list pasted" and "Region +
-// Industry confirmed" - the import itself doesn't run until that modal is
+// Holds a parsed batch between "file selected" and "Region + Industry
+// confirmed" - the import itself doesn't run until that modal is
 // submitted, since every row in the batch gets tagged with whatever's typed
 // in there.
 let pendingImportRows = null;
@@ -2378,20 +2365,9 @@ function setupDialerImport(){
   setupProspectFileImport("#dialer-import-btn", "#dialer-import-input");
   setupProspectFileImport("#prospecting-import-btn", "#prospecting-import-input");
 }
-// For lists tidied up in a Claude chat: paste the cleaned table straight in,
-// no need to save it as a file first.
-function setupPasteProspects(){
-  $$("[data-open-paste-prospects]").forEach(btn => btn.addEventListener("click", () => {
-    $("#paste-prospects-textarea").value = "";
-    openModal("paste-prospects-modal");
-  }));
-  $("#paste-prospects-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const text = $("#paste-prospects-textarea").value.trim();
-    if (!text) return;
-    closeModal("paste-prospects-modal");
-    promptImportRegionIndustry(mapImportRows(parseDelimited(text)));
-  });
+// Shared by both file-import buttons: once a list's rows are parsed, this
+// asks once for the Region + Industry that the whole batch gets tagged with.
+function setupImportRegionIndustryModal(){
   $("#import-details-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const region = $("#import-details-region").value.trim();
@@ -3611,6 +3587,52 @@ function renderRegionData(){
   st("#region-data-noanswer", filtered.filter(p => p.last_outcome === "no_answer").length);
 }
 
+// Shows which of the canonical Region/Industry combos actually have
+// prospects on file yet, so the team can see at a glance where territory
+// still hasn't been touched instead of guessing from memory.
+function renderCoverageMap(){
+  const byRegion = {};
+  const industriesSeen = new Set();
+  state.prospects.forEach(p => {
+    if (!p.region) return;
+    if (!byRegion[p.region]) byRegion[p.region] = { total: 0, industries: {} };
+    byRegion[p.region].total += 1;
+    if (p.industry){
+      byRegion[p.region].industries[p.industry] = (byRegion[p.region].industries[p.industry] || 0) + 1;
+      industriesSeen.add(p.industry);
+    }
+  });
+
+  const coveredRegions = Object.keys(byRegion);
+  $("#coverage-regions-started").textContent = `${coveredRegions.length} / ${NZ_REGIONS.length}`;
+  $("#coverage-industries-started").textContent = `${industriesSeen.size} / ${HOME_SERVICES_INDUSTRIES.length}`;
+
+  const sortedRegions = coveredRegions.sort((a,b) => byRegion[b].total - byRegion[a].total);
+  $("#coverage-mapped-list").innerHTML = sortedRegions.length ? sortedRegions.map(r => {
+    const data = byRegion[r];
+    const chips = Object.entries(data.industries)
+      .sort((a,b) => b[1]-a[1])
+      .map(([ind,count]) => `<span class="badge gray">${escapeHtml(ind)} (${count})</span>`)
+      .join(" ");
+    return `
+      <div style="padding:10px 0;border-bottom:1px solid var(--line);">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <strong>${escapeHtml(r)}</strong>
+          <span style="color:var(--text2);font-size:12.5px;white-space:nowrap;">${data.total} prospect${data.total===1?"":"s"}</span>
+        </div>
+        <div style="margin-top:7px;display:flex;flex-wrap:wrap;gap:5px;">${chips || `<span style="color:var(--text2);font-size:12.5px;">No industry tagged yet</span>`}</div>
+      </div>
+    `;
+  }).join("") : `<p style="color:var(--text2);font-size:13px;">No prospects imported yet.</p>`;
+
+  const unmappedRegions = NZ_REGIONS.filter(r => !coveredRegions.includes(r));
+  const unmappedIndustries = HOME_SERVICES_INDUSTRIES.filter(i => !industriesSeen.has(i));
+  $("#coverage-unmapped-list").innerHTML = `
+    <p><strong>Regions:</strong> ${unmappedRegions.length ? escapeHtml(unmappedRegions.join(", ")) : "All regions started!"}</p>
+    <p><strong>Industries:</strong> ${unmappedIndustries.length ? escapeHtml(unmappedIndustries.join(", ")) : "All industries started!"}</p>
+  `;
+}
+
 function prospectCallerLabel(email){
   const key = personKeyFromEmail(email);
   if (key) return ASSIGNEES[key].label;
@@ -3743,7 +3765,7 @@ function renderProspectList(){
 
   if (!filtered.length){
     const emptyMsg = {
-      active: baseFiltered.length ? "Nobody's ready to call right now - check Follow Up or Returning." : "No prospects yet. Import a list or paste one in above.",
+      active: baseFiltered.length ? "Nobody's ready to call right now - check Follow Up or Returning." : "No prospects yet. Import a list above.",
       follow_up: "No follow-ups scheduled.",
       not_interested: "Nobody's been marked Not Interested.",
       returning: "Nobody's currently cooling down.",
@@ -4936,6 +4958,11 @@ function setupModals(){
     renderRegionData();
   });
 
+  $("#prospecting-coverage-btn")?.addEventListener("click", () => {
+    renderCoverageMap();
+    openModal("coverage-modal");
+  });
+
   $("#event-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const eventId = $("#event-form-id").value;
@@ -5557,7 +5584,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupQualifyModal();
   setupCalendarNav();
   setupDialerImport();
-  setupPasteProspects();
+  setupImportRegionIndustryModal();
   setupLeadImport();
   setupDialerFilters();
   setupCallWidget();

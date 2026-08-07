@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=71">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=71">
+<link rel="stylesheet" href="css/style.css?v=72">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=72">
 </head>
 <body>
 
@@ -636,8 +636,8 @@
         <div><h2>Prospecting</h2><p>One shared prospect list for the whole team - so nobody calls the same lead twice.</p></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <input type="file" id="prospecting-import-input" accept=".csv,.xls,.xlsx" style="display:none;">
+          <button class="btn ghost" id="prospecting-coverage-btn">Coverage Map</button>
           <button class="btn ghost" id="prospecting-import-btn">Import CSV / XLS</button>
-          <button class="btn ghost" data-open-paste-prospects>Paste List</button>
           <button class="btn gold" id="prospecting-add-btn">+ Add Prospect</button>
         </div>
       </div>
@@ -1622,23 +1622,6 @@
   </div>
 </div>
 
-<!-- ───────── Modal: Paste Prospect List ───────── -->
-<div class="overlay" id="paste-prospects-modal">
-  <div class="modal">
-    <div class="modal-header"><h3>Paste Prospect List</h3><button class="modal-close" data-close="paste-prospects-modal">&times;</button></div>
-    <form id="paste-prospects-form" class="modal-body">
-      <div class="field">
-        <label>Paste a tidied list (from a Claude chat, a spreadsheet, or a CSV)</label>
-        <textarea id="paste-prospects-textarea" rows="12" placeholder="Name, Phone, Company, Rating&#10;Marlon Reeve, 021 555 0111, Reeve Builders, 4.8 (63)&#10;..." style="font-family:var(--font-mono, monospace);font-size:12.5px;"></textarea>
-      </div>
-      <p style="color:var(--text2);font-size:12.5px;">Matches columns by header name (Name, Phone, Company, Email, Website, Rating) in any order. You'll be asked for the Region and Industry next - every business in this paste gets tagged with the same one, so keep each paste to a single region/industry. Anyone already on the shared list - by phone number or by name - is skipped automatically.</p>
-      <div class="modal-actions">
-        <button type="button" class="btn ghost" data-close="paste-prospects-modal">Cancel</button>
-        <button type="submit" class="btn gold">Next: Region &amp; Industry</button>
-      </div>
-    </form>
-  </div>
-</div>
 
 <!-- ───────── Modal: Import Region / Industry (applies to whole batch) ───────── -->
 <div class="overlay" id="import-details-modal">
@@ -1653,6 +1636,23 @@
         <button type="submit" class="btn gold">Import</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- ───────── Modal: Region / Industry Coverage ───────── -->
+<div class="overlay" id="coverage-modal">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-header"><h3>Region &amp; Industry Coverage</h3><button class="modal-close" data-close="coverage-modal">&times;</button></div>
+    <div class="modal-body">
+      <div class="stat-grid" style="padding:0;">
+        <div class="stat-card"><div class="stat-label">Regions Started</div><div class="stat-value" id="coverage-regions-started">0 / 0</div></div>
+        <div class="stat-card"><div class="stat-label">Industries Started</div><div class="stat-value" id="coverage-industries-started">0 / 0</div></div>
+      </div>
+      <h4 class="card-subhead">Mapped So Far</h4>
+      <div id="coverage-mapped-list"></div>
+      <h4 class="card-subhead">Not Started Yet</h4>
+      <div id="coverage-unmapped-list" style="font-size:13px;color:var(--text2);line-height:1.7;"></div>
+    </div>
   </div>
 </div>
 
@@ -1968,10 +1968,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=71"></script>
-<script src="js/supabaseClient.js?v=71"></script>
-<script src="js/app.js?v=71"></script>
-<script src="js/meetings-tracker.js?v=71"></script>
-<script src="js/todo.js?v=71"></script>
+<script src="js/config.js?v=72"></script>
+<script src="js/supabaseClient.js?v=72"></script>
+<script src="js/app.js?v=72"></script>
+<script src="js/meetings-tracker.js?v=72"></script>
+<script src="js/todo.js?v=72"></script>
 </body>
 </html>
