@@ -48,6 +48,13 @@ function buildAdsUrl(adAccountId: string, fields: string, filtering: string, tok
     `?fields=${encodeURIComponent(fields)}` +
     `&filtering=${encodeURIComponent(filtering)}` +
     `&limit=100` +
+    // Ads without a directly-hashed image (e.g. built from a Page post) only
+    // have thumbnail_url, not image_url - Meta defaults that thumbnail to a
+    // tiny size (~64x64), which is what was showing up blurry once displayed
+    // any bigger than a table-row icon. These dimensions are request-level,
+    // so they apply wherever thumbnail_url shows up in the field expansion.
+    `&thumbnail_width=1080` +
+    `&thumbnail_height=1080` +
     `&access_token=${encodeURIComponent(token)}`;
 }
 
@@ -193,8 +200,15 @@ async function syncOneClient(admin: any, metaToken: string, clientId: string, ra
 
     if (existingCreative) {
       const updatePatch: Record<string, unknown> = { ...patch };
-      // Don't clobber a manually-uploaded image with Meta's version.
-      if (creativeImageUrl && !existingCreative.image_url) {
+      // Don't clobber a manually-uploaded image (stored in our own Supabase
+      // bucket) with Meta's version, but DO let a Meta-sourced image get
+      // replaced on later syncs - otherwise a low-res thumbnail_url grabbed
+      // before the bigger thumbnail_width/height above was added would
+      // stay stuck as blurry forever, since this only used to fire once
+      // when image_url was still empty.
+      const isOwnUpload = typeof existingCreative.image_url === "string" &&
+        existingCreative.image_url.includes("/storage/v1/object/public/");
+      if (creativeImageUrl && !isOwnUpload && creativeImageUrl !== existingCreative.image_url) {
         updatePatch.image_url = creativeImageUrl;
       }
       await admin.from("client_ad_creatives").update(updatePatch).eq("id", existingCreative.id);
