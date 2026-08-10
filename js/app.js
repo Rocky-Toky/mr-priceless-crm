@@ -18,6 +18,7 @@ const TABLES_WITH_USER_ID = new Set(["dial_prospects", "tasks"]);
 
 const STAGES = [
   { key: "qualified", label: "Meeting Booked" },
+  { key: "no_show", label: "No Show" },
   { key: "proposal", label: "Proposal Meeting" },
   { key: "negotiation", label: "Negotiation" },
   { key: "pending_results", label: "Pending Results" },
@@ -1701,6 +1702,7 @@ function setupDragDrop(){
         if (!draggedId) return;
         const updated = await DataLayer.update("deals", draggedId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
         await maybeCreateClientFromDeal(updated);
+        await maybeCreateNoShowFollowup(updated);
       });
     });
   });
@@ -3229,6 +3231,33 @@ async function maybeCreateClientFromDeal(deal){
     stage_changed_at: new Date().toISOString(),
     source_deal_id: deal.id,
     notes: `Auto-created when "${deal.title}" landed on ${CLOSED_STAGES.has(deal.stage) ? "Closed Won" : "Pending Results"}.`,
+  });
+  if (!IS_CONFIGURED) return;
+  await DataLayer.fetchAll(); renderAll();
+}
+
+/* ───────── Auto-create a follow-up task when a deal lands on No Show ─────────
+   A no-show should never rely on someone remembering to chase it up by hand -
+   it leaves an actual task behind, same as a prospect's Call Back outcome
+   does over on the dialer. */
+async function maybeCreateNoShowFollowup(deal){
+  if (!deal || deal.stage !== "no_show") return;
+  const alreadyOpen = state.tasks.some(t => t.deal_id === deal.id && t.status === "open" && t.title.startsWith("Reach out again"));
+  if (alreadyOpen) return;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  // Build the date from local Y/M/D rather than toISOString(), which
+  // converts to UTC first - in NZ (UTC+12/13) that rolls "tomorrow" back
+  // to today for most of the day.
+  const dueDate = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth()+1).padStart(2,"0")}-${String(tomorrow.getDate()).padStart(2,"0")}`;
+  await DataLayer.insert("tasks", {
+    title: `Reach out again - ${deal.contact_name || deal.title}`,
+    notes: `"${deal.title}" was marked No Show - try to get them back on the calendar.`,
+    due_date: dueDate,
+    priority: "high",
+    assignee: deal.assignee || null,
+    deal_id: deal.id,
+    status: "open",
   });
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
@@ -4949,6 +4978,7 @@ function setupModals(){
     const deal = id ? await DataLayer.update("deals", id, row) : await DataLayer.insert("deals", { ...row, notes: "" });
     if (deal) await saveDealContactRows(deal.id);
     if (deal) await maybeCreateClientFromDeal(deal);
+    if (deal) await maybeCreateNoShowFollowup(deal);
     closeModal("deal-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });

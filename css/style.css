@@ -293,6 +293,9 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .kanban-col.dragover{background:var(--gold-soft);box-shadow:inset 0 0 0 2px var(--gold-border);transform:scale(1.01);}
 
 .kanban-col[data-stage="qualified"]::before{opacity:0.55;}
+.kanban-col[data-stage="no_show"]{background:linear-gradient(175deg,#f6f0e6,#f1e8d8);border-color:rgba(184,145,44,0.25);}
+.kanban-col[data-stage="no_show"]::before{background:linear-gradient(90deg,var(--gold),#c56347);opacity:1;}
+.kanban-col[data-stage="no_show"] .kanban-col-head h4{color:var(--gold-deep);}
 .kanban-col[data-stage="proposal"]::before{opacity:0.75;}
 .kanban-col[data-stage="negotiation"]::before{opacity:1;}
 
