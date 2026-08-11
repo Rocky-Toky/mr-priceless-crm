@@ -130,6 +130,14 @@ const NZ_REGIONS = [
   "Tauranga", "Timaru", "Upper Hutt", "Waikato", "Wanaka", "Wellington", "West Auckland",
   "West Coast", "Whakatane", "Whangarei", "Whanganui",
 ];
+const AU_REGIONS = [
+  "Australian Capital Territory", "New South Wales", "Northern Territory", "Queensland",
+  "South Australia", "Tasmania", "Victoria", "Western Australia",
+];
+// One combined list for region dropdowns - AU states and NZ regions never
+// collide by name, so there's no need for a separate country toggle just to
+// pick the right one.
+const ALL_REGIONS = [...AU_REGIONS, ...NZ_REGIONS];
 const HOME_SERVICES_INDUSTRIES = [
   "Aluminium Joinery", "Blinds & Curtains", "Builders", "Carpentry", "Carpet Cleaning",
   "Chimney Sweep", "Concreting", "Construction", "Deck Building", "Demolition",
@@ -149,10 +157,10 @@ function populateStaticSelect(id, options, placeholder){
     + options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
 }
 function populateRegionIndustrySelects(){
-  populateStaticSelect("#prospect-region", NZ_REGIONS, "- Select a region -");
+  populateStaticSelect("#prospect-region", ALL_REGIONS, "- Select a region -");
   populateStaticSelect("#prospect-industry", HOME_SERVICES_INDUSTRIES, "- Select an industry -");
-  populateStaticSelect("#log-call-region", NZ_REGIONS, "- Select a region -");
-  populateStaticSelect("#import-details-region", NZ_REGIONS, "- Select a region -");
+  populateStaticSelect("#log-call-region", ALL_REGIONS, "- Select a region -");
+  populateStaticSelect("#import-details-region", ALL_REGIONS, "- Select a region -");
   populateStaticSelect("#import-details-industry", HOME_SERVICES_INDUSTRIES, "- Select an industry -");
 }
 const OUTCOMES = {
@@ -401,20 +409,21 @@ const timeAgo = (iso) => {
 };
 const uid = () => "id-" + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
 const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-// Twilio needs E.164 (+<country code><number>). Prospect numbers are usually entered in
-// local NZ format (e.g. "021 555 0111" or "09 123 4567"), so assume NZ (+64) unless a
-// country code is already present - either as a leading "+", or as bare digits
-// (e.g. "64211234567" or "0064211234567", both missing only the "+"). This used to
-// default to AU (+61), which silently misdialed every NZ number missing a country
-// code (imports never had one - see importProspectRows) into an unrelated real AU
-// number that would ring once and roll to that stranger's voicemail.
-const toE164 = (phone, defaultCountryCode = "64") => {
+// Twilio needs E.164 (+<country code><number>). The Aus Dialler only calls
+// Australian numbers, so assume AU (+61) unless a country code is already
+// present - either as a leading "+", or as bare digits (e.g. "61412345678"
+// or "0061412345678", both missing only the "+"). Imports never had a
+// country code prompt (see importProspectRows), so this default is what
+// every scraped number actually gets normalized against - a wrong default
+// here silently misdials into a real but unrelated stranger's phone, which
+// is exactly what happened when this used to default to NZ.
+const toE164 = (phone, defaultCountryCode = "61") => {
   const raw = String(phone||"").trim();
   if (!raw) return "";
   if (raw.startsWith("+")) return "+" + raw.replace(/[^0-9]/g, "");
   let digits = raw.replace(/[^0-9]/g, "");
   if (!digits) return "";
-  if (digits.startsWith("00")) digits = digits.slice(2); // "0064..." international dialing prefix
+  if (digits.startsWith("00")) digits = digits.slice(2); // "0061..." international dialing prefix
   if (digits.startsWith(defaultCountryCode) && digits.length > 9) return "+" + digits;
   const national = digits.replace(/^0+/, "");
   return national ? "+" + defaultCountryCode + national : "";
@@ -424,9 +433,9 @@ const toE164 = (phone, defaultCountryCode = "64") => {
 const KNOWN_COUNTRY_CODES = ["61","64","1","44"];
 const splitE164 = (phone) => {
   const raw = String(phone||"").trim();
-  if (!raw.startsWith("+")) return { code: "64", local: raw };
+  if (!raw.startsWith("+")) return { code: "61", local: raw };
   const digits = raw.slice(1);
-  const code = KNOWN_COUNTRY_CODES.find(c => digits.startsWith(c)) || "64";
+  const code = KNOWN_COUNTRY_CODES.find(c => digits.startsWith(c)) || "61";
   return { code, local: digits.slice(code.length) };
 };
 
@@ -1806,6 +1815,11 @@ function isParked(p){ return p.last_outcome === "call_back" || p.last_outcome ==
 // long booked_meeting snooze) - these flow back into the active pool on
 // their own once snoozed_until passes, unlike parked prospects.
 function isReturning(p){ return !isParked(p) && isSnoozed(p); }
+// The Aus Dialler only ever calls Australian numbers - it reads the country
+// straight off the phone number itself (E.164 always starts with the
+// country code) rather than a separate field, so it can't drift out of
+// sync with what would actually get dialed.
+function isAuProspect(p){ return (p.phone||"").startsWith("+61"); }
 function dialerFilteredProspects(){
   const f = state.dialerFilter;
   const q = f.search.trim().toLowerCase();
@@ -1825,7 +1839,9 @@ function dialerQueue(){
   // callable right now - anyone still cooling down after a recent call stays
   // out of the queue until they're due again, and anyone parked (Follow Up /
   // Not Interested) stays out until someone actions them from those views.
-  return dialerFilteredProspects().filter(p => !isParked(p) && !isSnoozed(p)).sort((a,b) => {
+  // It's also Australia-only (see isAuProspect) - the Prospecting master
+  // list still shows everyone, this queue just never surfaces the rest.
+  return dialerFilteredProspects().filter(isAuProspect).filter(p => !isParked(p) && !isSnoozed(p)).sort((a,b) => {
     const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
     const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
     return ta - tb;
@@ -1834,20 +1850,22 @@ function dialerQueue(){
 function renderDialerFilters(){
   const regionSel = $("#dialer-filter-region");
   const industrySel = $("#dialer-filter-industry");
+  const auProspects = state.prospects.filter(isAuProspect);
+  const auDistinctValues = (field) => [...new Set(auProspects.map(p => p[field]).filter(Boolean))].sort();
   if (regionSel){
-    const regions = dialerDistinctValues("region");
+    const regions = auDistinctValues("region");
     regionSel.innerHTML = `<option value="">All Regions</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
     regionSel.value = state.dialerFilter.region;
   }
   if (industrySel){
-    const industries = dialerDistinctValues("industry");
+    const industries = auDistinctValues("industry");
     industrySel.innerHTML = `<option value="">All Industries</option>` + industries.map(i => `<option value="${escapeHtml(i)}">${escapeHtml(i)}</option>`).join("");
     industrySel.value = state.dialerFilter.industry;
   }
 }
 function renderDialer(){
   renderDialerFilters();
-  const filtered = dialerFilteredProspects();
+  const filtered = dialerFilteredProspects().filter(isAuProspect);
   const total = filtered.length;
   const totalCalls = filtered.reduce((s,p) => s + Number(p.calls_made||0), 0);
   const neverCalled = filtered.filter(p => !p.calls_made).length;
@@ -3641,7 +3659,7 @@ function renderCoverageMap(){
   });
 
   const coveredRegions = Object.keys(byRegion);
-  $("#coverage-regions-started").textContent = `${coveredRegions.length} / ${NZ_REGIONS.length}`;
+  $("#coverage-regions-started").textContent = `${coveredRegions.length} / ${ALL_REGIONS.length}`;
   $("#coverage-industries-started").textContent = `${industriesSeen.size} / ${HOME_SERVICES_INDUSTRIES.length}`;
 
   const sortedRegions = coveredRegions.sort((a,b) => byRegion[b].total - byRegion[a].total);
@@ -3662,7 +3680,7 @@ function renderCoverageMap(){
     `;
   }).join("") : `<p style="color:var(--text2);font-size:13px;">No prospects imported yet.</p>`;
 
-  const unmappedRegions = NZ_REGIONS.filter(r => !coveredRegions.includes(r));
+  const unmappedRegions = ALL_REGIONS.filter(r => !coveredRegions.includes(r));
   const unmappedIndustries = HOME_SERVICES_INDUSTRIES.filter(i => !industriesSeen.has(i));
   $("#coverage-unmapped-list").innerHTML = `
     <p><strong>Regions:</strong> ${unmappedRegions.length ? escapeHtml(unmappedRegions.join(", ")) : "All regions started!"}</p>
