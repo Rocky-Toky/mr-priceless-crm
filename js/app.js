@@ -402,16 +402,19 @@ const timeAgo = (iso) => {
 const uid = () => "id-" + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
 const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Twilio needs E.164 (+<country code><number>). Prospect numbers are usually entered in
-// local AU format (e.g. "0412 345 678" or "04 1234 5678"), so assume AU (+61) unless a
+// local NZ format (e.g. "021 555 0111" or "09 123 4567"), so assume NZ (+64) unless a
 // country code is already present - either as a leading "+", or as bare digits
-// (e.g. "61412345678" or "0061412345678", both missing only the "+").
-const toE164 = (phone, defaultCountryCode = "61") => {
+// (e.g. "64211234567" or "0064211234567", both missing only the "+"). This used to
+// default to AU (+61), which silently misdialed every NZ number missing a country
+// code (imports never had one - see importProspectRows) into an unrelated real AU
+// number that would ring once and roll to that stranger's voicemail.
+const toE164 = (phone, defaultCountryCode = "64") => {
   const raw = String(phone||"").trim();
   if (!raw) return "";
   if (raw.startsWith("+")) return "+" + raw.replace(/[^0-9]/g, "");
   let digits = raw.replace(/[^0-9]/g, "");
   if (!digits) return "";
-  if (digits.startsWith("00")) digits = digits.slice(2); // "0061..." international dialing prefix
+  if (digits.startsWith("00")) digits = digits.slice(2); // "0064..." international dialing prefix
   if (digits.startsWith(defaultCountryCode) && digits.length > 9) return "+" + digits;
   const national = digits.replace(/^0+/, "");
   return national ? "+" + defaultCountryCode + national : "";
@@ -421,9 +424,9 @@ const toE164 = (phone, defaultCountryCode = "61") => {
 const KNOWN_COUNTRY_CODES = ["61","64","1","44"];
 const splitE164 = (phone) => {
   const raw = String(phone||"").trim();
-  if (!raw.startsWith("+")) return { code: "61", local: raw };
+  if (!raw.startsWith("+")) return { code: "64", local: raw };
   const digits = raw.slice(1);
-  const code = KNOWN_COUNTRY_CODES.find(c => digits.startsWith(c)) || "61";
+  const code = KNOWN_COUNTRY_CODES.find(c => digits.startsWith(c)) || "64";
   return { code, local: digits.slice(code.length) };
 };
 
@@ -2308,6 +2311,11 @@ async function importProspectRows(prospects){
   const seenInBatch = new Set();
   let imported = 0, skipped = 0;
   for (const p of prospects){
+    // Imports never had a country-code prompt like the manual Add Prospect
+    // form does, so numbers came in exactly as scraped (e.g. "021 555 0111")
+    // and only got a country code guessed at call time - normalize to E.164
+    // right away instead, so what's on file is what actually gets dialed.
+    p.phone = toE164(p.phone);
     const key = prospectDedupKey(p);
     if (existingKeys.has(key) || seenInBatch.has(key)){ skipped++; continue; }
     seenInBatch.add(key);
