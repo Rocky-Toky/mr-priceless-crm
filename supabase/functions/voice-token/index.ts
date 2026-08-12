@@ -7,7 +7,15 @@
 // handled by the voice-twiml function once the call connects.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/cors.ts";
+
+// Inlined rather than imported from ../_shared/cors.ts - this function gets
+// deployed as a standalone bundle (including via the Supabase dashboard's
+// single-file editor), which can't resolve relative imports that reach
+// outside the function's own folder.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -56,7 +64,7 @@ async function buildAccessToken(opts: {
     nbf: now,
     grants: {
       identity: opts.identity,
-      voice: { outgoing: { application_sid: opts.twimlAppSid }, incoming: { allow: false } },
+      voice: { outgoing: { application_sid: opts.twimlAppSid }, incoming: { allow: true } },
     },
   };
   const encoder = new TextEncoder();

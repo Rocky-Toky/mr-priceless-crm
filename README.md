@@ -189,6 +189,19 @@ supabase functions deploy voice-twiml
 
 Once deployed, the Dialer's Call button starts making real calls immediately - no further app changes needed.
 
+**C. Inbound calls (a prospect calling back)**
+
+This works automatically once the above is set up - the same phone number config from step A.4 already routes inbound calls to `voice-twiml`, which rings every allowlisted teammate's browser in parallel (whoever currently has the Dialer page open) for 20 seconds. A small banner pops up in-app with Accept/Decline.
+
+Optionally, set a real fallback number to ring if nobody's on the Dialer when a call comes in:
+
+```
+supabase secrets set TWILIO_FALLBACK_NUMBER=+61xxxxxxxxx
+supabase functions deploy voice-twiml
+```
+
+Without it, an unanswered inbound call just hears a short "nobody's available, try again later" message.
+
 ## How the pieces fit together
 
 - **Login & access control**: sign-in is Google-only. The `allowlist` table is the actual gatekeeper - anyone can technically click "Sign in with Google," but the app checks their email against `allowlist` and shows a "not authorized" screen if they're not on it. Every table's Row Level Security policy re-checks the same allowlist, so even a signed-in-but-uninvited account can't read or write data.

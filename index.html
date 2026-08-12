@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=77">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=77">
+<link rel="stylesheet" href="css/style.css?v=78">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=78">
 </head>
 <body>
 
@@ -747,7 +747,7 @@
 
       <div class="two-col">
         <div>
-          <div class="card">
+          <div class="card" id="dialer-upnow-card">
             <div class="card-header"><h3>Up Now</h3><span class="badge gold" id="dialer-position">0 / 0</span></div>
             <div class="card-body" id="dialer-current-body">
               <div class="empty-state"><p>Import a CSV/XLS file or add a prospect to start power dialing.</p></div>
@@ -756,13 +756,15 @@
         </div>
         <div>
           <div class="card">
-            <div class="card-header"><h3>Queue</h3></div>
-            <div class="table-wrap" style="max-height:560px;overflow-y:auto;">
-              <table>
-                <thead><tr><th>Name</th><th>Phone</th><th>Target</th><th>Calls</th><th></th></tr></thead>
-                <tbody id="dialer-queue-tbody"></tbody>
-              </table>
+            <div class="card-header"><h3 id="dialer-queue-title">Queue</h3>
+              <select class="filter-select" id="dialer-queue-view-select" style="margin-left:auto;">
+                <option value="active">Active</option>
+                <option value="follow_up">Follow Up</option>
+                <option value="not_interested">Not Interested</option>
+                <option value="returning">Returning</option>
+              </select>
             </div>
+            <div id="dialer-queue-body" style="max-height:560px;overflow-y:auto;"></div>
           </div>
         </div>
       </div>
@@ -1613,6 +1615,7 @@
       <div class="field"><label>Outcome</label>
         <select id="log-call-outcome" required>
           <option value="no_answer">No Answer</option>
+          <option value="dm_unavailable">Decision Maker Unavailable</option>
           <option value="call_back">Call Back</option>
           <option value="not_interested">Not Interested</option>
           <option value="booked_meeting">Booked Meeting</option>
@@ -1984,13 +1987,25 @@
   </div>
 </div>
 
+<!-- ───────── Incoming Call Widget (a prospect calling the Twilio number back) ───────── -->
+<div id="incoming-call-widget" class="call-widget incoming hidden">
+  <div class="call-widget-info">
+    <div class="call-widget-name" id="incoming-call-name">—</div>
+    <div class="call-widget-status">Incoming call…</div>
+  </div>
+  <div class="call-widget-actions">
+    <button type="button" class="btn" id="incoming-call-decline" style="background:#c0392b;color:#fff;">Decline</button>
+    <button type="button" class="btn gold" id="incoming-call-accept">Accept</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=77"></script>
-<script src="js/supabaseClient.js?v=77"></script>
-<script src="js/app.js?v=77"></script>
-<script src="js/meetings-tracker.js?v=77"></script>
-<script src="js/todo.js?v=77"></script>
+<script src="js/config.js?v=78"></script>
+<script src="js/supabaseClient.js?v=78"></script>
+<script src="js/app.js?v=78"></script>
+<script src="js/meetings-tracker.js?v=78"></script>
+<script src="js/todo.js?v=78"></script>
 </body>
 </html>

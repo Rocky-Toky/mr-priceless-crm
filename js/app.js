@@ -165,6 +165,7 @@ function populateRegionIndustrySelects(){
 }
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
+  dm_unavailable: { label: "Decision Maker Unavailable", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
   not_interested: { label: "Not Interested", cls: "red" },
   booked_meeting: { label: "Booked Meeting", cls: "black" },
@@ -363,6 +364,7 @@ const state = {
   selectedOnboardingClientId: null,
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
+  dialerQueueView: "active",
   prospectingView: "active",
   regionDataFilter: "",
   prospectingCollapsedRegions: new Set(),
@@ -1800,6 +1802,7 @@ async function saveDealContactRows(dealId){
 /* ───────── Render: Dialer (power dialing prospect list) ───────── */
 const OUTCOME_BUTTONS = [
   { key:"no_answer", label:"No Answer", cls:"ghost" },
+  { key:"dm_unavailable", label:"DM Unavailable", cls:"ghost" },
   { key:"call_back", label:"Call Back", cls:"ghost" },
   { key:"not_interested", label:"Not Interested", cls:"ghost" },
   { key:"booked_meeting", label:"Booked Meeting", cls:"gold" },
@@ -1883,6 +1886,11 @@ function renderDialerFilters(){
 let dialerLastAutoClaimedId = null;
 function renderDialer(){
   renderDialerFilters();
+  // Registering here (rather than only when a call is placed) means a
+  // prospect calling back can actually reach whoever has the Dialer open -
+  // see handleIncomingCall(). Silent because plenty of Dialer views (demo
+  // mode, Supabase not configured yet) shouldn't pop a calling-setup alert.
+  if (!voiceDevice) getVoiceDevice(true);
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
   const personSel = $("#dialer-person-select");
   if (personSel && activePerson && document.activeElement !== personSel) personSel.value = activePerson;
@@ -1919,8 +1927,28 @@ function renderDialer(){
       : "";
   }
 
+  // Mirrors Prospecting's own view split (see renderProspectList) so Not
+  // Interested and Follow Up aren't just invisible once actioned from here -
+  // they land in their own segment instead of silently vanishing.
+  const followUp = filtered.filter(p => p.last_outcome === "call_back");
+  const notInterested = filtered.filter(p => p.last_outcome === "not_interested");
+  const returning = filtered.filter(isReturning);
+  const viewCounts = { active: queue.length, follow_up: followUp.length, not_interested: notInterested.length, returning: returning.length };
+  const viewLabels = { active: "Active", follow_up: "Follow Up", not_interested: "Not Interested", returning: "Returning" };
+  const viewSelect = $("#dialer-queue-view-select");
+  if (viewSelect){
+    Array.from(viewSelect.options).forEach(opt => { opt.textContent = `${viewLabels[opt.value]} (${viewCounts[opt.value]})`; });
+    viewSelect.value = state.dialerQueueView;
+  }
+  const view = state.dialerQueueView || "active";
+  const titleEl = $("#dialer-queue-title");
+  if (titleEl) titleEl.textContent = view === "active" ? "Queue" : viewLabels[view];
+
+  const upnowCard = $("#dialer-upnow-card");
+  if (upnowCard) upnowCard.style.display = view === "active" ? "" : "none";
+
   const body = $("#dialer-current-body");
-  if (body){
+  if (body && view === "active"){
     if (!queue.length){
       body.innerHTML = emptyState(filtered.length
         ? "Everyone matching this filter has been called recently - check back once their cooldown's up."
@@ -1950,24 +1978,41 @@ function renderDialer(){
     }
   }
 
-  const tbody = $("#dialer-queue-tbody");
-  if (tbody){
-    if (!queue.length){
-      tbody.innerHTML = `<tr><td colspan="5">${emptyState(filtered.length ? "Everyone's cooling down - nobody's due for a call right now." : "No prospects yet.")}</td></tr>`;
+  const queueBody = $("#dialer-queue-body");
+  if (queueBody){
+    if (view === "active"){
+      if (!queue.length){
+        queueBody.innerHTML = emptyState(filtered.length ? "Everyone's cooling down - nobody's due for a call right now." : "No prospects yet.");
+      } else {
+        queueBody.innerHTML = `
+          <table>
+            <thead><tr><th>Name</th><th>Phone</th><th>Target</th><th>Calls</th><th></th></tr></thead>
+            <tbody>
+              ${queue.map((p,i) => `
+                <tr data-id="${p.id}" style="${i===0?"background:var(--gold-soft);":""}">
+                  <td><div class="row-name">${escapeHtml(p.name)}</div><div class="row-sub">${escapeHtml(p.company||"")}</div></td>
+                  <td>${escapeHtml(p.phone||"-")}</td>
+                  <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
+                  <td><span class="badge gray">${Number(p.calls_made||0)}</span></td>
+                  <td style="text-align:right;white-space:nowrap;">
+                    <button class="icon-btn" data-action="edit-prospect" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
+                    <button class="icon-btn" data-action="convert-prospect" data-id="${p.id}" title="Move to Contacts">${ICONS.moveToContact}</button>
+                    <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+      }
     } else {
-      tbody.innerHTML = queue.map((p,i) => `
-        <tr data-id="${p.id}" style="${i===0?"background:var(--gold-soft);":""}">
-          <td><div class="row-name">${escapeHtml(p.name)}</div><div class="row-sub">${escapeHtml(p.company||"")}</div></td>
-          <td>${escapeHtml(p.phone||"-")}</td>
-          <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
-          <td><span class="badge gray">${Number(p.calls_made||0)}</span></td>
-          <td style="text-align:right;white-space:nowrap;">
-            <button class="icon-btn" data-action="edit-prospect" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
-            <button class="icon-btn" data-action="convert-prospect" data-id="${p.id}" title="Move to Contacts">${ICONS.moveToContact}</button>
-            <button class="icon-btn" data-action="delete-prospect" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
-          </td>
-        </tr>
-      `).join("");
+      const list = { follow_up: followUp, not_interested: notInterested, returning: returning }[view] || [];
+      const emptyMsg = {
+        follow_up: "No follow-ups scheduled.",
+        not_interested: "Nobody's been marked Not Interested.",
+        returning: "Nobody's currently cooling down.",
+      }[view];
+      queueBody.innerHTML = list.length ? prospectTableSection(list) : emptyState(emptyMsg);
     }
   }
 }
@@ -2002,7 +2047,10 @@ function addBusinessDays(date, days){
 function nextCallDate(outcome, priorCallsMade){
   if (outcome === "call_back" || outcome === "not_interested") return null;
   const now = new Date();
-  if (outcome === "no_answer"){
+  // Decision Maker Unavailable gets you an actual human, just not the right
+  // one - close enough to No Answer that it's worth the same short retry
+  // cadence rather than its own schedule.
+  if (outcome === "no_answer" || outcome === "dm_unavailable"){
     const attempt = priorCallsMade + 1;
     const businessDays = NO_ANSWER_CADENCE_BUSINESS_DAYS[attempt];
     if (businessDays) return addBusinessDays(now, businessDays);
@@ -2072,10 +2120,11 @@ async function logDialOutcome(prospectId, outcome, note, region, followupDate){
     updated_at: new Date().toISOString(),
   };
   if (region) update.region = region;
-  // "dialed" fires the instant a call connects, not when it ends - release
-  // the claim on the real outcome instead, so a teammate's dialer can't
-  // snatch this prospect mid-call.
-  if (outcome !== "dialed"){ update.claimed_by = null; update.claimed_at = null; }
+  // Every real outcome releases the claim - the other fields above are what
+  // actually take this prospect out of the queue (parked or snoozed), so
+  // there's nothing left for the claim to protect against a teammate's
+  // dialer picking them up too.
+  update.claimed_by = null; update.claimed_at = null;
   await DataLayer.update("dial_prospects", prospectId, update);
   await bumpCallActivity(personKeyFromEmail(who), outcome);
   // A Call Back isn't just a cooldown any more - it has to leave behind an
@@ -2159,31 +2208,91 @@ function updateLogCallModalFields(){
     : "This drops them off the \"ready to call\" list for a few days so nobody calls them again too soon.";
 }
 
-/* ───────── Twilio Voice (real outbound calling from the Dialer) ───────── */
+/* ───────── Twilio Voice (real outbound + inbound calling from the Dialer) ───────── */
 let voiceDevice = null;
 let activeCall = null;
 let activeCallProspectId = null;
+let incomingCall = null;
 
-async function getVoiceDevice(){
+// silent=true is used for the proactive registration that happens just from
+// opening the Dialer page (so a teammate's browser can actually receive a
+// callback) - it should never pop an alert for someone who never intended to
+// place or take a call, unlike the explicit "Call" button path below.
+async function getVoiceDevice(silent = false){
   if (voiceDevice) return voiceDevice;
-  if (!IS_CONFIGURED){ alert("Connect Supabase first (see README.md) to enable real calling."); return null; }
-  if (typeof Twilio === "undefined"){ alert("Calling isn't available: the Twilio Voice SDK failed to load."); return null; }
+  if (!IS_CONFIGURED){ if (!silent) alert("Connect Supabase first (see README.md) to enable real calling."); return null; }
+  if (typeof Twilio === "undefined"){ if (!silent) alert("Calling isn't available: the Twilio Voice SDK failed to load."); return null; }
   const { data, error } = await supabase.functions.invoke("voice-token");
-  if (error || !data?.token){ alert("Couldn't start the call: " + (error?.message || "no token returned.")); return null; }
+  if (error || !data?.token){ if (!silent) alert("Couldn't start the call: " + (error?.message || "no token returned.")); return null; }
   try {
     voiceDevice = new Twilio.Device(data.token, { codecPreferences: ["opus", "pcmu"] });
     voiceDevice.on("tokenWillExpire", async () => {
       const refreshed = await supabase.functions.invoke("voice-token");
       if (refreshed.data?.token) voiceDevice.updateToken(refreshed.data.token);
     });
-    voiceDevice.on("error", (e) => { alert("Call error: " + (e?.message || "unknown error")); endCall(); });
+    // Only alert on device-level errors if we were actually mid-call - a
+    // background registration hiccup shouldn't interrupt someone's day.
+    voiceDevice.on("error", (e) => { if (activeCall || incomingCall) alert("Call error: " + (e?.message || "unknown error")); endCall(); });
+    voiceDevice.on("incoming", handleIncomingCall);
     await voiceDevice.register();
     return voiceDevice;
   } catch (e) {
     voiceDevice = null;
-    alert("Couldn't set up calling: " + (e?.message || e));
+    if (!silent) alert("Couldn't set up calling: " + (e?.message || e));
     return null;
   }
+}
+
+// Best-effort caller ID: match the inbound number against prospects, clients
+// and contacts so the banner shows a name instead of a bare digit string.
+function findCallerLabel(fromNumber){
+  const digits = (fromNumber||"").replace(/\D/g,"");
+  if (digits){
+    const prospect = state.prospects.find(p => (p.phone||"").replace(/\D/g,"") === digits);
+    if (prospect) return prospect.company ? `${prospect.name} · ${prospect.company}` : prospect.name;
+    const client = state.clients.find(c => (c.phone||"").replace(/\D/g,"") === digits);
+    if (client) return client.name;
+    const contact = state.contacts.find(c => (c.phone||"").replace(/\D/g,"") === digits);
+    if (contact) return contact.company ? `${contact.name} · ${contact.company}` : contact.name;
+  }
+  return fromNumber || "Unknown number";
+}
+
+function setIncomingCallWidget(open, label){
+  const widget = $("#incoming-call-widget");
+  if (!widget) return;
+  widget.classList.toggle("hidden", !open);
+  if (label !== undefined) $("#incoming-call-name").textContent = label;
+}
+
+function handleIncomingCall(call){
+  // Twilio rings every allowlisted identity in parallel (see voice-twiml) -
+  // if we're already on a call or already have one ringing, let another
+  // teammate's browser take it instead of stacking calls on this one.
+  if (activeCall || incomingCall){ call.reject(); return; }
+  incomingCall = call;
+  setIncomingCallWidget(true, findCallerLabel(call.parameters.From));
+  call.on("cancel", () => { if (incomingCall === call){ incomingCall = null; setIncomingCallWidget(false); } });
+}
+
+function acceptIncomingCall(){
+  if (!incomingCall) return;
+  const call = incomingCall;
+  incomingCall = null;
+  setIncomingCallWidget(false);
+  activeCall = call;
+  activeCallProspectId = null;
+  setCallWidget(true, { name: findCallerLabel(call.parameters.From), status: "In call" });
+  call.accept();
+  call.on("disconnect", () => endCall());
+  call.on("error", (e) => { alert("Call error: " + (e?.message || "unknown error")); endCall(); });
+}
+
+function declineIncomingCall(){
+  if (!incomingCall) return;
+  incomingCall.reject();
+  incomingCall = null;
+  setIncomingCallWidget(false);
 }
 
 function setCallWidget(open, { name, status } = {}){
@@ -2230,7 +2339,12 @@ async function startCall(prospectId){
   if (activePerson) DataLayer.update("dial_prospects", prospectId, { claimed_by: activePerson, claimed_at: new Date().toISOString() });
   const ok = await placeCall(p.phone, p.name);
   if (!ok){ activeCallProspectId = null; return; }
-  await logDialOutcome(prospectId, "dialed");
+  // Deliberately not logging an outcome here - that used to fire the instant
+  // the call connected and, since "dialed" isn't a real outcome, fell through
+  // to a default cooldown that snoozed the prospect immediately, booting them
+  // out of the queue before you could log what actually happened on the call.
+  // The Up Now card keeps showing this same prospect (and its outcome
+  // buttons) until you pick a real outcome once you're off the call.
 }
 
 function endCall(){
@@ -2250,6 +2364,8 @@ function setupCallWidget(){
     activeCall.mute(muted);
     e.target.textContent = muted ? "Unmute" : "Mute";
   });
+  $("#incoming-call-accept")?.addEventListener("click", () => acceptIncomingCall());
+  $("#incoming-call-decline")?.addEventListener("click", () => declineIncomingCall());
 }
 
 function parseCsv(text){
@@ -5478,9 +5594,11 @@ function setupModals(){
       openLogCallModal(state.prospects.find(x => x.id === id), "no_answer");
     }
     if (action === "dial-tel"){
+      // Deliberately not logging an outcome here - see the matching comment
+      // in startCall(). The prospect stays put as Up Now until a real
+      // outcome gets picked from the buttons right below the Call button.
       const activePerson = window.getActivePerson ? window.getActivePerson() : null;
       if (activePerson) DataLayer.update("dial_prospects", id, { claimed_by: activePerson, claimed_at: new Date().toISOString() });
-      await logDialOutcome(id, "dialed");
     }
     if (action === "start-call") await startCall(id);
     if (action === "dial-outcome"){
@@ -5633,6 +5751,7 @@ function setupDialerFilters(){
   $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
   $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
   $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
+  $("#dialer-queue-view-select")?.addEventListener("change", (e) => { state.dialerQueueView = e.target.value; renderProspectViews(); });
   // Switching who's dialing also points the industry filter at that
   // person's assigned focus vertical (if they have one set from
   // Prospecting), same as it already pins their focus to the top of the
