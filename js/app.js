@@ -882,7 +882,12 @@ const DataLayer = {
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
       supabase.from("prospecting_regions").select("*").order("region",{ascending:true}),
-      supabase.from("dial_prospects").select("*").order("last_called_at",{ascending:true,nullsFirst:true}),
+      // Secondary order key matters: a lot of prospects tie on last_called_at
+      // (every never-called one is null), and without a deterministic
+      // tiebreaker Postgres can return tied rows in a different order on
+      // every fetch - which looked like prospects randomly jumping around
+      // the queue on every realtime refresh (claims, outcomes logged, etc).
+      supabase.from("dial_prospects").select("*").order("last_called_at",{ascending:true,nullsFirst:true}).order("created_at",{ascending:true}),
       supabase.from("clients").select("*").order("name",{ascending:true}),
       supabase.from("client_content").select("*").order("created_at",{ascending:false}),
       supabase.from("client_ad_creatives").select("*").order("created_at",{ascending:false}),
@@ -1877,7 +1882,15 @@ function dialerQueue(){
   return dialerFilteredProspects().filter(isAuProspect).filter(p => dialerOwnedBy(p, state.dialerOwnerFilter)).filter(p => !isParked(p) && !isSnoozed(p) && !isClaimedByOther(p, activePerson)).sort((a,b) => {
     const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
     const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
-    return ta - tb;
+    if (ta !== tb) return ta - tb;
+    // Deterministic tiebreaker - see the matching comment on the
+    // dial_prospects fetch order. Without this, ties (most commonly a pile
+    // of never-called prospects) can silently re-sort themselves on every
+    // realtime refresh, which is what made "Up Now" seem to jump around on
+    // its own after a claim write or a logged outcome.
+    const ca = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const cb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return ca - cb;
   });
 }
 function renderDialerFilters(){
