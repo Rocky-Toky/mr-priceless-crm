@@ -1,20 +1,26 @@
 // Edge Function: voice-twiml
 // This is the "Voice Request URL" configured on both the Twilio TwiML App
 // (for outbound calls placed from the browser) and the Twilio phone number
-// itself (for inbound calls, e.g. a prospect calling back). Twilio decides
-// which case we're in via the "Direction" param it sends - not something a
+// itself (for inbound calls, e.g. a prospect calling back) - not something a
 // person visits directly.
 //
-// Outbound: Twilio POSTs the params passed to Device.connect({ params }), and
-// we respond with TwiML telling Twilio which real phone number to dial and
-// which of our numbers to show as the caller ID.
+// IMPORTANT: Twilio's "Direction" param is NOT reliable here - it comes
+// through as "inbound" for every call that hits a TwiML App's Voice Request
+// URL, including calls a browser places outbound via Device.connect(). The
+// real signal is the standard "To" param: for a browser-placed outbound
+// call it's whatever number Device.connect({ params: { To } }) sent (the
+// prospect's number); for a genuine PSTN call to our own Twilio number it's
+// that Twilio number itself. We branch on whether To matches our own number.
 //
-// Inbound: Twilio POSTs the caller's number. We ring every allowlisted
-// teammate's browser in parallel (via Twilio Client - only whoever currently
-// has the Dialer open actually rings, Twilio silently skips anyone not
-// registered) for a short window. If nobody picks up, we fall back to a real
-// phone number if one's configured (TWILIO_FALLBACK_NUMBER), otherwise we
-// play a short message so the caller isn't just met with silence.
+// Outbound: we respond with TwiML telling Twilio which real phone number to
+// dial and which of our numbers to show as the caller ID.
+//
+// Inbound: We ring every allowlisted teammate's browser in parallel (via
+// Twilio Client - only whoever currently has the Dialer open actually rings,
+// Twilio silently skips anyone not registered) for a short window. If nobody
+// picks up, we fall back to a real phone number if one's configured
+// (TWILIO_FALLBACK_NUMBER), otherwise we play a short message so the caller
+// isn't just met with silence.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -44,16 +50,19 @@ Deno.serve(async (req) => {
     try { params = await req.json(); } catch { /* no body */ }
   }
 
-  const direction = params.Direction || "";
+  const to = params.To || "";
+  const digits = to.replace(/[^0-9+]/g, "");
+  const callerIdDigits = CALLER_ID.replace(/[^0-9+]/g, "");
+  // Only a genuine inbound PSTN call has To == our own Twilio number - a
+  // browser-placed outbound call's To is always the prospect's number.
+  const isGenuineInbound = !!callerIdDigits && digits === callerIdDigits;
 
-  if (direction === "inbound") {
+  if (isGenuineInbound) {
     return new Response(await inboundTwiml(params, FALLBACK_NUMBER, req.url), {
       headers: { "Content-Type": "text/xml", ...corsHeaders },
     });
   }
 
-  const to = params.To || "";
-  const digits = to.replace(/[^0-9+]/g, "");
   const twiml = digits && CALLER_ID
     ? `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${escapeXml(CALLER_ID)}"><Number>${escapeXml(digits)}</Number></Dial></Response>`
     : `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, this call could not be placed. No destination number was provided.</Say></Response>`;
