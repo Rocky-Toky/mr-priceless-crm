@@ -1820,6 +1820,18 @@ function isReturning(p){ return !isParked(p) && isSnoozed(p); }
 // country code) rather than a separate field, so it can't drift out of
 // sync with what would actually get dialed.
 function isAuProspect(p){ return (p.phone||"").startsWith("+61"); }
+// Two people running the Aus Dialler at once must never both land on the
+// same prospect as "Up Now" - whoever's dialer surfaces a prospect first
+// claims it for a few minutes (comfortably covering a real call), and the
+// other person's queue just skips it and moves to the next one. The claim
+// releases itself the moment a real outcome gets logged (see
+// logDialOutcome), or simply expires here if someone closes the tab
+// mid-call without logging anything.
+const DIALER_CLAIM_TIMEOUT_MS = 3 * 60 * 1000;
+function isClaimedByOther(p, activePerson){
+  if (!p.claimed_by || !p.claimed_at || p.claimed_by === activePerson) return false;
+  return (Date.now() - new Date(p.claimed_at).getTime()) < DIALER_CLAIM_TIMEOUT_MS;
+}
 function dialerFilteredProspects(){
   const f = state.dialerFilter;
   const q = f.search.trim().toLowerCase();
@@ -1841,7 +1853,8 @@ function dialerQueue(){
   // Not Interested) stays out until someone actions them from those views.
   // It's also Australia-only (see isAuProspect) - the Prospecting master
   // list still shows everyone, this queue just never surfaces the rest.
-  return dialerFilteredProspects().filter(isAuProspect).filter(p => !isParked(p) && !isSnoozed(p)).sort((a,b) => {
+  const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+  return dialerFilteredProspects().filter(isAuProspect).filter(p => !isParked(p) && !isSnoozed(p) && !isClaimedByOther(p, activePerson)).sort((a,b) => {
     const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
     const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
     return ta - tb;
@@ -1863,8 +1876,14 @@ function renderDialerFilters(){
     industrySel.value = state.dialerFilter.industry;
   }
 }
+// Avoids re-firing the same claim write on every re-render while the same
+// prospect is sitting at the top of one person's queue.
+let dialerLastAutoClaimedId = null;
 function renderDialer(){
   renderDialerFilters();
+  const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+  const personSel = $("#dialer-person-select");
+  if (personSel && activePerson && document.activeElement !== personSel) personSel.value = activePerson;
   const filtered = dialerFilteredProspects().filter(isAuProspect);
   const total = filtered.length;
   const totalCalls = filtered.reduce((s,p) => s + Number(p.calls_made||0), 0);
@@ -1880,6 +1899,23 @@ function renderDialer(){
   const queue = dialerQueue();
   const posEl = $("#dialer-position");
   if (posEl) posEl.textContent = total ? `1 / ${total}` : "0 / 0";
+
+  // Claim whoever's now sitting at the top of *this* person's queue, so a
+  // teammate's queue skips straight past them - see isClaimedByOther().
+  if (queue.length && activePerson){
+    const top = queue[0];
+    if (top.id !== dialerLastAutoClaimedId && top.claimed_by !== activePerson){
+      dialerLastAutoClaimedId = top.id;
+      DataLayer.update("dial_prospects", top.id, { claimed_by: activePerson, claimed_at: new Date().toISOString() });
+    }
+  }
+  const claimNote = $("#dialer-claim-note");
+  if (claimNote){
+    const claimedByOthers = filtered.filter(p => isClaimedByOther(p, activePerson)).length;
+    claimNote.textContent = claimedByOthers
+      ? `${claimedByOthers} prospect${claimedByOthers===1?"":"s"} currently on a call with a teammate - hidden from your queue for now.`
+      : "";
+  }
 
   const body = $("#dialer-current-body");
   if (body){
@@ -2034,6 +2070,10 @@ async function logDialOutcome(prospectId, outcome, note, region, followupDate){
     updated_at: new Date().toISOString(),
   };
   if (region) update.region = region;
+  // "dialed" fires the instant a call connects, not when it ends - release
+  // the claim on the real outcome instead, so a teammate's dialer can't
+  // snatch this prospect mid-call.
+  if (outcome !== "dialed"){ update.claimed_by = null; update.claimed_at = null; }
   await DataLayer.update("dial_prospects", prospectId, update);
   await bumpCallActivity(personKeyFromEmail(who), outcome);
   // A Call Back isn't just a cooldown any more - it has to leave behind an
@@ -2181,6 +2221,11 @@ async function startCall(prospectId){
   const p = state.prospects.find(x => x.id === prospectId);
   if (!p || !p.phone) return;
   activeCallProspectId = prospectId;
+  // Refresh the claim right as the call goes out, not just when it first
+  // showed up as "Up Now" - a call that runs long shouldn't have the claim
+  // time out from under it and let a teammate's dialer pick it up too.
+  const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+  if (activePerson) DataLayer.update("dial_prospects", prospectId, { claimed_by: activePerson, claimed_at: new Date().toISOString() });
   const ok = await placeCall(p.phone, p.name);
   if (!ok){ activeCallProspectId = null; return; }
   await logDialOutcome(prospectId, "dialed");
@@ -5421,7 +5466,11 @@ function setupModals(){
     if (action === "log-prospect-call"){
       openLogCallModal(state.prospects.find(x => x.id === id), "no_answer");
     }
-    if (action === "dial-tel") await logDialOutcome(id, "dialed");
+    if (action === "dial-tel"){
+      const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+      if (activePerson) DataLayer.update("dial_prospects", id, { claimed_by: activePerson, claimed_at: new Date().toISOString() });
+      await logDialOutcome(id, "dialed");
+    }
     if (action === "start-call") await startCall(id);
     if (action === "dial-outcome"){
       // Call Back and Not Interested both need a required field captured
@@ -5573,6 +5622,18 @@ function setupDialerFilters(){
   $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
   $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
   $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
+  // Switching who's dialing also points the industry filter at that
+  // person's assigned focus vertical (if they have one set from
+  // Prospecting), same as it already pins their focus to the top of the
+  // shared Prospecting list - "you are" should mean the same thing on both
+  // pages. Still just a starting point, not a lock - the dropdown next to
+  // it can always override it.
+  $("#dialer-person-select")?.addEventListener("change", (e) => {
+    window.setActivePerson?.(e.target.value);
+    const focus = state.teamFocus[e.target.value];
+    if (focus) state.dialerFilter.industry = focus;
+    renderProspectViews();
+  });
   $("#prospecting-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
   $("#prospecting-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
   $("#prospecting-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=75">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=75">
+<link rel="stylesheet" href="css/style.css?v=76">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=76">
 </head>
 <body>
 
@@ -706,7 +706,18 @@
     <section class="page" id="page-dialer">
       <div class="page-header">
         <div><h2>Aus Dialler</h2><p>Australian prospects only - power dial straight down the list.</p></div>
-        <div style="display:flex;gap:10px;">
+        <div style="display:flex;gap:10px;align-items:flex-end;">
+          <div class="mtr-person-select">
+            <label>You are</label>
+            <select id="dialer-person-select">
+              <option value="rocky">Rocky</option>
+              <option value="max">Max</option>
+              <option value="bailey">Bailey</option>
+              <option value="gabriel">Gabriel</option>
+              <option value="raheem">Raheem</option>
+              <option value="thor">Thor</option>
+            </select>
+          </div>
           <input type="file" id="dialer-import-input" accept=".csv,.xls,.xlsx" style="display:none;">
           <button class="btn ghost" id="dialer-import-btn">Import CSV / XLS</button>
           <button class="btn gold" id="dialer-add-btn">+ Add Prospect</button>
@@ -725,6 +736,7 @@
           <option value="">All Industries</option>
         </select>
       </div>
+      <p class="stat-sub" id="dialer-claim-note" style="padding:0 2px;margin:-4px 0 12px;"></p>
 
       <div class="stat-grid">
         <div class="stat-card"><div class="stat-label">Prospects</div><div class="stat-value" id="dialer-stat-total">0</div></div>
@@ -1970,10 +1982,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=75"></script>
-<script src="js/supabaseClient.js?v=75"></script>
-<script src="js/app.js?v=75"></script>
-<script src="js/meetings-tracker.js?v=75"></script>
-<script src="js/todo.js?v=75"></script>
+<script src="js/config.js?v=76"></script>
+<script src="js/supabaseClient.js?v=76"></script>
+<script src="js/app.js?v=76"></script>
+<script src="js/meetings-tracker.js?v=76"></script>
+<script src="js/todo.js?v=76"></script>
 </body>
 </html>
