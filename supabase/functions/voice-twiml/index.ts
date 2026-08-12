@@ -40,7 +40,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RING_TIMEOUT_SECONDS = 20;
+// 20s was cutting it close - notice the banner, react, click Accept can
+// easily eat 15+ seconds, and a call that times out right as someone clicks
+// Accept connects and then drops again instantly (confusing, looks like a
+// bug). Longer ring window plus the frontend's audio/title alert (see
+// startIncomingCallAlert in app.js) together give people a real chance to
+// actually catch it in time.
+const RING_TIMEOUT_SECONDS = 35;
 const NO_ONE_AVAILABLE_MESSAGE = "Sorry, nobody is available to take your call right now. We've logged your number and will call you back.";
 
 Deno.serve(async (req) => {

@@ -364,6 +364,15 @@ const state = {
   selectedOnboardingClientId: null,
   selectedDealId: null,
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
+  // Separate from dialerFilter (which is shared with the Prospecting page's
+  // deliberately-shared master list) - this only scopes the Dialler itself,
+  // defaulting to whoever's currently dialing so one person's freshly
+  // imported leads don't show up mixed into a teammate's queue by surprise.
+  // null (not "") is the "never touched yet" sentinel - see renderDialer(),
+  // which re-defaults it to the active person on every render until the
+  // user explicitly picks something (including "Everyone's Leads", which
+  // sets it to "" - an actual, sticky choice, not the same as null).
+  dialerOwnerFilter: null,
   dialerQueueView: "active",
   prospectingView: "active",
   regionDataFilter: "",
@@ -1851,6 +1860,12 @@ function dialerFilteredProspects(){
 function dialerDistinctValues(field){
   return [...new Set(state.prospects.map(p => p[field]).filter(Boolean))].sort();
 }
+// Whether a prospect was added by the given person (Dialler-only owner
+// filter, see state.dialerOwnerFilter) - empty ownerKey means no filtering.
+function dialerOwnedBy(p, ownerKey){
+  if (!ownerKey) return true;
+  return personKeyFromEmail(p.created_by) === ownerKey;
+}
 function dialerQueue(){
   // The power dialer only ever wants to surface prospects that are actually
   // callable right now - anyone still cooling down after a recent call stays
@@ -1859,7 +1874,7 @@ function dialerQueue(){
   // It's also Australia-only (see isAuProspect) - the Prospecting master
   // list still shows everyone, this queue just never surfaces the rest.
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
-  return dialerFilteredProspects().filter(isAuProspect).filter(p => !isParked(p) && !isSnoozed(p) && !isClaimedByOther(p, activePerson)).sort((a,b) => {
+  return dialerFilteredProspects().filter(isAuProspect).filter(p => dialerOwnedBy(p, state.dialerOwnerFilter)).filter(p => !isParked(p) && !isSnoozed(p) && !isClaimedByOther(p, activePerson)).sort((a,b) => {
     const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
     const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
     return ta - tb;
@@ -1868,6 +1883,7 @@ function dialerQueue(){
 function renderDialerFilters(){
   const regionSel = $("#dialer-filter-region");
   const industrySel = $("#dialer-filter-industry");
+  const ownerSel = $("#dialer-filter-owner");
   const auProspects = state.prospects.filter(isAuProspect);
   const auDistinctValues = (field) => [...new Set(auProspects.map(p => p[field]).filter(Boolean))].sort();
   if (regionSel){
@@ -1880,6 +1896,7 @@ function renderDialerFilters(){
     industrySel.innerHTML = `<option value="">All Industries</option>` + industries.map(i => `<option value="${escapeHtml(i)}">${escapeHtml(i)}</option>`).join("");
     industrySel.value = state.dialerFilter.industry;
   }
+  if (ownerSel && document.activeElement !== ownerSel) ownerSel.value = state.dialerOwnerFilter || "";
 }
 // Avoids re-firing the same claim write on every re-render while the same
 // prospect is sitting at the top of one person's queue.
@@ -1892,9 +1909,16 @@ function renderDialer(){
   // mode, Supabase not configured yet) shouldn't pop a calling-setup alert.
   if (!voiceDevice) getVoiceDevice(true);
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+  // Re-checked on every render rather than a one-time flag - getActivePerson
+  // isn't guaranteed to be ready on the very first render, and a one-time
+  // flag that fired too early would leave the filter stuck unset. Using
+  // state.dialerOwnerFilter itself as the "never touched" sentinel (null)
+  // means it just self-corrects on the next render instead, and stays put
+  // once the user's made an actual choice (including "" for Everyone).
+  if (state.dialerOwnerFilter === null && activePerson) state.dialerOwnerFilter = activePerson;
   const personSel = $("#dialer-person-select");
   if (personSel && activePerson && document.activeElement !== personSel) personSel.value = activePerson;
-  const filtered = dialerFilteredProspects().filter(isAuProspect);
+  const filtered = dialerFilteredProspects().filter(isAuProspect).filter(p => dialerOwnedBy(p, state.dialerOwnerFilter));
   const total = filtered.length;
   const totalCalls = filtered.reduce((s,p) => s + Number(p.calls_made||0), 0);
   const neverCalled = filtered.filter(p => !p.calls_made).length;
@@ -2275,6 +2299,38 @@ function setIncomingCallWidget(open, label){
   if (label !== undefined) $("#incoming-call-name").textContent = label;
 }
 
+// A silent banner is easy to miss if the Dialer tab isn't the one you're
+// looking at - Twilio only holds the ring open for a limited window (see
+// RING_TIMEOUT_SECONDS server-side), so every second spent not noticing the
+// call eats into the time actually left to answer it. This beeps on a loop
+// and flashes the tab title until the call is accepted, declined, or
+// canceled, without needing any external sound file.
+let incomingCallAlertInterval = null;
+const ORIGINAL_DOCUMENT_TITLE = document.title;
+function startIncomingCallAlert(){
+  stopIncomingCallAlert();
+  const ring = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+      osc.onended = () => ctx.close();
+    } catch {}
+    document.title = document.title === ORIGINAL_DOCUMENT_TITLE ? "☎ Incoming call..." : ORIGINAL_DOCUMENT_TITLE;
+  };
+  ring();
+  incomingCallAlertInterval = setInterval(ring, 1200);
+}
+function stopIncomingCallAlert(){
+  if (incomingCallAlertInterval){ clearInterval(incomingCallAlertInterval); incomingCallAlertInterval = null; }
+  document.title = ORIGINAL_DOCUMENT_TITLE;
+}
+
 function handleIncomingCall(call){
   // Twilio rings every allowlisted identity in parallel (see voice-twiml) -
   // if we're already on a call or already have one ringing, let another
@@ -2282,14 +2338,27 @@ function handleIncomingCall(call){
   if (activeCall || incomingCall){ call.reject(); return; }
   incomingCall = call;
   setIncomingCallWidget(true, findCallerLabel(call.parameters.From));
-  call.on("cancel", () => { if (incomingCall === call){ incomingCall = null; setIncomingCallWidget(false); } });
+  startIncomingCallAlert();
+  call.on("cancel", () => { if (incomingCall === call){ incomingCall = null; setIncomingCallWidget(false); stopIncomingCallAlert(); } });
 }
 
 function acceptIncomingCall(){
   if (!incomingCall) return;
   const call = incomingCall;
+  // Twilio only holds this leg open for a limited ring window - if it's
+  // already been torn down server-side (timed out right as you clicked),
+  // accept() would connect and then drop again instantly. Catch that here
+  // with a clear message instead of a silent, confusing disconnect.
+  if (call.status && call.status() === "closed"){
+    incomingCall = null;
+    setIncomingCallWidget(false);
+    stopIncomingCallAlert();
+    alert("That call already ended - it rang out before you could answer. Sorry about that.");
+    return;
+  }
   incomingCall = null;
   setIncomingCallWidget(false);
+  stopIncomingCallAlert();
   activeCall = call;
   activeCallProspectId = null;
   setCallWidget(true, { name: findCallerLabel(call.parameters.From), status: "In call" });
@@ -2303,6 +2372,7 @@ function declineIncomingCall(){
   incomingCall.reject();
   incomingCall = null;
   setIncomingCallWidget(false);
+  stopIncomingCallAlert();
 }
 
 function setCallWidget(open, { name, status } = {}){
@@ -5767,17 +5837,21 @@ function setupDialerFilters(){
   $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
   $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
   $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
+  $("#dialer-filter-owner")?.addEventListener("change", (e) => { state.dialerOwnerFilter = e.target.value; renderProspectViews(); });
   $("#dialer-queue-view-select")?.addEventListener("change", (e) => { state.dialerQueueView = e.target.value; renderProspectViews(); });
   // Switching who's dialing also points the industry filter at that
   // person's assigned focus vertical (if they have one set from
   // Prospecting), same as it already pins their focus to the top of the
   // shared Prospecting list - "you are" should mean the same thing on both
   // pages. Still just a starting point, not a lock - the dropdown next to
-  // it can always override it.
+  // it can always override it. It also re-scopes the leads filter to that
+  // person's own leads, so switching "You are" from Rocky to Max shows
+  // Max's leads instead of leaving Rocky's leads on screen under Max's name.
   $("#dialer-person-select")?.addEventListener("change", (e) => {
     window.setActivePerson?.(e.target.value);
     const focus = state.teamFocus[e.target.value];
     if (focus) state.dialerFilter.industry = focus;
+    state.dialerOwnerFilter = e.target.value;
     renderProspectViews();
   });
   $("#prospecting-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
