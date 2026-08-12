@@ -193,12 +193,14 @@ Once deployed, the Dialer's Call button starts making real calls immediately - n
 
 This works automatically once the above is set up - the same phone number config from step A.4 already routes inbound calls to `voice-twiml`, which rings every allowlisted teammate's browser in parallel (whoever currently has the Dialer page open) for 20 seconds. A small banner pops up in-app with Accept/Decline.
 
-Optionally, set a real fallback number to ring if nobody's on the Dialer when a call comes in:
+Optionally, set a real fallback number (e.g. someone's personal mobile) to ring if nobody's on the Dialer when a call comes in:
 
 ```
 supabase secrets set TWILIO_FALLBACK_NUMBER=+61xxxxxxxxx
 supabase functions deploy voice-twiml
 ```
+
+If that also goes unanswered - or you never set a fallback number at all - a task gets created automatically in the CRM ("X reached out - missed call", unassigned so the whole team sees it) so a missed callback never just disappears.
 
 Without it, an unanswered inbound call just hears a short "nobody's available, try again later" message.
 

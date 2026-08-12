@@ -15,12 +15,19 @@
 // Outbound: we respond with TwiML telling Twilio which real phone number to
 // dial and which of our numbers to show as the caller ID.
 //
-// Inbound: We ring every allowlisted teammate's browser in parallel (via
-// Twilio Client - only whoever currently has the Dialer open actually rings,
-// Twilio silently skips anyone not registered) for a short window. If nobody
-// picks up, we fall back to a real phone number if one's configured
-// (TWILIO_FALLBACK_NUMBER), otherwise we play a short message so the caller
-// isn't just met with silence.
+// Inbound - a three-stage escalation, tracked via a "stage" query param on
+// the action URL we hand Twilio (Twilio always re-POSTs the same params on
+// each redirect, so the query string is the only reliable place to stash
+// which stage just finished):
+//   1. "team"     - ring every allowlisted teammate's browser in parallel
+//                   (via Twilio Client - only whoever has the Dialer open
+//                   actually rings, Twilio silently skips anyone else).
+//   2. "fallback" - if nobody on the team picked up, ring a real fallback
+//                   number if one's configured (TWILIO_FALLBACK_NUMBER),
+//                   e.g. someone's personal mobile.
+//   3. done       - if that also goes unanswered (or isn't configured), log
+//                   a task in the CRM so the missed call doesn't just
+//                   disappear, and play a short message to the caller.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -34,6 +41,7 @@ const corsHeaders = {
 };
 
 const RING_TIMEOUT_SECONDS = 20;
+const NO_ONE_AVAILABLE_MESSAGE = "Sorry, nobody is available to take your call right now. We've logged your number and will call you back.";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -71,42 +79,91 @@ Deno.serve(async (req) => {
 });
 
 async function inboundTwiml(params: Record<string, string>, fallbackNumber: string, requestUrl: string): Promise<string> {
-  // Twilio re-POSTs here once the <Dial> below finishes (answered, timed out,
-  // or nobody was reachable) because we set action to this same URL. That
-  // second pass carries DialCallStatus - the first, initial ring never does.
+  const url = new URL(requestUrl);
+  const stage = url.searchParams.get("stage") || "";
+
+  // Twilio re-POSTs here once whichever <Dial> we sent finishes (answered,
+  // timed out, or nobody was reachable) - DialCallStatus only appears on
+  // those follow-up requests, never on the very first ring.
   if (params.DialCallStatus) {
     if (params.DialCallStatus === "completed") {
       // Someone answered and the call already ran its course - nothing more to do.
       return `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
     }
-    if (fallbackNumber) {
-      return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Number>${escapeXml(fallbackNumber)}</Number></Dial></Response>`;
+    if (stage === "team" && fallbackNumber) {
+      const actionUrl = new URL(requestUrl);
+      actionUrl.search = "stage=fallback";
+      return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial timeout="${RING_TIMEOUT_SECONDS}" action="${escapeXml(actionUrl.toString())}"><Number>${escapeXml(fallbackNumber)}</Number></Dial></Response>`;
     }
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, nobody is available to take your call right now. Please try again during business hours.</Say></Response>`;
+    // Either the fallback leg also went unanswered, or there was no
+    // fallback number to try - either way, nobody actually picked up.
+    await logMissedCallTask(params.From || "");
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${escapeXml(NO_ONE_AVAILABLE_MESSAGE)}</Say></Response>`;
   }
 
   const identities = await allowlistIdentities();
   if (!identities.length) {
     if (fallbackNumber) {
-      return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Number>${escapeXml(fallbackNumber)}</Number></Dial></Response>`;
+      const actionUrl = new URL(requestUrl);
+      actionUrl.search = "stage=fallback";
+      return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial timeout="${RING_TIMEOUT_SECONDS}" action="${escapeXml(actionUrl.toString())}"><Number>${escapeXml(fallbackNumber)}</Number></Dial></Response>`;
     }
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, nobody is available to take your call right now. Please try again during business hours.</Say></Response>`;
+    await logMissedCallTask(params.From || "");
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${escapeXml(NO_ONE_AVAILABLE_MESSAGE)}</Say></Response>`;
   }
 
   const actionUrl = new URL(requestUrl);
-  actionUrl.search = "";
+  actionUrl.search = "stage=team";
   const clients = identities.map((id) => `<Client>${escapeXml(id)}</Client>`).join("");
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial timeout="${RING_TIMEOUT_SECONDS}" action="${escapeXml(actionUrl.toString())}">${clients}</Dial></Response>`;
 }
 
-async function allowlistIdentities(): Promise<string[]> {
+function adminClient() {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+}
+
+async function allowlistIdentities(): Promise<string[]> {
+  const admin = adminClient();
   const { data } = await admin.from("allowlist").select("email");
   return (data || [])
     .map((row: { email: string }) => row.email.replace(/[^a-zA-Z0-9_.-]/g, "_"))
     .filter(Boolean);
+}
+
+// Best-effort caller ID, same idea as the frontend's findCallerLabel - match
+// the inbound number against prospects, clients and contacts so the task
+// title says who called instead of just a bare digit string.
+async function callerLabel(admin: ReturnType<typeof adminClient>, fromNumber: string): Promise<string> {
+  const digits = fromNumber.replace(/\D/g, "");
+  if (!digits) return fromNumber || "Unknown number";
+  const { data: prospects } = await admin.from("dial_prospects").select("name, company, phone");
+  const prospect = (prospects || []).find((p: { phone: string }) => (p.phone || "").replace(/\D/g, "") === digits);
+  if (prospect) return prospect.company ? `${prospect.name} - ${prospect.company}` : prospect.name;
+  const { data: clients } = await admin.from("clients").select("name, phone");
+  const client = (clients || []).find((c: { phone: string }) => (c.phone || "").replace(/\D/g, "") === digits);
+  if (client) return client.name;
+  const { data: contacts } = await admin.from("contacts").select("name, company, phone");
+  const contact = (contacts || []).find((c: { phone: string }) => (c.phone || "").replace(/\D/g, "") === digits);
+  if (contact) return contact.company ? `${contact.name} - ${contact.company}` : contact.name;
+  return fromNumber || "Unknown number";
+}
+
+// Nobody picked up anywhere - leave a task behind so a missed callback
+// doesn't just vanish. Left unassigned (visible to the whole team) since
+// there's no signed-in user in this context to attribute it to.
+async function logMissedCallTask(fromNumber: string): Promise<void> {
+  if (!fromNumber) return;
+  const admin = adminClient();
+  const label = await callerLabel(admin, fromNumber);
+  await admin.from("tasks").insert({
+    title: `${label} reached out - missed call`,
+    notes: `Called in on ${fromNumber} and nobody was available to take it. Call them back.`,
+    due_date: new Date().toISOString().slice(0, 10),
+    priority: "urgent",
+    status: "open",
+  });
 }
 
 function escapeXml(s: string): string {

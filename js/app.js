@@ -1929,12 +1929,17 @@ function renderDialer(){
 
   // Mirrors Prospecting's own view split (see renderProspectList) so Not
   // Interested and Follow Up aren't just invisible once actioned from here -
-  // they land in their own segment instead of silently vanishing.
+  // they land in their own segment instead of silently vanishing. No Answer
+  // gets its own segment too, split out of the general Returning bucket -
+  // it's the one people actually check on, and lumped in with Decision
+  // Maker Unavailable / Booked Meeting cooldowns it wasn't findable as its
+  // own thing.
   const followUp = filtered.filter(p => p.last_outcome === "call_back");
   const notInterested = filtered.filter(p => p.last_outcome === "not_interested");
-  const returning = filtered.filter(isReturning);
-  const viewCounts = { active: queue.length, follow_up: followUp.length, not_interested: notInterested.length, returning: returning.length };
-  const viewLabels = { active: "Active", follow_up: "Follow Up", not_interested: "Not Interested", returning: "Returning" };
+  const noAnswer = filtered.filter(p => p.last_outcome === "no_answer" && isSnoozed(p));
+  const returning = filtered.filter(p => isReturning(p) && p.last_outcome !== "no_answer");
+  const viewCounts = { active: queue.length, no_answer: noAnswer.length, follow_up: followUp.length, not_interested: notInterested.length, returning: returning.length };
+  const viewLabels = { active: "Active", no_answer: "No Answer", follow_up: "Follow Up", not_interested: "Not Interested", returning: "Returning" };
   const viewSelect = $("#dialer-queue-view-select");
   if (viewSelect){
     Array.from(viewSelect.options).forEach(opt => { opt.textContent = `${viewLabels[opt.value]} (${viewCounts[opt.value]})`; });
@@ -2006,8 +2011,9 @@ function renderDialer(){
         `;
       }
     } else {
-      const list = { follow_up: followUp, not_interested: notInterested, returning: returning }[view] || [];
+      const list = { no_answer: noAnswer, follow_up: followUp, not_interested: notInterested, returning: returning }[view] || [];
       const emptyMsg = {
+        no_answer: "Nobody's currently sitting on a No Answer cooldown.",
         follow_up: "No follow-ups scheduled.",
         not_interested: "Nobody's been marked Not Interested.",
         returning: "Nobody's currently cooling down.",
@@ -2081,6 +2087,10 @@ async function bumpCallActivity(personKey, outcome){
   const today = new Date().toISOString().slice(0,10);
   const existing = state.callActivity.find(r => r.person === personKey && r.activity_date === today);
   const patch = { calls: Number(existing?.calls||0) + 1 };
+  // A "conversation" is any call where an actual human was reached - every
+  // outcome except No Answer. This is what Call Conversion % on Statistics
+  // divides by, so it has to move for real calls, not just demo seed data.
+  if (outcome !== "no_answer") patch.conversations = Number(existing?.conversations||0) + 1;
   if (outcome === "booked_meeting") patch.meetings_booked = Number(existing?.meetings_booked||0) + 1;
   await window.CRM_CALL_ACTIVITY.upsertToday(personKey, patch);
 }
@@ -3914,7 +3924,7 @@ function renderProspectRow(p, opts={}){
         </button>
         ${p.last_outcome === "not_interested" ? `<div class="row-sub" style="margin-top:4px;">Marked Not Interested</div>` : ""}
         ${p.last_outcome === "call_back" ? `<div class="row-sub" style="margin-top:4px;">Follow-up scheduled</div>` : ""}
-        ${isReturning(p) ? `<div class="row-sub" style="margin-top:4px;">Cooling down til ${fmtDate(p.snoozed_until)}</div>` : ""}
+        ${isReturning(p) ? `<div class="row-sub" style="margin-top:4px;">${escapeHtml(OUTCOMES[p.last_outcome]?.label || "Cooling down")} - back ${fmtDate(p.snoozed_until)}</div>` : ""}
         ${p.last_called_at ? `<div class="row-sub">${timeAgo(p.last_called_at)}${p.last_called_by ? " by "+escapeHtml(prospectCallerLabel(p.last_called_by)) : ""}</div>` : ""}
       </td>
       <td style="max-width:240px;"><span class="row-sub" style="font-size:12.5px;color:var(--text);white-space:pre-line;">${escapeHtml(p.notes||"")}</span></td>
@@ -3965,7 +3975,12 @@ function renderProspectList(){
   // or silently resurfacing after a cooldown expires.
   const notInterested = baseFiltered.filter(p => p.last_outcome === "not_interested");
   const followUp = baseFiltered.filter(p => p.last_outcome === "call_back");
-  const returning = baseFiltered.filter(isReturning);
+  // No Answer gets pulled out of the general Returning bucket into its own
+  // view - it's the one people actually want to check on ("did these come
+  // back?"), and lumped in with Decision Maker Unavailable and Booked
+  // Meeting cooldowns it was invisible as its own thing.
+  const noAnswer = baseFiltered.filter(p => p.last_outcome === "no_answer" && isSnoozed(p));
+  const returning = baseFiltered.filter(p => isReturning(p) && p.last_outcome !== "no_answer");
   const activePool = baseFiltered.filter(p => !isParked(p) && !isSnoozed(p));
 
   const neverCalled = baseFiltered.filter(p => !p.calls_made).length;
@@ -3973,12 +3988,12 @@ function renderProspectList(){
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
   st("#prospecting-stat-total", baseFiltered.length);
   st("#prospecting-stat-ready", activePool.length);
-  st("#prospecting-stat-snoozed", returning.length);
+  st("#prospecting-stat-snoozed", noAnswer.length + returning.length);
   st("#prospecting-stat-fresh", neverCalled);
   st("#prospecting-stat-industries", industries);
 
-  const viewCounts = { active: activePool.length, follow_up: followUp.length, not_interested: notInterested.length, returning: returning.length };
-  const viewLabels = { active: "Active", follow_up: "Follow Up", not_interested: "Not Interested", returning: "Returning" };
+  const viewCounts = { active: activePool.length, no_answer: noAnswer.length, follow_up: followUp.length, not_interested: notInterested.length, returning: returning.length };
+  const viewLabels = { active: "Active", no_answer: "No Answer", follow_up: "Follow Up", not_interested: "Not Interested", returning: "Returning" };
   const viewSelect = $("#prospecting-view-select");
   if (viewSelect){
     Array.from(viewSelect.options).forEach(opt => { opt.textContent = `${viewLabels[opt.value]} (${viewCounts[opt.value]})`; });
@@ -3986,11 +4001,12 @@ function renderProspectList(){
   }
 
   const view = state.prospectingView || "active";
-  const filtered = { active: activePool, follow_up: followUp, not_interested: notInterested, returning: returning }[view] || activePool;
+  const filtered = { active: activePool, no_answer: noAnswer, follow_up: followUp, not_interested: notInterested, returning: returning }[view] || activePool;
 
   if (!filtered.length){
     const emptyMsg = {
       active: baseFiltered.length ? "Nobody's ready to call right now - check Follow Up or Returning." : "No prospects yet. Import a list above.",
+      no_answer: "Nobody's currently sitting on a No Answer cooldown.",
       follow_up: "No follow-ups scheduled.",
       not_interested: "Nobody's been marked Not Interested.",
       returning: "Nobody's currently cooling down.",
