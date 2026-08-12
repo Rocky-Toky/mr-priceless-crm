@@ -1742,6 +1742,8 @@ function openEditClientModal(c){
   state.selectedClientId = c.id;
   $("#client-form-id").value = c.id;
   $("#client-name").value = c.name||"";
+  $("#client-phone").value = c.phone||"";
+  $("#client-email").value = c.email||"";
   $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
   $("#client-monthly-ad-spend").value = c.monthly_ad_spend != null ? c.monthly_ad_spend : "";
   $("#client-notes").value = c.notes||"";
@@ -2805,6 +2807,13 @@ function renderClientDetail(c){
   const stageBadge = $("#client-detail-stage-badge");
   stageBadge.textContent = stageInfo.label;
   stageBadge.className = `badge ${stageInfo.cls}`;
+  const contactEl = $("#client-detail-contact");
+  if (contactEl){
+    const bits = [];
+    if (c.phone) bits.push(`<a href="tel:${escapeHtml(c.phone.replace(/[^0-9+]/g,""))}">${escapeHtml(c.phone)}</a>`);
+    if (c.email) bits.push(`<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`);
+    contactEl.innerHTML = bits.join(" &nbsp;·&nbsp; ");
+  }
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   const monthlySpendEl = $("#client-detail-monthly-spend");
   if (monthlySpendEl) monthlySpendEl.textContent = c.monthly_ad_spend != null ? fmtMoney(c.monthly_ad_spend) : "Not set";
@@ -5142,6 +5151,8 @@ function setupModals(){
     const stage = $("#client-stage").value || "onboarding";
     const row = {
       name: $("#client-name").value.trim(),
+      phone: $("#client-phone").value.trim(),
+      email: $("#client-email").value.trim(),
       cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
       monthly_ad_spend: $("#client-monthly-ad-spend").value !== "" ? Number($("#client-monthly-ad-spend").value) : null,
       quote_target: $("#client-quote-target").value !== "" ? Number($("#client-quote-target").value) : null,

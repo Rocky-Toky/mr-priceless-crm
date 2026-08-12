@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=76">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=76">
+<link rel="stylesheet" href="css/style.css?v=77">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=77">
 </head>
 <body>
 
@@ -853,6 +853,7 @@
               <h2 id="client-detail-name">Client</h2>
               <span class="badge" id="client-detail-stage-badge"></span>
             </div>
+            <p class="stat-sub" id="client-detail-contact" style="margin-top:4px;"></p>
           </div>
           <div style="display:flex;gap:8px;">
             <button class="btn ghost" data-action="edit-client-header">Edit Client</button>
@@ -1695,6 +1696,10 @@
       <div class="modal-section-label">The Basics</div>
       <div class="field"><label>Name</label><input type="text" id="client-name" required placeholder="e.g. Kauri Property Group"></div>
       <div class="field-row">
+        <div class="field"><label>Phone</label><input type="tel" id="client-phone" placeholder="e.g. 021 234 5678"></div>
+        <div class="field"><label>Email</label><input type="email" id="client-email" placeholder="e.g. contact@client.co.nz"></div>
+      </div>
+      <div class="field-row">
         <div class="field"><label>Stage</label>
           <select id="client-stage"></select>
         </div>
@@ -1982,10 +1987,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=76"></script>
-<script src="js/supabaseClient.js?v=76"></script>
-<script src="js/app.js?v=76"></script>
-<script src="js/meetings-tracker.js?v=76"></script>
-<script src="js/todo.js?v=76"></script>
+<script src="js/config.js?v=77"></script>
+<script src="js/supabaseClient.js?v=77"></script>
+<script src="js/app.js?v=77"></script>
+<script src="js/meetings-tracker.js?v=77"></script>
+<script src="js/todo.js?v=77"></script>
 </body>
 </html>
