@@ -1936,6 +1936,19 @@ function renderDialer(){
   if (state.dialerOwnerFilter === null && activePerson) state.dialerOwnerFilter = activePerson;
   const personSel = $("#dialer-person-select");
   if (personSel && activePerson && document.activeElement !== personSel) personSel.value = activePerson;
+  // Same playbook_usage record the Meetings Booked page's picker reads/
+  // writes (see renderPlaybookUsagePicker/savePlaybookUsage) - picking it
+  // here just means you don't have to leave the Dialler to set it, and the
+  // two pages never disagree about what's current for a given person.
+  const playbookSel = $("#dialer-playbook-select");
+  if (playbookSel){
+    playbookSel.innerHTML = `<option value="">Not set</option>` + state.playbooks.map(pb => `<option value="${pb.id}">${escapeHtml(pb.title)}</option>`).join("");
+    if (document.activeElement !== playbookSel){
+      const thisMonth = monthKey(new Date());
+      const usage = activePerson ? state.playbookUsage.find(u => u.person === activePerson && u.month === thisMonth) : null;
+      playbookSel.value = usage?.playbook_id || "";
+    }
+  }
   const filtered = dialerFilteredProspects().filter(isAuProspect).filter(p => dialerOwnedBy(p, state.dialerOwnerFilter));
   const total = filtered.length;
   const totalCalls = filtered.reduce((s,p) => s + Number(p.calls_made||0), 0);
@@ -5895,6 +5908,22 @@ function setupDialerFilters(){
     if (focus) state.dialerFilter.industry = focus;
     state.dialerOwnerFilter = e.target.value;
     renderProspectViews();
+  });
+  $("#dialer-playbook-select")?.addEventListener("change", async (e) => {
+    const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+    if (activePerson) await savePlaybookUsage(activePerson, e.target.value);
+  });
+  $("#dialer-view-playbook-btn")?.addEventListener("click", () => {
+    const id = $("#dialer-playbook-select")?.value;
+    if (!id){ alert("Pick a playbook first."); return; }
+    state.selectedPlaybookId = id;
+    // Nav click only toggles page visibility (see setupNav) - renderAll
+    // already keeps every page's markup current regardless of which is
+    // showing, but the Playbooks pane needs an explicit re-render here so
+    // it reflects the pick made just now rather than whatever was selected
+    // last time renderAll happened to run.
+    renderPlaybooks();
+    $('.nav-item[data-page="playbooks"]')?.click();
   });
   $("#prospecting-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
   $("#prospecting-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
