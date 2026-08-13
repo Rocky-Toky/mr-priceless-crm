@@ -231,86 +231,85 @@ function clientProfileCompleteness(c){
   const filled = CLIENT_INFO_FIELDS.filter(f => c[f.key] != null && String(c[f.key]).trim() !== "").length;
   return { filled, total: CLIENT_INFO_FIELDS.length, pct: Math.round(filled / CLIENT_INFO_FIELDS.length * 100) };
 }
-// IMPORTANT: each step's saved progress is keyed by its position
-// (section index _ item index - see ONBOARDING_STEPS below). Only ever
-// APPEND new items to the end of a section's list (or append a whole new
-// section to the end of this array). Inserting one in the middle shifts
-// every later item's key and silently un-checks it for every client who'd
-// already ticked it - this happened once already (the derived Meta Ad
-// Account ID step landing mid-"Before The Call" bumped "Send the welcome
-// email" from key 0_2 to 0_3).
+// IMPORTANT: each step's saved progress is keyed by its own explicit `key`
+// below (not its position in this array) - so items can be freely reordered,
+// moved between sections, or have new ones inserted anywhere, without
+// disturbing any client's already-ticked progress. A key must never be
+// reused for a different step or renamed once clients have real progress
+// against it - add a new key instead and leave the old one retired.
 const ONBOARDING_SECTIONS = [
-  { section: "Before The Call", items: [
-    "Book the onboarding call in with them.",
-    "Set up their pipeline ahead of time so it's ready to demo.",
-    { text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
-    "Send the welcome email.",
-    "Set up their Meta integration.",
-    "Set up their phone number.",
-    "Sync their calendar.",
-    "Get them to upload their photos/images.",
-    "Get Max to set up the Zapier integration.",
-    "Make 3 ad creatives for Meta - 2 proven High Performers and 1 new one to Test.",
-    "Halfway between booking the call and the call itself, give them a quick ring to reinforce the excitement, confirm they've got the calendar invite, and let them know we're already setting up their CRM.",
-    { text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
+  { section: "Get Started", items: [
+    { key: "book_call", text: "Book the onboarding call in with them." },
+    { key: "welcome_email", text: "Send the welcome email." },
+    { key: "client_website", text: "Add their website link.", derivedFrom: "website" },
+    { key: "client_phone", text: "Add their phone number.", derivedFrom: "phone" },
+    { key: "client_email", text: "Add their email address.", derivedFrom: "email" },
+    { key: "ghl_template", text: "Set up their GHL CRM pipeline template ahead of time, so it's ready to demo." },
+    { key: "zapier_setup", text: "Get Max to set up the Zapier integration." },
+    { key: "client_photos", text: "Get them to upload their photos/images, ready for their ad creatives." },
+    { key: "halfway_ring", text: "Halfway between booking the call and having it, give them a quick ring to reinforce the excitement of coming on board, confirm they've got the calendar invite, and let them know we're already setting up their CRM." },
   ]},
   { section: "Open With Energy", items: [
-    "Come in genuinely excited - smiling, good energy, stoked to have them on board.",
-    "Introduce yourself and the Media Buyer who'll be handling the digital marketing side.",
+    { key: "open_energy_1", text: "Come in genuinely excited - smiling, good energy, stoked to have them on board." },
+    { key: "open_energy_2", text: "Introduce yourself and the Media Buyer who'll be handling the digital marketing side." },
   ]},
   { section: "Set Honest Expectations", items: [
-    "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill.",
-    "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that.",
+    { key: "honest_expect_1", text: "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill." },
+    { key: "honest_expect_2", text: "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that." },
   ]},
   { section: "Define What A Good Lead Looks Like For Them", items: [
-    { text: "Ask what they consider a job they're happy to quote for.", answerable: true, fieldLabel: "What Counts As A Good Lead" },
-    { text: "Confirm their budget and timeline expectations.", answerable: true, fieldLabel: "Budget & Timeline Expectations" },
-    { text: "Confirm their average job value.", answerable: true, fieldLabel: "Average Job Value" },
-    { text: "Confirm the type of work they want to chase right now.", answerable: true, fieldLabel: "Ideal Work Right Now" },
-    { text: "Confirm how far out from their base they're willing to quote.", answerable: true, fieldLabel: "Service Radius" },
-    { text: "Confirm whether they can quote after hours or on weekends.", answerable: true, fieldLabel: "After-Hours / Weekend Quoting" },
+    { key: "good_lead_1", text: "Ask what they consider a job they're happy to quote for.", answerable: true, fieldLabel: "What Counts As A Good Lead" },
+    { key: "good_lead_2", text: "Confirm their budget and timeline expectations.", answerable: true, fieldLabel: "Budget & Timeline Expectations" },
+    { key: "good_lead_3", text: "Confirm their average job value.", answerable: true, fieldLabel: "Average Job Value" },
+    { key: "good_lead_4", text: "Confirm the type of work they want to chase right now.", answerable: true, fieldLabel: "Ideal Work Right Now" },
+    { key: "good_lead_5", text: "Confirm how far out from their base they're willing to quote.", answerable: true, fieldLabel: "Service Radius" },
+    { key: "good_lead_6", text: "Confirm whether they can quote after hours or on weekends.", answerable: true, fieldLabel: "After-Hours / Weekend Quoting" },
   ]},
-  { section: "Set Up Their Calendar", items: [
-    "Confirm they're on Google Calendar and get the app downloaded on their phone - mention it syncs offline so it works anywhere.",
-    "Explain quotes get booked straight into whatever shows as free, so they need to block off every slot they're actually available - including travel time to and from quotes.",
-    "Walk them through setting recurring blocks for their regular hours or days off, so they're not manually updating their calendar every week.",
-    "Get their calendar synced with GHL, so bookings and their calendar stay lined up on both sides.",
-    "Check their Google Calendar sharing is set to \"See all event details\", not \"See only free/busy\" - otherwise quotes booked in just show as a blocked-out busy slot with none of the actual details.",
+  { section: "Meta & CRM Access", items: [
+    { key: "meta_partner_access", text: "Get full partner access on their Meta ad account." },
+    { key: "fb_page_access", text: "On their Facebook Page, get access to Content, Ads, Insights, Leads, Creator Content, and Creator Management." },
+    { key: "meta_ad_account_id", text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
+    { key: "crm_login", text: "Send their login and confirm they can get in." },
+    { key: "crm_auto_text", text: "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due." },
   ]},
   { section: "Demo The CRM", items: [
-    "Walk them through the Tasks section.",
-    "Walk them through Opportunities - the leads that sync straight in from Meta.",
-    "Show them where to add notes, and stress how important it is to drag leads through the stages - that feedback is what we use to optimise targeting back on Meta.",
-    "Let them know Tasks, Opportunities, and Document Storage are really the only sections they'll need to worry about day to day.",
-    "Walk through Document Storage - this is where they upload before/after job photos for us, plus a friendly photo of the team (or just themselves) to use in ads.",
-    "Get them to pin the CRM tab in their browser so it's always handy.",
+    { key: "demo_1", text: "Walk them through the Tasks section." },
+    { key: "demo_2", text: "Walk them through Opportunities - the leads that sync straight in from Meta." },
+    { key: "demo_3", text: "Show them where to add notes, and stress how important it is to drag leads through the stages - that feedback is what we use to optimise targeting back on Meta." },
+    { key: "demo_4", text: "Let them know Tasks, Opportunities, and Document Storage are really the only sections they'll need to worry about day to day." },
+    { key: "demo_5", text: "Walk through Document Storage - this is where they upload before/after job photos for us, plus a friendly photo of the team (or just themselves) to use in ads." },
+    { key: "demo_6", text: "Get them to pin the CRM tab in their browser so it's always handy." },
   ]},
-  { section: "Confirm Access & Notifications", items: [
-    "Send their login and confirm they can get in.",
-    "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due.",
-    "Set up full Meta partner access on their ad account.",
+  { section: "Set Up Their Calendar", items: [
+    { key: "cal_download", text: "Confirm they're on Google Calendar and get the app downloaded on their phone - mention it syncs offline so it works anywhere." },
+    { key: "cal_block_slots", text: "Explain that quotes get booked straight into whatever shows as free, so every slot they're not available - including travel to and from quotes - needs to be blocked off, and they can set this up as recurring events for their regular hours." },
+    { key: "cal_share_max", text: "Share their calendar access with Max." },
+    { key: "cal_sync_ghl", text: "Set up 2-way calendar sync with GHL, so bookings and their calendar stay lined up on both sides." },
+    { key: "cal_sharing_details", text: "Check their Google Calendar sharing is set to \"See all event details\", not \"See only free/busy\" - otherwise quotes booked in just show as a blocked-out busy slot with none of the actual details." },
   ]},
   { section: "Lock In The Ongoing Cadence", items: [
-    "Set up a recurring fortnightly catch-up to go through progress, goals, and the pipeline together.",
-    "Set a reminder to call them in 1 week for a quick update - share genuine excitement and let them know how everything's tracking so far.",
+    { key: "cadence_catchup", text: "Set up a recurring fortnightly catch-up to go through progress, goals, and the pipeline together." },
+    { key: "cadence_reminder", text: "Once their creatives go live, set a reminder to give them a quick call - share genuine excitement that things are live and we're officially kicking off." },
   ]},
   { section: "Close It Out", items: [
-    "Tell them again how excited we are to work with them - we don't take on just anyone, and we're genuinely looking to build a long-term partnership.",
-    "Let them know they can call anytime - if anything feels off, or they want to go deeper on strategy and what's actually happening behind the ads, we're always happy to jump on a call and sort it out together.",
+    { key: "close_1", text: "Tell them again how excited we are to work with them - we don't take on just anyone, and we're genuinely looking to build a long-term partnership." },
+    { key: "close_2", text: "Let them know they can call anytime - if anything feels off, or they want to go deeper on strategy and what's actually happening behind the ads, we're always happy to jump on a call and sort it out together." },
+  ]},
+  { section: "Launch Prep", items: [
+    { key: "launch_creatives", text: "Add 2 proven High Performer ad creatives, plus 1 new Test creative, into their ad account." },
+    { key: "fb_lead_form", text: "Create a Facebook Lead Form based on their requirements." },
+    { key: "ad_start_date", text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
   ]},
 ];
 const ONBOARDING_ANSWER_SUFFIX = "_answer";
-const ONBOARDING_STEPS = ONBOARDING_SECTIONS.flatMap((s, si) => s.items.map((item, ii) => {
-  const isObj = typeof item === "object";
-  return {
-    key: `${si}_${ii}`,
-    section: s.section,
-    label: isObj ? item.text : item,
-    answerable: isObj ? Boolean(item.answerable) : false,
-    fieldLabel: isObj ? item.fieldLabel : null,
-    derivedFrom: isObj ? item.derivedFrom || null : null,
-  };
-}));
+const ONBOARDING_STEPS = ONBOARDING_SECTIONS.flatMap((s) => s.items.map((item) => ({
+  key: item.key,
+  section: s.section,
+  label: item.text,
+  answerable: Boolean(item.answerable),
+  fieldLabel: item.fieldLabel || null,
+  derivedFrom: item.derivedFrom || null,
+})));
 // Builds the client's Qualified Lead Structure text from every answered
 // onboarding qualifying question, so it's always a live mirror of what was
 // actually said on the call rather than something typed up separately after.
@@ -1765,6 +1764,7 @@ function openEditClientModal(c){
   $("#client-name").value = c.name||"";
   $("#client-phone").value = c.phone||"";
   $("#client-email").value = c.email||"";
+  $("#client-website").value = c.website||"";
   $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
   $("#client-monthly-ad-spend").value = c.monthly_ad_spend != null ? c.monthly_ad_spend : "";
   $("#client-notes").value = c.notes||"";
@@ -3062,6 +3062,10 @@ function renderClientDetail(c){
     const bits = [];
     if (c.phone) bits.push(`<a href="tel:${escapeHtml(c.phone.replace(/[^0-9+]/g,""))}">${escapeHtml(c.phone)}</a>`);
     if (c.email) bits.push(`<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`);
+    if (c.website){
+      const href = /^https?:\/\//i.test(c.website) ? c.website : "https://" + c.website;
+      bits.push(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(c.website)}</a>`);
+    }
     contactEl.innerHTML = bits.join(" &nbsp;·&nbsp; ");
   }
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
@@ -5410,6 +5414,7 @@ function setupModals(){
       name: $("#client-name").value.trim(),
       phone: $("#client-phone").value.trim(),
       email: $("#client-email").value.trim(),
+      website: $("#client-website").value.trim(),
       cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
       monthly_ad_spend: $("#client-monthly-ad-spend").value !== "" ? Number($("#client-monthly-ad-spend").value) : null,
       quote_target: $("#client-quote-target").value !== "" ? Number($("#client-quote-target").value) : null,
