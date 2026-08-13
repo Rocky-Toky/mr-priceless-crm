@@ -2547,15 +2547,6 @@ function mapImportRows(rows){
   })).filter(p => p.name || p.phone);
 }
 const digitsOnly = (s) => (s||"").replace(/\D/g,"");
-// A prospect's identity for dedup purposes: prefer matching on phone number
-// (most reliable - different sources format the same number differently,
-// hence stripping to digits), falling back to name+company for rows with
-// no phone at all (common with a quick Google Maps scrape).
-function prospectDedupKey(p){
-  const phoneDigits = digitsOnly(p.phone);
-  if (phoneDigits) return "phone:" + phoneDigits;
-  return "name:" + (p.name||"").trim().toLowerCase() + "|" + (p.company||"").trim().toLowerCase();
-}
 // Catches duplicates that make it onto the list some other way than
 // importProspectRows (manually added, or imported before this existed) -
 // same phone number, or same business/contact name, are both grounds for
@@ -2578,30 +2569,62 @@ function prospectDuplicateIds(list){
 }
 // The whole point of a shared list: two different cold callers uploading
 // overlapping Google Maps scrapes should never end up with the same lead
-// twice, since that's exactly how someone gets called twice by mistake.
+// twice, since that's exactly how someone gets called twice by mistake -
+// or worse, someone who already said Not Interested gets called again.
+// Matches on phone OR name/company (not phone-only) - a business re-scraped
+// with a slightly different phone number should still be caught by name,
+// same philosophy as prospectDuplicateIds' "Possible Duplicates" flagging.
 async function importProspectRows(prospects){
   if (!prospects.length){ alert("No rows found to import."); return; }
-  const existingKeys = new Set(state.prospects.map(prospectDedupKey));
-  const seenInBatch = new Set();
-  let imported = 0, skipped = 0;
+  const byPhone = new Map();
+  const byName = new Map();
+  state.prospects.forEach(p => {
+    const phoneDigits = digitsOnly(p.phone);
+    if (phoneDigits) byPhone.set(phoneDigits, p);
+    const nameKey = (p.company || p.name || "").trim().toLowerCase();
+    if (nameKey) byName.set(nameKey, p);
+  });
+
+  let imported = 0;
+  const skipped = { not_interested: 0, booked_meeting: 0, call_back: 0, cooling_down: 0, other: 0 };
   for (const p of prospects){
     // Imports never had a country-code prompt like the manual Add Prospect
     // form does, so numbers came in exactly as scraped (e.g. "021 555 0111")
     // and only got a country code guessed at call time - normalize to E.164
     // right away instead, so what's on file is what actually gets dialed.
     p.phone = toE164(p.phone);
-    const key = prospectDedupKey(p);
-    if (existingKeys.has(key) || seenInBatch.has(key)){ skipped++; continue; }
-    seenInBatch.add(key);
-    await DataLayer.insert("dial_prospects", {
+    const phoneDigits = digitsOnly(p.phone);
+    const nameKey = (p.company || p.name || "").trim().toLowerCase();
+    const match = (phoneDigits && byPhone.get(phoneDigits)) || (nameKey && byName.get(nameKey));
+    if (match){
+      if (match.last_outcome === "not_interested") skipped.not_interested++;
+      else if (match.last_outcome === "booked_meeting") skipped.booked_meeting++;
+      else if (match.last_outcome === "call_back") skipped.call_back++;
+      else if (isSnoozed(match)) skipped.cooling_down++;
+      else skipped.other++;
+      continue;
+    }
+    const inserted = await DataLayer.insert("dial_prospects", {
       name: p.name, phone: p.phone, company: p.company, email: p.email, website: p.website||"",
       region: p.region||"", industry: p.industry||"", google_rating: p.google_rating||"",
       calls_made: 0, last_called_at: null, last_outcome: null, last_called_by: null, snoozed_until: null, notes: p.notes||"",
     });
+    // Registered immediately so a later row in this same batch that's a
+    // near-duplicate of THIS one also gets caught, not just pre-existing rows.
+    const registered = inserted || p;
+    if (phoneDigits) byPhone.set(phoneDigits, registered);
+    if (nameKey) byName.set(nameKey, registered);
     imported++;
   }
   if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
-  const skippedMsg = skipped ? ` ${skipped} skipped - already on the list.` : "";
+  const totalSkipped = skipped.not_interested + skipped.booked_meeting + skipped.call_back + skipped.cooling_down + skipped.other;
+  const parts = [];
+  if (skipped.not_interested) parts.push(`${skipped.not_interested} already Not Interested`);
+  if (skipped.booked_meeting) parts.push(`${skipped.booked_meeting} already Booked`);
+  if (skipped.call_back) parts.push(`${skipped.call_back} already a Call Back`);
+  if (skipped.cooling_down) parts.push(`${skipped.cooling_down} already called recently`);
+  if (skipped.other) parts.push(`${skipped.other} already on the list`);
+  const skippedMsg = totalSkipped ? ` ${totalSkipped} skipped (${parts.join(", ")}).` : "";
   alert(`Imported ${imported} prospect${imported===1?"":"s"}.${skippedMsg}`);
 }
 // Holds a parsed batch between "file selected" and "Region + Industry
