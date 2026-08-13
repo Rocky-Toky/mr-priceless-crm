@@ -180,11 +180,13 @@ const CONTRACT_TYPES = {
   retainer: { label: "Monthly Retainer", cls: "gold" },
   profit_share: { label: "Profit Share", cls: "green" },
   revenue_share: { label: "Revenue Share", cls: "black" },
+  ppl: { label: "Pay Per Lead", cls: "purple" },
 };
 function dealValueLabel(d){
   if (d.contract_type === "profit_share" || d.contract_type === "revenue_share"){
     return `${Number(d.percentage||0)}% ${CONTRACT_TYPES[d.contract_type].label}`;
   }
+  if (d.contract_type === "ppl") return `${fmtMoney(d.value)} / lead`;
   return fmtMoney(d.value);
 }
 const EXPENSE_CATEGORIES = {
@@ -1745,10 +1747,13 @@ function dealContactsFor(dealId){
 }
 function toggleDealContractFields(){
   const type = $("#deal-contract-type")?.value || "retainer";
+  const isMoneyType = type === "retainer" || type === "ppl";
   const valueField = $("#deal-value-field");
   const pctField = $("#deal-percentage-field");
-  if (valueField) valueField.style.display = type === "retainer" ? "" : "none";
-  if (pctField) pctField.style.display = type === "retainer" ? "none" : "";
+  if (valueField) valueField.style.display = isMoneyType ? "" : "none";
+  if (pctField) pctField.style.display = isMoneyType ? "none" : "";
+  const valueLabel = valueField?.querySelector("label");
+  if (valueLabel) valueLabel.textContent = type === "ppl" ? "Price Per Lead (NZD)" : "Value (NZD/mo)";
 }
 function toggleClientQuoteTargetField(){
   const field = $("#client-quote-target-field");
@@ -5281,11 +5286,12 @@ function setupModals(){
     const id = $("#deal-form-id").value;
     const contactId = $("#deal-contact-select").value || null;
     const contractType = $("#deal-contract-type").value;
+    const isMoneyType = contractType === "retainer" || contractType === "ppl";
     const row = {
       title: $("#deal-title").value.trim(),
       contract_type: contractType,
-      value: contractType === "retainer" ? Number($("#deal-value").value || 0) : 0,
-      percentage: contractType === "retainer" ? null : Number($("#deal-percentage").value || 0),
+      value: isMoneyType ? Number($("#deal-value").value || 0) : 0,
+      percentage: isMoneyType ? null : Number($("#deal-percentage").value || 0),
       stage: $("#deal-stage").value,
       contact_id: contactId,
       contact_name: contactId ? contactName(contactId) : "",
