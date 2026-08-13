@@ -245,8 +245,6 @@ const ONBOARDING_SECTIONS = [
     { key: "client_phone", text: "Add their phone number.", derivedFrom: "phone" },
     { key: "client_email", text: "Add their email address.", derivedFrom: "email" },
     { key: "ghl_template", text: "Set up their GHL CRM pipeline template ahead of time, so it's ready to demo." },
-    { key: "zapier_setup", text: "Get Max to set up the Zapier integration." },
-    { key: "client_photos", text: "Get them to upload their photos/images, ready for their ad creatives." },
     { key: "halfway_ring", text: "Halfway between booking the call and having it, give them a quick ring to reinforce the excitement of coming on board, confirm they've got the calendar invite, and let them know we're already setting up their CRM." },
   ]},
   { section: "Open With Energy", items: [
@@ -277,7 +275,7 @@ const ONBOARDING_SECTIONS = [
     { key: "demo_2", text: "Walk them through Opportunities - the leads that sync straight in from Meta." },
     { key: "demo_3", text: "Show them where to add notes, and stress how important it is to drag leads through the stages - that feedback is what we use to optimise targeting back on Meta." },
     { key: "demo_4", text: "Let them know Tasks, Opportunities, and Document Storage are really the only sections they'll need to worry about day to day." },
-    { key: "demo_5", text: "Walk through Document Storage - this is where they upload before/after job photos for us, plus a friendly photo of the team (or just themselves) to use in ads." },
+    { key: "demo_5", text: "Walk through Document Storage - this is where they upload before/after job photos for us, plus a photo of themselves and one of the whole team, to use in ads." },
     { key: "demo_6", text: "Get them to pin the CRM tab in their browser so it's always handy." },
   ]},
   { section: "Set Up Their Calendar", items: [
@@ -298,6 +296,7 @@ const ONBOARDING_SECTIONS = [
   { section: "Launch Prep", items: [
     { key: "launch_creatives", text: "Add 2 proven High Performer ad creatives, plus 1 new Test creative, into their ad account." },
     { key: "fb_lead_form", text: "Create a Facebook Lead Form based on their requirements." },
+    { key: "zapier_setup", text: "Get Max to set up the Zapier integration, connecting the new lead form through to GHL." },
     { key: "ad_start_date", text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
   ]},
 ];
