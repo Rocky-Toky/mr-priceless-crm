@@ -2257,8 +2257,10 @@ function openLogCallModal(p, outcome){
   openModal("log-call-modal");
 }
 // Toggles the Log Call modal's outcome-specific fields - a required reason
-// for Not Interested/Disqualified, a required follow-up date for Call Back -
-// based on whichever outcome is currently selected in the dropdown.
+// for Not Interested, a required follow-up date for Call Back - based on
+// whichever outcome is currently selected in the dropdown. Disqualified
+// deliberately asks for nothing extra - it's a single click straight to the
+// next prospect from the Dialer, and picking it here behaves the same way.
 function updateLogCallModalFields(){
   const outcome = $("#log-call-outcome")?.value;
   const notesInput = $("#log-call-notes");
@@ -2269,13 +2271,8 @@ function updateLogCallModalFields(){
   const isNotInterested = outcome === "not_interested";
   const isDisqualified = outcome === "disqualified";
   const isCallBack = outcome === "call_back";
-  const needsReason = isNotInterested || isDisqualified;
-  if (notesInput) notesInput.required = needsReason;
-  if (notesLabel) notesLabel.textContent = isNotInterested
-    ? "Notes - why aren't they interested? (required)"
-    : isDisqualified
-    ? "Notes - why don't they qualify? (required)"
-    : "Notes (optional)";
+  if (notesInput) notesInput.required = isNotInterested;
+  if (notesLabel) notesLabel.textContent = isNotInterested ? "Notes - why aren't they interested? (required)" : "Notes (optional)";
   if (followupField) followupField.style.display = isCallBack ? "" : "none";
   if (followupInput && !isCallBack) followupInput.value = "";
   if (followupInput) followupInput.required = isCallBack;
@@ -5847,11 +5844,12 @@ function setupModals(){
     }
     if (action === "start-call") await startCall(id);
     if (action === "dial-outcome"){
-      // Call Back, Not Interested, and Disqualified all need a required field
-      // captured (a follow-up date, or a reason why) that a one-click button
-      // can't supply, so those route through the same modal Prospecting uses
-      // instead of logging instantly like No Answer / Booked Meeting do.
-      if (outcome === "call_back" || outcome === "not_interested" || outcome === "disqualified"){
+      // Call Back and Not Interested both need a required field captured
+      // (a follow-up date, or a reason why) that a one-click button can't
+      // supply, so those two route through the same modal Prospecting uses.
+      // Disqualified is deliberately a single click straight to the next
+      // prospect, same as No Answer / Booked Meeting - no reason required.
+      if (outcome === "call_back" || outcome === "not_interested"){
         openLogCallModal(state.prospects.find(x => x.id === id), outcome);
       } else {
         await logDialOutcome(id, outcome);
