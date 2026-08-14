@@ -1,8 +1,9 @@
 // Edge Function: generate-client-reports
 // Two ways to trigger it:
 //  1. Scheduled (see sql/011_reporting_meta_integration.sql cron job): no body,
-//     header x-cron-secret matches REPORT_CRON_SECRET. Sends every client whose
-//     report_frequency is due (weekly = every 7 days, monthly = every 30 days).
+//     header x-cron-secret matches REPORT_CRON_SECRET. Sends every client
+//     that's due - every client gets the same fixed fortnightly (14 day)
+//     cadence, no per-client opt-out.
 //  2. Manual "Send Now" from the CRM: body { client_id }, caller is a signed-in
 //     allowlisted user. Sends that one client's report immediately regardless
 //     of whether it's due yet - handy for testing or an ad-hoc report.
@@ -26,6 +27,7 @@ const corsHeaders = {
 };
 const META_API_VERSION = "v21.0";
 const LEAD_ACTION_TYPES = ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"];
+const REPORT_CADENCE_DAYS = 14;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -77,8 +79,7 @@ Deno.serve(async (req: Request) => {
   } else {
     const { data, error } = await admin.from("clients").select("*")
       .not("meta_ad_account_id", "is", null)
-      .not("report_email", "is", null)
-      .neq("report_frequency", "off");
+      .not("report_email", "is", null);
     if (error) return json({ error: error.message }, 500);
     clients = (data || []).filter((c) => isDue(c));
   }
@@ -90,7 +91,7 @@ Deno.serve(async (req: Request) => {
       results.push({ client_id: client.id, status: "skipped", reason: "missing ad account or email" });
       continue;
     }
-    const days = client.report_frequency === "weekly" ? 7 : 30;
+    const days = REPORT_CADENCE_DAYS;
     const periodEnd = new Date();
     const periodStart = new Date(periodEnd.getTime() - days * 24 * 60 * 60 * 1000);
 
@@ -139,8 +140,7 @@ Deno.serve(async (req: Request) => {
 
 function isDue(client: any): boolean {
   if (!client.last_report_sent_at) return true;
-  const days = client.report_frequency === "weekly" ? 7 : 30;
-  const dueAt = new Date(client.last_report_sent_at).getTime() + days * 24 * 60 * 60 * 1000;
+  const dueAt = new Date(client.last_report_sent_at).getTime() + REPORT_CADENCE_DAYS * 24 * 60 * 60 * 1000;
   return Date.now() >= dueAt;
 }
 
@@ -156,7 +156,7 @@ function findLeadAction(actions: any[] | undefined) {
 // lead, how that compares to the previous period, and a creative-fatigue
 // signal (high ad frequency, or a big CTR drop vs last period).
 function buildNarrative(insights: any, prevInsights: any, days: number): string {
-  const periodLabel = days === 7 ? "this week" : "this month";
+  const periodLabel = "this fortnight";
   const spend = Number(insights?.spend || 0);
   const leadAction = findLeadAction(insights?.actions);
   const leads = leadAction ? Math.round(Number(leadAction.value)) : 0;

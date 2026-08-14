@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=87">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=87">
+<link rel="stylesheet" href="css/style.css?v=88">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=88">
 </head>
 <body>
 
@@ -1148,7 +1148,7 @@
       <div class="card">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Client</th><th>Frequency</th><th>Last Sent</th><th>Next Due</th><th>Report Email</th><th></th></tr></thead>
+            <thead><tr><th>Client</th><th>Last Sent</th><th>Next Due</th><th>Report Email</th><th></th></tr></thead>
             <tbody id="reporting-tbody"></tbody>
           </table>
         </div>
@@ -1737,16 +1737,7 @@
       <div class="modal-section-label">Meta &amp; Reporting</div>
       <div class="field"><label>Meta Ad Account ID</label><input type="text" id="client-meta-account" placeholder="e.g. 1234567890 (act_ prefix added automatically)"></div>
       <div class="field"><label>Ad Start Date</label><input type="date" id="client-ad-start-date"></div>
-      <div class="field-row">
-        <div class="field"><label>Report Frequency</label>
-          <select id="client-report-frequency">
-            <option value="monthly">Monthly</option>
-            <option value="weekly">Weekly</option>
-            <option value="off">Off</option>
-          </select>
-        </div>
-        <div class="field"><label>Report Email</label><input type="email" id="client-report-email" placeholder="Where the automated ad report gets sent"></div>
-      </div>
+      <div class="field"><label>Report Email</label><input type="email" id="client-report-email" placeholder="Where the automated fortnightly ad report gets sent"></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="client-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Client</button>
@@ -1768,12 +1759,9 @@
         <div class="field"><label>Renewal / Review Date</label><input type="date" id="client-info-renewal-input"></div>
       </div>
       <div class="modal-section-label">Working Together</div>
-      <div class="field"><label>Client Rules</label><textarea id="client-info-rules-input" rows="3" placeholder="Anything they're particular about - approval process, no calls after 5pm, always cc their manager..."></textarea></div>
-      <div class="field"><label>Key Contacts</label><textarea id="client-info-contacts-input" rows="3" placeholder="Decision makers, roles, best way to reach them..."></textarea></div>
-      <div class="field"><label>Communication Preferences</label><textarea id="client-info-comms-input" rows="3" placeholder="Preferred channel (email/Slack/call), cadence, response time expectations..."></textarea></div>
-      <div class="modal-section-label">Brand &amp; Leads</div>
+      <div class="field"><label>Key Contacts</label><textarea id="client-info-contacts-input" rows="3" placeholder="Decision makers, roles, best way to reach them - or leave this for the Onboarding checklist to fill in automatically..."></textarea></div>
+      <div class="modal-section-label">Leads</div>
       <div class="field"><label>Qualified Lead Structure</label><textarea id="client-info-qls-input" rows="3" placeholder="What counts as a qualified lead for this client..."></textarea></div>
-      <div class="field"><label>Branding Expectations</label><textarea id="client-info-branding-input" rows="3" placeholder="Tone of voice, colours, logo usage, what to avoid..."></textarea></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="client-info-modal">Cancel</button>
         <button type="submit" class="btn gold">Save Client Info</button>
@@ -2035,10 +2023,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=87"></script>
-<script src="js/supabaseClient.js?v=87"></script>
-<script src="js/app.js?v=87"></script>
-<script src="js/meetings-tracker.js?v=87"></script>
-<script src="js/todo.js?v=87"></script>
+<script src="js/config.js?v=88"></script>
+<script src="js/supabaseClient.js?v=88"></script>
+<script src="js/app.js?v=88"></script>
+<script src="js/meetings-tracker.js?v=88"></script>
+<script src="js/todo.js?v=88"></script>
 </body>
 </html>

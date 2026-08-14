@@ -221,11 +221,8 @@ const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
 const CLIENT_INFO_FIELDS = [
   { key: "services", label: "Services", hint: "What we deliver for them - so anyone can explain it without asking." },
   { key: "renewal_date", label: "Renewal / Review Date", hint: "When to revisit the contract or scope.", isDate: true },
-  { key: "client_rules", label: "Client Rules", hint: "Anything they're particular about, so nobody has to learn it the hard way." },
-  { key: "key_contacts", label: "Key Contacts", hint: "Who the decision makers are and how to reach them." },
-  { key: "communication_preferences", label: "Communication Preferences", hint: "Preferred channel, cadence, response expectations.", wide: true },
+  { key: "key_contacts", label: "Key Contacts", hint: "Who the decision makers are and how to reach them - fills in automatically as you answer the Onboarding checklist, same as Qualified Lead Structure." },
   { key: "qualified_lead_structure", label: "Qualified Lead Structure", hint: "What actually counts as a good lead for this client - fills in automatically as you answer the qualifying questions on their Onboarding checklist." },
-  { key: "branding_expectations", label: "Branding Expectations", hint: "Tone, colours, logo use - what to avoid." },
 ];
 function clientProfileCompleteness(c){
   const filled = CLIENT_INFO_FIELDS.filter(f => c[f.key] != null && String(c[f.key]).trim() !== "").length;
@@ -240,6 +237,7 @@ function clientProfileCompleteness(c){
 const ONBOARDING_SECTIONS = [
   { section: "Get Started", items: [
     { key: "book_call", text: "Book the onboarding call in with them." },
+    { key: "key_contacts", text: "Confirm who the key decision makers are and the best way to reach each of them.", answerable: true, fieldLabel: "Key Contacts", targetField: "key_contacts" },
     { key: "welcome_email", text: "Send the welcome email." },
     { key: "client_website", text: "Add their website link.", derivedFrom: "website" },
     { key: "client_phone", text: "Add their phone number.", derivedFrom: "phone" },
@@ -308,13 +306,16 @@ const ONBOARDING_STEPS = ONBOARDING_SECTIONS.flatMap((s) => s.items.map((item) =
   answerable: Boolean(item.answerable),
   fieldLabel: item.fieldLabel || null,
   derivedFrom: item.derivedFrom || null,
+  targetField: item.targetField || null,
 })));
 // Builds the client's Qualified Lead Structure text from every answered
 // onboarding qualifying question, so it's always a live mirror of what was
 // actually said on the call rather than something typed up separately after.
+// Steps with their own targetField (e.g. Key Contacts) write straight to
+// that field instead and are excluded from this composite.
 function composeQualifiedLeadStructure(progress){
   return ONBOARDING_STEPS
-    .filter(s => s.answerable)
+    .filter(s => s.answerable && !s.targetField)
     .map(s => {
       const answer = String(progress?.[s.key + ONBOARDING_ANSWER_SUFFIX] || "").trim();
       return answer ? `${s.fieldLabel}: ${answer}` : null;
@@ -325,12 +326,20 @@ function composeQualifiedLeadStructure(progress){
 async function saveOnboardingAnswer(clientId, stepKey, value){
   const c = state.clients.find(x => x.id === clientId);
   if (!c) return;
+  const step = ONBOARDING_STEPS.find(s => s.key === stepKey);
   const progress = { ...(c.onboarding_progress || {}) };
   progress[stepKey + ONBOARDING_ANSWER_SUFFIX] = value;
-  const qualified_lead_structure = composeQualifiedLeadStructure(progress);
   c.onboarding_progress = progress;
-  c.qualified_lead_structure = qualified_lead_structure;
-  await DataLayer.update("clients", clientId, { onboarding_progress: progress, qualified_lead_structure });
+  const updates = { onboarding_progress: progress };
+  if (step && step.targetField){
+    c[step.targetField] = value;
+    updates[step.targetField] = value;
+  } else {
+    const qualified_lead_structure = composeQualifiedLeadStructure(progress);
+    c.qualified_lead_structure = qualified_lead_structure;
+    updates.qualified_lead_structure = qualified_lead_structure;
+  }
+  await DataLayer.update("clients", clientId, updates);
 }
 
 const state = {
@@ -492,41 +501,29 @@ function seedDemo(){
   ];
   const cl1 = uid(), cl2 = uid();
   state.clients = [
-    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, monthly_ad_spend:1250, meta_ad_account_id:"act_1234567890", report_email:"aroha@kauriproperty.co.nz", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*32).toISOString(), created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString(),
+    { id:cl1, name:"Kauri Property Group", notes:"Real estate. Wants weekly listing videos.", cost_per_lead:38, monthly_ad_spend:1250, meta_ad_account_id:"act_1234567890", report_email:"aroha@kauriproperty.co.nz", last_report_sent_at:new Date(Date.now()-86400e3*32).toISOString(), created_at:new Date(Date.now()-86400e3*60).toISOString(), updated_at:new Date().toISOString(),
       services:"Meta Ads management, weekly listing video content, monthly performance report.",
-      client_rules:"All creative needs sign-off from Aroha before it goes live. No posting on Fridays (open home day). CC her PA on every email.",
       qualified_lead_structure:"Full name, phone number, and confirmed budget range. Must have viewed at least one listing page before enquiring.",
-      branding_expectations:"Warm, premium tone. Gold/cream palette matching their logo. Never use stock photos - only their own listing photography.",
       key_contacts:"Aroha Ngata - Owner, final approval on everything. Reachable by phone, prefers calls over email.",
-      communication_preferences:"Weekly check-in call every Monday. Slack for anything urgent same-day.",
       renewal_date:new Date(Date.now()+86400e3*45).toISOString().slice(0,10),
       stage:"established", stage_changed_at:new Date(Date.now()-86400e3*20).toISOString() },
-    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString(),
+    { id:cl2, name:"Summit Dental", notes:"Healthcare. Focused on Meta lead ads.", cost_per_lead:22, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*40).toISOString(), updated_at:new Date().toISOString(),
       services:"Meta Ads lead generation.",
-      client_rules:"",
       qualified_lead_structure:"Name and phone number, must live within 15km of the practice.",
-      branding_expectations:"Clean, clinical, trustworthy. Blue/white palette. Avoid anything that looks too salesy.",
       key_contacts:"Ben Whitfield - Practice manager, main point of contact.",
-      communication_preferences:"Email preferred. Monthly report call.",
       renewal_date:new Date(Date.now()+86400e3*8).toISOString().slice(0,10),
       stage:"month_1", stage_changed_at:new Date(Date.now()-86400e3*35).toISOString() },
-    { id:uid(), name:"Chand Legal", notes:"Just signed, kicking off this week.", cost_per_lead:null, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*5).toISOString(), updated_at:new Date().toISOString(),
+    { id:uid(), name:"Chand Legal", notes:"Just signed, kicking off this week.", cost_per_lead:null, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", last_report_sent_at:null, created_at:new Date(Date.now()-86400e3*5).toISOString(), updated_at:new Date().toISOString(),
       services:"SEO + Google Ads.",
-      client_rules:"",
       qualified_lead_structure:"",
-      branding_expectations:"",
       key_contacts:"Priya Chand - Owner.",
-      communication_preferences:"",
       renewal_date:null,
       stage:"onboarding", stage_changed_at:new Date(Date.now()-86400e3*5).toISOString(),
       onboarding_progress:{ "0_0":true, "0_1":true, "0_2":true, "1_0":true } },
-    { id:uid(), name:"Reeve Builders", notes:"On the 10 quote guarantee - 4 of 10 delivered so far.", cost_per_lead:65, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", report_frequency:"monthly", last_report_sent_at:new Date(Date.now()-86400e3*5).toISOString(), created_at:new Date(Date.now()-86400e3*140).toISOString(), updated_at:new Date().toISOString(),
+    { id:uid(), name:"Reeve Builders", notes:"On the 10 quote guarantee - 4 of 10 delivered so far.", cost_per_lead:65, monthly_ad_spend:1250, meta_ad_account_id:"", report_email:"", last_report_sent_at:new Date(Date.now()-86400e3*5).toISOString(), created_at:new Date(Date.now()-86400e3*140).toISOString(), updated_at:new Date().toISOString(),
       services:"Meta Ads + SEO, quote guarantee.",
-      client_rules:"",
       qualified_lead_structure:"",
-      branding_expectations:"",
       key_contacts:"Marlon Reeve - Owner.",
-      communication_preferences:"",
       renewal_date:new Date(Date.now()+86400e3*20).toISOString().slice(0,10),
       stage:"quote_guarantee", quote_target:10, quotes_sent:4, stage_changed_at:new Date(Date.now()-86400e3*10).toISOString() },
   ];
@@ -1399,7 +1396,10 @@ function sameMonth(iso){ const d=new Date(iso), n=new Date(); return d.getMonth(
 function withinDays(iso, days){ return (Date.now()-new Date(iso).getTime()) < days*86400e3; }
 function daysSince(iso){ return iso ? Math.floor((Date.now()-new Date(iso).getTime())/86400e3) : null; }
 function daysUntil(iso){ return iso ? Math.ceil((new Date(iso+"T00:00:00").getTime()-Date.now())/86400e3) : null; }
-const REPORT_FREQUENCY_DAYS = { weekly: 7, monthly: 30 };
+// Every client reports on the same fixed fortnightly cadence now - see the
+// Reporting Day hard alert (checkReportingDayPopup) for the team-wide
+// reminder this mirrors. No more per-client weekly/monthly/off choice.
+const REPORT_CADENCE_DAYS = 14;
 function getClientAlerts(c){
   const alerts = [];
   if (c.renewal_date){
@@ -1407,10 +1407,9 @@ function getClientAlerts(c){
     if (d < 0) alerts.push({ type:"danger", text:`Renewal date passed ${Math.abs(d)}d ago` });
     else if (d <= 14) alerts.push({ type:"warn", text:`Renewal in ${d}d` });
   }
-  if (c.report_frequency && c.report_frequency !== "off"){
-    const cadence = REPORT_FREQUENCY_DAYS[c.report_frequency] || 30;
+  {
     const since = daysSince(c.last_report_sent_at || c.created_at);
-    if (since != null && since > cadence + 5) alerts.push({ type:"warn", text:`Report overdue (${since}d since last sent)` });
+    if (since != null && since > REPORT_CADENCE_DAYS + 5) alerts.push({ type:"warn", text:`Report overdue (${since}d since last sent)` });
   }
   const stageInfo = CLIENT_STAGE_MAP[c.stage];
   if (stageInfo?.days){
@@ -1771,7 +1770,6 @@ function openEditClientModal(c){
   $("#client-notes").value = c.notes||"";
   $("#client-meta-account").value = c.meta_ad_account_id||"";
   $("#client-ad-start-date").value = c.ad_start_date||"";
-  $("#client-report-frequency").value = c.report_frequency||"monthly";
   $("#client-report-email").value = c.report_email||"";
   $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
   $("#client-stage").value = c.stage||"onboarding";
@@ -3832,10 +3830,8 @@ function renderWeeklyReport(){
 
 /* ───────── Render: Reporting (Meta Ads client reports) ───────── */
 function reportDueLabel(client){
-  if (client.report_frequency === "off") return "Off";
-  const days = client.report_frequency === "weekly" ? 7 : 30;
   if (!client.last_report_sent_at) return "Due now";
-  const dueAt = new Date(client.last_report_sent_at).getTime() + days*24*60*60*1000;
+  const dueAt = new Date(client.last_report_sent_at).getTime() + REPORT_CADENCE_DAYS*24*60*60*1000;
   return dueAt <= Date.now() ? "Due now" : fmtDate(new Date(dueAt));
 }
 function renderReporting(){
@@ -3852,7 +3848,6 @@ function renderReporting(){
     return `
       <tr data-id="${c.id}">
         <td><div class="row-name">${escapeHtml(c.name)}</div><div class="row-sub">${escapeHtml(c.meta_ad_account_id)}</div></td>
-        <td><span class="badge gray">${c.report_frequency}</span></td>
         <td>${c.last_report_sent_at ? fmtDate(c.last_report_sent_at) : "Never"}</td>
         <td>${reportDueLabel(c)}</td>
         <td>${escapeHtml(c.report_email || "-")}</td>
@@ -3871,8 +3866,7 @@ async function sendReportNow(clientId){
   if (!client.meta_ad_account_id || !client.report_email){ alert("This client needs a Meta Ad Account ID and a report email set first."); return; }
   if (!IS_CONFIGURED){
     // Demo mode: simulate what the real Edge Function would do, so the flow is testable without live Meta/Resend credentials.
-    const periodDays = client.report_frequency === "weekly" ? 7 : 30;
-    const periodEnd = new Date(), periodStart = new Date(Date.now() - periodDays*86400e3);
+    const periodEnd = new Date(), periodStart = new Date(Date.now() - REPORT_CADENCE_DAYS*86400e3);
     await DataLayer.insert("client_reports", {
       client_id: clientId,
       period_start: periodStart.toISOString().slice(0,10),
@@ -5463,7 +5457,6 @@ function setupModals(){
       notes: $("#client-notes").value.trim(),
       meta_ad_account_id: $("#client-meta-account").value.trim(),
       ad_start_date: $("#client-ad-start-date").value || null,
-      report_frequency: $("#client-report-frequency").value,
       report_email: $("#client-report-email").value.trim(),
       stage,
       updated_at: new Date().toISOString(),
@@ -5483,11 +5476,8 @@ function setupModals(){
     const row = {
       services: $("#client-info-services-input").value.trim(),
       renewal_date: $("#client-info-renewal-input").value || null,
-      client_rules: $("#client-info-rules-input").value.trim(),
       qualified_lead_structure: $("#client-info-qls-input").value.trim(),
-      branding_expectations: $("#client-info-branding-input").value.trim(),
       key_contacts: $("#client-info-contacts-input").value.trim(),
-      communication_preferences: $("#client-info-comms-input").value.trim(),
       updated_at: new Date().toISOString(),
     };
     await DataLayer.update("clients", id, row);
@@ -5833,11 +5823,8 @@ function setupModals(){
       $("#client-info-form-id").value = c.id;
       $("#client-info-services-input").value = c.services||"";
       $("#client-info-renewal-input").value = c.renewal_date||"";
-      $("#client-info-rules-input").value = c.client_rules||"";
       $("#client-info-qls-input").value = c.qualified_lead_structure||"";
-      $("#client-info-branding-input").value = c.branding_expectations||"";
       $("#client-info-contacts-input").value = c.key_contacts||"";
-      $("#client-info-comms-input").value = c.communication_preferences||"";
       openModal("client-info-modal");
     }
     if (action === "delete-client" && confirm("Delete this client and all their content pieces / ad creatives?")) {
