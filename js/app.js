@@ -169,6 +169,7 @@ const OUTCOMES = {
   dm_unavailable: { label: "Decision Maker Unavailable", cls: "gray" },
   call_back: { label: "Call Back", cls: "gold" },
   not_interested: { label: "Not Interested", cls: "red" },
+  disqualified: { label: "Disqualified", cls: "purple" },
   booked_meeting: { label: "Booked Meeting", cls: "black" },
 };
 const CONTACT_STATUS = {
@@ -1824,17 +1825,21 @@ const OUTCOME_BUTTONS = [
   { key:"dm_unavailable", label:"DM Unavailable", cls:"ghost" },
   { key:"call_back", label:"Call Back", cls:"ghost" },
   { key:"not_interested", label:"Not Interested", cls:"ghost" },
+  { key:"disqualified", label:"Disqualified", cls:"ghost" },
   { key:"booked_meeting", label:"Booked Meeting", cls:"gold" },
 ];
 // Logging a call snoozes a prospect for a few days so it drops out of
 // everyone's "ready to call" view - the actual mechanism that stops two
 // different reps (or the same rep twice) from calling the same business.
 function isSnoozed(p){ return !!p.snoozed_until && new Date(p.snoozed_until) > new Date(); }
-// Call Back and Not Interested aren't timer-based cooldowns like the rest -
-// they park a prospect out of the callable pool indefinitely (into their own
-// Follow Up / Not Interested views) until someone actually logs a fresh call
-// against them or hits Reactivate, rather than a snoozed_until date expiring.
-function isParked(p){ return p.last_outcome === "call_back" || p.last_outcome === "not_interested"; }
+// Call Back, Not Interested, and Disqualified aren't timer-based cooldowns
+// like the rest - they park a prospect out of the callable pool indefinitely
+// (into their own Follow Up / Not Interested / Disqualified views) until
+// someone actually logs a fresh call against them or hits Reactivate, rather
+// than a snoozed_until date expiring. Disqualified is for a business that
+// doesn't meet the criteria at all (wrong area, too small, etc) - separate
+// from Not Interested, which is a business that qualifies but said no.
+function isParked(p){ return p.last_outcome === "call_back" || p.last_outcome === "not_interested" || p.last_outcome === "disqualified"; }
 // "Returning" = still on a timer-based cooldown (no_answer cadence, or the
 // long booked_meeting snooze) - these flow back into the active pool on
 // their own once snoozed_until passes, unlike parked prospects.
@@ -1991,10 +1996,11 @@ function renderDialer(){
   // own thing.
   const followUp = filtered.filter(p => p.last_outcome === "call_back");
   const notInterested = filtered.filter(p => p.last_outcome === "not_interested");
+  const disqualified = filtered.filter(p => p.last_outcome === "disqualified");
   const noAnswer = filtered.filter(p => p.last_outcome === "no_answer" && isSnoozed(p));
   const returning = filtered.filter(p => isReturning(p) && p.last_outcome !== "no_answer");
-  const viewCounts = { active: queue.length, no_answer: noAnswer.length, follow_up: followUp.length, not_interested: notInterested.length, returning: returning.length };
-  const viewLabels = { active: "Active", no_answer: "No Answer", follow_up: "Follow Up", not_interested: "Not Interested", returning: "Returning" };
+  const viewCounts = { active: queue.length, no_answer: noAnswer.length, follow_up: followUp.length, not_interested: notInterested.length, disqualified: disqualified.length, returning: returning.length };
+  const viewLabels = { active: "Active", no_answer: "No Answer", follow_up: "Follow Up", not_interested: "Not Interested", disqualified: "Disqualified", returning: "Returning" };
   const viewSelect = $("#dialer-queue-view-select");
   if (viewSelect){
     Array.from(viewSelect.options).forEach(opt => { opt.textContent = `${viewLabels[opt.value]} (${viewCounts[opt.value]})`; });
@@ -2066,11 +2072,12 @@ function renderDialer(){
         `;
       }
     } else {
-      const list = { no_answer: noAnswer, follow_up: followUp, not_interested: notInterested, returning: returning }[view] || [];
+      const list = { no_answer: noAnswer, follow_up: followUp, not_interested: notInterested, disqualified: disqualified, returning: returning }[view] || [];
       const emptyMsg = {
         no_answer: "Nobody's currently sitting on a No Answer cooldown.",
         follow_up: "No follow-ups scheduled.",
         not_interested: "Nobody's been marked Not Interested.",
+        disqualified: "Nobody's been marked Disqualified.",
         returning: "Nobody's currently cooling down.",
       }[view];
       queueBody.innerHTML = list.length ? prospectTableSection(list) : emptyState(emptyMsg);
@@ -2106,7 +2113,7 @@ function addBusinessDays(date, days){
 // a timer (see isParked) - there's no "next call date" for those, only a
 // manual reactivation or a fresh call.
 function nextCallDate(outcome, priorCallsMade){
-  if (outcome === "call_back" || outcome === "not_interested") return null;
+  if (outcome === "call_back" || outcome === "not_interested" || outcome === "disqualified") return null;
   const now = new Date();
   // Decision Maker Unavailable gets you an actual human, just not the right
   // one - close enough to No Answer that it's worth the same short retry
@@ -2250,8 +2257,8 @@ function openLogCallModal(p, outcome){
   openModal("log-call-modal");
 }
 // Toggles the Log Call modal's outcome-specific fields - a required reason
-// for Not Interested, a required follow-up date for Call Back - based on
-// whichever outcome is currently selected in the dropdown.
+// for Not Interested/Disqualified, a required follow-up date for Call Back -
+// based on whichever outcome is currently selected in the dropdown.
 function updateLogCallModalFields(){
   const outcome = $("#log-call-outcome")?.value;
   const notesInput = $("#log-call-notes");
@@ -2260,14 +2267,22 @@ function updateLogCallModalFields(){
   const followupInput = $("#log-call-followup-date");
   const hint = $("#log-call-hint");
   const isNotInterested = outcome === "not_interested";
+  const isDisqualified = outcome === "disqualified";
   const isCallBack = outcome === "call_back";
-  if (notesInput) notesInput.required = isNotInterested;
-  if (notesLabel) notesLabel.textContent = isNotInterested ? "Notes - why aren't they interested? (required)" : "Notes (optional)";
+  const needsReason = isNotInterested || isDisqualified;
+  if (notesInput) notesInput.required = needsReason;
+  if (notesLabel) notesLabel.textContent = isNotInterested
+    ? "Notes - why aren't they interested? (required)"
+    : isDisqualified
+    ? "Notes - why don't they qualify? (required)"
+    : "Notes (optional)";
   if (followupField) followupField.style.display = isCallBack ? "" : "none";
   if (followupInput && !isCallBack) followupInput.value = "";
   if (followupInput) followupInput.required = isCallBack;
   if (hint) hint.textContent = isNotInterested
     ? "This moves them into the Not Interested list - they won't show up to call again unless someone reactivates them."
+    : isDisqualified
+    ? "This moves them into the Disqualified list - they won't show up to call again unless someone reactivates them."
     : isCallBack
     ? "This moves them into the Follow Up list until the task above is done."
     : "This drops them off the \"ready to call\" list for a few days so nobody calls them again too soon.";
@@ -2604,7 +2619,7 @@ async function importProspectRows(prospects){
   });
 
   let imported = 0;
-  const skipped = { not_interested: 0, booked_meeting: 0, call_back: 0, cooling_down: 0, other: 0 };
+  const skipped = { not_interested: 0, disqualified: 0, booked_meeting: 0, call_back: 0, cooling_down: 0, other: 0 };
   for (const p of prospects){
     // Imports never had a country-code prompt like the manual Add Prospect
     // form does, so numbers came in exactly as scraped (e.g. "021 555 0111")
@@ -2616,6 +2631,7 @@ async function importProspectRows(prospects){
     const match = (phoneDigits && byPhone.get(phoneDigits)) || (nameKey && byName.get(nameKey));
     if (match){
       if (match.last_outcome === "not_interested") skipped.not_interested++;
+      else if (match.last_outcome === "disqualified") skipped.disqualified++;
       else if (match.last_outcome === "booked_meeting") skipped.booked_meeting++;
       else if (match.last_outcome === "call_back") skipped.call_back++;
       else if (isSnoozed(match)) skipped.cooling_down++;
@@ -2635,9 +2651,10 @@ async function importProspectRows(prospects){
     imported++;
   }
   if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
-  const totalSkipped = skipped.not_interested + skipped.booked_meeting + skipped.call_back + skipped.cooling_down + skipped.other;
+  const totalSkipped = skipped.not_interested + skipped.disqualified + skipped.booked_meeting + skipped.call_back + skipped.cooling_down + skipped.other;
   const parts = [];
   if (skipped.not_interested) parts.push(`${skipped.not_interested} already Not Interested`);
+  if (skipped.disqualified) parts.push(`${skipped.disqualified} already Disqualified`);
   if (skipped.booked_meeting) parts.push(`${skipped.booked_meeting} already Booked`);
   if (skipped.call_back) parts.push(`${skipped.call_back} already a Call Back`);
   if (skipped.cooling_down) parts.push(`${skipped.cooling_down} already called recently`);
@@ -3977,6 +3994,7 @@ function renderRegionData(){
   st("#region-data-nevercalled", filtered.filter(p => !p.calls_made).length);
   st("#region-data-followups", filtered.filter(p => p.last_outcome === "call_back").length);
   st("#region-data-notinterested", filtered.filter(p => p.last_outcome === "not_interested").length);
+  st("#region-data-disqualified", filtered.filter(p => p.last_outcome === "disqualified").length);
   st("#region-data-returning", filtered.filter(isReturning).length);
   st("#region-data-noanswer", filtered.filter(p => p.last_outcome === "no_answer").length);
 }
@@ -4082,6 +4100,7 @@ function renderProspectRow(p, opts={}){
           ${calledLabel}
         </button>
         ${p.last_outcome === "not_interested" ? `<div class="row-sub" style="margin-top:4px;">Marked Not Interested</div>` : ""}
+        ${p.last_outcome === "disqualified" ? `<div class="row-sub" style="margin-top:4px;">Marked Disqualified</div>` : ""}
         ${p.last_outcome === "call_back" ? `<div class="row-sub" style="margin-top:4px;">Follow-up scheduled</div>` : ""}
         ${isReturning(p) ? `<div class="row-sub" style="margin-top:4px;">${escapeHtml(OUTCOMES[p.last_outcome]?.label || "Cooling down")} - back ${fmtDate(p.snoozed_until)}</div>` : ""}
         ${p.last_called_at ? `<div class="row-sub">${timeAgo(p.last_called_at)}${p.last_called_by ? " by "+escapeHtml(prospectCallerLabel(p.last_called_by)) : ""}</div>` : ""}
@@ -4133,6 +4152,7 @@ function renderProspectList(){
   // own dedicated views instead of cluttering the region-grouped active list
   // or silently resurfacing after a cooldown expires.
   const notInterested = baseFiltered.filter(p => p.last_outcome === "not_interested");
+  const disqualified = baseFiltered.filter(p => p.last_outcome === "disqualified");
   const followUp = baseFiltered.filter(p => p.last_outcome === "call_back");
   // No Answer gets pulled out of the general Returning bucket into its own
   // view - it's the one people actually want to check on ("did these come
@@ -4151,8 +4171,8 @@ function renderProspectList(){
   st("#prospecting-stat-fresh", neverCalled);
   st("#prospecting-stat-industries", industries);
 
-  const viewCounts = { active: activePool.length, no_answer: noAnswer.length, follow_up: followUp.length, not_interested: notInterested.length, returning: returning.length };
-  const viewLabels = { active: "Active", no_answer: "No Answer", follow_up: "Follow Up", not_interested: "Not Interested", returning: "Returning" };
+  const viewCounts = { active: activePool.length, no_answer: noAnswer.length, follow_up: followUp.length, not_interested: notInterested.length, disqualified: disqualified.length, returning: returning.length };
+  const viewLabels = { active: "Active", no_answer: "No Answer", follow_up: "Follow Up", not_interested: "Not Interested", disqualified: "Disqualified", returning: "Returning" };
   const viewSelect = $("#prospecting-view-select");
   if (viewSelect){
     Array.from(viewSelect.options).forEach(opt => { opt.textContent = `${viewLabels[opt.value]} (${viewCounts[opt.value]})`; });
@@ -4160,7 +4180,7 @@ function renderProspectList(){
   }
 
   const view = state.prospectingView || "active";
-  const filtered = { active: activePool, no_answer: noAnswer, follow_up: followUp, not_interested: notInterested, returning: returning }[view] || activePool;
+  const filtered = { active: activePool, no_answer: noAnswer, follow_up: followUp, not_interested: notInterested, disqualified: disqualified, returning: returning }[view] || activePool;
 
   if (!filtered.length){
     const emptyMsg = {
@@ -4168,6 +4188,7 @@ function renderProspectList(){
       no_answer: "Nobody's currently sitting on a No Answer cooldown.",
       follow_up: "No follow-ups scheduled.",
       not_interested: "Nobody's been marked Not Interested.",
+      disqualified: "Nobody's been marked Disqualified.",
       returning: "Nobody's currently cooling down.",
     }[view];
     groupsWrap.innerHTML = emptyState(emptyMsg);
@@ -5826,11 +5847,11 @@ function setupModals(){
     }
     if (action === "start-call") await startCall(id);
     if (action === "dial-outcome"){
-      // Call Back and Not Interested both need a required field captured
-      // (a follow-up date, or a reason why) that a one-click button can't
-      // supply, so those two route through the same modal Prospecting uses
+      // Call Back, Not Interested, and Disqualified all need a required field
+      // captured (a follow-up date, or a reason why) that a one-click button
+      // can't supply, so those route through the same modal Prospecting uses
       // instead of logging instantly like No Answer / Booked Meeting do.
-      if (outcome === "call_back" || outcome === "not_interested"){
+      if (outcome === "call_back" || outcome === "not_interested" || outcome === "disqualified"){
         openLogCallModal(state.prospects.find(x => x.id === id), outcome);
       } else {
         await logDialOutcome(id, outcome);
