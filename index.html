@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=88">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=88">
+<link rel="stylesheet" href="css/style.css?v=89">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=89">
 </head>
 <body>
 
@@ -999,7 +999,10 @@
     <section class="page" id="page-creative">
       <div class="page-header">
         <div><h2>Creative Library</h2><p>Every ad creative across all your clients, with all-time spend and cost per lead pulled live from Meta.</p></div>
-        <button class="btn gold" id="add-creative-lib-btn">+ Add Creative</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn ghost" id="link-ad-account-btn">+ Link Ad Account</button>
+          <button class="btn gold" id="add-creative-lib-btn">+ Add Creative</button>
+        </div>
       </div>
       <div class="stat-grid stat-grid-2">
         <div class="stat-card stat-card-spend">
@@ -1842,6 +1845,27 @@
   </div>
 </div>
 
+<!-- ───────── Modal: Link Ad Account (creates/updates a client's Meta Ad Account ID and syncs its creatives in) ───────── -->
+<div class="overlay" id="link-ad-account-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Link Ad Account</h3><button class="modal-close" data-close="link-ad-account-modal">&times;</button></div>
+    <form id="link-ad-account-form" class="modal-body">
+      <p class="muted" style="margin-top:-4px;">Paste a client's Meta Ad Account ID and every ad in that account gets pulled in as a creative automatically - no need to go through Clients.</p>
+      <div class="field"><label>Client</label>
+        <select id="link-ad-account-client" required>
+          <option value="__new__">+ New Client...</option>
+        </select>
+      </div>
+      <div class="field" id="link-ad-account-new-name-field"><label>New Client Name</label><input type="text" id="link-ad-account-new-name" placeholder="e.g. Summit Dental"></div>
+      <div class="field"><label>Meta Ad Account ID</label><input type="text" id="link-ad-account-id-input" required placeholder="e.g. act_1234567890 or 1234567890"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="link-ad-account-modal">Cancel</button>
+        <button type="submit" class="btn gold" id="link-ad-account-submit">Link &amp; Sync Creatives</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ───────── Modal: Campaign ───────── -->
 <div class="overlay" id="campaign-modal">
   <div class="modal">
@@ -2023,10 +2047,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=88"></script>
-<script src="js/supabaseClient.js?v=88"></script>
-<script src="js/app.js?v=88"></script>
-<script src="js/meetings-tracker.js?v=88"></script>
-<script src="js/todo.js?v=88"></script>
+<script src="js/config.js?v=89"></script>
+<script src="js/supabaseClient.js?v=89"></script>
+<script src="js/app.js?v=89"></script>
+<script src="js/meetings-tracker.js?v=89"></script>
+<script src="js/todo.js?v=89"></script>
 </body>
 </html>

@@ -3378,6 +3378,13 @@ function populateAdCreativeClientSelect(selectedId){
   sel.innerHTML = state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   sel.value = selectedId || "";
 }
+function populateLinkAdAccountClientSelect(){
+  const sel = $("#link-ad-account-client");
+  if (!sel) return;
+  sel.innerHTML = `<option value="__new__">+ New Client...</option>` +
+    state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+  sel.value = "__new__";
+}
 function populateAdCreativeCampaignSelect(clientId, selectedCampaignId){
   const sel = $("#ad-creative-campaign");
   if (!sel) return;
@@ -3886,11 +3893,12 @@ async function sendReportNow(clientId){
   else { alert(`Report sent to ${client.report_email}.`); }
   await DataLayer.fetchAll(); renderAll();
 }
-async function syncClientAds(clientId){
+async function syncClientAds(clientId, btnEl){
   const client = state.clients.find(c => c.id === clientId);
   if (!client) return;
   if (!client.meta_ad_account_id){ alert("This client needs a Meta Ad Account ID set first (Edit Client)."); return; }
-  const btn = $("#sync-client-ads-btn");
+  const btn = btnEl || $("#sync-client-ads-btn");
+  const btnLabel = btn ? btn.textContent : "";
   if (btn){ btn.disabled = true; btn.textContent = "Syncing..."; }
   if (!IS_CONFIGURED){
     // Demo mode: simulate what the real Edge Function would do - refresh
@@ -3907,13 +3915,13 @@ async function syncClientAds(clientId){
         insights_updated_at: new Date().toISOString(),
       });
     }
-    if (btn){ btn.disabled = false; btn.textContent = "Sync Ad Account"; }
+    if (btn){ btn.disabled = false; btn.textContent = btnLabel; }
     alert(`Demo mode: refreshed ${withMetaId.length} existing creative${withMetaId.length===1?"":"s"}. Connect Supabase + Meta to actually discover and import new ads from the account.`);
     renderAll();
     return;
   }
   const { data, error } = await supabase.functions.invoke("sync-client-ads", { body: { client_id: clientId } });
-  if (btn){ btn.disabled = false; btn.textContent = "Sync Ad Account"; }
+  if (btn){ btn.disabled = false; btn.textContent = btnLabel; }
   if (error || data?.error){ alert("Couldn't sync the ad account: " + (data?.error || error.message)); return; }
   alert(`Synced ${data.ads_found} ad${data.ads_found===1?"":"s"}: ${data.creatives_created} new, ${data.creatives_updated} updated, ${data.campaigns_created} new campaign${data.campaigns_created===1?"":"s"} found.`);
   await DataLayer.fetchAll(); renderAll();
@@ -5536,6 +5544,43 @@ function setupModals(){
     openModal("ad-creative-modal");
   });
   $("#ad-creative-client")?.addEventListener("change", (e) => populateAdCreativeCampaignSelect(e.target.value));
+  $("#link-ad-account-btn")?.addEventListener("click", () => {
+    $("#link-ad-account-form").reset();
+    populateLinkAdAccountClientSelect();
+    $("#link-ad-account-new-name-field").style.display = "";
+    openModal("link-ad-account-modal");
+  });
+  $("#link-ad-account-client")?.addEventListener("change", (e) => {
+    const isNew = e.target.value === "__new__";
+    $("#link-ad-account-new-name-field").style.display = isNew ? "" : "none";
+    if (isNew){
+      $("#link-ad-account-new-name").value = "";
+      $("#link-ad-account-id-input").value = "";
+    } else {
+      const c = state.clients.find(x => x.id === e.target.value);
+      $("#link-ad-account-id-input").value = c?.meta_ad_account_id || "";
+    }
+  });
+  $("#link-ad-account-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const metaAccountId = $("#link-ad-account-id-input").value.trim();
+    if (!metaAccountId) return;
+    const selected = $("#link-ad-account-client").value;
+    const submitBtn = $("#link-ad-account-submit");
+    let clientId;
+    if (selected === "__new__"){
+      const name = $("#link-ad-account-new-name").value.trim();
+      if (!name){ alert("Give the new client a name."); return; }
+      const created = await DataLayer.insert("clients", { name, meta_ad_account_id: metaAccountId, stage: "onboarding" });
+      if (!created) return;
+      clientId = created.id;
+    } else {
+      clientId = selected;
+      await DataLayer.update("clients", clientId, { meta_ad_account_id: metaAccountId, updated_at: new Date().toISOString() });
+    }
+    closeModal("link-ad-account-modal");
+    await syncClientAds(clientId, submitBtn);
+  });
   $("#creative-filter-client")?.addEventListener("change", (e) => { state.creativeFilter.client = e.target.value; renderCreativeLibrary(); });
   $("#creative-filter-result")?.addEventListener("change", (e) => { state.creativeFilter.result = e.target.value; renderCreativeLibrary(); });
   $("#creative-filter-delivery")?.addEventListener("change", (e) => { state.creativeFilter.delivery = e.target.value; renderCreativeLibrary(); });
