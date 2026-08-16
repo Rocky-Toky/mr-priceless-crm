@@ -95,15 +95,14 @@ const ASSIGNEES = {
 // Real login emails don't reliably reduce to their ASSIGNEES key (Max's is
 // maximus.smith@..., not max@...), so this is an explicit map rather than a
 // guess from the email's local part. Keep in sync with the allowlist.
-// Raheem isn't in here yet - no login email for him yet, so he can be
-// picked as an assignee but can't sign in or be auto-matched from call
-// activity until his email is added here and to the allowlist.
+// Raheem and Thor aren't in here yet - no login email for them yet, so they
+// can be picked as an assignee but can't sign in or be auto-matched from
+// call activity until their emails are added here and to the allowlist.
 const EMAIL_TO_ASSIGNEE = {
   "rockyoneill02@gmail.com": "rocky",
   "maximus.smith@mrpriceless.com": "max",
   "bailey.hanlon@mrpriceless.com": "bailey",
   "gabriel.irvan@mrpriceless.com": "gabriel",
-  "thrkamhadi810@gmail.com": "thor",
 };
 // Bailey and Gabriel are sales-only hires - Service Delivery stays
 // Rocky/Max only.
