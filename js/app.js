@@ -1524,6 +1524,7 @@ function renderContacts(){
       <td>${escapeHtml(c.phone||"-")}</td>
       <td><span class="badge ${CONTACT_STATUS[c.status]?.cls||"gray"}">${CONTACT_STATUS[c.status]?.label||c.status}</span></td>
       <td style="text-align:right;white-space:nowrap;">
+        ${callButtonHtml(c.phone, c.name)}
         <button class="icon-btn" data-action="edit-contact" data-id="${c.id}" title="Edit">${ICONS.edit}</button>
         <button class="icon-btn" data-action="delete-contact" data-id="${c.id}" title="Delete">${ICONS.trash}</button>
       </td>
@@ -1601,6 +1602,7 @@ function renderDealStageCol(stage){
       <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
       ${deals.map(d => {
         const extraContacts = dealContactsFor(d.id);
+        const primaryContact = d.contact_id ? state.contacts.find(c => c.id === d.contact_id) : null;
         return `
         <div class="deal-card" draggable="true" data-id="${d.id}" data-action="view-deal">
           <h5>${escapeHtml(d.title)}</h5>
@@ -1609,6 +1611,7 @@ function renderDealStageCol(stage){
           <div class="deal-card-foot">
             <span class="deal-value">${dealValueLabel(d)}</span>
             ${d.assignee && ASSIGNEES[d.assignee] ? `<span class="badge ${ASSIGNEES[d.assignee].cls}">${ASSIGNEES[d.assignee].label}</span>` : ""}
+            ${callButtonHtml(primaryContact?.phone, primaryContact?.name || d.contact_name)}
             <button class="icon-btn" data-action="delete-deal" data-id="${d.id}" title="Delete">${ICONS.trash}</button>
           </div>
         </div>
@@ -1650,7 +1653,7 @@ function renderDealDetail(deal){
   else if (deal.contact_name) rows.push({ name: deal.contact_name, phone: "", role: "Primary" });
   extraContacts.forEach(dc => rows.push({ name: dc.name, phone: dc.phone, role: dc.role || "Contact" }));
   contactsBody.innerHTML = rows.length
-    ? rows.map(r => `<div style="margin-bottom:8px;"><b>${escapeHtml(r.name)}</b> ${r.phone ? "· " + escapeHtml(r.phone) : ""} <span class="badge gray" style="margin-left:6px;">${escapeHtml(r.role)}</span></div>`).join("")
+    ? rows.map(r => `<div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;"><b>${escapeHtml(r.name)}</b> ${r.phone ? "· " + escapeHtml(r.phone) : ""} <span class="badge gray">${escapeHtml(r.role)}</span> ${callButtonHtml(r.phone, r.name)}</div>`).join("")
     : `<span style="color:var(--text2);">No contact linked to this deal.</span>`;
 
   const linkedIds = new Set(extraContacts.map(dc => dc.contact_id).filter(Boolean));
@@ -5106,6 +5109,17 @@ const ICONS = {
   globe: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 010 20 15 15 0 010-20z"/></svg>`,
   search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>`,
 };
+// One Call button everywhere a phone number shows up outside the Dialer
+// itself (Contacts, Deals) - reuses the same Twilio Device placeCall() the
+// Dialer uses when Supabase is configured, falls back to a plain tel: link
+// in demo mode same as the Dialer's own IS_CONFIGURED branch does.
+function callButtonHtml(phone, name){
+  if (!phone) return "";
+  const label = `Call ${phone}`;
+  return IS_CONFIGURED
+    ? `<button class="icon-btn" data-action="call-number" data-phone="${escapeHtml(phone)}" data-name="${escapeHtml(name||"")}" title="${escapeHtml(label)}">${ICONS.phone}</button>`
+    : `<a class="icon-btn" href="tel:${escapeHtml(phone.replace(/[^0-9+]/g,""))}" title="${escapeHtml(label)}">${ICONS.phone}</a>`;
+}
 
 /* ───────── Modals ───────── */
 function openModal(id){ $("#"+id).classList.add("visible"); }
@@ -5843,6 +5857,10 @@ function setupModals(){
       if (activePerson) DataLayer.update("dial_prospects", id, { claimed_by: activePerson, claimed_at: new Date().toISOString() });
     }
     if (action === "start-call") await startCall(id);
+    // Calling straight off a Contact or a Deal - same Twilio Device as the
+    // Dialer, just skipping the dial_prospects queue/claim entirely since
+    // there's no prospect row backing these calls.
+    if (action === "call-number") await placeCall(btn.dataset.phone, btn.dataset.name);
     if (action === "dial-outcome"){
       // Call Back and Not Interested both need a required field captured
       // (a follow-up date, or a reason why) that a one-click button can't
