@@ -87,7 +87,6 @@ const TASK_CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 const ASSIGNEES = {
   rocky: { label: "Rocky", cls: "gold" },
   max: { label: "Max", cls: "black" },
-  bailey: { label: "Bailey", cls: "blue" },
   gabriel: { label: "Gabriel", cls: "purple" },
   raheem: { label: "Raheem", cls: "green" },
   thor: { label: "Thor", cls: "red" },
@@ -101,14 +100,11 @@ const ASSIGNEES = {
 const EMAIL_TO_ASSIGNEE = {
   "rockyoneill02@gmail.com": "rocky",
   "maximus.smith@mrpriceless.com": "max",
-  "bailey.hanlon@mrpriceless.com": "bailey",
   "gabriel.irvan@mrpriceless.com": "gabriel",
   "thrkamhadi810@gmail.com": "thor",
 };
-// Bailey and Gabriel are sales-only hires - Service Delivery stays
-// Rocky/Max only.
+// Gabriel is a sales-only hire - Service Delivery stays Rocky/Max only.
 const DELIVERY_RESTRICTED_EMAILS = new Set([
-  "bailey.hanlon@mrpriceless.com",
   "gabriel.irvan@mrpriceless.com",
 ]);
 function canAccessDelivery(){
@@ -388,7 +384,7 @@ const state = {
   prospectingView: "active",
   regionDataFilter: "",
   prospectingCollapsedRegions: new Set(),
-  teamFocus: { rocky: null, max: null, bailey: null, gabriel: null, raheem: null, thor: null },
+  teamFocus: { rocky: null, max: null, gabriel: null, raheem: null, thor: null },
   taskFilter: { status: "open", priority: "", sort: "due_date", assignee: "" },
   team: [],
   contactFilter: "",
@@ -498,7 +494,7 @@ function seedDemo(){
     { id:uid(), name:"Marlon Reeve", phone:"021 555 0111", company:"Reeve Builders", email:"marlon@reevebuilders.co.nz", website:"reevebuilders.co.nz", google_rating:"4.8 (63)", region:"Auckland CBD", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-3600e3*2).toISOString(), last_outcome:"no_answer", last_called_by:"max@mrpriceless.co.nz", snoozed_until:new Date(Date.now()+86400e3*1).toISOString(), notes:"[Aug 3, 1:30pm - max] No Answer: Left voicemail, said to try after 3pm.", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*3).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"Sina Tuilagi", phone:"022 555 0133", company:"Tuilagi Landscaping", email:"", website:"", google_rating:"4.5 (21)", region:"North Shore", industry:"Landscaping", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
     { id:graceProspectId, name:"Grace Nguyen", phone:"027 555 0166", company:"Nguyen Dental Studio", email:"grace@nguyendental.co.nz", website:"nguyendental.co.nz", region:"Auckland CBD", industry:"", calls_made:2, last_called_at:new Date(Date.now()-86400e3*2).toISOString(), last_outcome:"call_back", last_called_by:"rocky@mrpriceless.co.nz", snoozed_until:null, notes:"[Aug 3, 9:00am - rocky] Call Back: Wants a call back next week once their new hygienist starts.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*1).toISOString(), updated_at:new Date().toISOString() },
-    { id:uid(), name:"M. Reeve", phone:"021 555 0111", company:"Reeve Builders Ltd", email:"", website:"", region:"North Shore", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"bailey@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
+    { id:uid(), name:"M. Reeve", phone:"021 555 0111", company:"Reeve Builders Ltd", email:"", website:"", region:"North Shore", industry:"Construction", calls_made:0, last_called_at:null, last_outcome:null, last_called_by:null, snoozed_until:null, notes:"", created_by:"max@mrpriceless.co.nz", created_at:new Date(Date.now()-86400e3*2).toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), name:"", phone:"022 555 0177", company:"Coastal Concrete Ltd", email:"", website:"", region:"", industry:"Construction", calls_made:1, last_called_at:new Date(Date.now()-86400e3*4).toISOString(), last_outcome:"not_interested", last_called_by:"max@mrpriceless.co.nz", snoozed_until:null, notes:"[Aug 2, 2:15pm - max] Not Interested: Already locked into a contract with another agency until next year.", created_by:"rocky@mrpriceless.co.nz", created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
   const cl1 = uid(), cl2 = uid();
@@ -869,7 +865,7 @@ Cheers,
     { id:uid(), person:"rocky", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), person:"max", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
-  state.teamFocus = { rocky:null, max:"Landscaping", bailey:null, gabriel:null, raheem:null, thor:null };
+  state.teamFocus = { rocky:null, max:"Landscaping", gabriel:null, raheem:null, thor:null };
 }
 
 /* ───────── Data layer ───────── */
@@ -924,7 +920,7 @@ const DataLayer = {
     state.expenses = ex.data || [];
     state.callActivity = ca.data || [];
     state.playbookUsage = pu.data || [];
-    state.teamFocus = { rocky: null, max: null, bailey: null, gabriel: null, raheem: null, thor: null };
+    state.teamFocus = { rocky: null, max: null, gabriel: null, raheem: null, thor: null };
     (tf.data || []).forEach(row => { state.teamFocus[row.person] = row.industry || null; });
     state.creativeSnapshots = cws.data || [];
     state.clientLeads = clead.data || [];
@@ -1714,18 +1710,42 @@ async function addDealNote(dealId){
   if (!saved || !IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
 }
+// Module-level (not local to setupDragDrop) since setupDragDrop reruns on
+// every Deals render - a local "draggedId" would just get thrown away and
+// recreated each time, but the drag itself spans renders (nothing re-renders
+// mid-drag, only on drop), so both this and the auto-scroll listener below
+// need to survive across calls.
+let dealDragId = null;
+let dealDragAutoScrollWired = false;
 function setupDragDrop(){
-  let draggedId = null;
   const boards = [$("#kanban-board"), $("#kanban-board-closed")].filter(Boolean);
   if (!boards.length) return;
+  // Native HTML5 drag auto-scroll near the viewport edge is unreliable
+  // (sluggish in Chrome, largely absent in Firefox/Safari) - with more than
+  // a screenful of deals piled into one stage, that made it impossible to
+  // drag a card sitting deep in a long column back up to a stage whose
+  // column had scrolled out of view. Wired once (not per-render, since this
+  // listener needs to outlive any single render) to manually scroll the
+  // window while a card is being dragged near the top/bottom edge.
+  if (!dealDragAutoScrollWired){
+    dealDragAutoScrollWired = true;
+    const EDGE = 90, MAX_SPEED = 22;
+    document.addEventListener("dragover", (e) => {
+      if (!dealDragId) return;
+      const y = e.clientY;
+      const vh = window.innerHeight;
+      if (y < EDGE) window.scrollBy(0, -Math.ceil((EDGE - y) / EDGE * MAX_SPEED));
+      else if (y > vh - EDGE) window.scrollBy(0, Math.ceil((EDGE - (vh - y)) / EDGE * MAX_SPEED));
+    });
+  }
   boards.forEach(board => {
     board.querySelectorAll(".deal-card").forEach(card => {
       card.addEventListener("dragstart", (e) => {
-        draggedId = card.dataset.id;
+        dealDragId = card.dataset.id;
         card.classList.add("dragging");
         if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
       });
-      card.addEventListener("dragend", () => card.classList.remove("dragging"));
+      card.addEventListener("dragend", () => { card.classList.remove("dragging"); dealDragId = null; });
     });
     board.querySelectorAll(".kanban-col").forEach(col => {
       col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("dragover"); });
@@ -1733,8 +1753,8 @@ function setupDragDrop(){
       col.addEventListener("drop", async (e) => {
         e.preventDefault();
         col.classList.remove("dragover");
-        if (!draggedId) return;
-        const updated = await DataLayer.update("deals", draggedId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
+        if (!dealDragId) return;
+        const updated = await DataLayer.update("deals", dealDragId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
         await maybeCreateClientFromDeal(updated);
         await maybeCreateNoShowFollowup(updated);
       });
@@ -2133,7 +2153,7 @@ function nextCallDate(outcome, priorCallsMade){
 // call_activity/playbook_usage key people by a short handle (rocky/max/...),
 // but dial_prospects attribution is a real login email - this bridges the
 // two by taking the part before the @, which only works if everyone's email
-// actually starts with their ASSIGNEES key (e.g. bailey@...).
+// actually starts with their ASSIGNEES key (e.g. gabriel@...).
 function personKeyFromEmail(email){
   const e = (email||"").toLowerCase();
   if (EMAIL_TO_ASSIGNEE[e]) return EMAIL_TO_ASSIGNEE[e];
@@ -4256,10 +4276,14 @@ function renderTeamFocusPanel(){
   const people = Object.keys(ASSIGNEES);
   wrap.innerHTML = people.map(p => {
     const options = `<option value="">No focus - see everything</option>` + industries.map(i => `<option value="${escapeHtml(i)}" ${state.teamFocus[p]===i?"selected":""}>${escapeHtml(i)}</option>`).join("");
+    const a = ASSIGNEES[p];
     return `
-      <div class="field" style="min-width:180px;">
-        <label>${escapeHtml(ASSIGNEES[p].label)}</label>
-        <select data-team-focus-person="${p}">${options}</select>
+      <div class="team-focus-chip">
+        <div class="team-focus-avatar ${a.cls}">${escapeHtml(a.label[0])}</div>
+        <div class="team-focus-info">
+          <div class="team-focus-name">${escapeHtml(a.label)}</div>
+          <select class="team-focus-select" data-team-focus-person="${p}">${options}</select>
+        </div>
       </div>`;
   }).join("");
 }

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=95">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=95">
+<link rel="stylesheet" href="css/style.css?v=97">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=97">
 </head>
 <body>
 
@@ -349,7 +349,6 @@
             <select id="mb-person-select">
               <option value="rocky">Rocky</option>
               <option value="max">Max</option>
-              <option value="bailey">Bailey</option>
               <option value="gabriel">Gabriel</option>
               <option value="raheem">Raheem</option>
               <option value="thor">Thor</option>
@@ -614,7 +613,6 @@
           <option value="">All (mine first)</option>
           <option value="rocky">Rocky</option>
           <option value="max">Max</option>
-          <option value="bailey">Bailey</option>
           <option value="gabriel">Gabriel</option>
           <option value="raheem">Raheem</option>
           <option value="thor">Thor</option>
@@ -652,31 +650,45 @@
 
       <div class="card">
         <div class="card-header"><h3>Team Focus</h3><span class="stat-sub">Optional - point someone at a vertical and it surfaces at the top of the shared list for them, without hiding anything from anyone else.</span></div>
-        <div class="card-body" id="prospecting-team-focus" style="display:flex;flex-wrap:wrap;gap:16px;"></div>
+        <div class="card-body team-focus-grid" id="prospecting-team-focus"></div>
       </div>
 
-      <div class="toolbar" style="margin-top:24px;">
-        <div class="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input type="text" id="prospecting-search" placeholder="Search name, company, notes...">
+      <div class="toolbar-card" style="margin-top:24px;">
+        <div class="toolbar">
+          <div class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" id="prospecting-search" placeholder="Search name, company, notes...">
+          </div>
+          <div class="select-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0116 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            <select class="filter-select" id="prospecting-filter-region">
+              <option value="">All Regions</option>
+            </select>
+          </div>
+          <div class="select-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41L11 3.83A2 2 0 009.6 3.17L3 3v6.6a2 2 0 00.59 1.41l9.58 9.58a2 2 0 002.82 0l6.6-6.6a2 2 0 000-2.83z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+            <select class="filter-select" id="prospecting-filter-industry">
+              <option value="">All Industries</option>
+            </select>
+          </div>
+          <div class="select-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <select class="filter-select" id="prospecting-filter-caller">
+              <option value="">Called By - Anyone</option>
+            </select>
+          </div>
+          <div class="select-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+            <select class="filter-select" id="prospecting-view-select">
+              <option value="active">Active</option>
+              <option value="no_answer">No Answer</option>
+              <option value="follow_up">Follow Up</option>
+              <option value="not_interested">Not Interested</option>
+              <option value="disqualified">Disqualified</option>
+              <option value="returning">Returning</option>
+            </select>
+          </div>
         </div>
-        <select class="filter-select" id="prospecting-filter-region">
-          <option value="">All Regions</option>
-        </select>
-        <select class="filter-select" id="prospecting-filter-industry">
-          <option value="">All Industries</option>
-        </select>
-        <select class="filter-select" id="prospecting-filter-caller">
-          <option value="">Called By - Anyone</option>
-        </select>
-        <select class="filter-select" id="prospecting-view-select">
-          <option value="active">Active</option>
-          <option value="no_answer">No Answer</option>
-          <option value="follow_up">Follow Up</option>
-          <option value="not_interested">Not Interested</option>
-          <option value="disqualified">Disqualified</option>
-          <option value="returning">Returning</option>
-        </select>
       </div>
 
       <div id="prospecting-groups" class="clients-gallery"></div>
@@ -715,7 +727,6 @@
             <select id="dialer-person-select">
               <option value="rocky">Rocky</option>
               <option value="max">Max</option>
-              <option value="bailey">Bailey</option>
               <option value="gabriel">Gabriel</option>
               <option value="raheem">Raheem</option>
               <option value="thor">Thor</option>
@@ -749,7 +760,6 @@
           <option value="">Everyone's Leads</option>
           <option value="rocky">Rocky's Leads</option>
           <option value="max">Max's Leads</option>
-          <option value="bailey">Bailey's Leads</option>
           <option value="gabriel">Gabriel's Leads</option>
           <option value="raheem">Raheem's Leads</option>
           <option value="thor">Thor's Leads</option>
@@ -1288,7 +1298,6 @@
                 <option value="">Whole Team</option>
                 <option value="rocky">Rocky</option>
                 <option value="max">Max</option>
-                <option value="bailey">Bailey</option>
                 <option value="gabriel">Gabriel</option>
                 <option value="raheem">Raheem</option>
                 <option value="thor">Thor</option>
@@ -1511,7 +1520,6 @@
           <select id="book-meeting-assignee">
             <option value="rocky">Rocky</option>
             <option value="max">Max</option>
-            <option value="bailey">Bailey</option>
             <option value="gabriel">Gabriel</option>
             <option value="raheem">Raheem</option>
             <option value="thor">Thor</option>
@@ -1572,7 +1580,6 @@
           <option value="">Unassigned</option>
           <option value="rocky">Rocky</option>
           <option value="max">Max</option>
-          <option value="bailey">Bailey</option>
           <option value="gabriel">Gabriel</option>
           <option value="raheem">Raheem</option>
           <option value="thor">Thor</option>
@@ -1929,7 +1936,6 @@
             <option value="">Unassigned</option>
             <option value="rocky">Rocky</option>
             <option value="max">Max</option>
-            <option value="bailey">Bailey</option>
             <option value="gabriel">Gabriel</option>
             <option value="raheem">Raheem</option>
             <option value="thor">Thor</option>
@@ -2051,10 +2057,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=95"></script>
-<script src="js/supabaseClient.js?v=95"></script>
-<script src="js/app.js?v=95"></script>
-<script src="js/meetings-tracker.js?v=95"></script>
-<script src="js/todo.js?v=95"></script>
+<script src="js/config.js?v=97"></script>
+<script src="js/supabaseClient.js?v=97"></script>
+<script src="js/app.js?v=97"></script>
+<script src="js/meetings-tracker.js?v=97"></script>
+<script src="js/todo.js?v=97"></script>
 </body>
 </html>

@@ -201,19 +201,65 @@ button.client-info-empty:hover{border-color:var(--gold-border);background:var(--
 
 /* ───────── Toolbar / filters ───────── */
 .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;}
+.toolbar-card{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px 16px;box-shadow:var(--shadow);
+}
+.toolbar-card .toolbar{margin-bottom:0;}
 .search{
   flex:1;min-width:180px;position:relative;
 }
 .search input{
   width:100%;padding:10px 14px 10px 36px;border-radius:999px;border:1px solid var(--line);
   background:var(--white);font-size:13.5px;
+  transition:border-color .15s,box-shadow .15s;
 }
-.search input:focus{outline:none;border-color:var(--gold-border);}
-.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text2);}
+.search input:focus{outline:none;border-color:var(--gold-border);box-shadow:0 0 0 3px var(--gold-soft);}
+.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text2);pointer-events:none;}
 .filter-select{
-  padding:9px 14px;border-radius:999px;border:1px solid var(--line);background:var(--white);
-  font-size:13px;color:var(--text);
+  padding:9px 32px 9px 14px;border-radius:999px;border:1px solid var(--line);background:var(--white);
+  font-size:13px;color:var(--text);cursor:pointer;
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236f6a5e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 13px center;background-size:10px 6px;
+  transition:border-color .15s,box-shadow .15s;
 }
+.filter-select:hover{border-color:var(--gold-border);}
+.filter-select:focus{outline:none;border-color:var(--gold-border);box-shadow:0 0 0 3px var(--gold-soft);}
+/* Icon-prefixed select, same visual language as .search's icon input - used
+   where a bare row of unlabelled dropdowns (region/industry/caller/view)
+   reads as a wall of identical pills with no way to tell them apart at a
+   glance. */
+.select-icon-wrap{position:relative;min-width:150px;}
+.select-icon-wrap svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--text2);pointer-events:none;}
+.select-icon-wrap .filter-select{padding-left:34px;width:100%;}
+
+/* ───────── Team Focus chips (Prospecting) ───────── */
+.team-focus-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;}
+.team-focus-chip{
+  display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:12px;
+  background:var(--paper);border:1px solid var(--line);transition:border-color .15s,background .15s;
+}
+.team-focus-chip:focus-within{border-color:var(--gold-border);background:var(--white);}
+.team-focus-avatar{
+  width:34px;height:34px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:13px;font-family:var(--font-display);color:var(--white);
+}
+.team-focus-avatar.gold{background:linear-gradient(155deg,var(--gold-bright),var(--gold));}
+.team-focus-avatar.black{background:linear-gradient(155deg,var(--black3),var(--black));}
+.team-focus-avatar.purple{background:linear-gradient(155deg,#8f6bb5,#6b4f96);}
+.team-focus-avatar.green{background:linear-gradient(155deg,#5fae78,var(--success));}
+.team-focus-avatar.red{background:linear-gradient(155deg,#c56347,var(--danger));}
+.team-focus-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.team-focus-name{font-size:12.5px;font-weight:600;color:var(--text);}
+.team-focus-select{
+  border:none;background:none;padding:0 13px 0 0;margin:0;font-size:12px;color:var(--text2);cursor:pointer;
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;width:100%;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236f6a5e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right center;background-size:9px 5px;
+}
+.team-focus-select:focus{outline:none;color:var(--gold-deep);}
 
 /* ───────── Table ───────── */
 table{width:100%;border-collapse:collapse;}
