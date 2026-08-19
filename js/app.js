@@ -194,6 +194,14 @@ function dealValueLabel(d){
   if (d.contract_type === "ppl") return `${fmtMoney(d.value)} / lead`;
   return fmtMoney(d.value);
 }
+// What the business actually nets after the rep's cut - only meaningful for
+// a flat monthly retainer value (percentage-based profit/revenue share deals
+// have no fixed $ to net against, so this returns null for those).
+function dealNetValue(d){
+  const commission = Number(d.commission_initial_amount || 0);
+  if (!commission || d.contract_type === "profit_share" || d.contract_type === "revenue_share") return null;
+  return Number(d.value||0) - commission;
+}
 // Commission is monthly and tied to the client's own invoice cycle (due at
 // the end of every month) rather than a fixed post-close schedule - that's
 // why the due date has to be computed off each deal's own invoice date
@@ -1623,7 +1631,10 @@ function renderDeals(){
 }
 function renderDealStageCol(stage){
   const deals = state.deals.filter(d => d.stage === stage.key);
-  const stageValue = deals.reduce((s,d) => s + Number(d.value||0), 0);
+  // Net of rep commission where it's known, same as the pipeline total above
+  // the board - a column footer that only ever showed gross was overstating
+  // what actually lands once commission's paid out.
+  const stageValue = deals.reduce((s,d) => { const net = dealNetValue(d); return s + (net != null ? net : Number(d.value||0)); }, 0);
   return `
     <div class="kanban-col" data-stage="${stage.key}">
       <div class="kanban-col-head">
@@ -1634,6 +1645,7 @@ function renderDealStageCol(stage){
       ${deals.map(d => {
         const extraContacts = dealContactsFor(d.id);
         const primaryContact = d.contact_id ? state.contacts.find(c => c.id === d.contact_id) : null;
+        const netValue = dealNetValue(d);
         return `
         <div class="deal-card" draggable="true" data-id="${d.id}" data-action="view-deal">
           <h5>${escapeHtml(d.title)}</h5>
@@ -1645,6 +1657,7 @@ function renderDealStageCol(stage){
             ${callButtonHtml(primaryContact?.phone, primaryContact?.name || d.contact_name)}
             <button class="icon-btn" data-action="delete-deal" data-id="${d.id}" title="Delete">${ICONS.trash}</button>
           </div>
+          ${netValue != null ? `<div class="deal-net-value">Net ${fmtMoney(netValue)}/mo after ${fmtMoney(d.commission_initial_amount)} commission</div>` : ""}
         </div>
       `;}).join("")}
     </div>
@@ -1654,7 +1667,7 @@ function renderDealsList(){
   const board = $("#kanban-board");
   const closedBoard = $("#kanban-board-closed");
   const totalEl = $("#pipeline-total");
-  if (totalEl) totalEl.textContent = fmtMoney(state.deals.filter(d => !CLOSED_STAGES.has(d.stage)).reduce((s,d) => s + Number(d.value||0), 0));
+  if (totalEl) totalEl.textContent = fmtMoney(state.deals.filter(d => !CLOSED_STAGES.has(d.stage)).reduce((s,d) => { const net = dealNetValue(d); return s + (net != null ? net : Number(d.value||0)); }, 0));
   board.innerHTML = STAGES.filter(s => !CLOSED_STAGES.has(s.key)).map(renderDealStageCol).join("");
   if (closedBoard) closedBoard.innerHTML = STAGES.filter(s => CLOSED_STAGES.has(s.key)).map(renderDealStageCol).join("");
   setupDragDrop();
@@ -1662,12 +1675,14 @@ function renderDealsList(){
 // Commission by rep, grouped like the Clients gallery - one collapsible
 // section per rep, each deal showing this cycle's amount, whether it's
 // still on the elevated rate or has stepped down, and when it's next due.
-// Only won deals are in scope; commission before a deal actually closes
-// doesn't mean anything since there's no client invoice yet to tie it to.
+// Scoped to MEETING_CLOSE_STAGES (pending_results + closed_won), same "won
+// enough to count" bar maybeCreateClientFromDeal already uses - plenty of
+// real, actively-invoiced clients sit in Pending Results rather than ever
+// getting manually dragged to Closed Won, and they still owe commission.
 function renderCommission(){
   const wrap = $("#commission-groups");
   if (!wrap) return;
-  const wonDeals = state.deals.filter(d => d.stage === "closed_won");
+  const wonDeals = state.deals.filter(d => MEETING_CLOSE_STAGES.has(d.stage));
   const withCommission = wonDeals.filter(d => commissionForDeal(d));
   const unset = wonDeals.length - withCommission.length;
   const totalDue = withCommission.reduce((s,d) => s + commissionForDeal(d).amount, 0);
@@ -1742,6 +1757,12 @@ function dealNotesFor(dealId){
 function renderDealDetail(deal){
   $("#deal-detail-title").textContent = deal.title;
   $("#deal-detail-value").textContent = dealValueLabel(deal);
+  const netEl = $("#deal-detail-net");
+  if (netEl){
+    const net = dealNetValue(deal);
+    netEl.style.display = net != null ? "" : "none";
+    if (net != null) netEl.textContent = `Net ${fmtMoney(net)} after ${fmtMoney(deal.commission_initial_amount)} commission`;
+  }
   $("#deal-detail-delete").dataset.id = deal.id;
   const assigneeEl = $("#deal-detail-assignee");
   if (assigneeEl){
@@ -5539,6 +5560,7 @@ function setupModals(){
       contact_id: contactId,
       contact_name: contactId ? contactName(contactId) : "",
       assignee: $("#deal-assignee").value || null,
+      commission_initial_amount: $("#deal-commission").value !== "" ? Number($("#deal-commission").value) : null,
       updated_at: new Date().toISOString(),
     };
     if (!row.title) return;
@@ -5980,6 +6002,7 @@ function setupModals(){
       $("#deal-percentage").value = d.percentage||0;
       $("#deal-stage").value = d.stage||"qualified";
       $("#deal-assignee").value = d.assignee||"";
+      $("#deal-commission").value = d.commission_initial_amount ?? "";
       toggleDealContractFields();
       $("#deal-contacts-rows").innerHTML = "";
       $("#deal-modal-title").textContent = "Edit Deal";
