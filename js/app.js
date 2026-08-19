@@ -113,6 +113,11 @@ function canAccessDelivery(){
   const email = (state.user?.email || "").toLowerCase();
   return !DELIVERY_RESTRICTED_EMAILS.has(email);
 }
+// Team Focus (who's pointed at which vertical) is Rocky's call to make, not
+// something everyone should be able to reassign for each other.
+function isRocky(){
+  return (state.user?.email || "").toLowerCase() === "rockyoneill02@gmail.com";
+}
 function getAssigneeFirstPref(){ return localStorage.getItem("crm_task_assignee_first") || "rocky"; }
 function setAssigneeFirstPref(v){ if (ASSIGNEES[v]) localStorage.setItem("crm_task_assignee_first", v); }
 // Fixed pick-lists for a prospect's Region and Industry, so everyone picks
@@ -4157,41 +4162,46 @@ function prospectRegionSection({ key, dotColor, title, rows, dupe=false }){
 // Logging a call snoozes a business out of this view for a few days, which
 // is what actually stops the same lead getting called twice. Grouped by
 // region so the "map" of where the team is calling is obvious at a glance;
-// a person's assigned focus vertical (see team_focus) is pinned above the
-// regions without hiding anything else from the shared pool; and anything
-// sharing a phone number or business name with another row gets flagged and
-// pushed to its own section at the very bottom instead of silently sitting
-// in the regular flow, so nobody calls the same business twice.
+// anything sharing a phone number or business name with another row gets
+// flagged and pushed to its own section at the very bottom instead of
+// silently sitting in the regular flow, so nobody calls the same business
+// twice.
 function renderProspectList(){
   const groupsWrap = $("#prospecting-groups");
   if (!groupsWrap) return;
   renderProspectFilters();
   renderTeamFocusPanel();
+  const focusCard = $("#prospecting-team-focus-card");
+  if (focusCard) focusCard.style.display = isRocky() ? "" : "none";
   const baseFiltered = dialerFilteredProspects();
+
+  // Team Focus used to just pin someone's vertical to the top without
+  // hiding anything else - now it's a real scope: anyone with a focus set
+  // only sees prospects in that industry, plus anything they've personally
+  // brought in themselves (manually added or CSV-imported), so narrowing
+  // someone's focus never locks them out of leads they went and found on
+  // their own. Only applies to non-admins - Rocky (who sets everyone's
+  // focus) always sees the full shared list regardless of his own.
+  const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+  const myFocus = activePerson ? state.teamFocus[activePerson] : null;
+  const scoped = (myFocus && !isRocky())
+    ? baseFiltered.filter(p => (p.industry||"") === myFocus || personKeyFromEmail(p.created_by) === activePerson)
+    : baseFiltered;
 
   // Not Interested and Call Back are parked out of the normal flow entirely
   // (see isParked) rather than just snoozed on a timer, so they get their
   // own dedicated views instead of cluttering the region-grouped active list
   // or silently resurfacing after a cooldown expires.
-  const notInterested = baseFiltered.filter(p => p.last_outcome === "not_interested");
-  const disqualified = baseFiltered.filter(p => p.last_outcome === "disqualified");
-  const followUp = baseFiltered.filter(p => p.last_outcome === "call_back");
+  const notInterested = scoped.filter(p => p.last_outcome === "not_interested");
+  const disqualified = scoped.filter(p => p.last_outcome === "disqualified");
+  const followUp = scoped.filter(p => p.last_outcome === "call_back");
   // No Answer gets pulled out of the general Returning bucket into its own
   // view - it's the one people actually want to check on ("did these come
   // back?"), and lumped in with Decision Maker Unavailable and Booked
   // Meeting cooldowns it was invisible as its own thing.
-  const noAnswer = baseFiltered.filter(p => p.last_outcome === "no_answer" && isSnoozed(p));
-  const returning = baseFiltered.filter(p => isReturning(p) && p.last_outcome !== "no_answer");
-  const activePool = baseFiltered.filter(p => !isParked(p) && !isSnoozed(p));
-
-  const neverCalled = baseFiltered.filter(p => !p.calls_made).length;
-  const industries = new Set(baseFiltered.map(p => p.industry).filter(Boolean)).size;
-  const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
-  st("#prospecting-stat-total", baseFiltered.length);
-  st("#prospecting-stat-ready", activePool.length);
-  st("#prospecting-stat-snoozed", noAnswer.length + returning.length);
-  st("#prospecting-stat-fresh", neverCalled);
-  st("#prospecting-stat-industries", industries);
+  const noAnswer = scoped.filter(p => p.last_outcome === "no_answer" && isSnoozed(p));
+  const returning = scoped.filter(p => isReturning(p) && p.last_outcome !== "no_answer");
+  const activePool = scoped.filter(p => !isParked(p) && !isSnoozed(p));
 
   const viewCounts = { active: activePool.length, no_answer: noAnswer.length, follow_up: followUp.length, not_interested: notInterested.length, disqualified: disqualified.length, returning: returning.length };
   const viewLabels = { active: "Active", no_answer: "No Answer", follow_up: "Follow Up", not_interested: "Not Interested", disqualified: "Disqualified", returning: "Returning" };
@@ -4206,7 +4216,7 @@ function renderProspectList(){
 
   if (!filtered.length){
     const emptyMsg = {
-      active: baseFiltered.length ? "Nobody's ready to call right now - check Follow Up or Returning." : "No prospects yet. Import a list above.",
+      active: scoped.length ? "Nobody's ready to call right now - check Follow Up or Returning." : "No prospects yet. Import a list above.",
       no_answer: "Nobody's currently sitting on a No Answer cooldown.",
       follow_up: "No follow-ups scheduled.",
       not_interested: "Nobody's been marked Not Interested.",
@@ -4217,9 +4227,9 @@ function renderProspectList(){
     return;
   }
 
-  // Duplicates and the focus-industry pin-to-top only make sense against the
-  // active calling pool - the other views are already a narrow, purposeful
-  // list, not something to further reorganise.
+  // Duplicates only make sense against the active calling pool - the other
+  // views are already a narrow, purposeful list, not something to further
+  // reorganise.
   let clean = filtered, dupes = [];
   if (view === "active"){
     // Checked against the whole shared list, not just what's currently
@@ -4231,16 +4241,11 @@ function renderProspectList(){
     dupes = filtered.filter(p => dupeIds.has(p.id));
   }
 
-  const activePerson = window.getActivePerson ? window.getActivePerson() : null;
-  const focusIndustry = view === "active" && activePerson ? state.teamFocus[activePerson] : null;
-  const focusList = focusIndustry ? clean.filter(p => (p.industry||"") === focusIndustry) : [];
-  const restList = focusIndustry ? clean.filter(p => (p.industry||"") !== focusIndustry) : clean;
-
   // Grouped by region AND industry together, not just region - a region
   // full of several different trades mixed into one flat section is exactly
   // what made a bad import (or just a busy list) hard to work through.
   const regionGroups = {};
-  restList.forEach(p => {
+  clean.forEach(p => {
     const region = p.region || "No Region Set";
     const industry = p.industry || "No Industry Set";
     const key = `${region} · ${industry}`;
@@ -4249,9 +4254,6 @@ function renderProspectList(){
   const regionNames = Object.keys(regionGroups).sort((a,b) => a.localeCompare(b));
 
   let html = "";
-  if (focusList.length){
-    html += prospectRegionSection({ key:"__focus__", dotColor:"var(--gold)", title:`⭐ Your Focus - ${escapeHtml(focusIndustry)}`, rows:focusList });
-  }
   regionNames.forEach(r => {
     html += prospectRegionSection({ key:r, title:escapeHtml(r), rows:regionGroups[r] });
   });
@@ -6037,18 +6039,14 @@ function setupDialerFilters(){
   $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
   $("#dialer-filter-owner")?.addEventListener("change", (e) => { state.dialerOwnerFilter = e.target.value; renderProspectViews(); });
   $("#dialer-queue-view-select")?.addEventListener("change", (e) => { state.dialerQueueView = e.target.value; renderProspectViews(); });
-  // Switching who's dialing also points the industry filter at that
-  // person's assigned focus vertical (if they have one set from
-  // Prospecting), same as it already pins their focus to the top of the
-  // shared Prospecting list - "you are" should mean the same thing on both
-  // pages. Still just a starting point, not a lock - the dropdown next to
-  // it can always override it. It also re-scopes the leads filter to that
+  // Switching who's dialing also re-scopes the leads filter to that
   // person's own leads, so switching "You are" from Rocky to Max shows
   // Max's leads instead of leaving Rocky's leads on screen under Max's name.
+  // (Industry scoping itself now comes straight from their Team Focus
+  // assignment on every render - see renderProspectList - rather than a
+  // one-off manual filter set here, which used to go stale across a switch.)
   $("#dialer-person-select")?.addEventListener("change", (e) => {
     window.setActivePerson?.(e.target.value);
-    const focus = state.teamFocus[e.target.value];
-    if (focus) state.dialerFilter.industry = focus;
     state.dialerOwnerFilter = e.target.value;
     renderProspectViews();
   });
