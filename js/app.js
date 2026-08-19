@@ -88,20 +88,22 @@ const ASSIGNEES = {
   rocky: { label: "Rocky", cls: "gold" },
   max: { label: "Max", cls: "black" },
   gabriel: { label: "Gabriel", cls: "purple" },
-  raheem: { label: "Raheem", cls: "green" },
+  raheem: { label: "Randy", cls: "green" },
   thor: { label: "Thor", cls: "red" },
 };
 // Real login emails don't reliably reduce to their ASSIGNEES key (Max's is
 // maximus.smith@..., not max@...), so this is an explicit map rather than a
 // guess from the email's local part. Keep in sync with the allowlist.
-// Raheem isn't in here yet - no login email for him yet, so he can be
-// picked as an assignee but can't sign in or be auto-matched from call
-// activity until his email is added here and to the allowlist.
+// The "raheem" key is Randy - his email is raheem.raza.khawaja@..., but he
+// goes by Randy, so the key stayed as-is (renaming it would orphan any
+// historical data already tagged "raheem") and only the display label
+// changed.
 const EMAIL_TO_ASSIGNEE = {
   "rockyoneill02@gmail.com": "rocky",
   "maximus.smith@mrpriceless.com": "max",
   "gabriel.irvan@mrpriceless.com": "gabriel",
   "thrkamhadi810@gmail.com": "thor",
+  "raheem.raza.khawaja@gmail.com": "raheem",
 };
 // Gabriel is a sales-only hire - Service Delivery stays Rocky/Max only.
 const DELIVERY_RESTRICTED_EMAILS = new Set([
