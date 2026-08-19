@@ -566,6 +566,18 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .clients-stage-section[data-stage="at_risk"] .clients-stage-dot{background:var(--danger);}
 .clients-stage-section[data-stage="churned"] .clients-stage-dot{background:var(--text2);}
 
+/* ───────── Churn risk bar ───────── */
+.churn-risk{margin-top:8px;}
+.churn-risk-bar{display:flex;gap:3px;}
+.churn-risk-segment{flex:1;height:6px;border-radius:4px;background:var(--line);}
+.churn-risk-segment.filled.low{background:var(--success);}
+.churn-risk-segment.filled.medium{background:var(--gold);}
+.churn-risk-segment.filled.high{background:var(--danger);}
+.churn-risk-label{font-size:11px;color:var(--text2);margin-top:4px;font-weight:600;}
+.churn-risk-label.low{color:var(--success);}
+.churn-risk-label.medium{color:var(--gold-deep);}
+.churn-risk-label.high{color:var(--danger);}
+
 /* ───────── Prospecting: region-grouped list ───────── */
 .prospect-region-table{padding:0 4px 4px;}
 .prospect-region-table .table-wrap{overflow-x:auto;}

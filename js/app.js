@@ -194,6 +194,33 @@ function dealValueLabel(d){
   if (d.contract_type === "ppl") return `${fmtMoney(d.value)} / lead`;
   return fmtMoney(d.value);
 }
+// Commission is monthly and tied to the client's own invoice cycle (due at
+// the end of every month) rather than a fixed post-close schedule - that's
+// why the due date has to be computed off each deal's own invoice date
+// instead of just deal.created_at. The elevated rate varies deal to deal
+// (set manually, no fixed formula), so it's stored per deal; the steady
+// rate it steps down to after 6 months is the same for everyone.
+const COMMISSION_STEADY_RATE = 250;
+const COMMISSION_ELEVATED_MONTHS = 6;
+function monthsBetween(anchor, ref){
+  return (ref.getFullYear()-anchor.getFullYear())*12 + (ref.getMonth()-anchor.getMonth()) - (ref.getDate()<anchor.getDate()?1:0);
+}
+// Returns null for a deal with no commission set up yet. monthsIn is how
+// many full months have passed since the client's invoice date - once that
+// hits 6, the rate drops from the deal's own elevated amount to the flat
+// steady rate. dueDate is always the end of the relevant month: the current
+// month once the invoice date has passed, or the invoice date's own month
+// if it's still upcoming.
+function commissionForDeal(d, refDate = new Date()){
+  if (!d.commission_invoice_date || d.commission_initial_amount == null) return null;
+  const anchor = new Date(d.commission_invoice_date);
+  const monthsIn = Math.max(0, monthsBetween(anchor, refDate));
+  const elevated = monthsIn < COMMISSION_ELEVATED_MONTHS;
+  const amount = elevated ? Number(d.commission_initial_amount) : COMMISSION_STEADY_RATE;
+  const base = refDate < anchor ? anchor : refDate;
+  const dueDate = new Date(base.getFullYear(), base.getMonth()+1, 0);
+  return { amount, elevated, monthsIn, dueDate };
+}
 const EXPENSE_CATEGORIES = {
   software: "Software & Tools",
   ad_spend: "Ad Spend",
@@ -400,6 +427,7 @@ const state = {
   contentFilter: { search: "", client: "", type: "" },
   clientsGallerySearch: "",
   clientsCollapsedStages: new Set(),
+  commissionCollapsedReps: new Set(),
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
@@ -1631,6 +1659,80 @@ function renderDealsList(){
   if (closedBoard) closedBoard.innerHTML = STAGES.filter(s => CLOSED_STAGES.has(s.key)).map(renderDealStageCol).join("");
   setupDragDrop();
 }
+// Commission by rep, grouped like the Clients gallery - one collapsible
+// section per rep, each deal showing this cycle's amount, whether it's
+// still on the elevated rate or has stepped down, and when it's next due.
+// Only won deals are in scope; commission before a deal actually closes
+// doesn't mean anything since there's no client invoice yet to tie it to.
+function renderCommission(){
+  const wrap = $("#commission-groups");
+  if (!wrap) return;
+  const wonDeals = state.deals.filter(d => d.stage === "closed_won");
+  const withCommission = wonDeals.filter(d => commissionForDeal(d));
+  const unset = wonDeals.length - withCommission.length;
+  const totalDue = withCommission.reduce((s,d) => s + commissionForDeal(d).amount, 0);
+  const dueEl = $("#commission-stat-due");
+  if (dueEl) dueEl.textContent = fmtMoney(totalDue);
+  const unsetEl = $("#commission-stat-unset");
+  if (unsetEl) unsetEl.textContent = unset;
+
+  if (!wonDeals.length){ wrap.innerHTML = emptyState("No won deals yet - commission tracking kicks in once a deal closes."); return; }
+
+  const byRep = {};
+  wonDeals.forEach(d => {
+    const key = d.assignee && ASSIGNEES[d.assignee] ? d.assignee : "__unassigned__";
+    (byRep[key] = byRep[key] || []).push(d);
+  });
+  const repKeys = Object.keys(byRep).sort((a,b) => {
+    if (a === "__unassigned__") return 1;
+    if (b === "__unassigned__") return -1;
+    return ASSIGNEES[a].label.localeCompare(ASSIGNEES[b].label);
+  });
+
+  wrap.innerHTML = repKeys.map(key => {
+    const deals = [...byRep[key]].sort((a,b) => (a.contact_name||a.title).localeCompare(b.contact_name||b.title));
+    const label = key === "__unassigned__" ? "Unassigned" : ASSIGNEES[key].label;
+    const repTotal = deals.reduce((s,d) => { const c = commissionForDeal(d); return s + (c ? c.amount : 0); }, 0);
+    const open = state.commissionCollapsedReps.has(key) ? "" : "open";
+    return `
+      <details class="clients-stage-section" data-rep="${key}" ${open}>
+        <summary class="clients-stage-header">
+          <span class="clients-stage-dot"></span>
+          <h3>${escapeHtml(label)}</h3>
+          <span class="kanban-count">${deals.length}</span>
+          <span style="margin-left:auto;font-weight:700;color:var(--gold);">${fmtMoney(repTotal)}/mo</span>
+        </summary>
+        <div class="prospect-region-table">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Client / Deal</th><th>Commission</th><th>Phase</th><th>Next Due</th><th></th></tr></thead>
+              <tbody>
+                ${deals.map(d => {
+                  const c = commissionForDeal(d);
+                  return `
+                  <tr>
+                    <td><div class="row-name">${escapeHtml(d.contact_name||d.title)}</div><div class="row-sub">${escapeHtml(d.title)}</div></td>
+                    <td>${c ? fmtMoney(c.amount) + "/mo" : `<span style="color:var(--text2);">Not set up</span>`}</td>
+                    <td>${c ? `<span class="badge ${c.elevated?'gold':'gray'}">${c.elevated ? `Elevated - Month ${c.monthsIn+1} of ${COMMISSION_ELEVATED_MONTHS}` : "Steady"}</span>` : ""}</td>
+                    <td>${c ? fmtDate(c.dueDate) : "-"}</td>
+                    <td style="text-align:right;"><button type="button" class="btn ghost" data-action="edit-commission" data-id="${d.id}">${c ? "Edit" : "+ Set Commission"}</button></td>
+                  </tr>`;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    `;
+  }).join("");
+  $$(".clients-stage-section", wrap).forEach(section => {
+    section.addEventListener("toggle", () => {
+      const key = section.dataset.rep;
+      if (section.open) state.commissionCollapsedReps.delete(key);
+      else state.commissionCollapsedReps.add(key);
+    });
+  });
+}
 function dealActivityFor(dealId){
   return state.notes.filter(n => n.deal_id === dealId && n.title === "Called").sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
 }
@@ -1803,6 +1905,7 @@ function openEditClientModal(c){
   $("#client-meta-account").value = c.meta_ad_account_id||"";
   $("#client-ad-start-date").value = c.ad_start_date||"";
   $("#client-report-email").value = c.report_email||"";
+  $("#client-churn-risk").value = c.churn_risk||"";
   $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
   $("#client-stage").value = c.stage||"onboarding";
   $("#client-quote-target").value = c.quote_target != null ? c.quote_target : "";
@@ -3033,6 +3136,20 @@ function renderClientsList(){
     });
   });
 }
+// A manually-set Low/Medium/High read on how likely a client is to leave -
+// deliberately separate from the At Risk/Churned pipeline stage, which only
+// reflects a decision already made to move them there, not an early signal.
+function churnRiskBarHtml(c){
+  const filled = { low: 1, medium: 2, high: 3 }[c.churn_risk] || 0;
+  const label = c.churn_risk ? c.churn_risk.charAt(0).toUpperCase() + c.churn_risk.slice(1) : "Not set";
+  return `
+    <div class="churn-risk" title="Churn Risk: ${label}">
+      <div class="churn-risk-bar">
+        ${[1,2,3].map(i => `<div class="churn-risk-segment ${i<=filled?`filled ${c.churn_risk}`:""}"></div>`).join("")}
+      </div>
+      <div class="churn-risk-label ${c.churn_risk||""}">Churn Risk: ${label}</div>
+    </div>`;
+}
 function renderClientGalleryCard(c){
   const alerts = getClientAlerts(c);
   const pieces = state.clientContent.filter(x => x.client_id === c.id);
@@ -3063,6 +3180,7 @@ function renderClientGalleryCard(c){
         <div class="client-info-progress-bar"><div class="client-info-progress-fill" style="width:${profile.pct}%;"></div></div>
         <span class="client-card-profile ${profile.pct===100?'complete':''}">${profile.pct}% profile</span>
       </div>
+      ${churnRiskBarHtml(c)}
       ${alerts.length ? `<div class="client-card-alerts">${alerts.map(a=>`<span class="badge ${a.type==='danger'?'red':'gold'}">${escapeHtml(a.text)}</span>`).join("")}</div>` : ""}
       <div class="client-gallery-foot">
         <label>Stage</label>
@@ -3112,6 +3230,8 @@ function renderClientDetail(c){
     }
     contactEl.innerHTML = bits.join(" &nbsp;·&nbsp; ");
   }
+  const churnRiskEl = $("#client-detail-churn-risk");
+  if (churnRiskEl) churnRiskEl.innerHTML = churnRiskBarHtml(c);
   $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
   const monthlySpendEl = $("#client-detail-monthly-spend");
   if (monthlySpendEl) monthlySpendEl.textContent = c.monthly_ad_spend != null ? fmtMoney(c.monthly_ad_spend) : "Not set";
@@ -4298,6 +4418,7 @@ function renderAll(){
   renderMeetingsPipeline();
   renderContacts();
   renderDeals();
+  renderCommission();
   renderRegionData();
   renderProspectList();
   renderDialer();
@@ -5429,6 +5550,20 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#commission-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const dealId = $("#commission-form-deal-id").value;
+    if (!dealId) return;
+    const row = {
+      commission_initial_amount: Number($("#commission-initial-amount").value || 0),
+      commission_invoice_date: $("#commission-invoice-date").value || null,
+      updated_at: new Date().toISOString(),
+    };
+    await DataLayer.update("deals", dealId, row);
+    closeModal("commission-modal");
+    if (!IS_CONFIGURED) return; renderAll();
+  });
+
   $("#region-data-select")?.addEventListener("change", (e) => {
     state.regionDataFilter = e.target.value;
     renderRegionData();
@@ -5527,6 +5662,7 @@ function setupModals(){
       meta_ad_account_id: $("#client-meta-account").value.trim(),
       ad_start_date: $("#client-ad-start-date").value || null,
       report_email: $("#client-report-email").value.trim(),
+      churn_risk: $("#client-churn-risk").value || null,
       stage,
       updated_at: new Date().toISOString(),
     };
@@ -5822,6 +5958,15 @@ function setupModals(){
       renderPlaybooks();
     }
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
+    if (action === "edit-commission"){
+      const d = state.deals.find(x => x.id === id);
+      if (!d) return;
+      $("#commission-form-deal-id").value = d.id;
+      $("#commission-modal-title").textContent = `Set Commission - ${d.contact_name || d.title}`;
+      $("#commission-initial-amount").value = d.commission_initial_amount ?? "";
+      $("#commission-invoice-date").value = d.commission_invoice_date || "";
+      openModal("commission-modal");
+    }
     if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }
     if (action === "view-meeting-deal"){ state.selectedDealId = id; $('.nav-item[data-page="deals"]')?.click(); renderDeals(); }
     if (action === "edit-deal"){
