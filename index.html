@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=101">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=101">
+<link rel="stylesheet" href="css/style.css?v=102">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=102">
 </head>
 <body>
 
@@ -655,6 +655,20 @@
           <button class="btn ghost" id="prospecting-import-btn">Import CSV / XLS</button>
           <button class="btn gold" id="prospecting-add-btn">+ Add Prospect</button>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>Region Coverage</h3><span class="stat-sub">At a glance: which regions still need prospects, and which are filled up.</span></div>
+        <div class="coverage-summary">
+          <span class="coverage-summary-item"><span class="coverage-summary-dot empty"></span><span id="coverage-count-empty">0</span> not started</span>
+          <span class="coverage-summary-item"><span class="coverage-summary-dot filling"></span><span id="coverage-count-filling">0</span> filling up</span>
+          <span class="coverage-summary-item"><span class="coverage-summary-dot full"></span><span id="coverage-count-full">0</span> full</span>
+          <div class="coverage-target-field">
+            <label for="coverage-target-input">Target per region</label>
+            <input type="number" id="coverage-target-input" min="1" step="1">
+          </div>
+        </div>
+        <div class="coverage-grid" id="coverage-grid"></div>
       </div>
 
       <div class="card" id="prospecting-team-focus-card">
@@ -2097,10 +2111,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=101"></script>
-<script src="js/supabaseClient.js?v=101"></script>
-<script src="js/app.js?v=101"></script>
-<script src="js/meetings-tracker.js?v=101"></script>
-<script src="js/todo.js?v=101"></script>
+<script src="js/config.js?v=102"></script>
+<script src="js/supabaseClient.js?v=102"></script>
+<script src="js/app.js?v=102"></script>
+<script src="js/meetings-tracker.js?v=102"></script>
+<script src="js/todo.js?v=102"></script>
 </body>
 </html>

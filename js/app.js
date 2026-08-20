@@ -4170,6 +4170,56 @@ function renderRegionData(){
 // Shows which of the canonical Region/Industry combos actually have
 // prospects on file yet, so the team can see at a glance where territory
 // still hasn't been touched instead of guessing from memory.
+const COVERAGE_TARGET_KEY = "crm_coverage_target_per_region";
+// No fixed company rule for what counts as "filled up" - this is just a
+// tunable number stored locally so whoever's looking at Prospecting can set
+// it to whatever batch size actually feels full for their calling pace.
+function coverageTargetPerRegion(){
+  const stored = Number(localStorage.getItem(COVERAGE_TARGET_KEY));
+  return stored > 0 ? stored : 30;
+}
+function setCoverageTargetPerRegion(n){
+  const v = Math.max(1, Math.round(Number(n) || 30));
+  try { localStorage.setItem(COVERAGE_TARGET_KEY, String(v)); } catch(e){}
+  return v;
+}
+// A heatmap of every region worked, colored by how close it is to the
+// target - empty (never touched), filling (some prospects but under
+// target), or full. Sorted emptiest-first since those are the regions that
+// actually need attention; clicking a chip jumps the main list straight to
+// that region instead of just being decorative.
+function renderRegionCoverage(){
+  const grid = $("#coverage-grid");
+  if (!grid) return;
+  const target = coverageTargetPerRegion();
+  const targetInput = $("#coverage-target-input");
+  if (targetInput && document.activeElement !== targetInput) targetInput.value = target;
+
+  const counts = {};
+  state.prospects.forEach(p => { if (p.region) counts[p.region] = (counts[p.region]||0) + 1; });
+
+  const rows = ALL_REGIONS.map(region => {
+    const count = counts[region] || 0;
+    const pct = Math.min(100, Math.round((count / target) * 100));
+    const status = count === 0 ? "empty" : count >= target ? "full" : "filling";
+    return { region, count, pct, status };
+  });
+
+  const statusRank = { empty: 0, filling: 1, full: 2 };
+  const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
+  st("#coverage-count-empty", rows.filter(r => r.status === "empty").length);
+  st("#coverage-count-filling", rows.filter(r => r.status === "filling").length);
+  st("#coverage-count-full", rows.filter(r => r.status === "full").length);
+
+  const sorted = [...rows].sort((a,b) => statusRank[a.status] - statusRank[b.status] || a.count - b.count || a.region.localeCompare(b.region));
+  grid.innerHTML = sorted.map(r => `
+    <button type="button" class="coverage-chip ${r.status}" data-action="filter-region-coverage" data-region="${escapeHtml(r.region)}" title="${escapeHtml(r.region)} - ${r.count} of ${target} target">
+      <div class="coverage-chip-fill" style="width:${r.pct}%;"></div>
+      <span class="coverage-chip-name">${escapeHtml(r.region)}</span>
+      <span class="coverage-chip-count">${r.status === "empty" ? "Not started" : r.status === "full" ? `${r.count} - Full` : `${r.count} / ${target}`}</span>
+    </button>
+  `).join("");
+}
 function renderCoverageMap(){
   const byRegion = {};
   const industriesSeen = new Set();
@@ -4441,6 +4491,7 @@ function renderAll(){
   renderDeals();
   renderCommission();
   renderRegionData();
+  renderRegionCoverage();
   renderProspectList();
   renderDialer();
   renderClients();
@@ -5595,6 +5646,10 @@ function setupModals(){
     renderCoverageMap();
     openModal("coverage-modal");
   });
+  $("#coverage-target-input")?.addEventListener("change", (e) => {
+    setCoverageTargetPerRegion(e.target.value);
+    renderRegionCoverage();
+  });
 
   $("#event-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -6070,6 +6125,11 @@ function setupModals(){
       }
     }
     if (action === "reactivate-prospect") await reactivateProspect(id);
+    if (action === "filter-region-coverage"){
+      state.dialerFilter.region = btn.dataset.region;
+      renderProspectViews();
+      $("#prospecting-groups")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
     if (action === "view-onboarding-client"){ state.selectedOnboardingClientId = id; renderOnboarding(); }
