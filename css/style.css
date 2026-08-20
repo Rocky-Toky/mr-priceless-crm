@@ -274,6 +274,8 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .row-name{font-weight:600;}
 .row-sub{font-size:11.5px;color:var(--text2);margin-top:2px;}
 .table-wrap{overflow-x:auto;}
+.commission-row-unset{opacity:0.6;}
+.commission-row-unset:hover{opacity:1;}
 
 .badge{
   display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;
@@ -579,30 +581,23 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .churn-risk-label.medium{color:var(--gold-deep);}
 .churn-risk-label.high{color:var(--danger);}
 
-/* ───────── Region Coverage heatmap (Prospecting) ───────── */
+/* ───────── Region Coverage heatmap (Lead Engine) ───────── */
 .coverage-summary{display:flex;gap:18px;flex-wrap:wrap;align-items:center;padding:0 22px 14px;font-size:12.5px;color:var(--text2);}
 .coverage-summary-item{display:flex;align-items:center;gap:6px;}
 .coverage-summary-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
 .coverage-summary-dot.empty{background:var(--line);}
-.coverage-summary-dot.filling{background:var(--gold);}
-.coverage-summary-dot.full{background:var(--success);}
-.coverage-target-field{display:flex;align-items:center;gap:8px;margin-left:auto;}
-.coverage-target-field label{font-size:12px;color:var(--text2);white-space:nowrap;}
-.coverage-target-field input{width:64px;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--white);font-size:13px;text-align:center;}
-.coverage-target-field input:focus{outline:none;border-color:var(--gold-border);}
+.coverage-summary-dot.filling{background:var(--success);}
 .coverage-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));gap:8px;padding:0 22px 20px;}
 .coverage-chip{
-  position:relative;overflow:hidden;border-radius:10px;border:1px solid var(--line);background:var(--paper);
+  border-radius:10px;border:1px solid var(--line);background:var(--paper);
   padding:9px 11px;cursor:pointer;transition:border-color .15s,transform .1s;text-align:left;
 }
 .coverage-chip:hover{border-color:var(--gold-border);transform:translateY(-1px);}
-.coverage-chip-fill{position:absolute;left:0;top:0;bottom:0;background:rgba(232,196,104,0.18);z-index:0;}
-.coverage-chip.full .coverage-chip-fill{background:rgba(63,125,85,0.16);}
-.coverage-chip.empty .coverage-chip-fill{display:none;}
-.coverage-chip-name{position:relative;z-index:1;font-size:12.5px;font-weight:600;color:var(--text);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.coverage-chip-count{position:relative;z-index:1;font-size:11px;color:var(--text2);margin-top:2px;display:block;}
+.coverage-chip.filling{background:rgba(63,125,85,0.08);border-color:rgba(63,125,85,0.25);}
+.coverage-chip-name{font-size:12.5px;font-weight:600;color:var(--text);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.coverage-chip-count{font-size:11px;color:var(--text2);margin-top:2px;display:block;}
 .coverage-chip.empty .coverage-chip-count{color:var(--danger);font-weight:600;}
-.coverage-chip.full .coverage-chip-count{color:var(--success);font-weight:600;}
+.coverage-chip.filling .coverage-chip-count{color:var(--success);font-weight:600;}
 
 /* ───────── Prospecting: region-grouped list ───────── */
 .prospect-region-table{padding:0 4px 4px;}

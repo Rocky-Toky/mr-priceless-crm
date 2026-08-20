@@ -118,6 +118,15 @@ function canAccessDelivery(){
 function isRocky(){
   return (state.user?.email || "").toLowerCase() === "rockyoneill02@gmail.com";
 }
+function isMax(){
+  return (state.user?.email || "").toLowerCase() === "maximus.smith@mrpriceless.com";
+}
+// Lead Engine (vertical assignments + region coverage) is Rocky and Max
+// only - everyone else just works whatever vertical they've been pointed
+// at from Prospecting, they don't get to reassign it.
+function canAccessLeadEngine(){
+  return isRocky() || isMax();
+}
 function getAssigneeFirstPref(){ return localStorage.getItem("crm_task_assignee_first") || "rocky"; }
 function setAssigneeFirstPref(v){ if (ASSIGNEES[v]) localStorage.setItem("crm_task_assignee_first", v); }
 // Fixed pick-lists for a prospect's Region and Industry, so everyone picks
@@ -1321,6 +1330,12 @@ function applyWorkspace(){
   $$("[data-workspace]").forEach(el => {
     el.style.display = (el.dataset.workspace === "both" || el.dataset.workspace === ws) ? "" : "none";
   });
+  // Lead Engine is Rocky/Max only regardless of workspace - override the
+  // workspace loop above rather than fold it into data-workspace, since
+  // this restriction is per-person, not per-workspace.
+  $$('.nav-item[data-page="lead-engine"]').forEach(el => {
+    if (!canAccessLeadEngine()) el.style.display = "none";
+  });
   const copy = WORKSPACE_COPY[ws] || WORKSPACE_COPY.sales;
   const titleEl = $("#workspace-banner-title");
   const subEl = $("#workspace-banner-sub");
@@ -1334,6 +1349,9 @@ function applyWorkspace(){
   const activeBtn = $(`.nav-item[data-page="${state.page}"]`);
   const btnWorkspace = activeBtn?.dataset.workspace;
   if (btnWorkspace && btnWorkspace !== "both" && btnWorkspace !== ws){
+    $('.nav-item[data-page="dashboard"]')?.click();
+  }
+  if (state.page === "lead-engine" && !canAccessLeadEngine()){
     $('.nav-item[data-page="dashboard"]')?.click();
   }
 }
@@ -1705,7 +1723,13 @@ function renderCommission(){
   });
 
   wrap.innerHTML = repKeys.map(key => {
-    const deals = [...byRep[key]].sort((a,b) => (a.contact_name||a.title).localeCompare(b.contact_name||b.title));
+    // Set-up deals first (the actual report), unset ones trail at the
+    // bottom as a short to-do list rather than interrupting the read.
+    const deals = [...byRep[key]].sort((a,b) => {
+      const ca = commissionForDeal(a), cb = commissionForDeal(b);
+      if (!!ca !== !!cb) return ca ? -1 : 1;
+      return (a.contact_name||a.title).localeCompare(b.contact_name||b.title);
+    });
     const label = key === "__unassigned__" ? "Unassigned" : ASSIGNEES[key].label;
     const repTotal = deals.reduce((s,d) => { const c = commissionForDeal(d); return s + (c ? c.amount : 0); }, 0);
     const open = state.commissionCollapsedReps.has(key) ? "" : "open";
@@ -1720,17 +1744,18 @@ function renderCommission(){
         <div class="prospect-region-table">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Client / Deal</th><th>Commission</th><th>Phase</th><th>Next Due</th><th></th></tr></thead>
+              <thead><tr><th>Client / Deal</th><th>Monthly Commission</th><th>Next Due</th><th></th></tr></thead>
               <tbody>
                 ${deals.map(d => {
                   const c = commissionForDeal(d);
                   return `
-                  <tr>
+                  <tr${c ? "" : ` class="commission-row-unset"`}>
                     <td><div class="row-name">${escapeHtml(d.contact_name||d.title)}</div><div class="row-sub">${escapeHtml(d.title)}</div></td>
-                    <td>${c ? fmtMoney(c.amount) + "/mo" : `<span style="color:var(--text2);">Not set up</span>`}</td>
-                    <td>${c ? `<span class="badge ${c.elevated?'gold':'gray'}">${c.elevated ? `Elevated - Month ${c.monthsIn+1} of ${COMMISSION_ELEVATED_MONTHS}` : "Steady"}</span>` : ""}</td>
+                    <td>${c
+                      ? `${fmtMoney(c.amount)}/mo <span class="badge ${c.elevated?'gold':'gray'}" style="margin-left:6px;">${c.elevated ? `Elevated · Mo ${c.monthsIn+1}/${COMMISSION_ELEVATED_MONTHS}` : "Steady"}</span>`
+                      : `<span style="color:var(--text2);">Not set up yet</span>`}</td>
                     <td>${c ? fmtDate(c.dueDate) : "-"}</td>
-                    <td style="text-align:right;"><button type="button" class="btn ghost" data-action="edit-commission" data-id="${d.id}">${c ? "Edit" : "+ Set Commission"}</button></td>
+                    <td style="text-align:right;"><button class="icon-btn" data-action="edit-deal" data-id="${d.id}" title="${c ? "Edit deal" : "Set up commission"}">${ICONS.edit}</button></td>
                   </tr>`;
                 }).join("")}
               </tbody>
@@ -1908,6 +1933,10 @@ function toggleDealContractFields(){
   if (pctField) pctField.style.display = isMoneyType ? "none" : "";
   const valueLabel = valueField?.querySelector("label");
   if (valueLabel) valueLabel.textContent = type === "ppl" ? "Price Per Lead (NZD)" : "Value (NZD/mo)";
+}
+function toggleDealCommissionFields(){
+  const row = $("#deal-commission-date-row");
+  if (row) row.style.display = $("#deal-commission")?.value ? "" : "none";
 }
 function toggleClientQuoteTargetField(){
   const field = $("#client-quote-target-field");
@@ -4170,61 +4199,43 @@ function renderRegionData(){
 // Shows which of the canonical Region/Industry combos actually have
 // prospects on file yet, so the team can see at a glance where territory
 // still hasn't been touched instead of guessing from memory.
-const COVERAGE_TARGET_KEY = "crm_coverage_target_per_region";
-// No fixed company rule for what counts as "filled up" - this is just a
-// tunable number stored locally so whoever's looking at Prospecting can set
-// it to whatever batch size actually feels full for their calling pace.
-function coverageTargetPerRegion(){
-  const stored = Number(localStorage.getItem(COVERAGE_TARGET_KEY));
-  return stored > 0 ? stored : 30;
-}
-function setCoverageTargetPerRegion(n){
-  const v = Math.max(1, Math.round(Number(n) || 30));
-  try { localStorage.setItem(COVERAGE_TARGET_KEY, String(v)); } catch(e){}
-  return v;
-}
-// A heatmap of every region worked, colored by how close it is to the
-// target - empty (never touched), filling (some prospects but under
-// target), or full. Sorted emptiest-first since those are the regions that
-// actually need attention; clicking a chip jumps the main list straight to
+// A heatmap of every NZ region worked (AU is a different operation entirely
+// - see Aus Dialler - so it doesn't belong in this coverage picture). No
+// target/threshold - just whether a region has been touched at all yet.
+// Sorted emptiest-first since those are the regions that actually need
+// attention; clicking a chip jumps the main Prospecting list straight to
 // that region instead of just being decorative.
 function renderRegionCoverage(){
   const grid = $("#coverage-grid");
   if (!grid) return;
-  const target = coverageTargetPerRegion();
-  const targetInput = $("#coverage-target-input");
-  if (targetInput && document.activeElement !== targetInput) targetInput.value = target;
 
   const counts = {};
   state.prospects.forEach(p => { if (p.region) counts[p.region] = (counts[p.region]||0) + 1; });
 
-  const rows = ALL_REGIONS.map(region => {
+  const rows = NZ_REGIONS.map(region => {
     const count = counts[region] || 0;
-    const pct = Math.min(100, Math.round((count / target) * 100));
-    const status = count === 0 ? "empty" : count >= target ? "full" : "filling";
-    return { region, count, pct, status };
+    return { region, count, status: count === 0 ? "empty" : "filling" };
   });
 
-  const statusRank = { empty: 0, filling: 1, full: 2 };
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
   st("#coverage-count-empty", rows.filter(r => r.status === "empty").length);
   st("#coverage-count-filling", rows.filter(r => r.status === "filling").length);
-  st("#coverage-count-full", rows.filter(r => r.status === "full").length);
 
-  const sorted = [...rows].sort((a,b) => statusRank[a.status] - statusRank[b.status] || a.count - b.count || a.region.localeCompare(b.region));
+  const sorted = [...rows].sort((a,b) => a.count - b.count || a.region.localeCompare(b.region));
   grid.innerHTML = sorted.map(r => `
-    <button type="button" class="coverage-chip ${r.status}" data-action="filter-region-coverage" data-region="${escapeHtml(r.region)}" title="${escapeHtml(r.region)} - ${r.count} of ${target} target">
-      <div class="coverage-chip-fill" style="width:${r.pct}%;"></div>
+    <button type="button" class="coverage-chip ${r.status}" data-action="filter-region-coverage" data-region="${escapeHtml(r.region)}" title="${escapeHtml(r.region)} - ${r.count} prospect${r.count===1?"":"s"}">
       <span class="coverage-chip-name">${escapeHtml(r.region)}</span>
-      <span class="coverage-chip-count">${r.status === "empty" ? "Not started" : r.status === "full" ? `${r.count} - Full` : `${r.count} / ${target}`}</span>
+      <span class="coverage-chip-count">${r.status === "empty" ? "Not started" : `${r.count} prospect${r.count===1?"":"s"}`}</span>
     </button>
   `).join("");
 }
 function renderCoverageMap(){
   const byRegion = {};
   const industriesSeen = new Set();
+  // NZ only - AU numbers are a different operation (Aus Dialler), not part
+  // of Prospecting's own coverage picture.
   state.prospects.forEach(p => {
-    if (!p.region) return;
+    if (!p.region || !NZ_REGIONS.includes(p.region)) return;
     if (!byRegion[p.region]) byRegion[p.region] = { total: 0, industries: {} };
     byRegion[p.region].total += 1;
     if (p.industry){
@@ -4234,7 +4245,7 @@ function renderCoverageMap(){
   });
 
   const coveredRegions = Object.keys(byRegion);
-  $("#coverage-regions-started").textContent = `${coveredRegions.length} / ${ALL_REGIONS.length}`;
+  $("#coverage-regions-started").textContent = `${coveredRegions.length} / ${NZ_REGIONS.length}`;
   $("#coverage-industries-started").textContent = `${industriesSeen.size} / ${HOME_SERVICES_INDUSTRIES.length}`;
 
   const sortedRegions = coveredRegions.sort((a,b) => byRegion[b].total - byRegion[a].total);
@@ -4255,7 +4266,7 @@ function renderCoverageMap(){
     `;
   }).join("") : `<p style="color:var(--text2);font-size:13px;">No prospects imported yet.</p>`;
 
-  const unmappedRegions = ALL_REGIONS.filter(r => !coveredRegions.includes(r));
+  const unmappedRegions = NZ_REGIONS.filter(r => !coveredRegions.includes(r));
   const unmappedIndustries = HOME_SERVICES_INDUSTRIES.filter(i => !industriesSeen.has(i));
   $("#coverage-unmapped-list").innerHTML = `
     <p><strong>Regions:</strong> ${unmappedRegions.length ? escapeHtml(unmappedRegions.join(", ")) : "All regions started!"}</p>
@@ -4361,21 +4372,19 @@ function renderProspectList(){
   const groupsWrap = $("#prospecting-groups");
   if (!groupsWrap) return;
   renderProspectFilters();
-  renderTeamFocusPanel();
-  const focusCard = $("#prospecting-team-focus-card");
-  if (focusCard) focusCard.style.display = isRocky() ? "" : "none";
   const baseFiltered = dialerFilteredProspects();
 
-  // Team Focus used to just pin someone's vertical to the top without
-  // hiding anything else - now it's a real scope: anyone with a focus set
-  // only sees prospects in that industry, plus anything they've personally
-  // brought in themselves (manually added or CSV-imported), so narrowing
-  // someone's focus never locks them out of leads they went and found on
-  // their own. Only applies to non-admins - Rocky (who sets everyone's
-  // focus) always sees the full shared list regardless of his own.
+  // Vertical assignments are set from the Lead Engine page (Rocky/Max
+  // only, see canAccessLeadEngine) - here on Prospecting they're pure
+  // enforcement. Anyone with a focus set only sees prospects in that
+  // industry, plus anything they've personally brought in themselves
+  // (manually added or CSV-imported), so narrowing someone's focus never
+  // locks them out of leads they went and found on their own. Rocky/Max
+  // always see the full shared list regardless of their own focus, since
+  // they're the ones doing the assigning.
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
   const myFocus = activePerson ? state.teamFocus[activePerson] : null;
-  const scoped = (myFocus && !isRocky())
+  const scoped = (myFocus && !canAccessLeadEngine())
     ? baseFiltered.filter(p => (p.industry||"") === myFocus || personKeyFromEmail(p.created_by) === activePerson)
     : baseFiltered;
 
@@ -4491,6 +4500,7 @@ function renderAll(){
   renderDeals();
   renderCommission();
   renderRegionData();
+  renderTeamFocusPanel();
   renderRegionCoverage();
   renderProspectList();
   renderDialer();
@@ -5583,12 +5593,14 @@ function setupModals(){
     $("#deal-contract-type").value = "retainer";
     $("#deal-assignee").value = "";
     toggleDealContractFields();
+    toggleDealCommissionFields();
     $("#deal-modal-title").textContent = "New Deal";
     $("#deal-contacts-rows").innerHTML = "";
     addDealContactRow();
     openModal("deal-modal");
   });
   $("#deal-contract-type")?.addEventListener("change", toggleDealContractFields);
+  $("#deal-commission")?.addEventListener("input", toggleDealCommissionFields);
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
   $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
@@ -5612,6 +5624,7 @@ function setupModals(){
       contact_name: contactId ? contactName(contactId) : "",
       assignee: $("#deal-assignee").value || null,
       commission_initial_amount: $("#deal-commission").value !== "" ? Number($("#deal-commission").value) : null,
+      commission_invoice_date: $("#deal-commission-invoice-date").value || null,
       updated_at: new Date().toISOString(),
     };
     if (!row.title) return;
@@ -5623,20 +5636,6 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
-  $("#commission-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const dealId = $("#commission-form-deal-id").value;
-    if (!dealId) return;
-    const row = {
-      commission_initial_amount: Number($("#commission-initial-amount").value || 0),
-      commission_invoice_date: $("#commission-invoice-date").value || null,
-      updated_at: new Date().toISOString(),
-    };
-    await DataLayer.update("deals", dealId, row);
-    closeModal("commission-modal");
-    if (!IS_CONFIGURED) return; renderAll();
-  });
-
   $("#region-data-select")?.addEventListener("change", (e) => {
     state.regionDataFilter = e.target.value;
     renderRegionData();
@@ -5645,10 +5644,6 @@ function setupModals(){
   $("#prospecting-coverage-btn")?.addEventListener("click", () => {
     renderCoverageMap();
     openModal("coverage-modal");
-  });
-  $("#coverage-target-input")?.addEventListener("change", (e) => {
-    setCoverageTargetPerRegion(e.target.value);
-    renderRegionCoverage();
   });
 
   $("#event-form")?.addEventListener("submit", async (e) => {
@@ -6035,15 +6030,6 @@ function setupModals(){
       renderPlaybooks();
     }
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
-    if (action === "edit-commission"){
-      const d = state.deals.find(x => x.id === id);
-      if (!d) return;
-      $("#commission-form-deal-id").value = d.id;
-      $("#commission-modal-title").textContent = `Set Commission - ${d.contact_name || d.title}`;
-      $("#commission-initial-amount").value = d.commission_initial_amount ?? "";
-      $("#commission-invoice-date").value = d.commission_invoice_date || "";
-      openModal("commission-modal");
-    }
     if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }
     if (action === "view-meeting-deal"){ state.selectedDealId = id; $('.nav-item[data-page="deals"]')?.click(); renderDeals(); }
     if (action === "edit-deal"){
@@ -6058,7 +6044,9 @@ function setupModals(){
       $("#deal-stage").value = d.stage||"qualified";
       $("#deal-assignee").value = d.assignee||"";
       $("#deal-commission").value = d.commission_initial_amount ?? "";
+      $("#deal-commission-invoice-date").value = d.commission_invoice_date || "";
       toggleDealContractFields();
+      toggleDealCommissionFields();
       $("#deal-contacts-rows").innerHTML = "";
       $("#deal-modal-title").textContent = "Edit Deal";
       openModal("deal-modal");
@@ -6128,7 +6116,7 @@ function setupModals(){
     if (action === "filter-region-coverage"){
       state.dialerFilter.region = btn.dataset.region;
       renderProspectViews();
-      $("#prospecting-groups")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      $('.nav-item[data-page="prospecting"]')?.click();
     }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
