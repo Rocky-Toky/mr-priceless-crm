@@ -4185,13 +4185,15 @@ function renderReportHistoryModal(clientId){
 function renderRegionData(){
   const select = $("#region-data-select");
   if (!select) return;
-  const regions = dialerDistinctValues("region");
+  // NZ only, same as the rest of Prospecting - see renderProspectList.
+  const nzProspects = state.prospects.filter(p => !p.region || NZ_REGIONS.includes(p.region));
+  const regions = dialerDistinctValues("region").filter(r => NZ_REGIONS.includes(r));
   const wanted = state.regionDataFilter || "";
   select.innerHTML = `<option value="">All Regions</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
   select.value = regions.includes(wanted) ? wanted : "";
   state.regionDataFilter = select.value;
 
-  const filtered = state.regionDataFilter ? state.prospects.filter(p => p.region === state.regionDataFilter) : state.prospects;
+  const filtered = state.regionDataFilter ? nzProspects.filter(p => p.region === state.regionDataFilter) : nzProspects;
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
   st("#region-data-total", filtered.length);
   st("#region-data-calls", filtered.reduce((s,p) => s + Number(p.calls_made||0), 0).toLocaleString());
@@ -4292,7 +4294,10 @@ function renderProspectFilters(){
   const industrySel = $("#prospecting-filter-industry");
   const callerSel = $("#prospecting-filter-caller");
   if (regionSel){
-    const regions = dialerDistinctValues("region");
+    // NZ only, same as the list itself - an AU region option here would
+    // always return an empty list, which is exactly the kind of dead-end
+    // dropdown clutter Prospecting's meant to not have any more.
+    const regions = dialerDistinctValues("region").filter(r => NZ_REGIONS.includes(r));
     regionSel.innerHTML = `<option value="">All Regions</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
     regionSel.value = state.dialerFilter.region;
   }
@@ -4382,19 +4387,28 @@ function renderProspectList(){
   renderProspectFilters();
   const baseFiltered = dialerFilteredProspects();
 
+  // Prospecting is NZ only - Australian numbers are Aus Dialler's territory
+  // entirely, a separate operation with its own page, and shouldn't turn up
+  // here just because they live in the same shared dial_prospects table.
+  // Untagged/blank-region prospects still show (safer than hiding an
+  // un-tagged lead outright), only a prospect explicitly tagged with an AU
+  // region gets excluded.
+  const nzOnly = baseFiltered.filter(p => !p.region || !AU_REGIONS.includes(p.region));
+
   // Vertical assignments are set from the Lead Engine page (Rocky/Max
-  // only, see canAccessLeadEngine) - here on Prospecting they're pure
-  // enforcement. Anyone with a focus set only sees prospects in that
-  // industry, plus anything they've personally brought in themselves
-  // (manually added or CSV-imported), so narrowing someone's focus never
-  // locks them out of leads they went and found on their own. Rocky/Max
-  // always see the full shared list regardless of their own focus, since
-  // they're the ones doing the assigning.
+  // only, see canAccessLeadEngine) but the restriction itself applies to
+  // whoever has a focus set on their own key, admins included - if Rocky
+  // assigns himself a vertical, it scopes him too, same as anyone else. An
+  // admin who wants to see everything just leaves their own focus unset.
+  // Anyone with a focus set only sees prospects in that industry, plus
+  // anything they've personally brought in themselves, so narrowing
+  // someone's focus never locks them out of leads they went and found on
+  // their own.
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
   const myFocus = activePerson ? state.teamFocus[activePerson] : null;
-  const scoped = (myFocus && !canAccessLeadEngine())
-    ? baseFiltered.filter(p => (p.industry||"") === myFocus || personKeyFromEmail(p.created_by) === activePerson)
-    : baseFiltered;
+  const scoped = myFocus
+    ? nzOnly.filter(p => (p.industry||"") === myFocus || personKeyFromEmail(p.created_by) === activePerson)
+    : nzOnly;
 
   // Not Interested and Call Back are parked out of the normal flow entirely
   // (see isParked) rather than just snoozed on a timer, so they get their

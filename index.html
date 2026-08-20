@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=104">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=104">
+<link rel="stylesheet" href="css/style.css?v=105">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=105">
 </head>
 <body>
 
@@ -652,12 +652,17 @@
     <!-- Lead Engine (Rocky & Max only) -->
     <section class="page" id="page-lead-engine">
       <div class="page-header">
-        <div><h2>Lead Engine</h2><p>Vertical assignments and NZ region coverage - what feeds Prospecting for everyone else.</p></div>
-        <button class="btn ghost" id="prospecting-coverage-btn">Coverage Detail</button>
+        <div><h2>Lead Engine</h2><p>Vertical assignments and NZ region coverage - and where new leads get added and imported for the team.</p></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <input type="file" id="prospecting-import-input" accept=".csv,.xls,.xlsx" style="display:none;">
+          <button class="btn ghost" id="prospecting-coverage-btn">Coverage Detail</button>
+          <button class="btn ghost" id="prospecting-import-btn">Import CSV / XLS</button>
+          <button class="btn gold" id="prospecting-add-btn">+ Add Prospect</button>
+        </div>
       </div>
 
       <div class="card">
-        <div class="card-header"><h3>Vertical Assignments</h3><span class="stat-sub">Point someone at a vertical and Prospecting narrows to just that industry for them - they can still bring in their own leads by importing a CSV.</span></div>
+        <div class="card-header"><h3>Vertical Assignments</h3><span class="stat-sub">Point someone at a vertical and Prospecting narrows to just that industry for them - leave your own blank to keep seeing everything.</span></div>
         <div class="card-body team-focus-grid" id="prospecting-team-focus"></div>
       </div>
 
@@ -674,12 +679,7 @@
     <!-- Prospecting -->
     <section class="page" id="page-prospecting">
       <div class="page-header">
-        <div><h2>Prospecting</h2><p>One shared prospect list for the whole team - so nobody calls the same lead twice.</p></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <input type="file" id="prospecting-import-input" accept=".csv,.xls,.xlsx" style="display:none;">
-          <button class="btn ghost" id="prospecting-import-btn">Import CSV / XLS</button>
-          <button class="btn gold" id="prospecting-add-btn">+ Add Prospect</button>
-        </div>
+        <div><h2>Prospecting</h2><p>Your leads to work through - new prospects get added from Lead Engine.</p></div>
       </div>
 
       <div class="toolbar-card">
@@ -692,18 +692,6 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0116 0z"/><circle cx="12" cy="10" r="3"/></svg>
             <select class="filter-select" id="prospecting-filter-region">
               <option value="">All Regions</option>
-            </select>
-          </div>
-          <div class="select-icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41L11 3.83A2 2 0 009.6 3.17L3 3v6.6a2 2 0 00.59 1.41l9.58 9.58a2 2 0 002.82 0l6.6-6.6a2 2 0 000-2.83z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-            <select class="filter-select" id="prospecting-filter-industry">
-              <option value="">All Industries</option>
-            </select>
-          </div>
-          <div class="select-icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <select class="filter-select" id="prospecting-filter-caller">
-              <option value="">Called By - Anyone</option>
             </select>
           </div>
           <div class="select-icon-wrap">
@@ -2107,10 +2095,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=104"></script>
-<script src="js/supabaseClient.js?v=104"></script>
-<script src="js/app.js?v=104"></script>
-<script src="js/meetings-tracker.js?v=104"></script>
-<script src="js/todo.js?v=104"></script>
+<script src="js/config.js?v=105"></script>
+<script src="js/supabaseClient.js?v=105"></script>
+<script src="js/app.js?v=105"></script>
+<script src="js/meetings-tracker.js?v=105"></script>
+<script src="js/todo.js?v=105"></script>
 </body>
 </html>
