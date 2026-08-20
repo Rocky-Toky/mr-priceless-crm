@@ -47,6 +47,7 @@ const AD_RESULTS = {
   testing: { label: "Testing", cls: "gray" },
   winner: { label: "Winner", cls: "green" },
   killed: { label: "Killed", cls: "red" },
+  engagement: { label: "Engagement Post", cls: "blue" },
 };
 // Meta's real delivery status per ad, pulled live via sync/refresh - distinct
 // from the manually-set AD_RESULTS tag above.
@@ -3703,13 +3704,20 @@ function renderCreativeLibrary(){
 
   // Priority tier ahead of whatever sort is picked below: fatiguing actives
   // need attention right now, so they always lead; then every other active
-  // creative; everything else (paused/attention/unsynced) comes last. This
-  // is layered on top of - not instead of - the chosen sort, and never looks
-  // at performance numbers to decide fatigue, only the flag Rocky sets.
+  // creative, plus anything brand new that hasn't synced a delivery status
+  // yet (so a freshly-added creative surfaces near the top instead of
+  // getting buried with old paused/killed ones just because it has no
+  // status yet); everything else (paused/attention) comes after that.
+  // Engagement Posts always sort dead last regardless of any of the above -
+  // they're not lead-gen creatives being tested, so they don't belong mixed
+  // in with ones that are. This is layered on top of - not instead of - the
+  // chosen sort, and never looks at performance numbers to decide fatigue,
+  // only the flag Rocky sets.
   const priorityTier = (a) => {
+    if (a.result === "engagement") return 3;
     const running = DELIVERY_STATUS[a.delivery_status]?.group === "running";
     if (running && a.fatigue_status === "fatiguing") return 0;
-    if (running) return 1;
+    if (running || !a.delivery_status) return 1;
     return 2;
   };
 
