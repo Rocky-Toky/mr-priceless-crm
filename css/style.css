@@ -599,6 +599,21 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .coverage-chip.empty .coverage-chip-count{color:var(--danger);font-weight:600;}
 .coverage-chip.filling .coverage-chip-count{color:var(--success);font-weight:600;}
 
+.vertical-coverage-body{display:grid;grid-template-columns:1fr 1fr;gap:0 20px;padding:0 22px 20px;}
+@media (max-width:760px){.vertical-coverage-body{grid-template-columns:1fr;}}
+.vertical-coverage-col{min-width:0;}
+.vertical-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);}
+.vertical-row:last-child{border-bottom:none;}
+.vertical-row-info{min-width:0;flex:1;}
+.vertical-row-name{font-size:13px;font-weight:600;color:var(--text);}
+.vertical-row-sub{font-size:11.5px;color:var(--text2);margin-top:2px;}
+.vertical-row.is-complete .vertical-row-name{color:var(--text2);}
+.vertical-check{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--white);cursor:pointer;transition:all .2s cubic-bezier(.34,1.8,.64,1);}
+.vertical-check svg{width:12px;height:12px;color:var(--white);opacity:0;transform:scale(.2);transition:all .2s cubic-bezier(.34,1.8,.64,1);}
+.vertical-check.checked{background:linear-gradient(150deg,var(--gold-bright),var(--gold));border-color:var(--gold);}
+.vertical-check.checked svg{opacity:1;transform:scale(1);}
+.vertical-empty{font-size:12.5px;color:var(--text2);padding:6px 0;}
+
 /* ───────── Prospecting: region-grouped list ───────── */
 .prospect-region-table{padding:0 4px 4px;}
 .prospect-region-table .table-wrap{overflow-x:auto;}

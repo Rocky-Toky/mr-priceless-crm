@@ -409,6 +409,7 @@ const state = {
   callActivity: [],
   creativeSnapshots: [],
   clientLeads: [],
+  completedVerticals: [],
   playbookUsage: [],
   selectedClientId: null,
   selectedOnboardingClientId: null,
@@ -915,7 +916,7 @@ Cheers,
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead] = await Promise.all([
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv] = await Promise.all([
       supabase.from("contacts").select("*").order("created_at",{ascending:false}),
       supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
       supabase.from("deals").select("*").order("created_at",{ascending:false}),
@@ -943,6 +944,7 @@ const DataLayer = {
       supabase.from("team_focus").select("*"),
       supabase.from("creative_weekly_snapshots").select("*"),
       supabase.from("client_leads").select("*").order("created_at",{ascending:false}),
+      supabase.from("completed_verticals").select("*").order("completed_at",{ascending:false}),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
@@ -967,6 +969,7 @@ const DataLayer = {
     (tf.data || []).forEach(row => { state.teamFocus[row.person] = row.industry || null; });
     state.creativeSnapshots = cws.data || [];
     state.clientLeads = clead.data || [];
+    state.completedVerticals = cv.data || [];
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -1040,7 +1043,7 @@ function stateArray(table){
     client_reports: state.clientReports, notes: state.notes, playbooks: state.playbooks,
     rules: state.rules, email_templates: state.emailTemplates,
     expenses: state.expenses, call_activity: state.callActivity, playbook_usage: state.playbookUsage,
-    client_leads: state.clientLeads,
+    client_leads: state.clientLeads, completed_verticals: state.completedVerticals,
   }[table];
 }
 
@@ -1072,6 +1075,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event:"*", schema:"public", table:"creative_weekly_snapshots" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"team_focus" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"*", schema:"public", table:"client_leads" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+    .on("postgres_changes", { event:"*", schema:"public", table:"completed_verticals" }, async () => { await DataLayer.fetchAll(); renderAll(); })
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -2020,6 +2024,13 @@ const DIALER_CLAIM_TIMEOUT_MS = 3 * 60 * 1000;
 function isClaimedByOther(p, activePerson){
   if (!p.claimed_by || !p.claimed_at || p.claimed_by === activePerson) return false;
   return (Date.now() - new Date(p.claimed_at).getTime()) < DIALER_CLAIM_TIMEOUT_MS;
+}
+// A region+industry combo Lead Engine has ticked off as fully worked (see
+// Vertical Coverage) - never true for a prospect missing either field,
+// since a combo can only be marked complete once it's actually named.
+function isVerticalCompleted(region, industry){
+  if (!region || !industry) return false;
+  return state.completedVerticals.some(v => v.region === region && v.industry === industry);
 }
 function dialerFilteredProspects(){
   const f = state.dialerFilter;
@@ -4215,6 +4226,62 @@ function renderRegionCoverage(){
     </button>
   `).join("");
 }
+// Tick off a region+industry combo once it's been fully worked - its
+// prospects drop out of Prospecting for everyone (see isVerticalCompleted)
+// without deleting anything, and reactivating just un-ticks it. Active
+// combos are derived live from whatever NZ prospects actually exist, not a
+// fixed matrix - there's no point offering a checkbox for a combo nobody's
+// ever imported.
+function renderVerticalCoverage(){
+  const wrap = $("#vertical-coverage-body");
+  if (!wrap) return;
+
+  const groups = {};
+  state.prospects.forEach(p => {
+    if (!p.region || !p.industry || AU_REGIONS.includes(p.region)) return;
+    if (isVerticalCompleted(p.region, p.industry)) return;
+    const key = `${p.region} ${p.industry}`;
+    groups[key] = (groups[key]||0) + 1;
+  });
+  const active = Object.entries(groups)
+    .map(([key,count]) => { const [region,industry] = key.split(" "); return { region, industry, count }; })
+    .sort((a,b) => b.count - a.count || a.region.localeCompare(b.region));
+
+  const completed = [...state.completedVerticals].sort((a,b) => new Date(b.completed_at) - new Date(a.completed_at));
+
+  const activeHtml = active.length ? active.map(v => `
+    <div class="vertical-row">
+      <button type="button" class="vertical-check" data-action="complete-vertical" data-region="${escapeHtml(v.region)}" data-industry="${escapeHtml(v.industry)}" title="Mark ${escapeHtml(v.region)} · ${escapeHtml(v.industry)} as fully worked"></button>
+      <div class="vertical-row-info">
+        <div class="vertical-row-name">${escapeHtml(v.region)} · ${escapeHtml(v.industry)}</div>
+        <div class="vertical-row-sub">${v.count} prospect${v.count===1?"":"s"}</div>
+      </div>
+    </div>
+  `).join("") : `<p class="vertical-empty">No region + industry combos with prospects yet.</p>`;
+
+  const completedHtml = completed.length ? completed.map(v => {
+    const count = state.prospects.filter(p => p.region === v.region && p.industry === v.industry).length;
+    return `
+    <div class="vertical-row is-complete">
+      <button type="button" class="vertical-check checked" data-action="reactivate-vertical" data-id="${v.id}" title="Reactivate - brings these prospects back into Prospecting">${TASK_CHECK_SVG}</button>
+      <div class="vertical-row-info">
+        <div class="vertical-row-name">${escapeHtml(v.region)} · ${escapeHtml(v.industry)}</div>
+        <div class="vertical-row-sub">${count} prospect${count===1?"":"s"} tucked away - done ${fmtDate(v.completed_at)}${v.completed_by ? " by "+escapeHtml(prospectCallerLabel(v.completed_by)) : ""}</div>
+      </div>
+    </div>`;
+  }).join("") : `<p class="vertical-empty">Nothing marked complete yet.</p>`;
+
+  wrap.innerHTML = `
+    <div class="vertical-coverage-col">
+      <div class="card-subhead" style="padding-left:0;">Active</div>
+      ${activeHtml}
+    </div>
+    <div class="vertical-coverage-col">
+      <div class="card-subhead" style="padding-left:0;">Completed</div>
+      ${completedHtml}
+    </div>
+  `;
+}
 function renderCoverageMap(){
   const byRegion = {};
   const industriesSeen = new Set();
@@ -4371,6 +4438,12 @@ function renderProspectList(){
   // region gets excluded.
   const nzOnly = baseFiltered.filter(p => !p.region || !AU_REGIONS.includes(p.region));
 
+  // A region+industry combo ticked off as fully worked (see Lead Engine's
+  // Vertical Coverage) drops out of Prospecting entirely, for everyone -
+  // nothing gets deleted, it's just excluded here, so unticking it on Lead
+  // Engine brings the exact same prospects straight back.
+  const activeOnly = nzOnly.filter(p => !isVerticalCompleted(p.region, p.industry));
+
   // Vertical assignments are set from the Lead Engine page (Rocky/Max
   // only, see canAccessLeadEngine) but the restriction itself applies to
   // whoever has a focus set on their own key, admins included - if Rocky
@@ -4383,8 +4456,8 @@ function renderProspectList(){
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
   const myFocus = activePerson ? state.teamFocus[activePerson] : null;
   const scoped = myFocus
-    ? nzOnly.filter(p => (p.industry||"") === myFocus || personKeyFromEmail(p.created_by) === activePerson)
-    : nzOnly;
+    ? activeOnly.filter(p => (p.industry||"") === myFocus || personKeyFromEmail(p.created_by) === activePerson)
+    : activeOnly;
 
   // Not Interested and Call Back are parked out of the normal flow entirely
   // (see isParked) rather than just snoozed on a timer, so they get their
@@ -4500,6 +4573,7 @@ function renderAll(){
   renderRegionData();
   renderTeamFocusPanel();
   renderRegionCoverage();
+  renderVerticalCoverage();
   renderProspectList();
   renderDialer();
   renderClients();
@@ -6126,6 +6200,13 @@ function setupModals(){
       renderProspectViews();
       $('.nav-item[data-page="prospecting"]')?.click();
     }
+    if (action === "complete-vertical"){
+      const region = btn.dataset.region, industry = btn.dataset.industry;
+      const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+      await DataLayer.insert("completed_verticals", { region, industry, completed_at: new Date().toISOString(), completed_by: state.user?.email || activePerson || "demo" });
+      if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
+    }
+    if (action === "reactivate-vertical") { await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll(); }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
     if (action === "view-onboarding-client"){ state.selectedOnboardingClientId = id; renderOnboarding(); }
