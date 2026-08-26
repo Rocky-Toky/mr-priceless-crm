@@ -223,6 +223,14 @@ const COMMISSION_ELEVATED_MONTHS = 6;
 function monthsBetween(anchor, ref){
   return (ref.getFullYear()-anchor.getFullYear())*12 + (ref.getMonth()-anchor.getMonth()) - (ref.getDate()<anchor.getDate()?1:0);
 }
+// A won/pending deal gets a real Client record spun up automatically (see
+// maybeCreateClientFromDeal) linked back via client.source_deal_id - this is
+// what lets the deal's own commission_invoice_date and the client's own Ad
+// Start Date ("so we know when to invoice them") stay one and the same
+// date instead of two fields someone has to remember to keep in sync.
+function clientForDeal(dealId){
+  return state.clients.find(c => c.source_deal_id === dealId) || null;
+}
 // Returns null for a deal with no commission set up yet. monthsIn is how
 // many full months have passed since the client's invoice date - once that
 // hits 6, the rate drops from the deal's own elevated amount to the flat
@@ -230,8 +238,9 @@ function monthsBetween(anchor, ref){
 // month once the invoice date has passed, or the invoice date's own month
 // if it's still upcoming.
 function commissionForDeal(d, refDate = new Date()){
-  if (!d.commission_invoice_date || d.commission_initial_amount == null) return null;
-  const anchor = new Date(d.commission_invoice_date);
+  const invoiceDate = clientForDeal(d.id)?.ad_start_date || d.commission_invoice_date;
+  if (!invoiceDate || d.commission_initial_amount == null) return null;
+  const anchor = new Date(invoiceDate);
   const monthsIn = Math.max(0, monthsBetween(anchor, refDate));
   const elevated = monthsIn < COMMISSION_ELEVATED_MONTHS;
   const amount = elevated ? Number(d.commission_initial_amount) : COMMISSION_STEADY_RATE;
@@ -271,7 +280,7 @@ const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
 const CLIENT_INFO_FIELDS = [
   { key: "services", label: "Services", hint: "What we deliver for them - so anyone can explain it without asking." },
   { key: "renewal_date", label: "Renewal / Review Date", hint: "When to revisit the contract or scope.", isDate: true },
-  { key: "key_contacts", label: "Key Contacts", hint: "Who the decision makers are and how to reach them - fills in automatically as you answer the Onboarding checklist, same as Qualified Lead Structure." },
+  { key: "key_contacts", label: "Key Contacts", hint: "Who the decision makers are and how to reach them." },
   { key: "qualified_lead_structure", label: "Qualified Lead Structure", hint: "What actually counts as a good lead for this client - fills in automatically as you answer the qualifying questions on their Onboarding checklist." },
 ];
 function clientProfileCompleteness(c){
@@ -286,18 +295,11 @@ function clientProfileCompleteness(c){
 // against it - add a new key instead and leave the old one retired.
 const ONBOARDING_SECTIONS = [
   { section: "Get Started", items: [
-    { key: "book_call", text: "Book the onboarding call in with them." },
-    { key: "key_contacts", text: "Confirm who the key decision makers are and the best way to reach each of them.", answerable: true, fieldLabel: "Key Contacts", targetField: "key_contacts" },
     { key: "welcome_email", text: "Send the welcome email." },
     { key: "client_website", text: "Add their website link.", derivedFrom: "website" },
     { key: "client_phone", text: "Add their phone number.", derivedFrom: "phone" },
     { key: "client_email", text: "Add their email address.", derivedFrom: "email" },
     { key: "ghl_template", text: "Set up their GHL CRM pipeline template ahead of time, so it's ready to demo." },
-    { key: "halfway_ring", text: "Halfway between booking the call and having it, give them a quick ring to reinforce the excitement of coming on board, confirm they've got the calendar invite, and let them know we're already setting up their CRM." },
-  ]},
-  { section: "Open With Energy", items: [
-    { key: "open_energy_1", text: "Come in genuinely excited - smiling, good energy, stoked to have them on board." },
-    { key: "open_energy_2", text: "Introduce yourself and the Media Buyer who'll be handling the digital marketing side." },
   ]},
   { section: "Set Honest Expectations", items: [
     { key: "honest_expect_1", text: "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill." },
@@ -307,7 +309,6 @@ const ONBOARDING_SECTIONS = [
     { key: "good_lead_1", text: "Ask what they consider a job they're happy to quote for.", answerable: true, fieldLabel: "What Counts As A Good Lead" },
     { key: "good_lead_2", text: "Confirm their budget and timeline expectations.", answerable: true, fieldLabel: "Budget & Timeline Expectations" },
     { key: "good_lead_3", text: "Confirm their average job value.", answerable: true, fieldLabel: "Average Job Value" },
-    { key: "good_lead_4", text: "Confirm the type of work they want to chase right now.", answerable: true, fieldLabel: "Ideal Work Right Now" },
     { key: "good_lead_5", text: "Confirm how far out from their base they're willing to quote.", answerable: true, fieldLabel: "Service Radius" },
     { key: "good_lead_6", text: "Confirm whether they can quote after hours or on weekends.", answerable: true, fieldLabel: "After-Hours / Weekend Quoting" },
   ]},
@@ -319,27 +320,17 @@ const ONBOARDING_SECTIONS = [
     { key: "crm_auto_text", text: "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due." },
   ]},
   { section: "Demo The CRM", items: [
-    { key: "demo_1", text: "Walk them through the Tasks section." },
     { key: "demo_2", text: "Walk them through Opportunities - the leads that sync straight in from Meta." },
     { key: "demo_3", text: "Show them where to add notes, and stress how important it is to drag leads through the stages - that feedback is what we use to optimise targeting back on Meta." },
-    { key: "demo_4", text: "Let them know Tasks, Opportunities, and Document Storage are really the only sections they'll need to worry about day to day." },
     { key: "demo_5", text: "Walk through Document Storage - this is where they upload before/after job photos for us, plus a photo of themselves and one of the whole team, to use in ads." },
-    { key: "demo_6", text: "Get them to pin the CRM tab in their browser so it's always handy." },
   ]},
   { section: "Set Up Their Calendar", items: [
-    { key: "cal_download", text: "Confirm they're on Google Calendar and get the app downloaded on their phone - mention it syncs offline so it works anywhere." },
     { key: "cal_block_slots", text: "Explain that quotes get booked straight into whatever shows as free, so every slot they're not available - including travel to and from quotes - needs to be blocked off, and they can set this up as recurring events for their regular hours." },
     { key: "cal_share_max", text: "Share their calendar access with Max." },
     { key: "cal_sync_ghl", text: "Set up 2-way calendar sync with GHL, so bookings and their calendar stay lined up on both sides." },
-    { key: "cal_sharing_details", text: "Check their Google Calendar sharing is set to \"See all event details\", not \"See only free/busy\" - otherwise quotes booked in just show as a blocked-out busy slot with none of the actual details." },
   ]},
   { section: "Lock In The Ongoing Cadence", items: [
     { key: "cadence_catchup", text: "Set up a recurring fortnightly catch-up to go through progress, goals, and the pipeline together." },
-    { key: "cadence_reminder", text: "Once their creatives go live, set a reminder to give them a quick call - share genuine excitement that things are live and we're officially kicking off." },
-  ]},
-  { section: "Close It Out", items: [
-    { key: "close_1", text: "Tell them again how excited we are to work with them - we don't take on just anyone, and we're genuinely looking to build a long-term partnership." },
-    { key: "close_2", text: "Let them know they can call anytime - if anything feels off, or they want to go deeper on strategy and what's actually happening behind the ads, we're always happy to jump on a call and sort it out together." },
   ]},
   { section: "Launch Prep", items: [
     { key: "launch_creatives", text: "Add 2 proven High Performer ad creatives, plus 1 new Test creative, into their ad account." },
@@ -445,7 +436,6 @@ const state = {
   contentFilter: { search: "", client: "", type: "" },
   clientsGallerySearch: "",
   clientsCollapsedStages: new Set(),
-  commissionCollapsedReps: new Set(),
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
@@ -1698,81 +1688,51 @@ function renderDealsList(){
 // enough to count" bar maybeCreateClientFromDeal already uses - plenty of
 // real, actively-invoiced clients sit in Pending Results rather than ever
 // getting manually dragged to Closed Won, and they still owe commission.
+// Thor's the only rep on commission right now, so this is just his deals,
+// flat - no per-rep grouping to page through for a list of one.
 function renderCommission(){
   const wrap = $("#commission-groups");
   if (!wrap) return;
-  const wonDeals = state.deals.filter(d => MEETING_CLOSE_STAGES.has(d.stage));
-  const withCommission = wonDeals.filter(d => commissionForDeal(d));
-  const unset = wonDeals.length - withCommission.length;
+  const deals = state.deals.filter(d => MEETING_CLOSE_STAGES.has(d.stage) && d.assignee === "thor");
+  const withCommission = deals.filter(d => commissionForDeal(d));
   const totalDue = withCommission.reduce((s,d) => s + commissionForDeal(d).amount, 0);
   const dueEl = $("#commission-stat-due");
   if (dueEl) dueEl.textContent = fmtMoney(totalDue);
   const unsetEl = $("#commission-stat-unset");
-  if (unsetEl) unsetEl.textContent = unset;
+  if (unsetEl) unsetEl.textContent = deals.length - withCommission.length;
 
-  if (!wonDeals.length){ wrap.innerHTML = emptyState("No won deals yet - commission tracking kicks in once a deal closes."); return; }
+  if (!deals.length){ wrap.innerHTML = emptyState("No won deals of Thor's yet - commission tracking kicks in once one closes."); return; }
 
-  const byRep = {};
-  wonDeals.forEach(d => {
-    const key = d.assignee && ASSIGNEES[d.assignee] ? d.assignee : "__unassigned__";
-    (byRep[key] = byRep[key] || []).push(d);
+  // Set-up deals first (the actual report), unset ones trail at the bottom
+  // as a short to-do list rather than interrupting the read.
+  const sorted = [...deals].sort((a,b) => {
+    const ca = commissionForDeal(a), cb = commissionForDeal(b);
+    if (!!ca !== !!cb) return ca ? -1 : 1;
+    return (a.contact_name||a.title).localeCompare(b.contact_name||b.title);
   });
-  const repKeys = Object.keys(byRep).sort((a,b) => {
-    if (a === "__unassigned__") return 1;
-    if (b === "__unassigned__") return -1;
-    return ASSIGNEES[a].label.localeCompare(ASSIGNEES[b].label);
-  });
-
-  wrap.innerHTML = repKeys.map(key => {
-    // Set-up deals first (the actual report), unset ones trail at the
-    // bottom as a short to-do list rather than interrupting the read.
-    const deals = [...byRep[key]].sort((a,b) => {
-      const ca = commissionForDeal(a), cb = commissionForDeal(b);
-      if (!!ca !== !!cb) return ca ? -1 : 1;
-      return (a.contact_name||a.title).localeCompare(b.contact_name||b.title);
-    });
-    const label = key === "__unassigned__" ? "Unassigned" : ASSIGNEES[key].label;
-    const repTotal = deals.reduce((s,d) => { const c = commissionForDeal(d); return s + (c ? c.amount : 0); }, 0);
-    const open = state.commissionCollapsedReps.has(key) ? "" : "open";
-    return `
-      <details class="clients-stage-section" data-rep="${key}" ${open}>
-        <summary class="clients-stage-header">
-          <span class="clients-stage-dot"></span>
-          <h3>${escapeHtml(label)}</h3>
-          <span class="kanban-count">${deals.length}</span>
-          <span style="margin-left:auto;font-weight:700;color:var(--gold);">${fmtMoney(repTotal)}/mo</span>
-        </summary>
-        <div class="prospect-region-table">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Client / Deal</th><th>Monthly Commission</th><th>Next Due</th><th></th></tr></thead>
-              <tbody>
-                ${deals.map(d => {
-                  const c = commissionForDeal(d);
-                  return `
-                  <tr${c ? "" : ` class="commission-row-unset"`}>
-                    <td><div class="row-name">${escapeHtml(d.contact_name||d.title)}</div><div class="row-sub">${escapeHtml(d.title)}</div></td>
-                    <td>${c
-                      ? `${fmtMoney(c.amount)}/mo <span class="badge ${c.elevated?'gold':'gray'}" style="margin-left:6px;">${c.elevated ? `Elevated · Mo ${c.monthsIn+1}/${COMMISSION_ELEVATED_MONTHS}` : "Steady"}</span>`
-                      : `<span style="color:var(--text2);">Not set up yet</span>`}</td>
-                    <td>${c ? fmtDate(c.dueDate) : "-"}</td>
-                    <td style="text-align:right;"><button class="icon-btn" data-action="edit-deal" data-id="${d.id}" title="${c ? "Edit deal" : "Set up commission"}">${ICONS.edit}</button></td>
-                  </tr>`;
-                }).join("")}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </details>
-    `;
-  }).join("");
-  $$(".clients-stage-section", wrap).forEach(section => {
-    section.addEventListener("toggle", () => {
-      const key = section.dataset.rep;
-      if (section.open) state.commissionCollapsedReps.delete(key);
-      else state.commissionCollapsedReps.add(key);
-    });
-  });
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Client / Deal</th><th>Monthly Commission</th><th>Next Due</th><th></th></tr></thead>
+          <tbody>
+            ${sorted.map(d => {
+              const c = commissionForDeal(d);
+              return `
+              <tr${c ? "" : ` class="commission-row-unset"`}>
+                <td><div class="row-name">${escapeHtml(d.contact_name||d.title)}</div><div class="row-sub">${escapeHtml(d.title)}</div></td>
+                <td>${c
+                  ? `${fmtMoney(c.amount)}/mo <span class="badge ${c.elevated?'gold':'gray'}" style="margin-left:6px;">${c.elevated ? `Elevated · Mo ${c.monthsIn+1}/${COMMISSION_ELEVATED_MONTHS}` : "Steady"}</span>`
+                  : `<span style="color:var(--text2);">Not set up yet</span>`}</td>
+                <td>${c ? fmtDate(c.dueDate) : "-"}</td>
+                <td style="text-align:right;"><button class="icon-btn" data-action="edit-deal" data-id="${d.id}" title="${c ? "Edit deal" : "Set up commission"}">${ICONS.edit}</button></td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 function dealActivityFor(dealId){
   return state.notes.filter(n => n.deal_id === dealId && n.title === "Called").sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
@@ -1935,9 +1895,25 @@ function toggleDealContractFields(){
   const valueLabel = valueField?.querySelector("label");
   if (valueLabel) valueLabel.textContent = type === "ppl" ? "Price Per Lead (NZD)" : "Value (NZD/mo)";
 }
-function toggleDealCommissionFields(){
+// Commission's Thor-only for now - the field stays hidden for every other
+// assignee so it's not sitting there as a temptation/distraction on deals
+// it'll never apply to. Visibility-only, doesn't touch any value - used
+// both when just opening a deal to edit (never destructive) and after
+// typing an amount.
+function updateDealCommissionVisibility(){
+  const isThor = $("#deal-assignee")?.value === "thor";
+  const field = $("#deal-commission-field");
+  if (field) field.style.display = isThor ? "" : "none";
   const row = $("#deal-commission-date-row");
-  if (row) row.style.display = $("#deal-commission")?.value ? "" : "none";
+  if (row) row.style.display = (isThor && $("#deal-commission")?.value) ? "" : "none";
+}
+// Only wired to the assignee select's own change event (an intentional
+// reassignment while the form's open) - clears any commission amount if
+// switched away from Thor, so a stale value can't silently linger hidden
+// and still get saved. Never called just from opening the form to edit.
+function toggleDealCommissionFields(){
+  if ($("#deal-assignee")?.value !== "thor" && $("#deal-commission")) $("#deal-commission").value = "";
+  updateDealCommissionVisibility();
 }
 function toggleClientQuoteTargetField(){
   const field = $("#client-quote-target-field");
@@ -5622,7 +5598,8 @@ function setupModals(){
     openModal("deal-modal");
   });
   $("#deal-contract-type")?.addEventListener("change", toggleDealContractFields);
-  $("#deal-commission")?.addEventListener("input", toggleDealCommissionFields);
+  $("#deal-commission")?.addEventListener("input", updateDealCommissionVisibility);
+  $("#deal-assignee")?.addEventListener("change", toggleDealCommissionFields);
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
   $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
@@ -5654,6 +5631,15 @@ function setupModals(){
     if (deal) await saveDealContactRows(deal.id);
     if (deal) await maybeCreateClientFromDeal(deal);
     if (deal) await maybeCreateNoShowFollowup(deal);
+    // Keep the linked client's Ad Start Date lined up with what was just
+    // entered here as the invoice date - one date, editable from either
+    // Deals or Clients, instead of two fields that can drift apart.
+    if (deal){
+      const linkedClient = clientForDeal(deal.id);
+      if (linkedClient && linkedClient.ad_start_date !== row.commission_invoice_date){
+        await DataLayer.update("clients", linkedClient.id, { ad_start_date: row.commission_invoice_date });
+      }
+    }
     closeModal("deal-modal");
     if (!IS_CONFIGURED) return; renderAll();
   });
@@ -6066,9 +6052,9 @@ function setupModals(){
       $("#deal-stage").value = d.stage||"qualified";
       $("#deal-assignee").value = d.assignee||"";
       $("#deal-commission").value = d.commission_initial_amount ?? "";
-      $("#deal-commission-invoice-date").value = d.commission_invoice_date || "";
+      $("#deal-commission-invoice-date").value = clientForDeal(d.id)?.ad_start_date || d.commission_invoice_date || "";
       toggleDealContractFields();
-      toggleDealCommissionFields();
+      updateDealCommissionVisibility();
       $("#deal-contacts-rows").innerHTML = "";
       $("#deal-modal-title").textContent = "Edit Deal";
       openModal("deal-modal");
@@ -6180,6 +6166,11 @@ function setupModals(){
       await DataLayer.remove("clients", state.selectedClientId);
       state.selectedClientId = null;
       renderClients();
+    }
+    if (action === "delete-onboarding-client" && confirm("Delete this client entirely? This removes their onboarding progress along with the client record.")) {
+      await DataLayer.remove("clients", state.selectedOnboardingClientId);
+      state.selectedOnboardingClientId = null;
+      renderOnboarding();
     }
     if (action === "quote-increment" || action === "quote-decrement"){
       const client = state.clients.find(x => x.id === state.selectedClientId);

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=105">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=105">
+<link rel="stylesheet" href="css/style.css?v=106">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=106">
 </head>
 <body>
 
@@ -592,13 +592,13 @@
     <!-- Commission -->
     <section class="page" id="page-commission">
       <div class="page-header">
-        <div><h2>Commission</h2><p>What each rep is owed, tied to when the client's invoice actually gets paid - an elevated rate for the first 6 months, then it steps down to the steady rate.</p></div>
+        <div><h2>Commission</h2><p>Thor's commission, tied to when each client's invoice actually gets paid - an elevated rate for the first 6 months, then it steps down to the steady rate.</p></div>
       </div>
       <div class="stat-grid stat-grid-2">
-        <div class="stat-card stat-card-mrr"><div class="stat-label">Due This Month</div><div class="stat-value" id="commission-stat-due">$0</div><div class="stat-sub" id="commission-stat-due-sub">Across every rep</div></div>
-        <div class="stat-card"><div class="stat-label">Won Deals Without Commission Set Up</div><div class="stat-value" id="commission-stat-unset">0</div></div>
+        <div class="stat-card stat-card-mrr"><div class="stat-label">Due This Month</div><div class="stat-value" id="commission-stat-due">$0</div></div>
+        <div class="stat-card"><div class="stat-label">Won Deals Not Set Up Yet</div><div class="stat-value" id="commission-stat-unset">0</div></div>
       </div>
-      <div id="commission-groups" class="clients-gallery"></div>
+      <div id="commission-groups"></div>
     </section>
 
     <!-- Tasks -->
@@ -1014,7 +1014,12 @@
             <button class="btn ghost" data-action="back-to-onboarding" style="margin-bottom:12px;">← All Onboarding</button>
             <h2 id="onboarding-detail-name">Client</h2>
           </div>
-          <button class="btn gold" id="onboarding-complete-btn" data-action="complete-onboarding" style="display:none;">Mark Complete → Move to Month 1</button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn gold" id="onboarding-complete-btn" data-action="complete-onboarding" style="display:none;">Mark Complete → Move to Month 1</button>
+            <button class="icon-btn" data-action="delete-onboarding-client" title="Delete Client">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>
+            </button>
+          </div>
         </div>
         <div class="card" style="margin-bottom:20px;">
           <div class="onboarding-progress-bar onboarding-progress-bar-lg"><div class="onboarding-progress-fill" id="onboarding-detail-progress-fill" style="width:0%"></div></div>
@@ -1605,11 +1610,11 @@
             <option value="thor">Thor</option>
           </select>
         </div>
-        <div class="field"><label>Rep Commission (NZD/mo)</label><input type="number" id="deal-commission" min="0" step="1" placeholder="e.g. 500 - leave blank if none"></div>
+        <div class="field" id="deal-commission-field" style="display:none;"><label>Rep Commission (NZD/mo)</label><input type="number" id="deal-commission" min="0" step="1" placeholder="e.g. 500 - leave blank if none"></div>
       </div>
       <div class="field-row" id="deal-commission-date-row" style="display:none;">
         <div class="field"><label>Client's Invoice Due Date</label><input type="date" id="deal-commission-invoice-date"></div>
-        <div class="field" style="justify-content:flex-end;"><p style="color:var(--text2);font-size:12px;line-height:1.5;margin:0;">Elevated rate above applies for 6 months from this date, then it steps down to the flat steady rate.</p></div>
+        <div class="field" style="justify-content:flex-end;"><p style="color:var(--text2);font-size:12px;line-height:1.5;margin:0;">Same date as Ad Start Date on Clients - editing it here updates there too. Elevated rate above applies for 6 months from this date, then it steps down to the flat steady rate.</p></div>
       </div>
       <div class="field">
         <label>Additional Contacts</label>
@@ -1809,7 +1814,7 @@
         <div class="field"><label>Renewal / Review Date</label><input type="date" id="client-info-renewal-input"></div>
       </div>
       <div class="modal-section-label">Working Together</div>
-      <div class="field"><label>Key Contacts</label><textarea id="client-info-contacts-input" rows="3" placeholder="Decision makers, roles, best way to reach them - or leave this for the Onboarding checklist to fill in automatically..."></textarea></div>
+      <div class="field"><label>Key Contacts</label><textarea id="client-info-contacts-input" rows="3" placeholder="Decision makers, roles, best way to reach them..."></textarea></div>
       <div class="modal-section-label">Leads</div>
       <div class="field"><label>Qualified Lead Structure</label><textarea id="client-info-qls-input" rows="3" placeholder="What counts as a qualified lead for this client..."></textarea></div>
       <div class="modal-actions">
@@ -2095,10 +2100,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=105"></script>
-<script src="js/supabaseClient.js?v=105"></script>
-<script src="js/app.js?v=105"></script>
-<script src="js/meetings-tracker.js?v=105"></script>
-<script src="js/todo.js?v=105"></script>
+<script src="js/config.js?v=106"></script>
+<script src="js/supabaseClient.js?v=106"></script>
+<script src="js/app.js?v=106"></script>
+<script src="js/meetings-tracker.js?v=106"></script>
+<script src="js/todo.js?v=106"></script>
 </body>
 </html>
