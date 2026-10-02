@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=112">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=112">
+<link rel="stylesheet" href="css/style.css?v=114">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=114">
 </head>
 <body>
 
@@ -679,10 +679,13 @@
       </div>
 
       <div class="card" style="margin-top:24px;">
-        <div class="card-header"><h3>NZ Region Coverage</h3><span class="stat-sub">Which regions still need prospects, and which already have some.</span></div>
+        <div class="card-header"><h3>NZ Region Coverage</h3><span class="stat-sub">Pick an industry to see which regions already have prospects for it (green) and which don't (red).</span></div>
+        <div class="coverage-toolbar">
+          <select id="coverage-industry-select" aria-label="Industry"></select>
+        </div>
         <div class="coverage-summary">
-          <span class="coverage-summary-item"><span class="coverage-summary-dot empty"></span><span id="coverage-count-empty">0</span> not started</span>
-          <span class="coverage-summary-item"><span class="coverage-summary-dot filling"></span><span id="coverage-count-filling">0</span> have prospects</span>
+          <span class="coverage-summary-item"><span class="coverage-summary-dot empty" id="coverage-dot-empty"></span><span id="coverage-count-empty">0</span> <span id="coverage-label-empty">not started</span></span>
+          <span class="coverage-summary-item"><span class="coverage-summary-dot filling"></span><span id="coverage-count-filling">0</span> <span id="coverage-label-filling">have prospects</span></span>
         </div>
         <div class="coverage-grid" id="coverage-grid"></div>
       </div>
@@ -2117,10 +2120,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=112"></script>
-<script src="js/supabaseClient.js?v=112"></script>
-<script src="js/app.js?v=112"></script>
-<script src="js/meetings-tracker.js?v=112"></script>
-<script src="js/todo.js?v=112"></script>
+<script src="js/config.js?v=114"></script>
+<script src="js/supabaseClient.js?v=114"></script>
+<script src="js/app.js?v=114"></script>
+<script src="js/meetings-tracker.js?v=114"></script>
+<script src="js/todo.js?v=114"></script>
 </body>
 </html>

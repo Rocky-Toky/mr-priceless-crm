@@ -605,6 +605,11 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 }
 .coverage-chip:hover{border-color:var(--gold-border);transform:translateY(-1px);}
 .coverage-chip.filling{background:rgba(63,125,85,0.08);border-color:rgba(63,125,85,0.25);}
+.coverage-toolbar{padding:0 22px 14px;}
+.coverage-toolbar select{min-width:220px;max-width:100%;}
+.coverage-chip.missing{background:rgba(179,69,46,0.08);border-color:rgba(179,69,46,0.3);}
+.coverage-chip.missing .coverage-chip-count{color:var(--danger);font-weight:600;}
+.coverage-summary-dot.missing{background:var(--danger);}
 .coverage-chip-name{font-size:12.5px;font-weight:600;color:var(--text);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .coverage-chip-count{font-size:11px;color:var(--text2);margin-top:2px;display:block;}
 .coverage-chip.empty .coverage-chip-count{color:var(--danger);font-weight:600;}

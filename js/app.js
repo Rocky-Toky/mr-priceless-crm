@@ -414,6 +414,7 @@ const state = {
   selectedClientId: null,
   selectedOnboardingClientId: null,
   selectedDealId: null,
+  coverageIndustry: "",
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
   // Separate from dialerFilter (which is shared with the Prospecting page's
   // deliberately-shared master list) - this only scopes the Dialler itself,
@@ -1351,6 +1352,7 @@ function applyWorkspace(){
 }
 function setupNav(){
   $("#workspace-select")?.addEventListener("change", (e) => setWorkspace(e.target.value));
+  $("#coverage-industry-select")?.addEventListener("change", (e) => { state.coverageIndustry = e.target.value; renderRegionCoverage(); });
   $$(".nav-item[data-page]").forEach(btn => {
     btn.addEventListener("click", () => {
       state.page = btn.dataset.page;
@@ -4228,23 +4230,40 @@ function renderRegionCoverage(){
   const grid = $("#coverage-grid");
   if (!grid) return;
 
-  const counts = {};
-  state.prospects.forEach(p => { if (p.region) counts[p.region] = (counts[p.region]||0) + 1; });
+  const sel = $("#coverage-industry-select");
+  const industry = state.coverageIndustry || "";
+  if (sel){
+    const options = [...new Set([...HOME_SERVICES_INDUSTRIES, ...state.prospects.map(p => p.industry).filter(Boolean)])].sort((a,b) => a.localeCompare(b));
+    sel.innerHTML = `<option value="">All industries</option>` + options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
+    sel.value = industry;
+  }
 
+  const counts = {};
+  state.prospects.forEach(p => {
+    if (!p.region || (industry && p.industry !== industry)) return;
+    counts[p.region] = (counts[p.region]||0) + 1;
+  });
+
+  const emptyStatus = industry ? "missing" : "empty";
   const rows = NZ_REGIONS.map(region => {
     const count = counts[region] || 0;
-    return { region, count, status: count === 0 ? "empty" : "filling" };
+    return { region, count, status: count === 0 ? emptyStatus : "filling" };
   });
 
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
-  st("#coverage-count-empty", rows.filter(r => r.status === "empty").length);
+  st("#coverage-count-empty", rows.filter(r => r.status !== "filling").length);
   st("#coverage-count-filling", rows.filter(r => r.status === "filling").length);
+  st("#coverage-label-empty", industry ? `have no ${industry} prospects` : "not started");
+  st("#coverage-label-filling", industry ? `have ${industry} prospects` : "have prospects");
+  $("#coverage-dot-empty")?.classList.toggle("missing", !!industry);
+  $("#coverage-dot-empty")?.classList.toggle("empty", !industry);
 
+  const noun = industry ? `${industry} prospect` : "prospect";
   const sorted = [...rows].sort((a,b) => a.count - b.count || a.region.localeCompare(b.region));
   grid.innerHTML = sorted.map(r => `
-    <button type="button" class="coverage-chip ${r.status}" data-action="filter-region-coverage" data-region="${escapeHtml(r.region)}" title="${escapeHtml(r.region)} - ${r.count} prospect${r.count===1?"":"s"}">
+    <button type="button" class="coverage-chip ${r.status}" data-action="filter-region-coverage" data-region="${escapeHtml(r.region)}" title="${escapeHtml(r.region)} - ${r.count} ${escapeHtml(noun)}${r.count===1?"":"s"}">
       <span class="coverage-chip-name">${escapeHtml(r.region)}</span>
-      <span class="coverage-chip-count">${r.status === "empty" ? "Not started" : `${r.count} prospect${r.count===1?"":"s"}`}</span>
+      <span class="coverage-chip-count">${r.status === "filling" ? `${r.count} ${escapeHtml(noun)}${r.count===1?"":"s"}` : (industry ? "None yet" : "Not started")}</span>
     </button>
   `).join("");
 }
