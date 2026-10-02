@@ -1341,10 +1341,9 @@ function applyWorkspace(){
   if (dashTitleEl) dashTitleEl.textContent = copy.dashboardTitle;
   if (dashSubEl) dashSubEl.textContent = copy.dashboardSub;
   // If the page we're on isn't part of this workspace, fall back to Dashboard.
-  const activeBtn = $(`.nav-item[data-page="${state.page}"]`);
-  const btnWorkspace = activeBtn?.dataset.workspace;
-  if (btnWorkspace && btnWorkspace !== "both" && btnWorkspace !== ws){
-    $('.nav-item[data-page="dashboard"]')?.click();
+  const pageBtns = $$(`.nav-item[data-page="${state.page}"]`);
+  if (pageBtns.length && !pageBtns.some(b => b.dataset.workspace === "both" || b.dataset.workspace === ws)){
+    $(`.nav-item[data-page="dashboard"][data-workspace="${ws}"]`)?.click();
   }
   if (state.page === "lead-engine" && !canAccessLeadEngine()){
     $('.nav-item[data-page="dashboard"]')?.click();
