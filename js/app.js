@@ -4259,7 +4259,7 @@ function renderRegionCoverage(){
   $("#coverage-dot-empty")?.classList.toggle("empty", !industry);
 
   const noun = industry ? `${industry} prospect` : "prospect";
-  const sorted = [...rows].sort((a,b) => a.count - b.count || a.region.localeCompare(b.region));
+  const sorted = [...rows].sort((a,b) => b.count - a.count || a.region.localeCompare(b.region));
   grid.innerHTML = sorted.map(r => `
     <button type="button" class="coverage-chip ${r.status}" data-action="filter-region-coverage" data-region="${escapeHtml(r.region)}" title="${escapeHtml(r.region)} - ${r.count} ${escapeHtml(noun)}${r.count===1?"":"s"}">
       <span class="coverage-chip-name">${escapeHtml(r.region)}</span>

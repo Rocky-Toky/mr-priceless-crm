@@ -604,10 +604,11 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
   padding:9px 11px;cursor:pointer;transition:border-color .15s,transform .1s;text-align:left;
 }
 .coverage-chip:hover{border-color:var(--gold-border);transform:translateY(-1px);}
-.coverage-chip.filling{background:rgba(63,125,85,0.08);border-color:rgba(63,125,85,0.25);}
+.coverage-chip.filling{background:rgba(63,125,85,0.2);border-color:var(--success);box-shadow:0 0 0 1px var(--success) inset;}
+.coverage-chip.filling .coverage-chip-name{color:#25573a;}
 .coverage-toolbar{padding:0 22px 14px;}
 .coverage-toolbar select{min-width:220px;max-width:100%;}
-.coverage-chip.missing{background:rgba(179,69,46,0.08);border-color:rgba(179,69,46,0.3);}
+.coverage-chip.missing{background:rgba(179,69,46,0.1);border-color:rgba(179,69,46,0.35);}
 .coverage-chip.missing .coverage-chip-count{color:var(--danger);font-weight:600;}
 .coverage-summary-dot.missing{background:var(--danger);}
 .coverage-chip-name{font-size:12.5px;font-weight:600;color:var(--text);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
