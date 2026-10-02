@@ -21,11 +21,13 @@ const STAGES = [
   { key: "no_show", label: "No Show" },
   { key: "proposal", label: "Proposal Meeting" },
   { key: "negotiation", label: "Negotiation" },
+  { key: "onboarding", label: "Onboarding" },
   { key: "pending_results", label: "Pending Results" },
   { key: "closed_won", label: "Closed Won" },
   { key: "closed_lost", label: "Closed Lost" },
+  { key: "disqualified", label: "Disqualified" },
 ];
-const CLOSED_STAGES = new Set(["closed_won", "closed_lost"]);
+const CLOSED_STAGES = new Set(["closed_won", "closed_lost", "disqualified"]);
 // A meeting counts as "closed" once its deal is far enough along to matter -
 // either it's landed in Pending Results or gone all the way to Closed Won.
 // Matches the same pair maybeCreateClientFromDeal() already uses to decide

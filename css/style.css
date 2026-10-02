@@ -358,6 +358,10 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .kanban-col[data-stage="proposal"]::before{opacity:0.75;}
 .kanban-col[data-stage="negotiation"]::before{opacity:1;}
 
+.kanban-col[data-stage="onboarding"]{background:linear-gradient(175deg,#f3eff7,#ece6f2);border-color:rgba(110,80,150,0.18);}
+.kanban-col[data-stage="onboarding"]::before{background:linear-gradient(90deg,#6e5096,#9479b8);opacity:1;}
+.kanban-col[data-stage="onboarding"] .kanban-col-head h4{color:#6e5096;}
+.kanban-col[data-stage="onboarding"] .kanban-col-value{color:#6e5096;}
 .kanban-col[data-stage="pending_results"]{background:linear-gradient(175deg,#eef3f7,#e6eef4);border-color:rgba(61,107,150,0.18);}
 .kanban-col[data-stage="pending_results"]::before{background:linear-gradient(90deg,var(--pending),#5f8db8);opacity:1;}
 .kanban-col[data-stage="pending_results"] .kanban-col-head h4{color:var(--pending);}
@@ -372,6 +376,11 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .kanban-col[data-stage="closed_lost"] .kanban-col-head h4{color:var(--danger);}
 .kanban-col[data-stage="closed_lost"] .kanban-col-value{color:var(--danger);}
 .kanban-col[data-stage="closed_lost"] .deal-card{opacity:0.7;}
+.kanban-col[data-stage="disqualified"]{background:linear-gradient(175deg,#efefed,#e7e7e4);border-color:rgba(90,90,90,0.18);}
+.kanban-col[data-stage="disqualified"]::before{background:linear-gradient(90deg,#7a7a78,#a0a09d);opacity:1;}
+.kanban-col[data-stage="disqualified"] .kanban-col-head h4{color:#6a6a68;}
+.kanban-col[data-stage="disqualified"] .kanban-col-value{color:#6a6a68;}
+.kanban-col[data-stage="disqualified"] .deal-card{opacity:0.7;}
 
 .deal-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
