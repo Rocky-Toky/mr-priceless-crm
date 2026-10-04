@@ -395,6 +395,8 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .kanban-col[data-stage="ghosted"] .kanban-col-value{color:#5f7280;}
 .kanban-col[data-stage="ghosted"] .deal-card{opacity:0.65;}
 
+.kanban-more{width:100%;padding:8px 10px;border:1px dashed var(--line);border-radius:var(--r-sm);background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+.kanban-more:hover{border-color:var(--gold-border);color:var(--gold-deep);background:var(--gold-soft);}
 .deal-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
   padding:12px 13px;box-shadow:0 1px 2px rgba(0,0,0,0.04);cursor:grab;

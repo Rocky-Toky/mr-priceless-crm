@@ -422,6 +422,7 @@ const state = {
   selectedOnboardingClientId: null,
   selectedDealId: null,
   coverageIndustry: "",
+  expandedStages: {},
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
   // Separate from dialerFilter (which is shared with the Prospecting page's
   // deliberately-shared master list) - this only scopes the Dialler itself,
@@ -1679,8 +1680,10 @@ function renderDeals(){
     renderDealDetail(selected);
   }
 }
+const KANBAN_PREVIEW_COUNT = 3;
 function renderDealStageCol(stage){
   const deals = state.deals.filter(d => d.stage === stage.key);
+  const expanded = !!state.expandedStages[stage.key];
   // Net of rep commission where it's known, same as the pipeline total above
   // the board - a column footer that only ever showed gross was overstating
   // what actually lands once commission's paid out.
@@ -1692,7 +1695,7 @@ function renderDealStageCol(stage){
         <span class="kanban-count">${deals.length}</span>
       </div>
       <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
-      ${deals.map(d => {
+      ${(expanded ? deals : deals.slice(0, KANBAN_PREVIEW_COUNT)).map(d => {
         const extraContacts = dealContactsFor(d.id);
         const primaryContact = d.contact_id ? state.contacts.find(c => c.id === d.contact_id) : null;
         const netValue = dealNetValue(d);
@@ -1710,6 +1713,7 @@ function renderDealStageCol(stage){
           ${netValue != null ? `<div class="deal-net-value">Net ${fmtMoney(netValue)}/mo after ${fmtMoney(d.commission_initial_amount)} commission</div>` : ""}
         </div>
       `;}).join("")}
+      ${deals.length > KANBAN_PREVIEW_COUNT ? `<button type="button" class="kanban-more" data-action="toggle-stage-expand" data-stage="${stage.key}">${expanded ? "Show less" : `Show ${deals.length - KANBAN_PREVIEW_COUNT} more`}</button>` : ""}
     </div>
   `;
 }
@@ -6251,6 +6255,12 @@ function setupModals(){
       }
     }
     if (action === "reactivate-prospect") await reactivateProspect(id);
+    if (action === "toggle-stage-expand"){
+      const key = btn.dataset.stage;
+      state.expandedStages[key] = !state.expandedStages[key];
+      renderDealsList();
+      return;
+    }
     if (action === "filter-region-coverage"){
       state.dialerFilter.region = btn.dataset.region;
       renderProspectViews();
