@@ -335,8 +335,8 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .kanban{display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;align-items:start;}
 .kanban-closed{grid-template-columns:repeat(auto-fit, minmax(180px, 260px));}
 #kanban-board{grid-template-columns:repeat(6,minmax(0,1fr));}
-#kanban-board-closed{grid-template-columns:repeat(4,minmax(0,1fr));}
-@media(max-width:1250px){#kanban-board{grid-template-columns:repeat(3,minmax(0,1fr));}#kanban-board-closed{grid-template-columns:repeat(2,minmax(0,1fr));}}
+#kanban-board-closed{grid-template-columns:repeat(5,minmax(0,1fr));}
+@media(max-width:1250px){#kanban-board{grid-template-columns:repeat(3,minmax(0,1fr));}#kanban-board-closed{grid-template-columns:repeat(3,minmax(0,1fr));}}
 @media(max-width:700px){#kanban-board,#kanban-board-closed{grid-template-columns:repeat(2,minmax(0,1fr));}}
 .kanban-closed-divider{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin:20px 0 12px;padding-top:16px;border-top:1px solid var(--line);}
 .kanban-col{
@@ -375,6 +375,10 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .kanban-col[data-stage="closed_won"]::before{background:linear-gradient(90deg,var(--success),#5fae78);opacity:1;}
 .kanban-col[data-stage="closed_won"] .kanban-col-head h4{color:var(--success);}
 .kanban-col[data-stage="closed_won"] .kanban-col-value{color:var(--success);}
+.kanban-col[data-stage="closed_won_adhoc"]{background:linear-gradient(175deg,#eef3e6,#e6eedb);border-color:rgba(100,130,50,0.2);}
+.kanban-col[data-stage="closed_won_adhoc"]::before{background:linear-gradient(90deg,#6f8f2f,#9ab85a);opacity:1;}
+.kanban-col[data-stage="closed_won_adhoc"] .kanban-col-head h4{color:#5b7a25;}
+.kanban-col[data-stage="closed_won_adhoc"] .kanban-col-value{color:#5b7a25;}
 .kanban-col[data-stage="closed_lost"]{background:linear-gradient(175deg,#f1eae7,#ebe2df);border-color:rgba(179,69,46,0.15);}
 .kanban-col[data-stage="closed_lost"]::before{background:linear-gradient(90deg,var(--danger),#c56347);opacity:1;}
 .kanban-col[data-stage="closed_lost"] .kanban-col-head h4{color:var(--danger);}

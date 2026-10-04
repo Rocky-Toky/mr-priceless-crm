@@ -23,12 +23,16 @@ const STAGES = [
   { key: "negotiation", label: "Negotiation" },
   { key: "onboarding", label: "Onboarding" },
   { key: "pending_results", label: "Pending Results" },
-  { key: "closed_won", label: "Closed Won" },
+  { key: "closed_won", label: "Closed Won MRR" },
+  { key: "closed_won_adhoc", label: "Closed Won Adhoc" },
   { key: "closed_lost", label: "Closed Lost" },
   { key: "disqualified", label: "Disqualified" },
   { key: "ghosted", label: "Ghosted" },
 ];
-const CLOSED_STAGES = new Set(["closed_won", "closed_lost", "disqualified", "ghosted"]);
+const CLOSED_STAGES = new Set(["closed_won", "closed_won_adhoc", "closed_lost", "disqualified", "ghosted"]);
+// Closed Won Adhoc = one-off jobs. They count as wins everywhere (win rate,
+// stats) but never as MRR, and stay out of Commission / auto-Client creation.
+const ADHOC_STAGE = "closed_won_adhoc";
 // A meeting counts as "closed" once its deal is far enough along to matter -
 // either it's landed in Pending Results or gone all the way to Closed Won.
 // Matches the same pair maybeCreateClientFromDeal() already uses to decide
@@ -1396,13 +1400,17 @@ function setupNav(){
 /* ───────── Render: Dashboard ───────── */
 function renderDashboard(){
   const closedWon = state.deals.filter(d => d.stage === "closed_won");
+  const closedAdhoc = state.deals.filter(d => d.stage === ADHOC_STAGE);
   const closedLost = state.deals.filter(d => d.stage === "closed_lost");
   const openDeals = state.deals.filter(d => !CLOSED_STAGES.has(d.stage));
   const wonThisMonth = closedWon.filter(d => sameMonth(d.updated_at || d.created_at));
   const mrr = closedWon.reduce((s,d) => s + Number(d.value||0), 0);
   const pipelineValue = openDeals.reduce((s,d) => s + Number(d.value||0), 0);
-  const closedTotal = closedWon.length + closedLost.length;
-  const winRate = closedTotal ? Math.round(closedWon.length / closedTotal * 100) : null;
+  const adhocThisMonth = closedAdhoc.filter(d => sameMonth(d.updated_at || d.created_at));
+  const adhocTotal = closedAdhoc.reduce((s,d) => s + Number(d.value||0), 0);
+  const wonCount = closedWon.length + closedAdhoc.length;
+  const closedTotal = wonCount + closedLost.length;
+  const winRate = closedTotal ? Math.round(wonCount / closedTotal * 100) : null;
 
   const monthlyExpenses = monthlyRecurringTotal();
   const netMrr = mrr - monthlyExpenses;
@@ -1410,6 +1418,8 @@ function renderDashboard(){
   $("#stat-mrr").textContent = fmtMoney(mrr);
   $("#stat-mrr-sub").textContent = `from ${closedWon.length} closed won job${closedWon.length===1?"":"s"}`;
   $("#stat-net-mrr").textContent = `${fmtMoney(netMrr)}/mo net after ${fmtMoney(monthlyExpenses)} expenses`;
+  $("#stat-adhoc").textContent = fmtMoney(adhocTotal);
+  $("#stat-adhoc-sub").textContent = `${closedAdhoc.length} job${closedAdhoc.length===1?"":"s"} · ${fmtMoney(adhocThisMonth.reduce((s,d)=>s+Number(d.value||0),0))} this month`;
   $("#stat-won-month").textContent = wonThisMonth.length;
   $("#stat-won-month-value").textContent = `${fmtMoney(wonThisMonth.reduce((s,d)=>s+Number(d.value||0),0))} added`;
   $("#stat-won-total").textContent = closedWon.length;
@@ -1417,16 +1427,16 @@ function renderDashboard(){
   $("#stat-pipeline").textContent = fmtMoney(pipelineValue);
   $("#stat-pipeline-sub").textContent = `${openDeals.length} active deal${openDeals.length===1?"":"s"}`;
 
-  const recentWins = [...closedWon].sort((a,b) => new Date(b.updated_at||b.created_at) - new Date(a.updated_at||a.created_at)).slice(0,8);
+  const recentWins = [...closedWon, ...closedAdhoc].sort((a,b) => new Date(b.updated_at||b.created_at) - new Date(a.updated_at||a.created_at)).slice(0,8);
   $("#closed-won-list").innerHTML = recentWins.length ? recentWins.map(d => `
     <div class="activity-row">
       <div class="activity-dot activity-dot-won"></div>
       <div>
-        <div class="activity-text"><b>${escapeHtml(d.title)}</b> - ${fmtMoney(d.value)}/mo</div>
+        <div class="activity-text"><b>${escapeHtml(d.title)}</b> - ${fmtMoney(d.value)}${d.stage === ADHOC_STAGE ? " one-off" : "/mo"}</div>
         <div class="activity-time">${escapeHtml(d.contact_name||"No contact")} · Won ${timeAgo(d.updated_at||d.created_at)}</div>
       </div>
     </div>
-  `).join("") : emptyState("No closed won jobs yet - move a deal to Closed Won on the Deals board.");
+  `).join("") : emptyState("No closed won jobs yet - move a deal to Closed Won MRR or Closed Won Adhoc on the Deals board.");
 
   const followUps = state.coldCalls.filter(c => c.follow_up_date).sort((a,b)=> new Date(a.follow_up_date)-new Date(b.follow_up_date)).slice(0,6);
   $("#followup-list").innerHTML = followUps.length ? followUps.map(c => `
@@ -4674,8 +4684,8 @@ function statsForPerson(p, bounds){
   const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
   const dealsBooked = state.deals.filter(d => d.assignee === p && inStatsRange(d.created_at, bounds));
   const meetingsBooked = dealsBooked.length;
-  const closedMeetings = dealsBooked.filter(d => MEETING_CLOSE_STAGES.has(d.stage)).length;
-  const closedDeals = state.deals.filter(d => d.assignee === p && d.stage === "closed_won" && inStatsRange(d.updated_at||d.created_at, bounds)).length;
+  const closedMeetings = dealsBooked.filter(d => MEETING_CLOSE_STAGES.has(d.stage) || d.stage === ADHOC_STAGE).length;
+  const closedDeals = state.deals.filter(d => d.assignee === p && (d.stage === "closed_won" || d.stage === ADHOC_STAGE) && inStatsRange(d.updated_at||d.created_at, bounds)).length;
   const callRate = calls ? Math.round(convos/calls*100) : 0;
   const meetingRate = meetingsBooked ? Math.round(closedMeetings/meetingsBooked*100) : 0;
   return { calls, convos, meetingsBooked, closedMeetings, closedDeals, callRate, meetingRate };

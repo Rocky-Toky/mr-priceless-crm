@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=121">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=121">
+<link rel="stylesheet" href="css/style.css?v=123">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=123">
 </head>
 <body>
 
@@ -245,7 +245,7 @@
       </div>
 
       <div data-workspace="sales">
-        <div class="stat-grid">
+        <div class="stat-grid stat-grid-5">
           <div class="stat-card stat-card-mrr">
             <div class="stat-label">MRR</div>
             <div class="stat-value" id="stat-mrr">$0</div>
@@ -253,12 +253,17 @@
             <div class="stat-sub" id="stat-net-mrr">$0/mo net after expenses</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Closed Won This Month</div>
+            <div class="stat-label">Closed Won MRR This Month</div>
             <div class="stat-value" id="stat-won-month">0</div>
             <div class="stat-sub" id="stat-won-month-value">$0 added</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Closed Won Jobs (Total)</div>
+            <div class="stat-label">Closed Won Adhoc</div>
+            <div class="stat-value" id="stat-adhoc">$0</div>
+            <div class="stat-sub" id="stat-adhoc-sub">0 jobs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Closed Won MRR Jobs (Total)</div>
             <div class="stat-value" id="stat-won-total">0</div>
             <div class="stat-sub" id="stat-win-rate">-% win rate</div>
           </div>
@@ -1577,7 +1582,8 @@
             <option value="negotiation">Negotiation</option>
             <option value="onboarding">Onboarding</option>
             <option value="pending_results">Pending Results</option>
-            <option value="closed_won">Closed Won</option>
+            <option value="closed_won">Closed Won MRR</option>
+            <option value="closed_won_adhoc">Closed Won Adhoc</option>
             <option value="closed_lost">Closed Lost</option>
             <option value="disqualified">Disqualified</option>
             <option value="ghosted">Ghosted</option>
@@ -1618,7 +1624,8 @@
             <option value="negotiation">Negotiation</option>
             <option value="onboarding">Onboarding</option>
             <option value="pending_results">Pending Results</option>
-            <option value="closed_won">Closed Won</option>
+            <option value="closed_won">Closed Won MRR</option>
+            <option value="closed_won_adhoc">Closed Won Adhoc</option>
             <option value="closed_lost">Closed Lost</option>
             <option value="disqualified">Disqualified</option>
             <option value="ghosted">Ghosted</option>
@@ -2126,10 +2133,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=121"></script>
-<script src="js/supabaseClient.js?v=121"></script>
-<script src="js/app.js?v=121"></script>
-<script src="js/meetings-tracker.js?v=121"></script>
-<script src="js/todo.js?v=121"></script>
+<script src="js/config.js?v=123"></script>
+<script src="js/supabaseClient.js?v=123"></script>
+<script src="js/app.js?v=123"></script>
+<script src="js/meetings-tracker.js?v=123"></script>
+<script src="js/todo.js?v=123"></script>
 </body>
 </html>
