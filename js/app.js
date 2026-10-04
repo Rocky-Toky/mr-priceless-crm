@@ -4830,6 +4830,12 @@ function updateLivePreview(textareaId){
   const ta = $("#" + textareaId);
   const preview = $("#" + textareaId + "-preview");
   if (!ta || !preview) return;
+  if (textareaId === "rule-content"){
+    const doc = parseRuleSections(ta.value);
+    preview.innerHTML = (doc.intro ? `<div class="rule-intro">${renderPlaybookMarkdown(doc.intro, {}).html}</div>` : "")
+      + (doc.sections.length ? `<div class="rule-doc">${renderRuleSectionsHtml(doc.sections)}</div>` : "");
+    return;
+  }
   preview.innerHTML = renderPlaybookMarkdown(ta.value, {}).html;
 }
 function getPlaybookChecklist(id){
@@ -4905,12 +4911,12 @@ function renderPlaybooks(){
 }
 
 /* ───────── Rules (per-channel standards, shared with the whole team) ─────────
-   Built for "extensive and text-heavy" content specifically: a flat wall of
-   text doesn't scale once a category has a dozen rules in it, so each ##
-   heading in the content becomes its own collapsible card instead of one
-   long scroll - people can scan just the headings, open only what's
-   relevant, or search across all of them instead of reading top to bottom
-   every time. */
+   Rendered as a numbered rulebook rather than a stack of collapsed cards:
+   every rule is visible without clicking, each gets a reference number
+   ("2.3") the team can quote in chat, and the active list's sections show
+   up as an index in the left rail so long lists can be jumped around
+   instead of scrolled through. Search filters down to the matching rules
+   and highlights the hit. */
 function ruleIcon(title){
   const t = String(title||"").toLowerCase();
   if (t.includes("meta") || t.includes("facebook") || t.includes("instagram")) return ICONS.megaphone;
@@ -4919,27 +4925,68 @@ function ruleIcon(title){
   if (t.includes("landing") || t.includes("website") || t.includes("web")) return ICONS.globe;
   return ICONS.shield;
 }
-// Splits raw ##-headed content into sections instead of one flowing block -
-// reuses renderPlaybookMarkdown per-section so bold/bullets/numbering all
-// still work exactly the same, just scoped to the lines under each heading.
+const ruleInline = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+// Splits raw content on "## " headings into sections, then each section's
+// lines into items: bullets / numbered lines / checkboxes are rules, other
+// headings are sub-headings, and plain lines are notes - unless a section
+// has no bullets at all, in which case each plain line is treated as a rule
+// (people often just type one rule per line). Content above the first
+// heading is the list's intro; if there are no headings at all, it all
+// becomes a single unnamed section so it still gets numbered.
 function parseRuleSections(raw){
-  const lines = String(raw||"").split("\n");
   const segments = [];
   let current = { heading: null, lines: [] };
-  for (const line of lines){
+  for (const line of String(raw||"").split("\n")){
     const h = line.trim().match(/^##\s+(.*)$/);
-    if (h){
-      segments.push(current);
-      current = { heading: h[1], lines: [] };
-    } else {
-      current.lines.push(line);
-    }
+    if (h){ segments.push(current); current = { heading: h[1].trim(), lines: [] }; }
+    else current.lines.push(line);
   }
   segments.push(current);
-  return segments
-    .map(seg => ({ heading: seg.heading, html: renderPlaybookMarkdown(seg.lines.join("\n"), {}).html }))
-    .filter(seg => seg.heading || seg.html.trim());
+  const toItems = (lines) => {
+    const items = [];
+    for (const rawLine of lines){
+      const line = rawLine.trim();
+      if (!line) continue;
+      const sub = line.match(/^#{1,6}\s+(.*)$/);
+      if (sub){ items.push({ type:"subhead", text: sub[1] }); continue; }
+      const li = line.match(/^(?:[-*•]\s*\[[ xX]?\]\s+|[-*•]\s+|\d+[.)]\s+)(.*)$/);
+      if (li){ items.push({ type:"rule", text: li[1] }); continue; }
+      items.push({ type:"note", text: line });
+    }
+    if (!items.some(i => i.type === "rule")) items.forEach(i => { if (i.type === "note") i.type = "rule"; });
+    return items;
+  };
+  const introSeg = segments[0].heading === null ? segments.shift() : null;
+  const sections = segments.map(seg => ({ heading: seg.heading, items: toItems(seg.lines) }));
+  let intro = introSeg ? introSeg.lines.join("\n").trim() : "";
+  if (!sections.length && intro){ sections.push({ heading: null, items: toItems(introSeg.lines) }); intro = ""; }
+  sections.forEach(s => { s.ruleCount = s.items.filter(i => i.type === "rule").length; });
+  return { intro, sections, totalRules: sections.reduce((n, s) => n + s.ruleCount, 0) };
 }
+function renderRuleSectionsHtml(sections){
+  const numbered = sections.length > 1 || sections[0]?.heading;
+  return sections.map((s, si) => {
+    let n = 0;
+    const items = s.items.map(it => {
+      if (it.type === "subhead") return `<li class="rule-subhead">${ruleInline(it.text)}</li>`;
+      if (it.type === "note") return `<li class="rule-note">${ruleInline(it.text)}</li>`;
+      n++;
+      const ref = numbered ? `${si+1}.${n}` : `${n}`;
+      return `<li class="rule-item"><span class="rule-ref">${ref}</span><span class="rule-text">${ruleInline(it.text)}</span></li>`;
+    }).join("");
+    return `
+      <section class="rule-section" id="rule-sec-${si}" data-idx="${si}">
+        ${s.heading ? `<header class="rule-section-head">
+          <span class="rule-section-num">${String(si+1).padStart(2,"0")}</span>
+          <h4>${ruleInline(s.heading)}</h4>
+          <span class="rule-section-count">${s.ruleCount} rule${s.ruleCount===1?"":"s"}</span>
+        </header>` : ""}
+        ${items ? `<ol class="rule-items">${items}</ol>` : `<p class="rule-note rule-empty-note">No rules in this section yet.</p>`}
+      </section>`;
+  }).join("");
+}
+let ruleSearchQuery = "";
+let ruleSectionObserver = null;
 function renderRules(){
   const listEl = $("#rules-list");
   const viewer = $("#rule-viewer");
@@ -4953,57 +5000,58 @@ function renderRules(){
   if (!state.selectedRuleId || !list.find(r => r.id === state.selectedRuleId)){
     state.selectedRuleId = list[0].id;
   }
-  listEl.innerHTML = list.map(r => {
-    const sectionCount = parseRuleSections(r.content).filter(s => s.heading).length;
-    const sub = sectionCount ? `${sectionCount} section${sectionCount===1?"":"s"}` : "No rules written yet";
+  const r = list.find(x => x.id === state.selectedRuleId);
+  const doc = parseRuleSections(r.content);
+  const headed = doc.sections.filter(s => s.heading);
+
+  listEl.innerHTML = list.map(item => {
+    const active = item.id === state.selectedRuleId;
+    const d = active ? doc : parseRuleSections(item.content);
+    const sub = d.totalRules
+      ? `${d.totalRules} rule${d.totalRules===1?"":"s"}${d.sections.filter(s => s.heading).length ? ` · ${d.sections.filter(s => s.heading).length} sections` : ""}`
+      : "No rules written yet";
+    const toc = active && headed.length > 1 ? `
+      <nav class="rule-toc" aria-label="Sections">
+        ${doc.sections.map((s, i) => s.heading ? `
+          <button type="button" class="rule-toc-link" data-rule-jump="${i}">
+            <span class="rule-toc-num">${String(i+1).padStart(2,"0")}</span>
+            <span class="rule-toc-title">${ruleInline(s.heading)}</span>
+            <span class="rule-toc-count">${s.ruleCount}</span>
+          </button>` : "").join("")}
+      </nav>` : "";
     return `
-    <button type="button" class="playbook-list-item ${r.id === state.selectedRuleId ? "active" : ""}" data-action="select-rule" data-id="${r.id}">
-      <span class="playbook-list-item-icon">${ruleIcon(r.title)}</span>
+    <button type="button" class="playbook-list-item ${active ? "active" : ""}" data-action="select-rule" data-id="${item.id}">
+      <span class="playbook-list-item-icon">${ruleIcon(item.title)}</span>
       <span class="playbook-list-item-text">
-        <div class="playbook-list-item-title">${escapeHtml(r.title)}</div>
+        <div class="playbook-list-item-title">${escapeHtml(item.title)}</div>
         <div class="playbook-list-item-sub">${sub}</div>
       </span>
-    </button>
-  `;
+    </button>${toc}`;
   }).join("");
-  const r = list.find(x => x.id === state.selectedRuleId);
-  const parsed = parseRuleSections(r.content);
-  const intro = parsed.find(s => !s.heading);
-  const sections = parsed.filter(s => s.heading);
-  const bodyHtml = (!intro && !sections.length)
-    ? `<p style="color:var(--text2);padding:0 38px 38px;">No rules written yet - click the edit icon to add them.</p>`
-    : `
-    ${sections.length ? `
+
+  const isEmpty = !doc.intro && !doc.totalRules && !doc.sections.length;
+  const bodyHtml = isEmpty ? `
+    <div class="playbook-empty">
+      <div class="playbook-empty-icon">${ICONS.shield}</div>
+      No rules written for ${escapeHtml(r.title)} yet.<br>
+      <button type="button" class="btn gold sm" style="margin-top:16px;" data-action="edit-rule" data-id="${r.id}">Write the rules</button>
+    </div>` : `
     <div class="rule-toolbar">
       <div class="search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input type="text" id="rule-search" placeholder="Search these rules...">
+        ${ICONS.search}
+        <input type="text" id="rule-search" placeholder="Search ${escapeHtml(r.title)} rules..." value="${escapeHtml(ruleSearchQuery)}" autocomplete="off">
       </div>
-      <button type="button" class="btn ghost sm" id="rule-expand-all">Expand All</button>
-      <button type="button" class="btn ghost sm" id="rule-collapse-all">Collapse All</button>
-    </div>` : ""}
-    ${intro ? `<div class="playbook-content rule-intro">${intro.html}</div>` : ""}
-    <div class="rule-sections">
-      ${sections.map(s => {
-        const ruleCount = (s.html.match(/<li|<p>/g)||[]).length;
-        return `
-        <details class="clients-stage-section rule-section-item">
-          <summary class="clients-stage-header">
-            <span class="clients-stage-dot"></span>
-            <h3>${escapeHtml(s.heading)}</h3>
-            <span class="kanban-count">${ruleCount || 0} rule${ruleCount===1?"":"s"}</span>
-          </summary>
-          <div class="playbook-content rule-section-body">${s.html || `<p style="color:var(--text2);">No detail added yet.</p>`}</div>
-        </details>
-      `;
-      }).join("")}
+      <span class="rule-search-meta" id="rule-search-meta"></span>
     </div>
-  `;
+    ${doc.intro ? `<div class="rule-intro">${renderPlaybookMarkdown(doc.intro, {}).html}</div>` : ""}
+    <div class="rule-doc">${renderRuleSectionsHtml(doc.sections)}</div>
+    <div class="rule-no-results" id="rule-no-results" hidden></div>`;
+
   viewer.innerHTML = `
     <div class="playbook-viewer-head">
       <div class="playbook-viewer-head-title">
         <span class="playbook-viewer-icon">${ruleIcon(r.title)}</span>
-        <div><h3>${escapeHtml(r.title)}</h3><p>Updated ${fmtDate(r.updated_at||r.created_at)}</p></div>
+        <div><h3>${escapeHtml(r.title)}</h3><p>${doc.totalRules} rule${doc.totalRules===1?"":"s"} · Updated ${fmtDate(r.updated_at||r.created_at)}</p></div>
       </div>
       <div class="playbook-viewer-actions">
         <button class="icon-btn" data-action="edit-rule" data-id="${r.id}" title="Edit">${ICONS.edit}</button>
@@ -5012,26 +5060,73 @@ function renderRules(){
     </div>
     ${bodyHtml}
   `;
-  wireRuleSectionControls();
+  wireRuleControls(doc.totalRules);
 }
-// Search filters which section cards show at all (rather than just
-// highlighting text) since the whole point is cutting down what you have to
-// scan through - typing "budget" should leave only the relevant card(s)
-// visible, open, and ready to read.
-function wireRuleSectionControls(){
+function highlightRuleHtml(html, q){
+  if (!q) return html;
+  const re = new RegExp(escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  // Only touch text between tags, so <strong> etc. stay intact.
+  return html.replace(/>([^<]+)</g, (m, text) => ">" + text.replace(re, "<mark>$&</mark>") + "<");
+}
+function wireRuleControls(totalRules){
   const search = $("#rule-search");
-  const items = $$(".rule-section-item");
-  search?.addEventListener("input", () => {
-    const q = search.value.trim().toLowerCase();
-    items.forEach(el => {
-      if (!q){ el.style.display = ""; el.open = false; return; }
-      const matches = el.innerText.toLowerCase().includes(q);
-      el.style.display = matches ? "" : "none";
-      if (matches) el.open = true;
+  const meta = $("#rule-search-meta");
+  const noResults = $("#rule-no-results");
+  const sections = $$("#rule-viewer .rule-section");
+  // The searchable/highlightable part of each row - for numbered rules
+  // that's just the text, so searching "1" doesn't match every "1.x" ref.
+  const textOf = (li) => $(".rule-text", li) || li;
+  sections.forEach(sec => $$(".rule-item, .rule-note, .rule-subhead", sec).forEach(li => { textOf(li).dataset.html = textOf(li).innerHTML; }));
+  sections.forEach(sec => { const h = $("h4", sec); if (h) h.dataset.html = h.innerHTML; });
+
+  const applySearch = () => {
+    const q = ruleSearchQuery.trim().toLowerCase();
+    let hits = 0;
+    sections.forEach(sec => {
+      const h = $("h4", sec);
+      const headingHit = !!q && !!h && h.textContent.toLowerCase().includes(q);
+      if (h) h.innerHTML = headingHit ? highlightRuleHtml(">" + h.dataset.html + "<", q).slice(1, -1) : h.dataset.html;
+      let secHits = 0;
+      $$(".rule-item, .rule-note, .rule-subhead", sec).forEach(li => {
+        const el = textOf(li);
+        const match = !q || headingHit || el.textContent.toLowerCase().includes(q);
+        li.hidden = !match;
+        el.innerHTML = q && match ? highlightRuleHtml(">" + el.dataset.html + "<", q).slice(1, -1) : el.dataset.html;
+        if (match && li.classList.contains("rule-item")) secHits++;
+      });
+      sec.hidden = !!q && !headingHit && !secHits;
+      hits += secHits;
     });
-  });
-  $("#rule-expand-all")?.addEventListener("click", () => items.forEach(el => { el.open = true; }));
-  $("#rule-collapse-all")?.addEventListener("click", () => items.forEach(el => { el.open = false; }));
+    $$("#rules-list .rule-toc-link").forEach(btn => {
+      const sec = sections[+btn.dataset.ruleJump];
+      btn.classList.toggle("dimmed", !!sec?.hidden);
+    });
+    if (meta) meta.textContent = q ? `${hits} of ${totalRules} rule${totalRules===1?"":"s"}` : "";
+    if (noResults){
+      noResults.hidden = !q || hits > 0 || sections.some(s => !s.hidden);
+      noResults.innerHTML = `No rules match "<strong>${escapeHtml(ruleSearchQuery.trim())}</strong>". <button type="button" class="link-btn" id="rule-search-clear">Clear search</button>`;
+      $("#rule-search-clear")?.addEventListener("click", () => { ruleSearchQuery = ""; search.value = ""; applySearch(); search.focus(); });
+    }
+  };
+  search?.addEventListener("input", () => { ruleSearchQuery = search.value; applySearch(); });
+  search?.addEventListener("keydown", (e) => { if (e.key === "Escape"){ ruleSearchQuery = ""; search.value = ""; applySearch(); } });
+  if (ruleSearchQuery) applySearch();
+
+  $$("#rules-list .rule-toc-link").forEach(btn => btn.addEventListener("click", () => {
+    $(`#rule-sec-${btn.dataset.ruleJump}`)?.scrollIntoView({ behavior:"smooth", block:"start" });
+  }));
+
+  // Scroll-spy: highlight whichever section is currently at the top of the
+  // reading area in the rail's index.
+  ruleSectionObserver?.disconnect();
+  if (!("IntersectionObserver" in window) || !sections.length) return;
+  const setActive = (idx) => $$("#rules-list .rule-toc-link").forEach(b => b.classList.toggle("active", b.dataset.ruleJump === String(idx)));
+  const visible = new Set();
+  ruleSectionObserver = new IntersectionObserver(entries => {
+    entries.forEach(en => { en.isIntersecting ? visible.add(+en.target.dataset.idx) : visible.delete(+en.target.dataset.idx); });
+    if (visible.size) setActive(Math.min(...visible));
+  }, { rootMargin: "-90px 0px -55% 0px" });
+  sections.forEach(s => ruleSectionObserver.observe(s));
 }
 
 /* ───────── Email Templates ───────── */
@@ -6094,7 +6189,7 @@ function setupModals(){
       if (state.selectedPlaybookId === id) state.selectedPlaybookId = null;
       await DataLayer.remove("playbooks", id);
     }
-    if (action === "select-rule"){ state.selectedRuleId = id; renderRules(); }
+    if (action === "select-rule"){ if (state.selectedRuleId !== id) ruleSearchQuery = ""; state.selectedRuleId = id; renderRules(); window.scrollTo({ top:0, behavior:"smooth" }); }
     if (action === "edit-rule"){
       const r = state.rules.find(x => x.id === id);
       if (!r) return;

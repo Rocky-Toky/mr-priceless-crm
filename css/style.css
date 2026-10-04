@@ -503,13 +503,84 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 }
 .playbook-empty-icon svg{width:24px;height:24px;}
 
-/* ───────── Rules: collapsible sections + search, for text-heavy content ───────── */
-.rule-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:24px 38px 0;}
-.rule-toolbar .search{flex:1;min-width:200px;}
-.rule-intro.playbook-content{padding:20px 38px 0;max-width:none;}
-.rule-sections{display:flex;flex-direction:column;gap:10px;padding:20px 38px 34px;}
-.rule-section-item .clients-stage-header .kanban-count{margin-left:auto;}
-.rule-section-body.playbook-content{padding:2px 20px 20px 50px;max-width:none;}
+/* ───────── Rules: numbered rulebook + section index ───────── */
+/* clip (not hidden) so the search bar can stay sticky while reading */
+.playbook-viewer.rule-viewer{overflow:clip;}
+.rule-toolbar{
+  position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:14px;
+  padding:14px 38px;background:rgba(255,255,255,0.94);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);
+}
+.rule-toolbar .search{flex:1;min-width:0;max-width:440px;}
+.rule-search-meta{font-size:12.5px;font-weight:600;color:var(--text2);white-space:nowrap;}
+.rule-intro{
+  margin:24px 38px 0;padding:14px 18px;border-left:3px solid var(--gold);border-radius:0 var(--r-sm) var(--r-sm) 0;
+  background:var(--paper);font-size:14px;line-height:1.7;color:var(--text);
+}
+.rule-intro p{margin:0 0 6px;}
+.rule-intro p:last-child{margin-bottom:0;}
+.rule-intro strong{color:var(--gold-deep);}
+.rule-doc{padding:8px 38px 40px;}
+.rule-section{padding-top:26px;scroll-margin-top:72px;}
+.rule-section[hidden],.rule-section li[hidden]{display:none;}
+.rule-section-head{
+  display:flex;align-items:baseline;gap:12px;padding-bottom:10px;margin-bottom:4px;
+  border-bottom:2px solid var(--black);
+}
+.rule-section-num{font-family:var(--font-display);font-size:13px;font-weight:800;color:var(--gold);letter-spacing:0.02em;font-variant-numeric:tabular-nums;}
+.rule-section-head h4{font-family:var(--font-display);font-size:18px;font-weight:700;letter-spacing:-0.01em;flex:1;min-width:0;}
+.rule-section-count{font-size:11.5px;font-weight:600;color:var(--text2);white-space:nowrap;}
+.rule-items{list-style:none;margin:0;padding:0;}
+.rule-item{
+  display:grid;grid-template-columns:44px 1fr;gap:10px;align-items:baseline;
+  padding:11px 10px 11px 0;border-bottom:1px solid var(--line);
+  font-size:14.5px;line-height:1.6;color:var(--text);transition:background .12s;
+}
+.rule-item:last-child{border-bottom:none;}
+.rule-item:hover{background:linear-gradient(90deg,var(--gold-soft),transparent 70%);}
+.rule-ref{font-size:12px;font-weight:700;color:var(--text2);font-variant-numeric:tabular-nums;padding-left:2px;}
+.rule-item:hover .rule-ref{color:var(--gold-deep);}
+.rule-text strong{font-weight:700;color:var(--text);}
+.rule-note{padding:10px 0 4px 54px;font-size:13.5px;line-height:1.6;color:var(--text2);font-style:italic;}
+.rule-empty-note{padding:14px 0 0;}
+.rule-subhead{
+  padding:18px 0 6px 54px;font-size:11.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold-deep);
+}
+mark{background:rgba(232,196,104,0.45);color:inherit;border-radius:3px;padding:0 1px;}
+.rule-no-results{padding:40px 38px 54px;text-align:center;color:var(--text2);font-size:14px;}
+.link-btn{background:none;border:none;padding:0;margin-left:6px;font:inherit;font-weight:600;color:var(--gold-deep);text-decoration:underline;cursor:pointer;}
+
+/* Section index under the active list in the left rail */
+.rule-toc{display:flex;flex-direction:column;gap:1px;margin:4px 0 8px 30px;padding-left:12px;border-left:1px solid var(--line);}
+.rule-toc-link{
+  display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border:none;border-radius:8px;background:none;
+  text-align:left;font-size:12.5px;color:var(--text2);transition:background .12s,color .12s,opacity .12s;
+}
+.rule-toc-link:hover{background:var(--paper);color:var(--text);}
+.rule-toc-link.active{color:var(--text);font-weight:600;background:var(--paper);}
+.rule-toc-link.dimmed{opacity:0.4;}
+.rule-toc-num{font-size:11px;font-weight:700;color:var(--gold);font-variant-numeric:tabular-nums;}
+.rule-toc-title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rule-toc-count{font-size:11px;color:var(--text2);font-variant-numeric:tabular-nums;}
+#rules-list{max-height:calc(100vh - 40px);overflow-y:auto;}
+
+/* Editor preview reuses the rulebook styles, just tighter */
+.rule-live-preview{padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--white);max-height:260px;overflow-y:auto;}
+.rule-live-preview:empty::before{content:"Nothing written yet.";color:var(--text2);font-size:13px;}
+.pb-live-preview .rule-doc{padding:0;}
+.pb-live-preview .rule-intro{margin:0 0 6px;}
+.pb-live-preview .rule-section{padding-top:12px;}
+.pb-live-preview .rule-section:first-child{padding-top:0;}
+.pb-live-preview .rule-section-head h4{font-size:15px;}
+.pb-live-preview .rule-item{font-size:13px;padding:7px 0;}
+
+@media (max-width:700px){
+  .rule-toolbar{padding:12px 18px;}
+  .rule-intro{margin:18px 18px 0;}
+  .rule-doc{padding:4px 18px 28px;}
+  .rule-item{grid-template-columns:34px 1fr;}
+  .rule-note,.rule-subhead{padding-left:44px;}
+}
 
 .email-template-field{padding:20px 38px;border-bottom:1px solid var(--line);}
 .email-template-field:last-child{border-bottom:none;}
