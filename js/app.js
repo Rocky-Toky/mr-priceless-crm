@@ -26,8 +26,9 @@ const STAGES = [
   { key: "closed_won", label: "Closed Won" },
   { key: "closed_lost", label: "Closed Lost" },
   { key: "disqualified", label: "Disqualified" },
+  { key: "ghosted", label: "Ghosted" },
 ];
-const CLOSED_STAGES = new Set(["closed_won", "closed_lost", "disqualified"]);
+const CLOSED_STAGES = new Set(["closed_won", "closed_lost", "disqualified", "ghosted"]);
 // A meeting counts as "closed" once its deal is far enough along to matter -
 // either it's landed in Pending Results or gone all the way to Closed Won.
 // Matches the same pair maybeCreateClientFromDeal() already uses to decide
@@ -3982,6 +3983,8 @@ function mostRecentReportingDay(){
   return due.toISOString().slice(0, 10);
 }
 function checkReportingDayPopup(){
+  // Switched off - the fortnightly "It's Reporting Day" popup was removed.
+  return;
   if (reportingDayPopupShown) return;
   if ($("#qualify-modal")?.classList.contains("visible")) return;
   if ($("#overdue-tasks-modal")?.classList.contains("visible")) return;

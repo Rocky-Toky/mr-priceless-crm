@@ -334,6 +334,10 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 /* ───────── Kanban (Deals) ───────── */
 .kanban{display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;align-items:start;}
 .kanban-closed{grid-template-columns:repeat(auto-fit, minmax(180px, 260px));}
+#kanban-board{grid-template-columns:repeat(6,minmax(0,1fr));}
+#kanban-board-closed{grid-template-columns:repeat(4,minmax(0,1fr));}
+@media(max-width:1250px){#kanban-board{grid-template-columns:repeat(3,minmax(0,1fr));}#kanban-board-closed{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:700px){#kanban-board,#kanban-board-closed{grid-template-columns:repeat(2,minmax(0,1fr));}}
 .kanban-closed-divider{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin:20px 0 12px;padding-top:16px;border-top:1px solid var(--line);}
 .kanban-col{
   position:relative;background:var(--white);border-radius:var(--r);padding:14px 12px 12px;
@@ -381,6 +385,11 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .kanban-col[data-stage="disqualified"] .kanban-col-head h4{color:#6a6a68;}
 .kanban-col[data-stage="disqualified"] .kanban-col-value{color:#6a6a68;}
 .kanban-col[data-stage="disqualified"] .deal-card{opacity:0.7;}
+.kanban-col[data-stage="ghosted"]{background:linear-gradient(175deg,#eef1f3,#e5eaed);border-color:rgba(90,110,125,0.2);border-style:dashed;}
+.kanban-col[data-stage="ghosted"]::before{background:linear-gradient(90deg,#8a98a3,#b3bec6);opacity:1;}
+.kanban-col[data-stage="ghosted"] .kanban-col-head h4{color:#5f7280;}
+.kanban-col[data-stage="ghosted"] .kanban-col-value{color:#5f7280;}
+.kanban-col[data-stage="ghosted"] .deal-card{opacity:0.65;}
 
 .deal-card{
   background:var(--white);border:1px solid var(--line);border-radius:var(--r-sm);
@@ -395,7 +404,7 @@ tbody tr:hover{background:rgba(232,196,104,0.055);}
 .deal-card .deal-extra-contacts{font-size:10.5px;color:var(--text2);margin-top:-6px;margin-bottom:9px;line-height:1.4;}
 .deal-card .deal-value{font-size:16px;font-weight:700;color:var(--gold);font-family:var(--font-display);}
 .deal-card .deal-net-value{font-size:10.5px;color:var(--text2);margin-top:4px;}
-.deal-card-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
+.deal-card-foot{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px 6px;margin-top:8px;}
 
 .deal-contact-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center;}
 .deal-contact-row input{
