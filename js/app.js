@@ -545,6 +545,43 @@ const splitE164 = (phone) => {
   return { code, local: digits.slice(code.length) };
 };
 
+// Display-only: spaces a stored number into the groups people actually read
+// it in ("+64 21 555 0111", "+61 412 345 678", "+64 9 835 1234") instead of
+// one unbroken run of digits. Storage and dialling still use the raw value.
+function formatPhone(phone){
+  const raw = String(phone||"").trim();
+  if (!raw) return "";
+  if (!raw.startsWith("+")) return raw.replace(/\s+/g, " ");
+  const { code, local } = splitE164(raw);
+  const n = local.replace(/\D/g, "");
+  const group = (...sizes) => {
+    const out = []; let i = 0;
+    for (const s of sizes){ if (i >= n.length) break; out.push(n.slice(i, i + s)); i += s; }
+    if (i < n.length) out[out.length - 1] += n.slice(i);
+    return out.join(" ");
+  };
+  let body;
+  if (code === "64"){
+    if (/^(800|508|900)/.test(n)) body = group(3, 3, 4);
+    else if (n.startsWith("2")) body = group(2, 3, 4);
+    else body = group(1, 3, 4);
+  } else if (code === "61"){
+    if (/^1[38]00/.test(n)) body = group(4, 3, 3);
+    else if (n.startsWith("4") || n.startsWith("5")) body = group(3, 3, 3);
+    else body = group(1, 4, 4);
+  } else if (code === "1"){
+    body = group(3, 3, 4);
+  } else {
+    body = group(4, 3, 3);
+  }
+  return `+${code} ${body}`;
+}
+// A phone number as it appears in tables, cards and the dialler.
+function phoneHtml(phone, cls = ""){
+  if (!phone) return `<span class="phone-num phone-num-empty">-</span>`;
+  return `<span class="phone-num ${cls}">${escapeHtml(formatPhone(phone))}</span>`;
+}
+
 /* ───────── Demo seed (used only when Supabase isn't configured) ───────── */
 function seedDemo(){
   const c1 = uid(), c2 = uid(), c3 = uid();
@@ -1634,7 +1671,7 @@ function renderContacts(){
       <td><div class="row-name">${escapeHtml(c.name)}</div><div class="row-sub">${escapeHtml(c.tags||"")}</div></td>
       <td>${escapeHtml(c.company||"-")}</td>
       <td>${escapeHtml(c.email||"-")}</td>
-      <td>${escapeHtml(c.phone||"-")}</td>
+      <td>${phoneHtml(c.phone)}</td>
       <td><span class="badge ${CONTACT_STATUS[c.status]?.cls||"gray"}">${CONTACT_STATUS[c.status]?.label||c.status}</span></td>
       <td style="text-align:right;white-space:nowrap;">
         ${callButtonHtml(c.phone, c.name)}
@@ -1677,7 +1714,7 @@ function renderMeetingsPipeline(){
     return `
       <tr>
         <td>${escapeHtml(d.contact_name||d.title)}</td>
-        <td>${escapeHtml(contact?.phone||"-")}</td>
+        <td>${phoneHtml(contact?.phone)}</td>
         <td>${a ? `<span class="badge ${a.cls}">${a.label}</span>` : "-"}</td>
         <td>${fmtDate(d.created_at)}</td>
         <td style="text-align:right;"><button class="btn ghost" data-action="view-meeting-deal" data-id="${d.id}">View Deal</button></td>
@@ -1833,7 +1870,7 @@ function renderDealDetail(deal){
   else if (deal.contact_name) rows.push({ name: deal.contact_name, phone: "", role: "Primary" });
   extraContacts.forEach(dc => rows.push({ name: dc.name, phone: dc.phone, role: dc.role || "Contact" }));
   contactsBody.innerHTML = rows.length
-    ? rows.map(r => `<div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;"><b>${escapeHtml(r.name)}</b> ${r.phone ? "· " + escapeHtml(r.phone) : ""} <span class="badge gray">${escapeHtml(r.role)}</span> ${callButtonHtml(r.phone, r.name)}</div>`).join("")
+    ? rows.map(r => `<div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;"><b>${escapeHtml(r.name)}</b> ${r.phone ? "· " + phoneHtml(r.phone) : ""} <span class="badge gray">${escapeHtml(r.role)}</span> ${callButtonHtml(r.phone, r.name)}</div>`).join("")
     : `<span style="color:var(--text2);">No contact linked to this deal.</span>`;
 
   const linkedIds = new Set(extraContacts.map(dc => dc.contact_id).filter(Boolean));
@@ -2261,6 +2298,7 @@ function renderDialer(){
           <div>
             <h3 style="font-size:22px;margin-bottom:4px;">${escapeHtml(p.name)}</h3>
             <div style="color:var(--text2);font-size:13.5px;">${escapeHtml(p.company||"No company")}</div>
+            ${p.phone ? `<div style="margin-top:8px;">${phoneHtml(p.phone, "phone-num-xl")}</div>` : ""}
             <div style="color:var(--text2);font-size:12.5px;margin-top:4px;">${escapeHtml(p.email||"")}</div>
           </div>
           <div style="text-align:right;">
@@ -2269,8 +2307,8 @@ function renderDialer(){
           </div>
         </div>
         ${IS_CONFIGURED
-          ? `<button type="button" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${p.phone ? "Call " + escapeHtml(p.phone) : "No phone number"}</button>`
-          : `<a href="tel:${escapeHtml((p.phone||"").replace(/[^0-9+]/g,""))}" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="dial-tel" data-id="${p.id}">${p.phone ? "Call " + escapeHtml(p.phone) : "No phone number"}</a>`}
+          ? `<button type="button" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${p.phone ? "Call " + escapeHtml(formatPhone(p.phone)) : "No phone number"}</button>`
+          : `<a href="tel:${escapeHtml((p.phone||"").replace(/[^0-9+]/g,""))}" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="dial-tel" data-id="${p.id}">${p.phone ? "Call " + escapeHtml(formatPhone(p.phone)) : "No phone number"}</a>`}
         ${p.notes ? `<div class="card" style="margin-top:14px;padding:12px 14px;background:#faf9f5;box-shadow:none;"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Notes</div><div style="font-size:13px;">${escapeHtml(p.notes)}</div></div>` : ""}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">
           ${OUTCOME_BUTTONS.map(o => `<button class="btn ${o.cls}" data-action="dial-outcome" data-outcome="${o.key}" data-id="${p.id}">${o.label}</button>`).join("")}
@@ -2292,7 +2330,7 @@ function renderDialer(){
               ${queue.map((p,i) => `
                 <tr data-id="${p.id}" style="${i===0?"background:var(--gold-soft);":""}">
                   <td><div class="row-name">${escapeHtml(p.name)}</div><div class="row-sub">${escapeHtml(p.company||"")}</div></td>
-                  <td>${escapeHtml(p.phone||"-")}</td>
+                  <td>${phoneHtml(p.phone)}</td>
                   <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
                   <td><span class="badge gray">${Number(p.calls_made||0)}</span></td>
                   <td style="text-align:right;white-space:nowrap;">
@@ -2567,7 +2605,7 @@ function findCallerLabel(fromNumber){
     const contact = state.contacts.find(c => (c.phone||"").replace(/\D/g,"") === digits);
     if (contact) return contact.company ? `${contact.name} · ${contact.company}` : contact.name;
   }
-  return fromNumber || "Unknown number";
+  return fromNumber ? formatPhone(fromNumber) : "Unknown number";
 }
 
 function setIncomingCallWidget(open, label){
@@ -2668,7 +2706,7 @@ async function placeCall(phoneRaw, displayName){
   const device = await getVoiceDevice();
   if (!device) return false;
 
-  setCallWidget(true, { name: displayName, status: "Calling…" });
+  setCallWidget(true, { name: displayName || formatPhone(digits), status: `Calling ${formatPhone(digits)}…` });
   try {
     activeCall = await device.connect({ params: { To: digits } });
   } catch (e) {
@@ -3338,7 +3376,7 @@ function renderClientDetail(c){
   const contactEl = $("#client-detail-contact");
   if (contactEl){
     const bits = [];
-    if (c.phone) bits.push(`<a href="tel:${escapeHtml(c.phone.replace(/[^0-9+]/g,""))}">${escapeHtml(c.phone)}</a>`);
+    if (c.phone) bits.push(`<a class="phone-num" href="tel:${escapeHtml(c.phone.replace(/[^0-9+]/g,""))}">${escapeHtml(formatPhone(c.phone))}</a>`);
     if (c.email) bits.push(`<a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a>`);
     if (c.website){
       const href = /^https?:\/\//i.test(c.website) ? c.website : "https://" + c.website;
@@ -4426,7 +4464,7 @@ function renderProspectRow(p, opts={}){
         <div class="row-sub">${showCompanyLine ? escapeHtml(p.company) : ""}${website ? ` · <a href="${escapeHtml(website)}" target="_blank" rel="noopener">Website ↗</a>` : ""}</div>
         ${p.google_rating ? `<div class="row-sub">⭐ ${escapeHtml(p.google_rating)}</div>` : ""}
       </td>
-      <td>${escapeHtml(p.phone||"-")}</td>
+      <td>${phoneHtml(p.phone)}</td>
       <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
       <td>
         <button class="btn ${called ? "ghost" : "gold"} prospect-call-btn" data-action="log-prospect-call" data-id="${p.id}">
@@ -5560,7 +5598,7 @@ const ICONS = {
 // in demo mode same as the Dialer's own IS_CONFIGURED branch does.
 function callButtonHtml(phone, name){
   if (!phone) return "";
-  const label = `Call ${phone}`;
+  const label = `Call ${formatPhone(phone)}`;
   return IS_CONFIGURED
     ? `<button class="icon-btn" data-action="call-number" data-phone="${escapeHtml(phone)}" data-name="${escapeHtml(name||"")}" title="${escapeHtml(label)}">${ICONS.phone}</button>`
     : `<a class="icon-btn" href="tel:${escapeHtml(phone.replace(/[^0-9+]/g,""))}" title="${escapeHtml(label)}">${ICONS.phone}</a>`;
