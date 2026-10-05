@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=127">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=127">
+<link rel="stylesheet" href="css/style.css?v=128">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=128">
 </head>
 <body>
 
@@ -914,126 +914,142 @@
           <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="clients-stat-campaigns">0</div></div>
           <div class="stat-card"><div class="stat-label">Needs Attention</div><div class="stat-value" id="clients-stat-attention">0</div></div>
         </div>
-        <div class="retention-alerts-panel" id="clients-alerts-panel" style="display:none;"></div>
-        <div class="toolbar">
+        <div class="cl-toolbar">
           <div class="search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
             <input type="text" id="clients-gallery-search" placeholder="Search clients...">
           </div>
+          <div class="cl-chips" id="clients-stage-chips"></div>
         </div>
-        <div class="clients-gallery" id="clients-gallery"></div>
+        <div class="cl-list" id="clients-gallery"></div>
       </div>
 
-      <div id="clients-detail-view" style="display:none;">
-        <div class="page-header">
-          <div>
-            <button class="btn ghost" data-action="back-to-clients" style="margin-bottom:12px;">← All Clients</button>
-            <div style="display:flex;align-items:center;gap:10px;">
-              <h2 id="client-detail-name">Client</h2>
-              <span class="badge" id="client-detail-stage-badge"></span>
+      <div id="clients-detail-view" class="cl-detail" style="display:none;">
+        <button class="cl-back" data-action="back-to-clients">← All Clients</button>
+
+        <div class="card cl-hero">
+          <div class="cl-hero-top">
+            <span class="cl-hero-avatar" id="client-detail-avatar">?</span>
+            <div class="cl-hero-text">
+              <div class="cl-hero-title">
+                <h2 id="client-detail-name">Client</h2>
+                <span class="badge" id="client-detail-stage-badge"></span>
+              </div>
+              <div class="cl-hero-meta">
+                <span id="client-detail-churn-risk"></span>
+                <span class="cl-hero-contact" id="client-detail-contact"></span>
+              </div>
             </div>
-            <p class="stat-sub" id="client-detail-contact" style="margin-top:4px;"></p>
-            <div id="client-detail-churn-risk" style="max-width:220px;margin-top:10px;"></div>
+            <div class="cl-hero-actions">
+              <button class="btn ghost sm" data-action="edit-client-header">Edit Client</button>
+              <button class="icon-btn" data-action="delete-client" title="Delete Client">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>
+              </button>
+            </div>
           </div>
-          <div style="display:flex;gap:8px;">
-            <button class="btn ghost" data-action="edit-client-header">Edit Client</button>
-            <button class="icon-btn" data-action="delete-client" title="Delete Client">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>
-            </button>
+
+          <div class="cl-qg" id="quote-guarantee-banner" style="display:none;">
+            <div class="cl-qg-text">
+              <span class="cl-qg-label">Quote Guarantee</span>
+              <span class="cl-qg-count"><span id="quote-guarantee-sent">0</span> of <span id="quote-guarantee-target">10</span> quotes delivered</span>
+              <span class="cl-qg-sub" id="quote-guarantee-sub">10 remaining to hit the guarantee</span>
+            </div>
+            <div class="cl-qg-bar"><div class="cl-qg-fill" id="quote-guarantee-fill" style="width:0%;"></div></div>
+            <div class="cl-qg-actions">
+              <button type="button" class="icon-btn" data-action="quote-decrement" title="Remove one">−</button>
+              <button type="button" class="icon-btn" data-action="quote-increment" title="Add one">+</button>
+            </div>
+          </div>
+
+          <div class="cl-kpis">
+            <div class="cl-kpi"><div class="cl-kpi-label">Cost Per Lead</div><div class="cl-kpi-value" id="client-detail-cpl">-</div></div>
+            <div class="cl-kpi"><div class="cl-kpi-label">Monthly Ad Spend</div><div class="cl-kpi-value" id="client-detail-monthly-spend">-</div></div>
+            <div class="cl-kpi"><div class="cl-kpi-label">Campaigns Live</div><div class="cl-kpi-value"><span id="client-detail-campaigns-running">0</span><span class="cl-kpi-of"> of <span id="client-detail-campaigns-total">0</span></span></div></div>
+            <div class="cl-kpi">
+              <div class="cl-kpi-label">Quotes Sent</div>
+              <div class="cl-kpi-value cl-kpi-quotes">
+                <span id="client-detail-quotes">0</span>
+                <span class="cl-kpi-steppers" id="client-detail-quote-buttons">
+                  <button type="button" class="icon-btn" data-action="quote-decrement" title="Remove one">−</button>
+                  <button type="button" class="icon-btn" data-action="quote-increment" title="Add one">+</button>
+                </span>
+              </div>
+            </div>
+            <div class="cl-kpi"><div class="cl-kpi-label">Ads Started</div><div class="cl-kpi-value cl-kpi-small" id="client-detail-ad-start-date">-</div></div>
           </div>
         </div>
 
-        <details class="card client-onboarding-card" id="client-onboarding-card">
-          <summary class="client-onboarding-head">
-            <div class="client-onboarding-title">
-              <h3>Onboarding Checklist</h3>
-              <span class="onboarding-progress-label" id="onboarding-detail-progress-label">0 of 0 steps complete</span>
-            </div>
-            <div class="onboarding-progress-bar client-onboarding-bar"><div class="onboarding-progress-fill" id="onboarding-detail-progress-fill" style="width:0%"></div></div>
-          </summary>
-          <div class="client-onboarding-complete" id="onboarding-complete-wrap" style="display:none;">
-            <span>Every step is done.</span>
-            <button class="btn gold sm" id="onboarding-complete-btn" data-action="complete-onboarding">Mark Complete → Move to Month 1</button>
-          </div>
-          <div class="onboarding-steps-list" id="onboarding-steps-list"></div>
-        </details>
+        <div class="cl-detail-grid">
+          <div class="cl-detail-main" id="client-detail-main">
+            <details class="card client-onboarding-card" id="client-onboarding-card">
+              <summary class="client-onboarding-head">
+                <div class="client-onboarding-title">
+                  <h3>Onboarding Checklist</h3>
+                  <span class="onboarding-progress-label" id="onboarding-detail-progress-label">0 of 0 steps complete</span>
+                </div>
+                <div class="onboarding-progress-bar client-onboarding-bar"><div class="onboarding-progress-fill" id="onboarding-detail-progress-fill" style="width:0%"></div></div>
+              </summary>
+              <div class="client-onboarding-complete" id="onboarding-complete-wrap" style="display:none;">
+                <span>Every step is done.</span>
+                <button class="btn gold sm" id="onboarding-complete-btn" data-action="complete-onboarding">Mark Complete → Move to Month 1</button>
+              </div>
+              <div class="onboarding-steps-list" id="onboarding-steps-list"></div>
+            </details>
 
-        <div class="quote-guarantee-banner" id="quote-guarantee-banner" style="display:none;">
-          <div class="quote-guarantee-top">
-            <span class="quote-guarantee-badge">Quote Guarantee</span>
-            <div class="quote-guarantee-actions">
-              <button type="button" class="icon-btn light" data-action="quote-decrement" title="Remove one">−</button>
-              <button type="button" class="icon-btn light" data-action="quote-increment" title="Add one">+</button>
+            <div class="card cl-panel">
+              <div class="cl-panel-head">
+                <div><h3>Campaigns</h3><p>Every campaign running for this client and its cost per lead.</p></div>
+                <div class="cl-panel-actions">
+                  <button class="btn ghost sm" id="sync-client-ads-btn">Sync Ad Account</button>
+                  <button class="btn gold sm" id="add-campaign-btn">+ Add Campaign</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Campaign</th><th>Platform</th><th>Status</th><th>Ad Spend</th><th>CPL</th><th></th></tr></thead>
+                  <tbody id="campaigns-tbody"></tbody>
+                </table>
+              </div>
             </div>
-          </div>
-          <div class="quote-guarantee-count"><span id="quote-guarantee-sent">0</span> of <span id="quote-guarantee-target">10</span> quotes delivered</div>
-          <div class="quote-guarantee-bar"><div class="quote-guarantee-fill" id="quote-guarantee-fill" style="width:0%;"></div></div>
-          <div class="quote-guarantee-sub" id="quote-guarantee-sub">10 remaining to hit the guarantee</div>
-        </div>
 
-        <div class="stat-grid" style="grid-template-columns:repeat(6,1fr);">
-          <div class="stat-card"><div class="stat-label">Cost Per Lead</div><div class="stat-value" id="client-detail-cpl">-</div></div>
-          <div class="stat-card"><div class="stat-label">Monthly Ad Spend</div><div class="stat-value" id="client-detail-monthly-spend">-</div></div>
-          <div class="stat-card"><div class="stat-label">Ad Start Date</div><div class="stat-value" id="client-detail-ad-start-date" style="font-size:20px;">-</div></div>
-          <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="client-detail-campaigns-running">0</div></div>
-          <div class="stat-card"><div class="stat-label">Total Campaigns</div><div class="stat-value" id="client-detail-campaigns-total">0</div></div>
-          <div class="stat-card">
-            <div class="stat-label">Quotes Sent</div>
-            <div style="display:flex;align-items:center;gap:10px;">
-              <div class="stat-value" id="client-detail-quotes">0</div>
-              <div style="display:flex;gap:4px;margin-left:auto;" id="client-detail-quote-buttons">
-                <button type="button" class="icon-btn" data-action="quote-decrement" title="Remove one">−</button>
-                <button type="button" class="icon-btn" data-action="quote-increment" title="Add one">+</button>
+            <div class="card cl-panel">
+              <div class="cl-panel-head">
+                <div><h3>Ad Creatives Tried</h3><p>What's been tested and how it performed.</p></div>
+                <div class="cl-panel-actions">
+                  <button class="btn gold sm" id="add-ad-creative-btn">+ Add Ad Creative</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Image</th><th>Creative</th><th>Result</th><th>Added</th><th></th></tr></thead>
+                  <tbody id="ad-creatives-tbody"></tbody>
+                </table>
               </div>
             </div>
           </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><h3>Notes</h3></div>
-          <div class="card-body" id="client-detail-notes" style="font-size:13.5px;color:var(--text2);padding-bottom:16px;">-</div>
-        </div>
 
-        <div class="card client-info-card">
-          <div class="card-header">
-            <div>
-              <h3>Client Info</h3>
-              <div class="client-info-progress" id="client-info-progress">
-                <div class="client-info-progress-bar"><div class="client-info-progress-fill" id="client-info-progress-fill" style="width:0%;"></div></div>
-                <span id="client-info-progress-label">0 of 7 filled in</span>
+          <aside class="cl-detail-side">
+            <div class="card cl-panel client-info-card">
+              <div class="cl-panel-head">
+                <div>
+                  <h3>Client Info</h3>
+                  <div class="client-info-progress" id="client-info-progress">
+                    <div class="client-info-progress-bar"><div class="client-info-progress-fill" id="client-info-progress-fill" style="width:0%;"></div></div>
+                    <span id="client-info-progress-label">0 of 7 filled in</span>
+                  </div>
+                </div>
+                <button class="btn ghost sm" data-action="edit-client-info">Edit</button>
               </div>
+              <div class="client-info-grid cl-info-stack" id="client-info-grid"></div>
             </div>
-            <button class="btn ghost" data-action="edit-client-info">Edit Client Info</button>
-          </div>
-          <div class="card-body client-info-grid" id="client-info-grid"></div>
-        </div>
-
-        <div class="page-header" style="margin-top:8px;">
-          <div><h3>Campaigns</h3><p>Every campaign running for this client and its cost per lead.</p></div>
-          <div style="display:flex;gap:8px;">
-            <button class="btn ghost" id="sync-client-ads-btn">Sync Ad Account</button>
-            <button class="btn gold" id="add-campaign-btn">+ Add Campaign</button>
-          </div>
-        </div>
-        <div class="card">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Campaign</th><th>Platform</th><th>Status</th><th>Ad Spend</th><th>CPL</th><th></th></tr></thead>
-              <tbody id="campaigns-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="page-header" style="margin-top:8px;">
-          <div><h3>Ad Creatives Tried</h3></div>
-          <button class="btn gold" id="add-ad-creative-btn">+ Add Ad Creative</button>
-        </div>
-        <div class="card">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Image</th><th>Creative</th><th>Result</th><th>Added</th><th></th></tr></thead>
-              <tbody id="ad-creatives-tbody"></tbody>
-            </table>
-          </div>
+            <div class="card cl-panel">
+              <div class="cl-panel-head">
+                <div><h3>Notes</h3></div>
+                <button class="btn ghost sm" data-action="edit-client-header">Edit</button>
+              </div>
+              <div class="cl-notes" id="client-detail-notes">-</div>
+            </div>
+          </aside>
         </div>
       </div>
     </section>
@@ -2115,10 +2131,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=127"></script>
-<script src="js/supabaseClient.js?v=127"></script>
-<script src="js/app.js?v=127"></script>
-<script src="js/meetings-tracker.js?v=127"></script>
-<script src="js/todo.js?v=127"></script>
+<script src="js/config.js?v=128"></script>
+<script src="js/supabaseClient.js?v=128"></script>
+<script src="js/app.js?v=128"></script>
+<script src="js/meetings-tracker.js?v=128"></script>
+<script src="js/todo.js?v=128"></script>
 </body>
 </html>
