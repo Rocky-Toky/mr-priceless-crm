@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=135">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=135">
+<link rel="stylesheet" href="css/style.css?v=136">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=136">
 </head>
 <body>
 
@@ -127,17 +127,13 @@
       </select>
     </div>
     <nav class="nav">
-      <button class="nav-item" data-page="prospecting" data-workspace="sales">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-        <span>NZ Dialler</span>
-      </button>
       <button class="nav-item" data-page="cold-calls" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         <span>Meetings Booked</span>
       </button>
       <button class="nav-item" data-page="dialer" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="6" cy="5" r="1.7"/><circle cx="12" cy="5" r="1.7"/><circle cx="18" cy="5" r="1.7"/><circle cx="6" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18" cy="12" r="1.7"/><circle cx="6" cy="19" r="1.7"/><circle cx="12" cy="19" r="1.7"/><circle cx="18" cy="19" r="1.7"/></svg>
-        <span>Aus Dialler</span>
+        <span>Dialler</span>
       </button>
       <button class="nav-item" data-page="deals" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
@@ -706,67 +702,11 @@
     </section>
 
     <!-- Prospecting -->
-    <section class="page" id="page-prospecting">
-      <div class="page-header">
-        <div><h2>NZ Dialler</h2><p>Your leads to work through - new prospects get added from Add Prospects.</p></div>
-      </div>
-
-      <div class="toolbar-card">
-        <div class="toolbar">
-          <div class="search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-            <input type="text" id="prospecting-search" placeholder="Search name, company, notes...">
-          </div>
-          <div class="select-icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0116 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            <select class="filter-select" id="prospecting-filter-region">
-              <option value="">All Regions</option>
-            </select>
-          </div>
-          <div class="select-icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
-            <select class="filter-select" id="prospecting-view-select">
-              <option value="active">Active</option>
-              <option value="no_answer">No Answer</option>
-              <option value="follow_up">Follow Up</option>
-              <option value="not_interested">Not Interested</option>
-              <option value="disqualified">Disqualified</option>
-              <option value="returning">Returning</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div id="prospecting-groups" class="clients-gallery"></div>
-
-      <h3 class="analytics-subhead" style="margin-top:28px;">Region Data</h3>
-      <div class="card">
-        <div class="card-body">
-          <div class="field" style="max-width:280px;">
-            <label>Region</label>
-            <select id="region-data-select">
-              <option value="">All Regions</option>
-            </select>
-          </div>
-          <div class="stat-grid" style="margin-top:14px;grid-template-columns:repeat(4,1fr);">
-            <div class="stat-card"><div class="stat-label">Total Prospects</div><div class="stat-value" id="region-data-total">0</div></div>
-            <div class="stat-card"><div class="stat-label">Calls Made</div><div class="stat-value" id="region-data-calls">0</div></div>
-            <div class="stat-card"><div class="stat-label">Bookings</div><div class="stat-value" id="region-data-bookings">0</div></div>
-            <div class="stat-card"><div class="stat-label">Never Called</div><div class="stat-value" id="region-data-nevercalled">0</div></div>
-            <div class="stat-card"><div class="stat-label">Follow Up</div><div class="stat-value" id="region-data-followups">0</div></div>
-            <div class="stat-card"><div class="stat-label">Not Interested</div><div class="stat-value" id="region-data-notinterested">0</div></div>
-            <div class="stat-card"><div class="stat-label">Disqualified</div><div class="stat-value" id="region-data-disqualified">0</div></div>
-            <div class="stat-card"><div class="stat-label">Returning</div><div class="stat-value" id="region-data-returning">0</div></div>
-            <div class="stat-card"><div class="stat-label">No Answer</div><div class="stat-value" id="region-data-noanswer">0</div></div>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <!-- Dialer -->
     <section class="page" id="page-dialer">
       <div class="page-header">
-        <div><h2>Aus Dialler</h2><p>Australian prospects only - power dial straight down the list.</p></div>
+        <div><h2>Dialler</h2><p>Pick New Zealand or Australia and the region you're targeting, then power dial straight down the list.</p></div>
         <div style="display:flex;gap:10px;align-items:flex-end;">
           <div class="mtr-person-select">
             <label>You are</label>
@@ -792,13 +732,20 @@
       </div>
 
       <div class="toolbar">
+        <div class="country-toggle" id="dialer-country" role="group" aria-label="Country">
+          <button type="button" data-country="NZ" aria-pressed="false"><span class="flag">🇳🇿</span>New Zealand</button>
+          <button type="button" data-country="AU" aria-pressed="false"><span class="flag">🇦🇺</span>Australia</button>
+        </div>
         <div class="search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input type="text" id="dialer-search" placeholder="Search name, company, notes...">
         </div>
-        <select class="filter-select" id="dialer-filter-region">
-          <option value="">All Regions</option>
-        </select>
+        <div class="select-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0116 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <select class="filter-select" id="dialer-filter-region" aria-label="Region">
+            <option value="">All regions</option>
+          </select>
+        </div>
         <select class="filter-select" id="dialer-filter-industry">
           <option value="">All Industries</option>
         </select>
@@ -845,6 +792,23 @@
           </div>
         </div>
       </div>
+      <h3 class="analytics-subhead" style="margin-top:28px;">Region Data <span class="region-data-scope" id="region-data-scope"></span></h3>
+      <div class="card">
+        <div class="card-body">
+          <div class="stat-grid" style="margin-top:4px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:0;">
+            <div class="stat-card"><div class="stat-label">Total Prospects</div><div class="stat-value" id="region-data-total">0</div></div>
+            <div class="stat-card"><div class="stat-label">Calls Made</div><div class="stat-value" id="region-data-calls">0</div></div>
+            <div class="stat-card"><div class="stat-label">Bookings</div><div class="stat-value" id="region-data-bookings">0</div></div>
+            <div class="stat-card"><div class="stat-label">Never Called</div><div class="stat-value" id="region-data-nevercalled">0</div></div>
+            <div class="stat-card"><div class="stat-label">Follow Up</div><div class="stat-value" id="region-data-followups">0</div></div>
+            <div class="stat-card"><div class="stat-label">Not Interested</div><div class="stat-value" id="region-data-notinterested">0</div></div>
+            <div class="stat-card"><div class="stat-label">Disqualified</div><div class="stat-value" id="region-data-disqualified">0</div></div>
+            <div class="stat-card"><div class="stat-label">Returning</div><div class="stat-value" id="region-data-returning">0</div></div>
+            <div class="stat-card"><div class="stat-label">No Answer</div><div class="stat-value" id="region-data-noanswer">0</div></div>
+          </div>
+        </div>
+      </div>
+
     </section>
 
     <!-- Contacts -->
@@ -2118,10 +2082,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=135"></script>
-<script src="js/supabaseClient.js?v=135"></script>
-<script src="js/app.js?v=135"></script>
-<script src="js/meetings-tracker.js?v=135"></script>
-<script src="js/todo.js?v=135"></script>
+<script src="js/config.js?v=136"></script>
+<script src="js/supabaseClient.js?v=136"></script>
+<script src="js/app.js?v=136"></script>
+<script src="js/meetings-tracker.js?v=136"></script>
+<script src="js/todo.js?v=136"></script>
 </body>
 </html>

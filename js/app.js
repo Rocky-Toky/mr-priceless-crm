@@ -459,6 +459,7 @@ const state = {
   coverageIndustry: "",
   expandedStages: {},
   dialerFilter: { search: "", region: "", industry: "", caller: "" },
+  dialerCountry: (() => { try { const c = localStorage.getItem("mp_dialer_country"); return c === "NZ" || c === "AU" ? c : "AU"; } catch(e){ return "AU"; } })(),
   // Separate from dialerFilter (which is shared with the Prospecting page's
   // deliberately-shared master list) - this only scopes the Dialler itself,
   // defaulting to whoever's currently dialing so one person's freshly
@@ -2109,11 +2110,24 @@ function isParked(p){ return p.last_outcome === "call_back" || p.last_outcome ==
 // long booked_meeting snooze) - these flow back into the active pool on
 // their own once snoozed_until passes, unlike parked prospects.
 function isReturning(p){ return !isParked(p) && isSnoozed(p); }
-// The Aus Dialler only ever calls Australian numbers - it reads the country
-// straight off the phone number itself (E.164 always starts with the
-// country code) rather than a separate field, so it can't drift out of
-// sync with what would actually get dialed.
-function isAuProspect(p){ return (p.phone||"").startsWith("+61"); }
+// The Dialler works one country at a time (NZ or AU, picked at the top).
+// A prospect's country comes from its region first - the region pick-lists
+// never overlap - then from the country code on its number. A local number
+// with no region and no country code counts as NZ, which is what the old
+// NZ Dialler treated it as.
+const DIALER_COUNTRIES = { NZ: { code: "64", label: "New Zealand", regions: NZ_REGIONS }, AU: { code: "61", label: "Australia", regions: AU_REGIONS } };
+const DIALER_COUNTRY_KEY = "mp_dialer_country";
+function prospectCountry(p){
+  if (NZ_REGIONS.includes(p.region)) return "NZ";
+  if (AU_REGIONS.includes(p.region)) return "AU";
+  const phone = String(p.phone||"").trim();
+  if (phone.startsWith("+61")) return "AU";
+  return "NZ";
+}
+// The number exactly as it will be dialled - an old NZ "021 555 0111" saved
+// before imports added country codes dials as +64, never as +61.
+function prospectE164(p){ return toE164(p.phone, DIALER_COUNTRIES[prospectCountry(p)].code); }
+function inDialerCountry(p){ return prospectCountry(p) === state.dialerCountry; }
 // Two people running the Aus Dialler at once must never both land on the
 // same prospect as "Up Now" - whoever's dialer surfaces a prospect first
 // claims it for a few minutes (comfortably covering a real call), and the
@@ -2158,10 +2172,9 @@ function dialerQueue(){
   // callable right now - anyone still cooling down after a recent call stays
   // out of the queue until they're due again, and anyone parked (Follow Up /
   // Not Interested) stays out until someone actions them from those views.
-  // It's also Australia-only (see isAuProspect) - the Prospecting master
-  // list still shows everyone, this queue just never surfaces the rest.
+  // It only ever surfaces the country picked at the top (see inDialerCountry).
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
-  return dialerFilteredProspects().filter(isAuProspect).filter(p => dialerOwnedBy(p, state.dialerOwnerFilter)).filter(p => !isParked(p) && !isSnoozed(p) && !isClaimedByOther(p, activePerson)).sort((a,b) => {
+  return dialerFilteredProspects().filter(inDialerCountry).filter(p => dialerOwnedBy(p, state.dialerOwnerFilter)).filter(p => !isParked(p) && !isSnoozed(p) && !isClaimedByOther(p, activePerson)).sort((a,b) => {
     const ta = a.last_called_at ? new Date(a.last_called_at).getTime() : -Infinity;
     const tb = b.last_called_at ? new Date(b.last_called_at).getTime() : -Infinity;
     if (ta !== tb) return ta - tb;
@@ -2176,22 +2189,43 @@ function dialerQueue(){
   });
 }
 function renderDialerFilters(){
+  const country = state.dialerCountry;
+  $$("#dialer-country [data-country]").forEach(b => {
+    const on = b.dataset.country === country;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
   const regionSel = $("#dialer-filter-region");
   const industrySel = $("#dialer-filter-industry");
   const ownerSel = $("#dialer-filter-owner");
-  const auProspects = state.prospects.filter(isAuProspect);
-  const auDistinctValues = (field) => [...new Set(auProspects.map(p => p[field]).filter(Boolean))].sort();
+  const pool = state.prospects.filter(inDialerCountry);
+  // Regions in the pick-list's own order, only the ones with prospects on
+  // file, each with how many - so it's obvious where there's work to do.
+  const counts = new Map();
+  pool.forEach(p => { if (p.region) counts.set(p.region, (counts.get(p.region)||0) + 1); });
+  const canonical = DIALER_COUNTRIES[country].regions;
+  const regions = [...canonical.filter(r => counts.has(r)), ...[...counts.keys()].filter(r => !canonical.includes(r)).sort()];
+  if (state.dialerFilter.region && !regions.includes(state.dialerFilter.region)) state.dialerFilter.region = "";
   if (regionSel){
-    const regions = auDistinctValues("region");
-    regionSel.innerHTML = `<option value="">All Regions</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
+    const label = country === "AU" ? "All states" : "All regions";
+    regionSel.innerHTML = `<option value="">${label} (${pool.length})</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)} (${counts.get(r)})</option>`).join("");
     regionSel.value = state.dialerFilter.region;
   }
   if (industrySel){
-    const industries = auDistinctValues("industry");
+    const industries = [...new Set(pool.filter(p => !state.dialerFilter.region || p.region === state.dialerFilter.region).map(p => p.industry).filter(Boolean))].sort();
+    if (state.dialerFilter.industry && !industries.includes(state.dialerFilter.industry)) state.dialerFilter.industry = "";
     industrySel.innerHTML = `<option value="">All Industries</option>` + industries.map(i => `<option value="${escapeHtml(i)}">${escapeHtml(i)}</option>`).join("");
     industrySel.value = state.dialerFilter.industry;
   }
   if (ownerSel && document.activeElement !== ownerSel) ownerSel.value = state.dialerOwnerFilter || "";
+}
+function setDialerCountry(country){
+  if (!DIALER_COUNTRIES[country] || state.dialerCountry === country) return;
+  state.dialerCountry = country;
+  state.dialerFilter.region = "";
+  state.dialerFilter.industry = "";
+  try { localStorage.setItem(DIALER_COUNTRY_KEY, country); } catch(e){}
+  renderProspectViews();
 }
 // Avoids re-firing the same claim write on every re-render while the same
 // prospect is sitting at the top of one person's queue.
@@ -2226,7 +2260,7 @@ function renderDialer(){
       playbookSel.value = usage?.playbook_id || "";
     }
   }
-  const filtered = dialerFilteredProspects().filter(isAuProspect).filter(p => dialerOwnedBy(p, state.dialerOwnerFilter));
+  const filtered = dialerFilteredProspects().filter(inDialerCountry).filter(p => dialerOwnedBy(p, state.dialerOwnerFilter));
   const total = filtered.length;
   const totalCalls = filtered.reduce((s,p) => s + Number(p.calls_made||0), 0);
   const neverCalled = filtered.filter(p => !p.calls_made).length;
@@ -2298,7 +2332,7 @@ function renderDialer(){
           <div>
             <h3 style="font-size:22px;margin-bottom:4px;">${escapeHtml(p.name)}</h3>
             <div style="color:var(--text2);font-size:13.5px;">${escapeHtml(p.company||"No company")}</div>
-            ${p.phone ? `<div style="margin-top:8px;">${phoneHtml(p.phone, "phone-num-xl")}</div>` : ""}
+            ${p.phone ? `<div style="margin-top:8px;">${phoneHtml(prospectE164(p), "phone-num-xl")}</div>` : ""}
             <div style="color:var(--text2);font-size:12.5px;margin-top:4px;">${escapeHtml(p.email||"")}</div>
           </div>
           <div style="text-align:right;">
@@ -2307,8 +2341,8 @@ function renderDialer(){
           </div>
         </div>
         ${IS_CONFIGURED
-          ? `<button type="button" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${p.phone ? "Call " + escapeHtml(formatPhone(p.phone)) : "No phone number"}</button>`
-          : `<a href="tel:${escapeHtml((p.phone||"").replace(/[^0-9+]/g,""))}" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="dial-tel" data-id="${p.id}">${p.phone ? "Call " + escapeHtml(formatPhone(p.phone)) : "No phone number"}</a>`}
+          ? `<button type="button" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${p.phone ? "Call " + escapeHtml(formatPhone(prospectE164(p))) : "No phone number"}</button>`
+          : `<a href="tel:${escapeHtml(prospectE164(p))}" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="dial-tel" data-id="${p.id}">${p.phone ? "Call " + escapeHtml(formatPhone(prospectE164(p))) : "No phone number"}</a>`}
         ${p.notes ? `<div class="card" style="margin-top:14px;padding:12px 14px;background:#faf9f5;box-shadow:none;"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Notes</div><div style="font-size:13px;">${escapeHtml(p.notes)}</div></div>` : ""}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">
           ${OUTCOME_BUTTONS.map(o => `<button class="btn ${o.cls}" data-action="dial-outcome" data-outcome="${o.key}" data-id="${p.id}">${o.label}</button>`).join("")}
@@ -2330,7 +2364,7 @@ function renderDialer(){
               ${queue.map((p,i) => `
                 <tr data-id="${p.id}" style="${i===0?"background:var(--gold-soft);":""}">
                   <td><div class="row-name">${escapeHtml(p.name)}</div><div class="row-sub">${escapeHtml(p.company||"")}</div></td>
-                  <td>${phoneHtml(p.phone)}</td>
+                  <td>${phoneHtml(prospectE164(p))}</td>
                   <td>${[p.region,p.industry].filter(Boolean).map(escapeHtml).join(" · ") || "-"}</td>
                   <td><span class="badge gray">${Number(p.calls_made||0)}</span></td>
                   <td style="text-align:right;white-space:nowrap;">
@@ -2699,9 +2733,9 @@ function setCallWidget(open, { name, status } = {}){
   if (status !== undefined) $("#call-widget-status").textContent = status;
 }
 
-async function placeCall(phoneRaw, displayName){
+async function placeCall(phoneRaw, displayName, defaultCountryCode = "61"){
   if (activeCall){ alert("You're already on a call. Hang up first."); return false; }
-  const digits = toE164(phoneRaw);
+  const digits = toE164(phoneRaw, defaultCountryCode);
   if (!digits){ alert("That doesn't look like a usable phone number."); return false; }
   const device = await getVoiceDevice();
   if (!device) return false;
@@ -2733,7 +2767,7 @@ async function startCall(prospectId){
   // time out from under it and let a teammate's dialer pick it up too.
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
   if (activePerson) DataLayer.update("dial_prospects", prospectId, { claimed_by: activePerson, claimed_at: new Date().toISOString() });
-  const ok = await placeCall(p.phone, p.name);
+  const ok = await placeCall(p.phone, p.name, DIALER_COUNTRIES[prospectCountry(p)].code);
   if (!ok){ activeCallProspectId = null; return; }
   // Deliberately not logging an outcome here - that used to fire the instant
   // the call connected and, since "dialed" isn't a real outcome, fell through
@@ -4239,17 +4273,13 @@ function renderReportHistoryModal(clientId){
 // dropdown - the numbers can't drift from reality since there's nothing to
 // manually keep in sync any more.
 function renderRegionData(){
-  const select = $("#region-data-select");
-  if (!select) return;
-  // NZ only, same as the rest of Prospecting - see renderProspectList.
-  const nzProspects = state.prospects.filter(p => !p.region || NZ_REGIONS.includes(p.region));
-  const regions = dialerDistinctValues("region").filter(r => NZ_REGIONS.includes(r));
-  const wanted = state.regionDataFilter || "";
-  select.innerHTML = `<option value="">All Regions</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join("");
-  select.value = regions.includes(wanted) ? wanted : "";
-  state.regionDataFilter = select.value;
-
-  const filtered = state.regionDataFilter ? nzProspects.filter(p => p.region === state.regionDataFilter) : nzProspects;
+  const scope = $("#region-data-scope");
+  if (!$("#region-data-total")) return;
+  const country = state.dialerCountry;
+  const region = state.dialerFilter.region;
+  const pool = state.prospects.filter(inDialerCountry);
+  const filtered = region ? pool.filter(p => p.region === region) : pool;
+  if (scope) scope.textContent = `${DIALER_COUNTRIES[country].label} · ${region || (country === "AU" ? "All states" : "All regions")}`;
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
   st("#region-data-total", filtered.length);
   st("#region-data-calls", filtered.reduce((s,p) => s + Number(p.calls_made||0), 0).toLocaleString());
@@ -6378,9 +6408,12 @@ function setupModals(){
       return;
     }
     if (action === "filter-region-coverage"){
+      const country = AU_REGIONS.includes(btn.dataset.region) ? "AU" : "NZ";
+      if (state.dialerCountry !== country){ state.dialerCountry = country; try { localStorage.setItem(DIALER_COUNTRY_KEY, country); } catch(e){} }
       state.dialerFilter.region = btn.dataset.region;
+      state.dialerFilter.industry = "";
       renderProspectViews();
-      $('.nav-item[data-page="prospecting"]')?.click();
+      $('.nav-item[data-page="dialer"]')?.click();
     }
     if (action === "complete-vertical"){
       const region = btn.dataset.region, industry = btn.dataset.industry;
@@ -6524,10 +6557,11 @@ function setupSearchFilters(){
 }
 // Dialer and Prospecting both read/filter the same shared prospect list, so
 // a filter changed on either page re-renders both.
-function renderProspectViews(){ renderDialer(); renderProspectList(); }
+function renderProspectViews(){ renderDialer(); renderProspectList(); renderRegionData(); }
 function setupDialerFilters(){
   $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
-  $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
+  $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; state.dialerFilter.industry = ""; renderProspectViews(); });
+  $$("#dialer-country [data-country]").forEach(b => b.addEventListener("click", () => setDialerCountry(b.dataset.country)));
   $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
   $("#dialer-filter-owner")?.addEventListener("change", (e) => { state.dialerOwnerFilter = e.target.value; renderProspectViews(); });
   $("#dialer-queue-view-select")?.addEventListener("change", (e) => { state.dialerQueueView = e.target.value; renderProspectViews(); });
