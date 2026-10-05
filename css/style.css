@@ -99,6 +99,8 @@ a{color:inherit;text-decoration:none;}
 .nav-item.active{background:linear-gradient(90deg,var(--gold-soft),transparent);color:var(--gold-bright);border-left-color:var(--gold-bright);}
 .nav-item.active svg{opacity:1;filter:drop-shadow(0 0 4px var(--gold-glow));}
 
+/* sticky sidebar is its own stacking context - lift it so the More menu draws over sticky page content */
+.sidebar{z-index:50;}
 .nav-group{position:relative;}
 .nav-dropdown{
   display:none;position:fixed;
@@ -789,6 +791,28 @@ mark{background:rgba(232,196,104,0.45);color:inherit;border-radius:3px;padding:0
 .onboarding-progress-bar{height:8px;border-radius:5px;background:#f1eee6;overflow:hidden;}
 .onboarding-progress-bar-lg{height:12px;border-radius:7px;margin-bottom:10px;}
 .onboarding-progress-fill{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold-bright));border-radius:inherit;transition:width .3s;}
+/* Onboarding checklist inside a client's page */
+.client-onboarding-card{margin-bottom:20px;overflow:hidden;}
+.client-onboarding-head{
+  display:flex;align-items:center;gap:18px;padding:18px 22px;cursor:pointer;list-style:none;user-select:none;
+}
+.client-onboarding-head::-webkit-details-marker{display:none;}
+.client-onboarding-head::before{content:"›";font-size:20px;line-height:1;color:var(--text2);transform:rotate(90deg);transition:transform .2s;flex-shrink:0;}
+.client-onboarding-card[open] .client-onboarding-head::before{transform:rotate(-90deg);}
+.client-onboarding-card[open] .client-onboarding-head{border-bottom:1px solid var(--line);}
+.client-onboarding-title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;min-width:0;}
+.client-onboarding-title h3{font-size:16px;}
+.client-onboarding-title .onboarding-progress-label{margin:0;}
+.client-onboarding-bar{flex:1;max-width:320px;margin-left:auto;}
+.client-onboarding-card.is-onboarding{border-color:var(--gold-border);}
+.client-onboarding-complete{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  padding:14px 22px;background:var(--gold-soft);border-bottom:1px solid var(--gold-border);font-size:13.5px;font-weight:600;
+}
+.client-gallery-onboarding{cursor:pointer;margin-top:4px;}
+.client-onboarding-card .onboarding-steps-list{padding:0 18px 14px;}
+.client-onboarding-card .onboarding-section-head:first-child{border-top:none;}
+.client-gallery-onboarding .onboarding-progress-label{display:flex;align-items:center;gap:8px;justify-content:space-between;}
 .onboarding-card-foot{margin-top:9px;font-size:12px;color:var(--text2);}
 .onboarding-progress-label{font-size:13px;color:var(--text2);font-weight:600;}
 .onboarding-steps-list{display:flex;flex-direction:column;}
