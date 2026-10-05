@@ -1485,17 +1485,11 @@ function renderDashboard(){
 function sameMonth(iso){ const d=new Date(iso), n=new Date(); return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear(); }
 function withinDays(iso, days){ return (Date.now()-new Date(iso).getTime()) < days*86400e3; }
 function daysSince(iso){ return iso ? Math.floor((Date.now()-new Date(iso).getTime())/86400e3) : null; }
-function daysUntil(iso){ return iso ? Math.ceil((new Date(iso+"T00:00:00").getTime()-Date.now())/86400e3) : null; }
 // Every client reports on the same fixed fortnightly cadence - used for the
 // Reporting page's "Next Due" column. (No overdue reminders/alerts.)
 const REPORT_CADENCE_DAYS = 14;
 function getClientAlerts(c){
   const alerts = [];
-  if (c.renewal_date){
-    const d = daysUntil(c.renewal_date);
-    if (d < 0) alerts.push({ type:"danger", text:`Renewal date passed ${Math.abs(d)}d ago` });
-    else if (d <= 14) alerts.push({ type:"warn", text:`Renewal in ${d}d` });
-  }
   const stageInfo = CLIENT_STAGE_MAP[c.stage];
   if (stageInfo?.days){
     const inStage = daysSince(c.stage_changed_at);
