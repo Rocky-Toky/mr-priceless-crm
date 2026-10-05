@@ -3245,6 +3245,7 @@ function renderClientRow(c, alerts){
         <select class="filter-select client-stage-select" data-id="${c.id}" aria-label="Stage for ${escapeHtml(c.name)}">
           ${CLIENT_STAGES.map(s => `<option value="${s.key}" ${s.key===(c.stage||"onboarding")?"selected":""}>${s.label}</option>`).join("")}
         </select>
+        <button type="button" class="icon-btn cl-row-delete" data-action="delete-client-row" data-id="${c.id}" title="Delete ${escapeHtml(c.name)}" aria-label="Delete ${escapeHtml(c.name)}">${ICONS.trash}</button>
       </div>
     </div>`;
 }
@@ -6322,7 +6323,15 @@ function setupModals(){
       $("#client-info-contacts-input").value = c.key_contacts||"";
       openModal("client-info-modal");
     }
-    if (action === "delete-client" && confirm("Delete this client and all their content pieces / ad creatives?")) {
+    if (action === "delete-client-row"){
+      const c = state.clients.find(x => x.id === id);
+      if (c && confirm(`Delete ${c.name}? This also removes their campaigns, ad creatives, content pieces, leads and onboarding progress. This can't be undone.`)){
+        if (state.selectedClientId === id) state.selectedClientId = null;
+        await DataLayer.remove("clients", id);
+        renderClients();
+      }
+    }
+    if (action === "delete-client" && confirm("Delete this client? This also removes their campaigns, ad creatives, content pieces, leads and onboarding progress. This can't be undone.")) {
       await DataLayer.remove("clients", state.selectedClientId);
       state.selectedClientId = null;
       renderClients();
