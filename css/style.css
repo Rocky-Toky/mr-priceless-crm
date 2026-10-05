@@ -201,6 +201,8 @@ button.client-info-empty{
   transition:border-color .15s,background .15s;
 }
 button.client-info-empty:hover{border-color:var(--gold-border);background:var(--gold-soft);}
+.client-info-optional{margin-left:8px;padding:1px 7px;border-radius:999px;background:var(--paper);border:1px solid var(--line);font-size:9.5px;letter-spacing:.06em;color:var(--text2);vertical-align:1px;}
+button.client-info-empty.optional{background:none;border-style:dashed;color:var(--text2);}
 
 .two-col{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;}
 @media(max-width:1000px){.two-col{grid-template-columns:1fr;}}

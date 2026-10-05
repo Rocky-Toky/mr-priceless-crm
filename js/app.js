@@ -286,13 +286,16 @@ const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
 // team - drives the completeness bar on the Client Info card and kanban card.
 const CLIENT_INFO_FIELDS = [
   { key: "services", label: "Services", hint: "What we deliver for them - so anyone can explain it without asking." },
-  { key: "renewal_date", label: "Renewal / Review Date", hint: "When to revisit the contract or scope.", isDate: true },
+  // Optional: ad-hoc clients have no contract to renew, so it never counts
+  // against their profile completeness.
+  { key: "renewal_date", label: "Renewal / Review Date", hint: "When to revisit the contract or scope.", isDate: true, optional: true },
   { key: "key_contacts", label: "Key Contacts", hint: "Who the decision makers are and how to reach them." },
   { key: "qualified_lead_structure", label: "Qualified Lead Structure", hint: "What actually counts as a good lead for this client - fills in automatically as you answer the qualifying questions on their Onboarding checklist." },
 ];
 function clientProfileCompleteness(c){
-  const filled = CLIENT_INFO_FIELDS.filter(f => c[f.key] != null && String(c[f.key]).trim() !== "").length;
-  return { filled, total: CLIENT_INFO_FIELDS.length, pct: Math.round(filled / CLIENT_INFO_FIELDS.length * 100) };
+  const required = CLIENT_INFO_FIELDS.filter(f => !f.optional);
+  const filled = required.filter(f => c[f.key] != null && String(c[f.key]).trim() !== "").length;
+  return { filled, total: required.length, pct: Math.round(filled / required.length * 100) };
 }
 // IMPORTANT: each step's saved progress is keyed by its own explicit `key`
 // below (not its position in this array) - so items can be freely reordered,
@@ -3254,10 +3257,12 @@ function renderClientInfoGrid(c){
       const display = hasValue ? (f.isDate ? fmtDate(raw) : escapeHtml(raw)) : "";
       return `
         <div class="client-info-block${f.wide?' client-info-block-wide':''}">
-          <div class="client-info-label">${escapeHtml(f.label)}</div>
+          <div class="client-info-label">${escapeHtml(f.label)}${f.optional ? `<span class="client-info-optional">Optional</span>` : ""}</div>
           ${hasValue
             ? `<div class="client-info-value">${display}</div>`
-            : `<button type="button" class="client-info-value client-info-empty" data-action="edit-client-info">+ Add ${escapeHtml(f.label.toLowerCase())} - ${escapeHtml(f.hint)}</button>`}
+            : f.optional
+              ? `<button type="button" class="client-info-value client-info-empty optional" data-action="edit-client-info">None - leave blank for ad-hoc clients</button>`
+              : `<button type="button" class="client-info-value client-info-empty" data-action="edit-client-info">+ Add ${escapeHtml(f.label.toLowerCase())} - ${escapeHtml(f.hint)}</button>`}
         </div>`;
     }).join("");
   }
