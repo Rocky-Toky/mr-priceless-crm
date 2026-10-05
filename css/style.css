@@ -1228,3 +1228,13 @@ body.workspace-delivery .workspace-banner h2{color:#2a3438;}
 @media (hover:none){.cl-row-delete{opacity:1;}}
 
 .creative-deleted-client{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;font-size:10px;font-weight:600;background:#f1f0eb;color:var(--text2);border:1px solid var(--line);vertical-align:1px;}
+
+/* ───────── Phone numbers: bigger, spaced, easy to read ───────── */
+.phone-num{
+  font-size:15px;font-weight:600;color:var(--text);letter-spacing:0.02em;
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.phone-num-empty{color:var(--text2);font-weight:500;}
+.phone-num-xl{font-size:24px;font-weight:700;letter-spacing:0.03em;font-family:var(--font-display);}
+a.phone-num:hover{color:var(--gold-deep);}
+.call-widget-status{font-variant-numeric:tabular-nums;}
