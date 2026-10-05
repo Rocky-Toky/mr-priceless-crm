@@ -1238,3 +1238,12 @@ body.workspace-delivery .workspace-banner h2{color:#2a3438;}
 .phone-num-xl{font-size:24px;font-weight:700;letter-spacing:0.03em;font-family:var(--font-display);}
 a.phone-num:hover{color:var(--gold-deep);}
 .call-widget-status{font-variant-numeric:tabular-nums;}
+
+/* ───────── Dialler: country toggle ───────── */
+.country-toggle{display:inline-flex;padding:3px;border-radius:999px;background:var(--white);border:1px solid var(--line);gap:2px;flex-shrink:0}
+.country-toggle button{display:inline-flex;align-items:center;gap:7px;border:none;background:none;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:var(--text2);transition:background .15s,color .15s}
+.country-toggle button:hover{color:var(--text)}
+.country-toggle button.active{background:var(--black);color:var(--gold-bright)}
+.country-toggle .flag{font-size:15px;line-height:1}
+.region-data-scope{font-size:12px;font-weight:600;color:var(--text2);letter-spacing:0;text-transform:none;margin-left:8px}
+#dialer-filter-region{min-width:190px}
