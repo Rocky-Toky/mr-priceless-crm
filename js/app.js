@@ -419,7 +419,6 @@ const state = {
   completedVerticals: [],
   playbookUsage: [],
   selectedClientId: null,
-  selectedOnboardingClientId: null,
   selectedDealId: null,
   coverageIndustry: "",
   expandedStages: {},
@@ -1366,14 +1365,16 @@ function setupNav(){
       state.page = btn.dataset.page;
       $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));
       $$(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + state.page));
-      $("#nav-more-dropdown")?.classList.remove("open");
+      $$(".nav-dropdown.open").forEach(d => d.classList.remove("open"));
     });
   });
-  $("#nav-more-toggle")?.addEventListener("click", (e) => {
+  // Each workspace has its own "More" group - wire them all the same way.
+  const closeNavDropdowns = (except) => $$(".nav-dropdown.open").forEach(d => { if (d !== except) d.classList.remove("open"); });
+  $$(".nav-group-toggle").forEach(toggle => toggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    const toggle = e.currentTarget;
-    const dropdown = $("#nav-more-dropdown");
+    const dropdown = toggle.closest(".nav-group")?.querySelector(".nav-dropdown");
     if (!dropdown) return;
+    closeNavDropdowns(dropdown);
     const wasOpen = dropdown.classList.contains("open");
     dropdown.classList.toggle("open", !wasOpen);
     if (wasOpen) return;
@@ -1386,10 +1387,9 @@ function setupNav(){
     if (top + dh > window.innerHeight - 8) top = window.innerHeight - dh - 8;
     dropdown.style.left = left + "px";
     dropdown.style.top = top + "px";
-  });
+  }));
   document.addEventListener("click", (e) => {
-    const group = $("#nav-more-toggle")?.closest(".nav-group");
-    if (group && !group.contains(e.target)) $("#nav-more-dropdown")?.classList.remove("open");
+    if (!e.target.closest?.(".nav-group")) closeNavDropdowns();
   });
   $("#signout-btn")?.addEventListener("click", async () => {
     if (IS_CONFIGURED) await supabase.auth.signOut();
@@ -3246,6 +3246,18 @@ function renderClientGalleryCard(c){
           <div class="client-gallery-cpl">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</div>
         </div>
       </div>
+      ${(c.stage || "onboarding") === "onboarding" ? (() => {
+        const done = onboardingDoneCount(c);
+        const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
+        return `
+        <div class="client-gallery-onboarding" data-action="view-client" data-id="${c.id}" title="Open the onboarding checklist">
+          <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" style="width:${Math.round(done / ONBOARDING_STEPS.length * 100)}%;"></div></div>
+          <div class="onboarding-progress-label">
+            ${done} of ${ONBOARDING_STEPS.length} onboarding steps
+            ${days != null ? `<span class="badge ${days > 35 ? "red" : "gray"}">${days}d${days > 35 ? " - slow" : " in"}</span>` : ""}
+          </div>
+        </div>`;
+      })() : ""}
       ${quotePct != null ? `
         <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" style="width:${quotePct}%;"></div></div>
         <div class="onboarding-progress-label">${c.quotes_sent||0} of ${c.quote_target} quotes</div>
@@ -3294,6 +3306,7 @@ function renderClientInfoGrid(c){
 }
 function renderClientDetail(c){
   $("#client-detail-name").textContent = c.name;
+  renderClientOnboarding(c);
   const stageInfo = CLIENT_STAGE_MAP[c.stage] || CLIENT_STAGES[0];
   const stageBadge = $("#client-detail-stage-badge");
   stageBadge.textContent = stageInfo.label;
@@ -3471,52 +3484,21 @@ function isOnboardingStepDone(client, step){
 function onboardingDoneCount(client){
   return ONBOARDING_STEPS.filter(s => isOnboardingStepDone(client, s)).length;
 }
-function renderOnboarding(){
-  const listView = $("#onboarding-list-view");
-  const detailView = $("#onboarding-detail-view");
-  if (!listView || !detailView) return;
-  const selected = state.clients.find(c => c.id === state.selectedOnboardingClientId);
-  if (!selected){
-    state.selectedOnboardingClientId = null;
-    listView.style.display = "";
-    detailView.style.display = "none";
-    renderOnboardingList();
-  } else {
-    listView.style.display = "none";
-    detailView.style.display = "";
-    renderOnboardingDetail(selected);
+// The checklist lives on each client's own page (Clients -> client). It
+// opens automatically for clients still in the Onboarding stage and stays
+// tucked away (but reachable) for everyone else.
+let onboardingCardClientId = null;
+function renderClientOnboarding(c){
+  const card = $("#client-onboarding-card");
+  if (!card) return;
+  if (onboardingCardClientId !== c.id){
+    onboardingCardClientId = c.id;
+    card.open = (c.stage || "onboarding") === "onboarding";
   }
-}
-function renderOnboardingList(){
-  const clients = state.clients.filter(c => c.stage === "onboarding" || (!c.stage && onboardingDoneCount(c) < ONBOARDING_STEPS.length));
-  const grid = $("#onboarding-clients-grid");
-  if (!grid) return;
-  $("#onboarding-stat-active").textContent = clients.length;
-  const overdueCount = clients.filter(c => c.stage_changed_at && daysSince(c.stage_changed_at) > 35).length;
-  $("#onboarding-stat-overdue").textContent = overdueCount;
-  const avgDone = clients.length ? Math.round(clients.reduce((s,c) => s + onboardingDoneCount(c), 0) / clients.length) : 0;
-  $("#onboarding-stat-avg-steps").textContent = clients.length ? `${avgDone}/${ONBOARDING_STEPS.length}` : "-";
-
-  if (!clients.length){ grid.innerHTML = emptyState("No clients currently onboarding. New clients start here automatically when added in the Onboarding stage."); return; }
-  grid.innerHTML = clients.map(c => {
-    const done = onboardingDoneCount(c);
-    const pct = Math.round(done / ONBOARDING_STEPS.length * 100);
-    const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
-    const isSlow = days != null && days > 35;
-    return `
-    <div class="onboarding-card" data-action="view-onboarding-client" data-id="${c.id}">
-      <div class="onboarding-card-head">
-        <h5>${escapeHtml(c.name)}</h5>
-        ${isSlow ? `<span class="badge red">${days}d - slow</span>` : (days != null ? `<span class="badge gray">${days}d in</span>` : "")}
-      </div>
-      <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" style="width:${pct}%"></div></div>
-      <div class="onboarding-card-foot">${done} of ${ONBOARDING_STEPS.length} steps complete</div>
-    </div>
-  `;
-  }).join("");
+  card.classList.toggle("is-onboarding", (c.stage || "onboarding") === "onboarding");
+  renderOnboardingDetail(c);
 }
 function renderOnboardingDetail(c){
-  $("#onboarding-detail-name").textContent = c.name;
   const done = onboardingDoneCount(c);
   const pct = Math.round(done / ONBOARDING_STEPS.length * 100);
   $("#onboarding-detail-progress-fill").style.width = pct + "%";
@@ -3571,10 +3553,9 @@ function renderOnboardingDetail(c){
   }
 
   const completeBtn = $("#onboarding-complete-btn");
-  if (completeBtn){
-    completeBtn.dataset.id = c.id;
-    completeBtn.style.display = done === ONBOARDING_STEPS.length ? "" : "none";
-  }
+  if (completeBtn) completeBtn.dataset.id = c.id;
+  const completeWrap = $("#onboarding-complete-wrap");
+  if (completeWrap) completeWrap.style.display = done === ONBOARDING_STEPS.length && (c.stage || "onboarding") === "onboarding" ? "" : "none";
 }
 
 /* ───────── Render: Creative Library ───────── */
@@ -4637,7 +4618,6 @@ function renderAll(){
   renderProspectList();
   renderDialer();
   renderClients();
-  renderOnboarding();
   renderCreativeLibrary();
   renderContentProduction();
   renderTasks();
@@ -6370,8 +6350,6 @@ function setupModals(){
     if (action === "reactivate-vertical") { await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll(); }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
-    if (action === "view-onboarding-client"){ state.selectedOnboardingClientId = id; renderOnboarding(); }
-    if (action === "back-to-onboarding"){ state.selectedOnboardingClientId = null; renderOnboarding(); }
     if (action === "toggle-onboarding-step"){
       const c = state.clients.find(x => x.id === id);
       if (!c) return;
@@ -6383,7 +6361,6 @@ function setupModals(){
     }
     if (action === "complete-onboarding" && confirm("Mark onboarding complete and move this client to Month 1?")){
       await DataLayer.update("clients", id, { stage: "month_1", stage_changed_at: new Date().toISOString() });
-      state.selectedOnboardingClientId = null;
       if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
     if (action === "edit-client-header"){
@@ -6408,11 +6385,6 @@ function setupModals(){
       await DataLayer.remove("clients", state.selectedClientId);
       state.selectedClientId = null;
       renderClients();
-    }
-    if (action === "delete-onboarding-client" && confirm("Delete this client entirely? This removes their onboarding progress along with the client record.")) {
-      await DataLayer.remove("clients", state.selectedOnboardingClientId);
-      state.selectedOnboardingClientId = null;
-      renderOnboarding();
     }
     if (action === "quote-increment" || action === "quote-decrement"){
       const client = state.clients.find(x => x.id === state.selectedClientId);
