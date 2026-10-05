@@ -444,7 +444,7 @@ const state = {
   creativeFilter: { client: "", result: "", delivery: "", sort: "top" },
   contentFilter: { search: "", client: "", type: "" },
   clientsGallerySearch: "",
-  clientsCollapsedStages: new Set(),
+  clientsStageFilter: "all",
   googleAccessToken: null,
   calendarEvents: [],
   calendarWeekStart: startOfWeek(new Date()),
@@ -3148,139 +3148,115 @@ function renderClients(){
 }
 function renderClientsList(){
   const avg = clientAvgCPL();
-  const withAlerts = state.clients.map(c => ({ c, alerts: getClientAlerts(c) })).filter(x => x.alerts.length);
+  const alertsById = new Map(state.clients.map(c => [c.id, getClientAlerts(c)]));
+  const attention = state.clients.filter(c => alertsById.get(c.id).length);
   $("#clients-stat-total").textContent = state.clients.length;
   $("#clients-stat-cpl").textContent = avg != null ? fmtMoney(avg) : "-";
   $("#clients-stat-content").textContent = state.clientContent.length;
   $("#clients-stat-campaigns").textContent = state.campaigns.filter(c => c.status === "active").length;
   const attnEl = $("#clients-stat-attention");
-  if (attnEl) attnEl.textContent = withAlerts.length;
+  if (attnEl) attnEl.textContent = attention.length;
 
-  const alertsPanel = $("#clients-alerts-panel");
-  if (alertsPanel){
-    if (!withAlerts.length){
-      alertsPanel.innerHTML = "";
-      alertsPanel.style.display = "none";
-    } else {
-      alertsPanel.style.display = "";
-      const sorted = withAlerts.sort((a,b) => {
-        const worst = x => x.alerts.some(al=>al.type==="danger") ? 0 : 1;
-        return worst(a) - worst(b);
-      });
-      alertsPanel.innerHTML = `
-        <div class="retention-alerts-head">${ICONS.alert} Retention Alerts <span class="kanban-count">${withAlerts.length}</span></div>
-        <div class="retention-alerts-list">
-          ${sorted.map(({c, alerts}) => `
-            <div class="retention-alert-row" data-action="view-client" data-id="${c.id}">
-              <div class="retention-alert-name">${escapeHtml(c.name)}</div>
-              <div class="retention-alert-tags">
-                ${alerts.map(a => `<span class="badge ${a.type==='danger'?'red':'gold'}">${escapeHtml(a.text)}</span>`).join("")}
-              </div>
-            </div>
-          `).join("")}
-        </div>
-      `;
-    }
+  // Filter chips: All / Needs attention / each stage that has clients.
+  // Empty stages stay out of the way instead of each taking up a box.
+  const stageOf = (c) => c.stage || "onboarding";
+  let filter = state.clientsStageFilter || "all";
+  if (filter === "attention" && !attention.length) filter = state.clientsStageFilter = "all";
+  if (filter !== "all" && filter !== "attention" && !state.clients.some(c => stageOf(c) === filter)) filter = state.clientsStageFilter = "all";
+  const chipsEl = $("#clients-stage-chips");
+  if (chipsEl){
+    const chip = (key, label, count, extra="") => `<button type="button" class="cl-chip ${extra} ${filter===key?"active":""}" data-cl-filter="${key}">${label}<span>${count}</span></button>`;
+    chipsEl.innerHTML = chip("all", "All", state.clients.length)
+      + (attention.length ? chip("attention", "Needs attention", attention.length, "warn") : "")
+      + CLIENT_STAGES.map(st => {
+          const n = state.clients.filter(c => stageOf(c) === st.key).length;
+          return n ? chip(st.key, st.label, n) : "";
+        }).join("");
   }
 
-  const gallery = $("#clients-gallery");
-  if (!gallery) return;
-  if (!state.clients.length){ gallery.innerHTML = emptyState("No clients yet. Add your first client to get started."); return; }
+  const list = $("#clients-gallery");
+  if (!list) return;
+  if (!state.clients.length){ list.innerHTML = `<div class="card">${emptyState("No clients yet. Add your first client to get started.")}</div>`; return; }
 
   const q = state.clientsGallerySearch.trim().toLowerCase();
-  gallery.innerHTML = CLIENT_STAGES.map(stage => {
-    const clients = state.clients.filter(c => (c.stage||"onboarding") === stage.key)
-      .filter(c => !q || (c.name||"").toLowerCase().includes(q))
-      .sort((a,b) => (a.name||"").localeCompare(b.name||""));
-    if (q && !clients.length) return "";
-    const open = state.clientsCollapsedStages.has(stage.key) ? "" : "open";
-    return `
-      <details class="clients-stage-section" data-stage="${stage.key}" ${open}>
-        <summary class="clients-stage-header">
-          <span class="clients-stage-dot"></span>
-          <h3>${stage.label}</h3>
-          <span class="kanban-count">${clients.length}</span>
-        </summary>
-        <div class="clients-gallery-grid">
-          ${clients.length ? clients.map(c => renderClientGalleryCard(c)).join("") : `<div class="empty-state clients-gallery-empty"><p>No clients in this stage.</p></div>`}
-        </div>
-      </details>
-    `;
-  }).join("");
-  $$(".clients-stage-section", gallery).forEach(section => {
-    section.addEventListener("toggle", () => {
-      const key = section.dataset.stage;
-      if (section.open) state.clientsCollapsedStages.delete(key);
-      else state.clientsCollapsedStages.add(key);
-    });
-  });
-}
-// A manually-set Low/Medium/High read on how likely a client is to leave -
-// deliberately separate from the At Risk/Churned pipeline stage, which only
-// reflects a decision already made to move them there, not an early signal.
-function churnRiskBarHtml(c){
-  const filled = { low: 1, medium: 2, high: 3 }[c.churn_risk] || 0;
-  const label = c.churn_risk ? c.churn_risk.charAt(0).toUpperCase() + c.churn_risk.slice(1) : "Not set";
-  return `
-    <div class="churn-risk" title="Churn Risk: ${label}">
-      <div class="churn-risk-bar">
-        ${[1,2,3].map(i => `<div class="churn-risk-segment ${i<=filled?`filled ${c.churn_risk}`:""}"></div>`).join("")}
+  const visible = state.clients
+    .filter(c => !q || (c.name||"").toLowerCase().includes(q))
+    .filter(c => filter === "all" || (filter === "attention" ? alertsById.get(c.id).length : stageOf(c) === filter));
+
+  if (!visible.length){
+    list.innerHTML = `<div class="card">${emptyState(q ? `No clients match "${state.clientsGallerySearch.trim()}".` : "No clients in this view.")}</div>`;
+    return;
+  }
+  const groups = CLIENT_STAGES.map(st => ({
+    st, clients: visible.filter(c => stageOf(c) === st.key).sort((a,b) => (a.name||"").localeCompare(b.name||""))
+  })).filter(g => g.clients.length);
+
+  list.innerHTML = `
+    <div class="card cl-table">
+      <div class="cl-row cl-row-head">
+        <div>Client</div><div>Progress</div><div class="num">CPL</div><div class="num">Spend / mo</div><div class="num">Live</div><div>Churn Risk</div><div>Stage</div>
       </div>
-      <div class="churn-risk-label ${c.churn_risk||""}">Churn Risk: ${label}</div>
+      ${groups.map(g => `
+        <div class="cl-group" data-stage="${g.st.key}">
+          <span class="cl-group-dot"></span>${g.st.label}<span class="cl-group-count">${g.clients.length}</span>
+        </div>
+        ${g.clients.map(c => renderClientRow(c, alertsById.get(c.id))).join("")}
+      `).join("")}
     </div>`;
 }
-function renderClientGalleryCard(c){
-  const alerts = getClientAlerts(c);
-  const pieces = state.clientContent.filter(x => x.client_id === c.id);
-  const creatives = state.adCreatives.filter(x => x.client_id === c.id);
-  const running = runningCampaignsFor(c.id).length;
-  const quotePct = c.quote_target ? Math.min(100, Math.round((Number(c.quotes_sent||0) / c.quote_target) * 100)) : null;
-  const profile = clientProfileCompleteness(c);
+// The one progress measure that matters for where the client is right now:
+// onboarding steps while onboarding, quotes while on the guarantee, and
+// profile completeness otherwise.
+function clientProgress(c){
+  const stage = c.stage || "onboarding";
+  if (stage === "onboarding"){
+    const done = onboardingDoneCount(c), total = ONBOARDING_STEPS.length;
+    return { pct: Math.round(done/total*100), label: `${done}/${total} onboarding steps` };
+  }
+  if (stage === "quote_guarantee" && c.quote_target){
+    const sent = Number(c.quotes_sent||0);
+    return { pct: Math.min(100, Math.round(sent/c.quote_target*100)), label: `${sent}/${c.quote_target} quotes` };
+  }
+  const p = clientProfileCompleteness(c);
+  return { pct: p.pct, label: `${p.pct}% profile` };
+}
+// Low/Medium/High is set by hand - deliberately separate from the At Risk
+// stage, which only reflects a decision already made, not an early signal.
+function churnRiskPillHtml(c){
+  const label = c.churn_risk ? c.churn_risk.charAt(0).toUpperCase() + c.churn_risk.slice(1) : "Not set";
+  return `<span class="cl-risk ${c.churn_risk||"none"}"><span class="cl-risk-dot"></span>${label}</span>`;
+}
+function renderClientRow(c, alerts){
   const initial = (c.name||"?").trim().charAt(0).toUpperCase();
+  const prog = clientProgress(c);
+  const live = runningCampaignsFor(c.id).length;
+  const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
+  const open = `data-action="view-client" data-id="${c.id}"`;
   return `
-    <div class="client-gallery-card">
-      <div class="client-gallery-card-top" data-action="view-client" data-id="${c.id}">
-        <span class="client-gallery-avatar">${escapeHtml(initial)}</span>
-        <div class="client-gallery-head-text">
-          <h4>${escapeHtml(c.name)}</h4>
-          <div class="client-gallery-cpl">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead)+' CPL' : 'No CPL yet'}</div>
+    <div class="cl-row">
+      <div class="cl-cell-client" ${open}>
+        <span class="cl-avatar">${escapeHtml(initial)}</span>
+        <div class="cl-name-wrap">
+          <div class="cl-name">${escapeHtml(c.name)}</div>
+          ${alerts.length
+            ? `<div class="cl-alerts">${alerts.map(a => `<span class="cl-alert ${a.type==='danger'?'danger':''}">${escapeHtml(a.text)}</span>`).join("")}</div>`
+            : `<div class="cl-sub">${days != null ? `${days}d in stage` : "&nbsp;"}</div>`}
         </div>
       </div>
-      ${(c.stage || "onboarding") === "onboarding" ? (() => {
-        const done = onboardingDoneCount(c);
-        const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
-        return `
-        <div class="client-gallery-onboarding" data-action="view-client" data-id="${c.id}" title="Open the onboarding checklist">
-          <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" style="width:${Math.round(done / ONBOARDING_STEPS.length * 100)}%;"></div></div>
-          <div class="onboarding-progress-label">
-            ${done} of ${ONBOARDING_STEPS.length} onboarding steps
-            ${days != null ? `<span class="badge ${days > 35 ? "red" : "gray"}">${days}d${days > 35 ? " - slow" : " in"}</span>` : ""}
-          </div>
-        </div>`;
-      })() : ""}
-      ${quotePct != null ? `
-        <div class="onboarding-progress-bar"><div class="onboarding-progress-fill" style="width:${quotePct}%;"></div></div>
-        <div class="onboarding-progress-label">${c.quotes_sent||0} of ${c.quote_target} quotes</div>
-      ` : ""}
-      <div class="client-gallery-stats" data-action="view-client" data-id="${c.id}">
-        <span>${running} running</span>
-        <span>${pieces.length} content</span>
-        <span>${creatives.length} creative${creatives.length===1?"":"s"}</span>
+      <div class="cl-cell-progress" ${open} title="${escapeHtml(prog.label)}">
+        <div class="cl-bar"><div class="cl-bar-fill ${prog.pct===100?"done":""}" style="width:${prog.pct}%"></div></div>
+        <span>${escapeHtml(prog.label)}</span>
       </div>
-      <div class="client-gallery-profile" data-action="view-client" data-id="${c.id}" title="Client Info completeness">
-        <div class="client-info-progress-bar"><div class="client-info-progress-fill" style="width:${profile.pct}%;"></div></div>
-        <span class="client-card-profile ${profile.pct===100?'complete':''}">${profile.pct}% profile</span>
-      </div>
-      ${churnRiskBarHtml(c)}
-      ${alerts.length ? `<div class="client-card-alerts">${alerts.map(a=>`<span class="badge ${a.type==='danger'?'red':'gold'}">${escapeHtml(a.text)}</span>`).join("")}</div>` : ""}
-      <div class="client-gallery-foot">
-        <label>Stage</label>
-        <select class="filter-select client-stage-select" data-id="${c.id}">
+      <div class="num" ${open} data-label="CPL">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead) : '<span class="cl-muted">-</span>'}</div>
+      <div class="num" ${open} data-label="Ad spend">${c.monthly_ad_spend!=null ? fmtMoney(c.monthly_ad_spend) : '<span class="cl-muted">-</span>'}</div>
+      <div class="num" ${open} data-label="Live">${live || '<span class="cl-muted">0</span>'}</div>
+      <div ${open} data-label="Churn">${churnRiskPillHtml(c)}</div>
+      <div class="cl-cell-stage">
+        <select class="filter-select client-stage-select" data-id="${c.id}" aria-label="Stage for ${escapeHtml(c.name)}">
           ${CLIENT_STAGES.map(s => `<option value="${s.key}" ${s.key===(c.stage||"onboarding")?"selected":""}>${s.label}</option>`).join("")}
         </select>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 function renderClientInfoGrid(c){
   const grid = $("#client-info-grid");
@@ -3320,16 +3296,21 @@ function renderClientDetail(c){
       const href = /^https?:\/\//i.test(c.website) ? c.website : "https://" + c.website;
       bits.push(`<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(c.website)}</a>`);
     }
-    contactEl.innerHTML = bits.join(" &nbsp;·&nbsp; ");
+    contactEl.innerHTML = bits.join(`<span class="cl-dot-sep">·</span>`);
   }
+  const avatarEl = $("#client-detail-avatar");
+  if (avatarEl) avatarEl.textContent = (c.name||"?").trim().charAt(0).toUpperCase();
   const churnRiskEl = $("#client-detail-churn-risk");
-  if (churnRiskEl) churnRiskEl.innerHTML = churnRiskBarHtml(c);
-  $("#client-detail-cpl").textContent = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "Not set";
+  if (churnRiskEl) churnRiskEl.innerHTML = `<span class="cl-hero-risk-label">Churn risk</span>${churnRiskPillHtml(c)}`;
+  const notSet = `<span class="cl-muted">Not set</span>`;
+  $("#client-detail-cpl").innerHTML = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : notSet;
   const monthlySpendEl = $("#client-detail-monthly-spend");
-  if (monthlySpendEl) monthlySpendEl.textContent = c.monthly_ad_spend != null ? fmtMoney(c.monthly_ad_spend) : "Not set";
+  if (monthlySpendEl) monthlySpendEl.innerHTML = c.monthly_ad_spend != null ? fmtMoney(c.monthly_ad_spend) : notSet;
   const adStartEl = $("#client-detail-ad-start-date");
-  if (adStartEl) adStartEl.textContent = c.ad_start_date ? fmtDate(c.ad_start_date) : "Not set";
-  $("#client-detail-notes").textContent = c.notes || "No notes yet.";
+  if (adStartEl) adStartEl.innerHTML = c.ad_start_date ? fmtDate(c.ad_start_date) : notSet;
+  const notesEl = $("#client-detail-notes");
+  notesEl.textContent = c.notes || "No notes yet.";
+  notesEl.classList.toggle("empty", !c.notes);
   $("#client-detail-quotes").textContent = c.quotes_sent || 0;
   const banner = $("#quote-guarantee-banner");
   const isQuoteGuarantee = c.stage === "quote_guarantee" && c.quote_target;
@@ -3349,6 +3330,8 @@ function renderClientDetail(c){
   }
   const quoteButtons = $("#client-detail-quote-buttons");
   if (quoteButtons) quoteButtons.style.display = isQuoteGuarantee ? "none" : "";
+  // On the guarantee, the progress bar in the header already tracks quotes.
+  quoteButtons?.closest(".cl-kpi")?.classList.toggle("hidden", !!isQuoteGuarantee);
 
   renderClientInfoGrid(c);
 
@@ -3495,7 +3478,10 @@ function renderClientOnboarding(c){
     onboardingCardClientId = c.id;
     card.open = (c.stage || "onboarding") === "onboarding";
   }
-  card.classList.toggle("is-onboarding", (c.stage || "onboarding") === "onboarding");
+  const isOnb = (c.stage || "onboarding") === "onboarding";
+  card.classList.toggle("is-onboarding", isOnb);
+  const main = $("#client-detail-main");
+  if (main){ if (isOnb) main.prepend(card); else main.append(card); }
   renderOnboardingDetail(c);
 }
 function renderOnboardingDetail(c){
@@ -6008,6 +5994,12 @@ function setupModals(){
   $("#content-production-filter-type")?.addEventListener("change", (e) => { state.contentFilter.type = e.target.value; renderContentProduction(); });
 
   $("#clients-gallery-search")?.addEventListener("input", (e) => { state.clientsGallerySearch = e.target.value; renderClientsList(); });
+  $("#clients-stage-chips")?.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-cl-filter]");
+    if (!chip) return;
+    state.clientsStageFilter = chip.dataset.clFilter;
+    renderClientsList();
+  });
   $("#clients-gallery")?.addEventListener("change", async (e) => {
     const sel = e.target.closest(".client-stage-select");
     if (!sel) return;
