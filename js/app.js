@@ -155,6 +155,39 @@ const AU_REGIONS = [
   "Australian Capital Territory", "New South Wales", "Northern Territory", "Queensland",
   "South Australia", "Tasmania", "Victoria", "Western Australia",
 ];
+// The country a region is in decides the country code a phone number
+// without one gets - an NZ list imported under an NZ region must come out
+// +64, not the AU default.
+function countryCodeForRegion(region){
+  if (NZ_REGIONS.includes(region)) return "64";
+  return "61";
+}
+// One-off repair for prospects imported before the fix above: an NZ-region
+// prospect saved as +61 gets its country code swapped to +64, but only when
+// the rest of the number is shaped like an NZ number (mobile 02x, 8-digit
+// landline, 0800/0508) - a genuinely Australian number (e.g. an AU mobile,
+// 9 digits starting with 4) is left alone. Runs after each sign-in and is a
+// no-op once nothing matches.
+const NZ_NATIONAL_NUMBER = /^(2\d{7,9}|[34679]\d{7}|800\d{6,7}|508\d{6})$/;
+function nzFixedPhone(p){
+  if (!NZ_REGIONS.includes(p.region) || !(p.phone||"").startsWith("+61")) return null;
+  const national = p.phone.slice(3);
+  return NZ_NATIONAL_NUMBER.test(national) ? "+64" + national : null;
+}
+async function repairNzProspectCountryCodes(){
+  const fixes = state.prospects.map(p => ({ p, phone: nzFixedPhone(p) })).filter(x => x.phone);
+  if (!fixes.length) return 0;
+  const now = new Date().toISOString();
+  for (const { p, phone } of fixes){
+    if (IS_CONFIGURED){
+      const { error } = await supabase.from("dial_prospects").update({ phone, updated_at: now }).eq("id", p.id);
+      if (error){ console.warn("NZ phone repair failed for", p.id, error.message); continue; }
+    }
+    p.phone = phone; p.updated_at = now;
+  }
+  console.info(`Fixed ${fixes.length} NZ prospect number(s) that had an AU +61 prefix.`);
+  return fixes.length;
+}
 // One combined list for region dropdowns - AU states and NZ regions never
 // collide by name, so there's no need for a separate country toggle just to
 // pick the right one.
@@ -1093,6 +1126,7 @@ function subscribeRealtime(){
 async function initAuth(){
   if (!IS_CONFIGURED){
     seedDemo();
+    await repairNzProspectCountryCodes();
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
     showApp();
@@ -1141,6 +1175,7 @@ async function handleSignedIn(session, freshLogin){
   }
 
   await DataLayer.fetchAll();
+  await repairNzProspectCountryCodes();
   await fetchTeam();
   subscribeRealtime();
   showApp();
@@ -2822,7 +2857,7 @@ async function importProspectRows(prospects){
     // form does, so numbers came in exactly as scraped (e.g. "021 555 0111")
     // and only got a country code guessed at call time - normalize to E.164
     // right away instead, so what's on file is what actually gets dialed.
-    p.phone = toE164(p.phone);
+    p.phone = toE164(p.phone, countryCodeForRegion(p.region));
     const phoneDigits = digitsOnly(p.phone);
     const nameKey = (p.company || p.name || "").trim().toLowerCase();
     const match = (phoneDigits && byPhone.get(phoneDigits)) || (nameKey && byName.get(nameKey));
@@ -5843,6 +5878,9 @@ function setupModals(){
     $("#prospect-form").reset(); $("#prospect-form-id").value=""; $("#prospect-modal-title").textContent="Add Prospect";
     openModal("prospect-modal");
   }));
+  $("#prospect-region")?.addEventListener("change", (e) => {
+    if (e.target.value) $("#prospect-country-code").value = countryCodeForRegion(e.target.value);
+  });
   $("#prospect-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#prospect-form-id").value;
