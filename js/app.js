@@ -1098,7 +1098,6 @@ async function initAuth(){
     reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call - Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
     checkOverdueTasksPopup();
-    checkReportingDayPopup();
     return;
   }
   const { data:{ session } } = await supabase.auth.getSession();
@@ -1146,7 +1145,6 @@ async function handleSignedIn(session, freshLogin){
   showApp();
   await checkPendingMeetingReviews();
   checkOverdueTasksPopup();
-  checkReportingDayPopup();
   loadCalendarWeek();
 }
 
@@ -1488,9 +1486,8 @@ function sameMonth(iso){ const d=new Date(iso), n=new Date(); return d.getMonth(
 function withinDays(iso, days){ return (Date.now()-new Date(iso).getTime()) < days*86400e3; }
 function daysSince(iso){ return iso ? Math.floor((Date.now()-new Date(iso).getTime())/86400e3) : null; }
 function daysUntil(iso){ return iso ? Math.ceil((new Date(iso+"T00:00:00").getTime()-Date.now())/86400e3) : null; }
-// Every client reports on the same fixed fortnightly cadence now - see the
-// Reporting Day hard alert (checkReportingDayPopup) for the team-wide
-// reminder this mirrors. No more per-client weekly/monthly/off choice.
+// Every client reports on the same fixed fortnightly cadence - used for the
+// Reporting page's "Next Due" column. (No overdue reminders/alerts.)
 const REPORT_CADENCE_DAYS = 14;
 function getClientAlerts(c){
   const alerts = [];
@@ -1498,10 +1495,6 @@ function getClientAlerts(c){
     const d = daysUntil(c.renewal_date);
     if (d < 0) alerts.push({ type:"danger", text:`Renewal date passed ${Math.abs(d)}d ago` });
     else if (d <= 14) alerts.push({ type:"warn", text:`Renewal in ${d}d` });
-  }
-  {
-    const since = daysSince(c.last_report_sent_at || c.created_at);
-    if (since != null && since > REPORT_CADENCE_DAYS + 5) alerts.push({ type:"warn", text:`Report overdue (${since}d since last sent)` });
   }
   const stageInfo = CLIENT_STAGE_MAP[c.stage];
   if (stageInfo?.days){
@@ -3946,35 +3939,6 @@ function checkOverdueTasksPopup(){
     `).join("");
   openModal("overdue-tasks-modal");
 }
-// Reporting runs on a fixed fortnightly Friday schedule (not per-client,
-// not tied to when a report was last sent) - anchored to 14 Aug 2026, the
-// first Friday this was set up for. Dismissal is remembered per-browser in
-// localStorage (keyed by that cycle's Friday) so it's a one-time nudge per
-// fortnight rather than showing on every load once the day arrives.
-const REPORTING_DAY_ANCHOR = new Date("2026-08-14T00:00:00");
-const REPORTING_DAY_DISMISSED_KEY = "mb_reporting_day_dismissed";
-let reportingDayPopupShown = false;
-function mostRecentReportingDay(){
-  const now = new Date();
-  const msPerDay = 86400000;
-  const daysSinceAnchor = Math.floor((now - REPORTING_DAY_ANCHOR) / msPerDay);
-  if (daysSinceAnchor < 0) return null;
-  const cycles = Math.floor(daysSinceAnchor / 14);
-  const due = new Date(REPORTING_DAY_ANCHOR.getTime() + cycles * 14 * msPerDay);
-  return due.toISOString().slice(0, 10);
-}
-function checkReportingDayPopup(){
-  // Switched off - the fortnightly "It's Reporting Day" popup was removed.
-  return;
-  if (reportingDayPopupShown) return;
-  if ($("#qualify-modal")?.classList.contains("visible")) return;
-  if ($("#overdue-tasks-modal")?.classList.contains("visible")) return;
-  const dueDate = mostRecentReportingDay();
-  if (!dueDate) return;
-  if (localStorage.getItem(REPORTING_DAY_DISMISSED_KEY) === dueDate) return;
-  reportingDayPopupShown = true;
-  openModal("reporting-day-modal");
-}
 
 /* ───────── Weekly Report (live creative performance + team results) ─────────
    Meta ad insights are synced as lifetime-cumulative totals (date_preset=
@@ -5464,7 +5428,7 @@ async function checkPendingMeetingReviews(){
   showNextReview();
 }
 function showNextReview(){
-  if (!reviewQueue.length) { closeModal("qualify-modal"); checkOverdueTasksPopup(); checkReportingDayPopup(); return; }
+  if (!reviewQueue.length) { closeModal("qualify-modal"); checkOverdueTasksPopup(); return; }
   const review = reviewQueue[0];
   $("#qualify-title").textContent = review.meeting_title || "Untitled meeting";
   $("#qualify-attendees").textContent = (review.attendees || []).join(", ") || "-";
@@ -5569,20 +5533,6 @@ function setupModals(){
   });
 
   $$("[data-close]").forEach(btn => btn.addEventListener("click", () => closeModal(btn.dataset.close)));
-  // Any way of dismissing this one (✕, Got it, or clicking the backdrop)
-  // should remember it for the rest of this fortnight - see checkReportingDayPopup.
-  $("#reporting-day-modal")?.addEventListener("click", (e) => {
-    if (!e.target.closest("[data-close]") && e.target !== $("#reporting-day-modal")) return;
-    const dueDate = mostRecentReportingDay();
-    if (dueDate) localStorage.setItem(REPORTING_DAY_DISMISSED_KEY, dueDate);
-  });
-  // The reporting-day popup deliberately holds off while the overdue-tasks
-  // one is open (see checkReportingDayPopup) rather than stacking two modals
-  // - so it needs its own nudge here once that one's out of the way.
-  $("#overdue-tasks-modal")?.addEventListener("click", (e) => {
-    if (!e.target.closest("[data-close]") && e.target !== $("#overdue-tasks-modal")) return;
-    checkReportingDayPopup();
-  });
   $$(".overlay").forEach(ov => {
     if (ov.id === "qualify-modal") return; // requires an explicit Yes/No answer
     ov.addEventListener("click", (e) => { if (e.target === ov) ov.classList.remove("visible"); });
