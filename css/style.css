@@ -1226,3 +1226,5 @@ body.workspace-delivery .workspace-banner h2{color:#2a3438;}
 .cl-row:hover .cl-row-delete,.cl-row-delete:focus-visible{opacity:1;}
 .cl-row-delete:hover{color:var(--danger);border-color:rgba(179,69,46,0.4);}
 @media (hover:none){.cl-row-delete{opacity:1;}}
+
+.creative-deleted-client{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;font-size:10px;font-weight:600;background:#f1f0eb;color:var(--text2);border:1px solid var(--line);vertical-align:1px;}

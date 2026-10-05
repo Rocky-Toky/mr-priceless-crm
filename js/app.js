@@ -1020,7 +1020,6 @@ const DataLayer = {
       if (idx > -1) arr.splice(idx,1);
       if (table === "clients"){
         state.clientContent = state.clientContent.filter(x => x.client_id !== id);
-        state.adCreatives = state.adCreatives.filter(x => x.client_id !== id);
         state.campaigns = state.campaigns.filter(x => x.client_id !== id);
       }
       if (table === "deals"){
@@ -1036,7 +1035,6 @@ const DataLayer = {
     if (idx > -1) arr.splice(idx,1);
     if (table === "clients"){
       state.clientContent = state.clientContent.filter(x => x.client_id !== id);
-      state.adCreatives = state.adCreatives.filter(x => x.client_id !== id);
       state.campaigns = state.campaigns.filter(x => x.client_id !== id);
     }
     if (table === "deals"){
@@ -3216,6 +3214,28 @@ function churnRiskPillHtml(c){
   const label = c.churn_risk ? c.churn_risk.charAt(0).toUpperCase() + c.churn_risk.slice(1) : "Not set";
   return `<span class="cl-risk ${c.churn_risk||"none"}"><span class="cl-risk-dot"></span>${label}</span>`;
 }
+// Deleting a client keeps their ad creatives in the Creative Library: they
+// get unlinked (client_id -> null) and remember the client's name, so the
+// library still shows who they were for. Needs sql/055 on the live DB.
+async function deleteClientKeepingCreatives(c){
+  if (IS_CONFIGURED && state.adCreatives.some(a => a.client_id === c.id)){
+    const { error } = await supabase.from("client_ad_creatives")
+      .update({ client_id: null, client_name: c.name, campaign_id: null })
+      .eq("client_id", c.id);
+    if (error){
+      alert("Couldn't keep this client's creatives, so nothing was deleted. Run sql/055_keep_creatives_on_client_delete.sql in Supabase first.\n\n" + error.message);
+      return false;
+    }
+  }
+  state.adCreatives.forEach(a => {
+    if (a.client_id === c.id){ a.client_id = null; a.client_name = c.name; a.campaign_id = null; }
+  });
+  if (state.selectedClientId === c.id) state.selectedClientId = null;
+  await DataLayer.remove("clients", c.id);
+  renderClients();
+  return true;
+}
+const DELETE_CLIENT_CONFIRM = (name) => `Delete ${name}? This removes their campaigns, content pieces, leads and onboarding progress. Their ad creatives stay in the Creative Library. This can't be undone.`;
 function renderClientRow(c, alerts){
   const initial = (c.name||"?").trim().charAt(0).toUpperCase();
   const prog = clientProgress(c);
@@ -3616,8 +3636,10 @@ function renderCreativeLibrary(){
 
   const clientSel = $("#creative-filter-client");
   if (clientSel){
-    clientSel.innerHTML = `<option value="">All Clients</option>` + state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    clientSel.innerHTML = `<option value="">All Clients</option>` + state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")
+      + (state.adCreatives.some(a => !a.client_id) ? `<option value="__deleted__">Deleted clients</option>` : "");
     clientSel.value = state.creativeFilter.client;
+    if (clientSel.value !== state.creativeFilter.client) state.creativeFilter.client = clientSel.value;
   }
   $("#creative-filter-result").value = state.creativeFilter.result;
   const deliverySel = $("#creative-filter-delivery");
@@ -3684,7 +3706,7 @@ function renderCreativeLibrary(){
   };
 
   const filtered = all.filter(a => {
-    const matchesClient = !state.creativeFilter.client || a.client_id === state.creativeFilter.client;
+    const matchesClient = !state.creativeFilter.client || (state.creativeFilter.client === "__deleted__" ? !a.client_id : a.client_id === state.creativeFilter.client);
     const matchesResult = !state.creativeFilter.result || a.result === state.creativeFilter.result;
     const matchesDelivery = !state.creativeFilter.delivery || a.delivery_status === state.creativeFilter.delivery;
     return matchesClient && matchesResult && matchesDelivery;
@@ -3729,7 +3751,7 @@ function renderCreativeLibrary(){
   if (!filtered.length){ grid.innerHTML = emptyState("No ad creatives match. Add one from here or from a client's page."); return; }
   grid.innerHTML = filtered.map(a => {
     const client = state.clients.find(c => c.id === a.client_id);
-    const initial = (client?.name || "?").trim().charAt(0).toUpperCase();
+    const initial = (client?.name || a.client_name || "?").trim().charAt(0).toUpperCase();
     const delivery = DELIVERY_STATUS[a.delivery_status];
     const fatigue = FATIGUE_STATUS[a.fatigue_status];
     const cardTierCls = a.fatigue_status === "fatiguing" ? "is-fatiguing" : a.fatigue_status === "fatigued" ? "is-fatigued" : "";
@@ -3743,7 +3765,7 @@ function renderCreativeLibrary(){
       </div>
       <div class="creative-card-body">
         <div class="creative-card-name">${escapeHtml(a.name)}</div>
-        <div class="creative-card-client">${escapeHtml(client?.name || "Unknown client")}${a.campaign_id ? ` · ${escapeHtml(campaignName(a.campaign_id))}` : ""}</div>
+        <div class="creative-card-client">${client ? escapeHtml(client.name) : `${escapeHtml(a.client_name || "No client")} <span class="creative-deleted-client">Deleted client</span>`}${a.campaign_id ? ` · ${escapeHtml(campaignName(a.campaign_id))}` : ""}</div>
         ${a.notes ? `<div class="creative-card-notes">${escapeHtml(a.notes)}</div>` : ""}
         ${creativeMetricsBlock(a, tierClsFor(a))}
         <div class="field" style="margin-bottom:11px;">
@@ -3994,8 +4016,8 @@ function renderWeeklyReport(){
     const delta = creativeWeeklyDelta(c);
     totalSpend += delta.spend; totalResults += delta.results;
     const client = state.clients.find(cl => cl.id === c.client_id);
-    const key = client ? client.id : "unassigned";
-    if (!byClient[key]) byClient[key] = { name: client ? client.name : "Unassigned", spend:0, results:0, lifetimeSpend:0 };
+    const key = client ? client.id : (c.client_name ? "deleted:" + c.client_name : "unassigned");
+    if (!byClient[key]) byClient[key] = { name: client ? client.name : (c.client_name ? `${c.client_name} (deleted)` : "Unassigned"), spend:0, results:0, lifetimeSpend:0 };
     byClient[key].spend += delta.spend;
     byClient[key].results += delta.results;
     byClient[key].lifetimeSpend += Number(c.spend||0);
@@ -6024,14 +6046,15 @@ function setupModals(){
     const id = $("#ad-creative-form-id").value;
     const file = $("#ad-creative-image").files[0];
     const row = {
-      client_id: $("#ad-creative-client").value,
+      client_id: $("#ad-creative-client").value || null,
       campaign_id: $("#ad-creative-campaign").value || null,
       name: $("#ad-creative-name").value.trim(),
       meta_ad_id: $("#ad-creative-meta-id").value.trim() || null,
       result: $("#ad-creative-result").value,
       notes: $("#ad-creative-notes").value.trim(),
     };
-    if (!row.name || !row.client_id) return;
+    // New creatives need a client; an existing one from a deleted client can stay unlinked.
+    if (!row.name || (!id && !row.client_id)) return;
     if (file){
       const imageUrl = await uploadAdCreativeImage(file);
       if (imageUrl) row.image_url = imageUrl;
@@ -6325,16 +6348,11 @@ function setupModals(){
     }
     if (action === "delete-client-row"){
       const c = state.clients.find(x => x.id === id);
-      if (c && confirm(`Delete ${c.name}? This also removes their campaigns, ad creatives, content pieces, leads and onboarding progress. This can't be undone.`)){
-        if (state.selectedClientId === id) state.selectedClientId = null;
-        await DataLayer.remove("clients", id);
-        renderClients();
-      }
+      if (c && confirm(DELETE_CLIENT_CONFIRM(c.name))) await deleteClientKeepingCreatives(c);
     }
-    if (action === "delete-client" && confirm("Delete this client? This also removes their campaigns, ad creatives, content pieces, leads and onboarding progress. This can't be undone.")) {
-      await DataLayer.remove("clients", state.selectedClientId);
-      state.selectedClientId = null;
-      renderClients();
+    if (action === "delete-client"){
+      const c = state.clients.find(x => x.id === state.selectedClientId);
+      if (c && confirm(DELETE_CLIENT_CONFIRM(c.name))) await deleteClientKeepingCreatives(c);
     }
     if (action === "quote-increment" || action === "quote-decrement"){
       const client = state.clients.find(x => x.id === state.selectedClientId);
@@ -6364,6 +6382,11 @@ function setupModals(){
       if (!a) return;
       $("#ad-creative-form-id").value = a.id;
       populateAdCreativeClientSelect(a.client_id);
+      if (!a.client_id){
+        const sel = $("#ad-creative-client");
+        sel.insertAdjacentHTML("afterbegin", `<option value="">${escapeHtml(a.client_name || "No client")} (deleted)</option>`);
+        sel.value = "";
+      }
       populateAdCreativeCampaignSelect(a.client_id, a.campaign_id);
       $("#ad-creative-name").value = a.name||"";
       $("#ad-creative-meta-id").value = a.meta_ad_id||"";
