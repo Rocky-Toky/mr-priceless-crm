@@ -3582,12 +3582,12 @@ function renderContentProduction(){
    Fills the branded fillable template (assets/welcome-pack-template.pdf) with
    the client's details, then flattens it so the PDF that goes out is plain,
    finished text - no fill-in boxes and no viewer highlighting. Everything
-   happens in the browser; nothing is uploaded. pdf-lib + fontkit load from the
-   CDN only the first time a pack is made. */
+   happens in the browser; nothing is uploaded. pdf-lib + fontkit are bundled in
+   assets/vendor and load only the first time a pack is made. */
 const WP_FIELDS = ["client_first_name","business_name","trade","town","call_when","ads_live","why_excited","account_manager","phone","email"];
 const WP_LIBS = [
-  "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
-  "https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js",
+  "assets/vendor/pdf-lib-1.17.1.min.js",
+  "assets/vendor/fontkit-1.1.1.umd.min.js",
 ];
 let wpLibsReady = null, wpLastUrl = null, wpLastName = "";
 function wpLoadLibs(){
@@ -3595,7 +3595,7 @@ function wpLoadLibs(){
   if (wpLibsReady) return wpLibsReady;
   wpLibsReady = WP_LIBS.reduce((p, url) => p.then(() => new Promise((resolve, reject) => {
     const s = document.createElement("script"); s.src = url; s.onload = resolve;
-    s.onerror = () => reject(new Error("Couldn't load the PDF tools - check your internet connection."));
+    s.onerror = () => reject(new Error("Couldn't load the PDF tools - refresh the page and try again."));
     document.head.appendChild(s);
   })), Promise.resolve()).catch(e => { wpLibsReady = null; throw e; });
   return wpLibsReady;
@@ -4042,15 +4042,16 @@ async function maybeCreateClientFromDeal(deal){
   const name = (contact?.company || deal.contact_name || deal.title || "").trim();
   if (!name) return;
   if (state.clients.some(c => (c.name||"").trim().toLowerCase() === name.toLowerCase())) return;
-  await DataLayer.insert("clients", {
+  const created = await DataLayer.insert("clients", {
     name,
     stage: "onboarding",
     stage_changed_at: new Date().toISOString(),
     source_deal_id: deal.id,
     notes: `Auto-created when "${deal.title}" landed on ${CLOSED_STAGES.has(deal.stage) ? "Closed Won" : "Pending Results"}.`,
   });
-  if (!IS_CONFIGURED) return;
-  await DataLayer.fetchAll(); renderAll();
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+  // A won deal is a new onboarding client - time for their welcome pack.
+  if (created?.id) openWelcomePack(created.id);
 }
 
 /* ───────── Auto-create a follow-up task when a deal lands on No Show ─────────
