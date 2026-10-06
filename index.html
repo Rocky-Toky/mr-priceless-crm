@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=145">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=145">
+<link rel="stylesheet" href="css/style.css?v=146">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=146">
 </head>
 <body>
 
@@ -1013,10 +1013,15 @@
     <!-- Onboarding: every new client from signed to live -->
     <section class="page" id="page-onboarding">
       <div class="page-header">
-        <div><h2>Onboarding</h2><p>Every new client from signed to live. Tick things off and they move along the board on their own.</p></div>
+        <div><h2>Onboarding</h2><p>Every new client from signed to ads live. Drag them along as they go, and open one to see what's left.</p></div>
         <button class="btn gold" data-action="onb-add-client">+ Add Client</button>
       </div>
       <div class="onb-kpis" id="onb-kpis"></div>
+      <div class="card onb-empty" id="onb-empty" hidden>
+        <div class="onb-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg></div>
+        <div><h3>No one's onboarding right now</h3>
+        <p>Drag a deal into <b>Onboarding</b> on the Sales pipeline and they'll land in Welcome automatically, or add a client yourself.</p></div>
+      </div>
       <div class="onb-board" id="onb-board"></div>
     </section>
 
@@ -2144,10 +2149,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=145"></script>
-<script src="js/supabaseClient.js?v=145"></script>
-<script src="js/app.js?v=145"></script>
-<script src="js/meetings-tracker.js?v=145"></script>
-<script src="js/todo.js?v=145"></script>
+<script src="js/config.js?v=146"></script>
+<script src="js/supabaseClient.js?v=146"></script>
+<script src="js/app.js?v=146"></script>
+<script src="js/meetings-tracker.js?v=146"></script>
+<script src="js/todo.js?v=146"></script>
 </body>
 </html>
