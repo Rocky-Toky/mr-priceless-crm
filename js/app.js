@@ -3578,6 +3578,143 @@ function renderContentProduction(){
   setupContentDragDrop();
 }
 
+/* ───────── Welcome pack (pops up when a client moves into Onboarding) ─────────
+   Fills the branded fillable template (assets/welcome-pack-template.pdf) with
+   the client's details, then flattens it so the PDF that goes out is plain,
+   finished text - no fill-in boxes and no viewer highlighting. Everything
+   happens in the browser; nothing is uploaded. pdf-lib + fontkit load from the
+   CDN only the first time a pack is made. */
+const WP_FIELDS = ["client_first_name","business_name","trade","town","call_when","ads_live","why_excited","account_manager","phone","email"];
+const WP_LIBS = [
+  "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
+  "https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js",
+];
+let wpLibsReady = null, wpLastUrl = null, wpLastName = "";
+function wpLoadLibs(){
+  if (window.PDFLib && window.fontkit) return Promise.resolve();
+  if (wpLibsReady) return wpLibsReady;
+  wpLibsReady = WP_LIBS.reduce((p, url) => p.then(() => new Promise((resolve, reject) => {
+    const s = document.createElement("script"); s.src = url; s.onload = resolve;
+    s.onerror = () => reject(new Error("Couldn't load the PDF tools - check your internet connection."));
+    document.head.appendChild(s);
+  })), Promise.resolve()).catch(e => { wpLibsReady = null; throw e; });
+  return wpLibsReady;
+}
+const wpAmKey = (person) => `mp_welcome_am_${person || "me"}`;
+// Best-effort prefill from what the CRM already knows about this client.
+function wpPrefill(c){
+  const person = window.getActivePerson ? window.getActivePerson() : null;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(wpAmKey(person)) || "{}"); } catch(e){}
+  const bizKey = (c.name || "").trim().toLowerCase();
+  // The deal that created this client, or failing that any deal that names the business.
+  const deal = (c.source_deal_id && state.deals.find(d => d.id === c.source_deal_id))
+    || (bizKey && state.deals.find(d => [d.contact_name, d.title].some(t => (t || "").toLowerCase().includes(bizKey))))
+    || null;
+  const contact = deal?.contact_id ? state.contacts.find(x => x.id === deal.contact_id) : null;
+  const personName = (contact?.name || (deal?.contact_name || "").split(" - ")[0] || "").trim();
+  const nameKey = (c.name || "").trim().toLowerCase();
+  const prospect = state.prospects.find(p => (p.company || "").trim().toLowerCase() === nameKey);
+  const ads = c.ad_start_date ? new Date(c.ad_start_date + "T00:00:00").toLocaleDateString("en-NZ", { day:"numeric", month:"long" }) : "";
+  return {
+    client_first_name: personName.split(/\s+/)[0] || "",
+    business_name: c.name || "",
+    trade: prospect?.industry || "",
+    town: prospect?.region || "",
+    call_when: "",
+    ads_live: ads,
+    why_excited: "",
+    account_manager: saved.account_manager || ASSIGNEES[person]?.label || "",
+    phone: saved.phone || "",
+    email: saved.email || state.user?.email || "",
+  };
+}
+function openWelcomePack(clientId){
+  const c = state.clients.find(x => x.id === clientId);
+  if (!c) return;
+  const v = wpPrefill(c);
+  $("#wp-client-id").value = c.id;
+  WP_FIELDS.forEach(k => { $("#wp-" + k).value = v[k] || ""; });
+  $("#wp-sub").textContent = `${c.name} is onboarding. Check the details, then we'll make the finished PDF.`;
+  $("#welcome-pack-form").hidden = false;
+  $("#wp-done").hidden = true;
+  wpStatus("");
+  openModal("welcome-pack-modal");
+  setTimeout(() => $(WP_FIELDS.map(k => "#wp-" + k).find(sel => !$(sel).value) || "#wp-why_excited")?.focus(), 50);
+}
+function wpStatus(msg, warn){ const el = $("#wp-status"); if (el){ el.textContent = msg; el.classList.toggle("warn", !!warn); } }
+async function buildWelcomePackPdf(values){
+  await wpLoadLibs();
+  const { PDFDocument, PDFName } = window.PDFLib;
+  const [tpl, fontBytes] = await Promise.all([
+    fetch("assets/welcome-pack-template.pdf?v=1").then(r => { if (!r.ok) throw new Error("Couldn't load the welcome pack template."); return r.arrayBuffer(); }),
+    fetch("assets/fonts/figtree-400.ttf?v=1").then(r => { if (!r.ok) throw new Error("Couldn't load the brand font."); return r.arrayBuffer(); }),
+  ]);
+  const pdf = await PDFDocument.load(tpl);
+  pdf.registerFontkit(window.fontkit);
+  const font = await pdf.embedFont(fontBytes);
+  const form = pdf.getForm();
+  WP_FIELDS.forEach(k => form.getTextField(k).setText((values[k] || "").trim()));
+  form.updateFieldAppearances(font);
+  form.flatten();
+  // Re-copy the flattened pages into a clean document, so no leftover
+  // fill-in areas remain for a PDF viewer to highlight.
+  const flat = await PDFDocument.load(await pdf.save());
+  flat.getPages().forEach(p => p.node.delete(PDFName.of("Annots")));
+  const out = await PDFDocument.create();
+  (await out.copyPages(flat, flat.getPageIndices())).forEach(p => out.addPage(p));
+  out.setTitle(`Mr Priceless Welcome Pack - ${values.business_name || ""}`.trim());
+  out.setAuthor("Mr Priceless");
+  return out.save({ useObjectStreams: false });
+}
+function wpFileName(business){
+  const safe = (business || "Client").replace(/[\\/:*?"<>|]+/g, "").trim() || "Client";
+  return `Mr Priceless Welcome Pack - ${safe}.pdf`;
+}
+function setupWelcomePack(){
+  $("#welcome-pack-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const values = Object.fromEntries(WP_FIELDS.map(k => [k, $("#wp-" + k).value]));
+    const missing = WP_FIELDS.filter(k => !values[k].trim());
+    const btn = $("#wp-create");
+    if (missing.length && btn.dataset.confirm !== "1"){
+      btn.dataset.confirm = "1";
+      const labels = missing.map(k => $(`label[for="wp-${k}"]`)?.childNodes[0]?.textContent.trim() || k);
+      wpStatus(`Still blank: ${labels.join(", ")}. Press Create again to leave them out.`, true);
+      return;
+    }
+    btn.dataset.confirm = "";
+    const person = window.getActivePerson ? window.getActivePerson() : null;
+    try { localStorage.setItem(wpAmKey(person), JSON.stringify({ account_manager: values.account_manager, phone: values.phone, email: values.email })); } catch(err){}
+    btn.disabled = true; wpStatus("Making the PDF...");
+    try {
+      const bytes = await buildWelcomePackPdf(values);
+      if (wpLastUrl) URL.revokeObjectURL(wpLastUrl);
+      wpLastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      wpLastName = wpFileName(values.business_name);
+      const link = $("#wp-file");
+      link.href = wpLastUrl; link.download = wpLastName;
+      $("#wp-file-name").textContent = wpLastName;
+      $("#welcome-pack-form").hidden = true;
+      $("#wp-done").hidden = false;
+      link.click(); // saves a copy to Downloads straight away
+    } catch(err){
+      wpStatus(err.message || "Something went wrong making the PDF.", true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  $$("#welcome-pack-form input, #welcome-pack-form textarea").forEach(el => el.addEventListener("input", () => { $("#wp-create").dataset.confirm = ""; wpStatus(""); }));
+  // Dragging the file card out drops the real PDF into an email or onto the desktop (Chrome / Edge).
+  $("#wp-file")?.addEventListener("dragstart", (e) => {
+    if (!wpLastUrl) return;
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("DownloadURL", `application/pdf:${wpLastName}:${wpLastUrl}`);
+  });
+  $("#wp-edit")?.addEventListener("click", () => { $("#wp-done").hidden = true; $("#welcome-pack-form").hidden = false; });
+  $("#wp-preview")?.addEventListener("click", () => { if (wpLastUrl) window.open(wpLastUrl, "_blank"); });
+}
+
 /* ───────── Render: Onboarding (per-client tracker) ───────── */
 function isOnboardingStepDone(client, step){
   if (step.derivedFrom) return Boolean(client[step.derivedFrom]);
@@ -6021,10 +6158,13 @@ function setupModals(){
     };
     if (!existing || existing.stage !== stage) row.stage_changed_at = new Date().toISOString();
     if (!row.name) return;
+    let savedId = id;
     if (id) await DataLayer.update("clients", id, row);
-    else await DataLayer.insert("clients", row);
+    else savedId = (await DataLayer.insert("clients", row))?.id;
     closeModal("client-modal");
-    if (!IS_CONFIGURED) return; renderAll();
+    const enteredOnboarding = stage === "onboarding" && (!existing || existing.stage !== "onboarding");
+    if (IS_CONFIGURED) renderAll();
+    if (enteredOnboarding && savedId) openWelcomePack(savedId);
   });
 
   $("#client-info-form")?.addEventListener("submit", async (e) => {
@@ -6081,7 +6221,9 @@ function setupModals(){
   $("#clients-gallery")?.addEventListener("change", async (e) => {
     const sel = e.target.closest(".client-stage-select");
     if (!sel) return;
+    const before = state.clients.find(x => x.id === sel.dataset.id)?.stage || "onboarding";
     await DataLayer.update("clients", sel.dataset.id, { stage: sel.value, stage_changed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    if (sel.value === "onboarding" && before !== "onboarding") openWelcomePack(sel.dataset.id);
     if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
   });
 
@@ -6437,6 +6579,7 @@ function setupModals(){
       await DataLayer.update("clients", id, { stage: "month_1", stage_changed_at: new Date().toISOString() });
       if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
+    if (action === "open-welcome-pack"){ if (state.selectedClientId) openWelcomePack(state.selectedClientId); }
     if (action === "edit-client-header"){
       const c = state.clients.find(x => x.id === state.selectedClientId);
       if (c) openEditClientModal(c);
@@ -6653,6 +6796,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupEmailAuth();
   setupNav();
   setupModals();
+  setupWelcomePack();
   populateRegionIndustrySelects();
   setupSearchFilters();
   setupTeam();

@@ -1247,3 +1247,27 @@ a.phone-num:hover{color:var(--gold-deep);}
 .country-toggle .flag{font-size:15px;line-height:1}
 .region-data-scope{font-size:12px;font-weight:600;color:var(--text2);letter-spacing:0;text-transform:none;margin-left:8px}
 #dialer-filter-region{min-width:190px}
+
+/* ───────── Welcome pack pop-up ───────── */
+.wp-modal{max-width:640px}
+.wp-sub{font-size:12.5px;color:var(--text2);margin-top:3px}
+.wp-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.wp-grid-3{grid-template-columns:1fr 1fr 1fr}
+.wp-wide{grid-column:1 / -1}
+.wp-opt{font-weight:500;color:var(--text2);text-transform:none;letter-spacing:0}
+.wp-group-title{margin:18px 0 10px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gold-deep)}
+.wp-status{min-height:18px;font-size:12.5px;color:var(--text2);margin-top:10px}
+.wp-status.warn{color:var(--danger)}
+.wp-file{display:flex;align-items:center;gap:14px;padding:16px 18px;border:1.5px dashed var(--gold-border);border-radius:12px;background:var(--gold-soft);cursor:grab;text-decoration:none;color:var(--text)}
+.wp-file:hover{border-color:var(--gold)}
+.wp-file:active{cursor:grabbing}
+.wp-file-icon{flex:0 0 46px;height:56px;border-radius:7px;background:var(--black);color:var(--gold-bright);display:grid;place-items:center;font-weight:800;font-size:12px;letter-spacing:.05em}
+.wp-file-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.wp-file-text strong{font-size:14.5px;overflow-wrap:anywhere}
+.wp-file-text span{font-size:12.5px;color:var(--text2)}
+.wp-done-note{font-size:12.5px;color:var(--text2);margin:12px 0 0}
+@media (max-width:640px){.wp-grid,.wp-grid-3{grid-template-columns:1fr}}
+#welcome-pack-modal [hidden]{display:none!important}
+.wp-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.wp-grid-3{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr)}
+.wp-grid .field input,.wp-grid .field textarea{width:100%;min-width:0}
