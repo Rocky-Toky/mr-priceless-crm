@@ -323,7 +323,7 @@ const CLIENT_INFO_FIELDS = [
   // against their profile completeness.
   { key: "renewal_date", label: "Renewal / Review Date", hint: "When to revisit the contract or scope.", isDate: true, optional: true },
   { key: "key_contacts", label: "Key Contacts", hint: "Who the decision makers are and how to reach them." },
-  { key: "qualified_lead_structure", label: "Qualified Lead Structure", hint: "What actually counts as a good lead for this client - fills in automatically as you answer the qualifying questions on their Onboarding checklist." },
+  { key: "qualified_lead_structure", label: "Qualified Lead Structure", hint: "What actually counts as a good lead for this client - fills in automatically from the lead essentials on their Onboarding launch." },
 ];
 function clientProfileCompleteness(c){
   const required = CLIENT_INFO_FIELDS.filter(f => !f.optional);
@@ -1989,8 +1989,9 @@ function setupDragDrop(){
         const dragId = dealDragId;
         const before = state.deals.find(d => d.id === dragId)?.stage;
         const updated = await DataLayer.update("deals", dragId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
-        if (col.dataset.stage === "onboarding" && before !== "onboarding") openWelcomePackForDeal(updated || state.deals.find(d => d.id === dragId));
-        await maybeCreateClientFromDeal(updated);
+        const created = await maybeCreateClientFromDeal(updated);
+        // Already a client (so no new pack popped up)? Still offer the pack on signing.
+        if (!created && col.dataset.stage === "onboarding" && before !== "onboarding") openWelcomePackForDeal(updated || state.deals.find(d => d.id === dragId));
         await maybeCreateNoShowFollowup(updated);
       });
     });
@@ -3256,9 +3257,16 @@ function renderClientsList(){
   const avg = clientAvgCPL();
   const alertsById = new Map(state.clients.map(c => [c.id, getClientAlerts(c)]));
   const attention = state.clients.filter(c => alertsById.get(c.id).length);
-  $("#clients-stat-total").textContent = state.clients.length;
+  const active = state.clients.filter(c => c.stage !== "churned");
+  const onboardingNow = active.filter(isOnboardingClient).length;
+  $("#clients-stat-total").textContent = active.length;
+  const totalSub = $("#clients-stat-total-sub");
+  if (totalSub) totalSub.textContent = onboardingNow ? `${onboardingNow} onboarding` : "";
+  const retainers = active.map(clientRetainer).filter(v => v != null);
+  $("#clients-stat-mrr").textContent = retainers.length ? fmtMoney(retainers.reduce((a,b) => a+b, 0)) : "-";
+  const mrrSub = $("#clients-stat-mrr-sub");
+  if (mrrSub) mrrSub.textContent = retainers.length ? `across ${retainers.length} retainer client${retainers.length === 1 ? "" : "s"}` : "no retainer deals linked";
   $("#clients-stat-cpl").textContent = avg != null ? fmtMoney(avg) : "-";
-  $("#clients-stat-content").textContent = state.clientContent.length;
   $("#clients-stat-campaigns").textContent = state.campaigns.filter(c => c.status === "active").length;
   const attnEl = $("#clients-stat-attention");
   if (attnEl) attnEl.textContent = attention.length;
@@ -3305,10 +3313,16 @@ function renderClientsList(){
       ${groups.map(g => `
         <div class="cl-group" data-stage="${g.st.key}">
           <span class="cl-group-dot"></span>${g.st.label}<span class="cl-group-count">${g.clients.length}</span>
+          ${g.st.key === "onboarding" ? `<button type="button" class="cl-group-link" data-action="open-onboarding-board">Open launch board →</button>` : ""}
         </div>
         ${g.clients.map(c => renderClientRow(c, alertsById.get(c.id))).join("")}
       `).join("")}
     </div>`;
+}
+// What a client pays us each month, from the retainer deal they came from.
+function clientRetainer(c){
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  return deal && (deal.contract_type || "retainer") === "retainer" && Number(deal.value) > 0 ? Number(deal.value) : null;
 }
 // The one progress measure that matters for where the client is right now:
 // onboarding steps while onboarding, quotes while on the guarantee, and
@@ -3316,8 +3330,8 @@ function renderClientsList(){
 function clientProgress(c){
   const stage = c.stage || "onboarding";
   if (stage === "onboarding"){
-    const done = onboardingDoneCount(c), total = ONBOARDING_STEPS.length;
-    return { pct: Math.round(done/total*100), label: `${done}/${total} onboarding steps` };
+    const ls = launchState(c);
+    return { pct: ls.pct, label: ls.launched ? "Ready to go live" : `${ls.milestones[ls.current].label} · ${ls.doneTasks}/${ls.total}` };
   }
   if (stage === "quote_guarantee" && c.quote_target){
     const sent = Number(c.quotes_sent||0);
@@ -3368,7 +3382,7 @@ function renderClientRow(c, alerts){
           <div class="cl-name">${escapeHtml(c.name)}</div>
           ${alerts.length
             ? `<div class="cl-alerts">${alerts.map(a => `<span class="cl-alert ${a.type==='danger'?'danger':''}">${escapeHtml(a.text)}</span>`).join("")}</div>`
-            : `<div class="cl-sub">${days != null ? `${days}d in stage` : "&nbsp;"}</div>`}
+            : `<div class="cl-sub">${[clientRetainer(c) != null ? `${fmtMoney(clientRetainer(c))}/mo` : "", days != null ? `${days}d in stage` : ""].filter(Boolean).join(" · ") || "&nbsp;"}</div>`}
         </div>
       </div>
       <div class="cl-cell-progress" ${open} title="${escapeHtml(prog.label)}">
@@ -3770,6 +3784,9 @@ function setupWelcomePack(){
       if (wpLastUrl) URL.revokeObjectURL(wpLastUrl);
       wpLastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
       wpLastName = wpFileName(values.business_name);
+      const packClient = state.clients.find(x => x.id === $("#wp-client-id").value);
+      // Ticks their Welcome milestone, and remembers the first name for chase-up messages.
+      if (packClient) saveLaunchProgress(packClient, { wp_sent: true, ...(values.client_first_name.trim() ? { contact_first: values.client_first_name.trim() } : {}) });
       const link = $("#wp-file");
       link.href = wpLastUrl; link.download = wpLastName;
       $("#wp-file-name").textContent = wpLastName;
@@ -3799,90 +3816,366 @@ function setupWelcomePack(){
   $("#wp-preview")?.addEventListener("click", () => { if (wpLastUrl) window.open(wpLastUrl, "_blank"); });
 }
 
-/* ───────── Render: Onboarding (per-client tracker) ───────── */
-function isOnboardingStepDone(client, step){
-  if (step.derivedFrom) return Boolean(client[step.derivedFrom]);
-  const progress = client.onboarding_progress || {};
-  return Boolean(progress[step.key]);
+/* ───────── Onboarding: signed → live launch tracker ─────────
+   Every client in the Onboarding stage moves through five milestones. Each
+   milestone is a short list of tasks; ticks live in client.onboarding_progress
+   (keys reuse the old checklist's where the meaning is the same, so earlier
+   progress carries over). Tasks marked who:"client" are the ones we can't do
+   without them - those drive "Waiting on client" and the chase-up message. */
+const LAUNCH_ESSENTIALS = [
+  { key: "good_lead_1", label: "A job they're happy to quote", placeholder: "e.g. Kitchen and bathroom renos over $15k" },
+  { key: "good_lead_3", label: "Average job value", placeholder: "e.g. $18,000" },
+  { key: "good_lead_5", label: "How far they'll travel", placeholder: "e.g. 40 minutes from Mt Maunganui" },
+  { key: "good_lead_6", label: "After hours or weekend quotes", placeholder: "e.g. Saturday mornings only" },
+];
+const LAUNCH_MILESTONES = [
+  { key: "welcome", label: "Welcome", tasks: [
+    { key: "wp_sent", label: "Welcome pack sent", hint: "Ticks itself when you make their pack." },
+    { key: "crm_login", label: "CRM login sent and working" },
+  ]},
+  { key: "kickoff", label: "Kickoff call", tasks: [
+    { key: "kickoff_booked", label: "Kickoff call booked", dateField: "kickoff_at" },
+    { key: "honest_expect_1", label: "Honest expectations set (paid leads, month one)" },
+    { key: "essentials", label: "Lead essentials captured", derived: "essentials", hint: "Fill in the four lead essentials." },
+  ]},
+  { key: "access", label: "Access", tasks: [
+    { key: "meta_partner_access", label: "Partner access to their Meta ad account", who: "client", ask: "Partner access to your Meta ad account" },
+    { key: "fb_page_access", label: "Facebook Page access (content, ads, leads)", who: "client", ask: "Access to your Facebook Page (content, ads and leads)" },
+    { key: "meta_ad_account_id", label: "Ad account ID added to their client page", derived: "meta_ad_account_id", hint: "Add it on their client page." },
+    { key: "cal_share_max", label: "Calendar shared and synced with GHL", who: "client", ask: "Your calendar shared with us, with your busy times blocked out" },
+  ]},
+  { key: "build", label: "Build", tasks: [
+    { key: "photos_in", label: "Job photos and a team photo received", who: "client", ask: "Some before and after job photos, plus a photo of you and the team" },
+    { key: "ghl_template", label: "GHL pipeline and calendar set up" },
+    { key: "fb_lead_form", label: "Lead form built and connected to GHL" },
+    { key: "launch_creatives", label: "2 proven creatives and 1 test loaded" },
+  ]},
+  { key: "live", label: "Live", tasks: [
+    { key: "cadence_catchup", label: "Fortnightly catch-up locked in" },
+    { key: "ad_start_date", label: "Ads switched on", derived: "ad_start_date", hint: "Press Go live once the ads are running." },
+  ]},
+];
+const LAUNCH_TASKS = LAUNCH_MILESTONES.flatMap(m => m.tasks.map(t => ({ ...t, milestone: m.key })));
+const ONB_STALL_DAYS = 5;
+const isOnboardingClient = (c) => (c.stage || "onboarding") === "onboarding";
+
+function launchEssentialsDone(c){
+  const p = c.onboarding_progress || {};
+  return LAUNCH_ESSENTIALS.every(e => String(p[e.key + ONBOARDING_ANSWER_SUFFIX] || "").trim());
 }
-function onboardingDoneCount(client){
-  return ONBOARDING_STEPS.filter(s => isOnboardingStepDone(client, s)).length;
+function launchTaskDone(c, t){
+  if (t.derived === "essentials") return launchEssentialsDone(c);
+  if (t.derived) return Boolean(c[t.derived]);
+  return Boolean((c.onboarding_progress || {})[t.key]);
 }
-// The checklist lives on each client's own page (Clients -> client). It
-// opens automatically for clients still in the Onboarding stage and stays
-// tucked away (but reachable) for everyone else.
-let onboardingCardClientId = null;
-function renderClientOnboarding(c){
-  const card = $("#client-onboarding-card");
-  if (!card) return;
-  if (onboardingCardClientId !== c.id){
-    onboardingCardClientId = c.id;
-    card.open = (c.stage || "onboarding") === "onboarding";
+function localDateOnly(s){ return s ? new Date(String(s).slice(0,10) + "T00:00:00") : null; }
+function daysBetween(a, b){ return Math.round((b - a) / 86400e3); }
+// Everything the board, the card and the client page need to know about one launch.
+function launchState(c){
+  const p = c.onboarding_progress || {};
+  const milestones = LAUNCH_MILESTONES.map(m => {
+    const done = m.tasks.filter(t => launchTaskDone(c, t)).length;
+    return { ...m, done, total: m.tasks.length, complete: done === m.tasks.length };
+  });
+  const doneTasks = milestones.reduce((s, m) => s + m.done, 0);
+  const total = LAUNCH_TASKS.length;
+  let current = milestones.findIndex(m => !m.complete);
+  const launched = current === -1;
+  if (launched) current = milestones.length - 1;
+  const open = milestones[current].tasks.filter(t => !launchTaskDone(c, t));
+  const nextTask = open.find(t => t.who !== "client") || open[0] || null;
+  // Waiting on the client when everything left in this milestone is theirs to do.
+  const waitingOnClient = !launched && open.length > 0 && open.every(t => t.who === "client");
+  const clientAsks = LAUNCH_TASKS.filter(t => t.who === "client" && !launchTaskDone(c, t));
+  const signed = p.signed_at || c.stage_changed_at || c.created_at;
+  const daysIn = signed ? Math.max(0, daysSince(signed)) : 0;
+  const today = localDateOnly(localDayStr());
+  const target = localDateOnly(p.target_live);
+  const daysToTarget = target ? daysBetween(today, target) : null;
+  const sinceTouch = p.touched_at ? daysSince(p.touched_at) : daysIn;
+  let status = { key: "track", label: "On track" };
+  if (launched) status = { key: "ready", label: "Ready to go live" };
+  else if (daysToTarget != null && daysToTarget < 0) status = { key: "late", label: `${-daysToTarget}d past target` };
+  else if (waitingOnClient) status = { key: "client", label: "Waiting on client" };
+  else if (sinceTouch >= ONB_STALL_DAYS) status = { key: "stalled", label: `No progress in ${sinceTouch}d` };
+  else if (daysToTarget != null && daysToTarget <= 2) status = { key: "soon", label: daysToTarget === 0 ? "Go-live today" : `Go-live in ${daysToTarget}d` };
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  const owner = p.owner || deal?.assignee || null;
+  return { milestones, doneTasks, total, pct: Math.round(doneTasks / total * 100), current, launched, nextTask, waitingOnClient, clientAsks, daysIn, target: p.target_live || "", daysToTarget, status, owner, deal };
+}
+function ownerChipHtml(owner){
+  const a = owner && ASSIGNEES[owner];
+  if (!a) return `<span class="onb-owner none">No owner</span>`;
+  return `<span class="onb-owner"><span class="onb-owner-dot ${a.cls}">${escapeHtml(a.label[0])}</span>${escapeHtml(a.label)}</span>`;
+}
+function fmtShortDate(s){
+  const d = localDateOnly(s);
+  return d ? d.toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "";
+}
+async function saveLaunchProgress(c, patch){
+  const progress = { ...(c.onboarding_progress || {}), ...patch, touched_at: new Date().toISOString() };
+  Object.keys(patch).forEach(k => { if (patch[k] === null) delete progress[k]; });
+  c.onboarding_progress = progress;
+  await DataLayer.update("clients", c.id, { onboarding_progress: progress });
+}
+// The step after onboarding: the quote guarantee if they're on one, otherwise Month 1.
+function postOnboardingStage(c){ return c.quote_target ? "quote_guarantee" : "month_1"; }
+async function goLive(c){
+  const next = postOnboardingStage(c);
+  const label = CLIENT_STAGE_MAP[next].label;
+  if (!confirm(`Mark ${c.name} as live and move them to ${label}?${c.ad_start_date ? "" : " Their ads start date will be set to today."}`)) return;
+  const now = new Date().toISOString();
+  const patch = { stage: next, stage_changed_at: now, updated_at: now };
+  if (!c.ad_start_date) patch.ad_start_date = localDayStr();
+  const progress = { ...(c.onboarding_progress || {}), live_at: now, touched_at: now };
+  patch.onboarding_progress = progress;
+  if (state.onbOpenId === c.id){ state.onbOpenId = null; closeModal("onb-modal"); }
+  await DataLayer.update("clients", c.id, patch);
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+}
+function clientAsksMessage(c, ls){
+  const p = c.onboarding_progress || {};
+  const first = (p.contact_first || (ls.deal?.contact_name || "").split(" - ")[0].trim().split(/\s+/)[0] || "").trim() || "there";
+  const lines = ls.clientAsks.map(t => `- ${t.ask || t.label}`);
+  return `Hi ${first}, to get your ads live we just need a few things from you:\n${lines.join("\n")}\nOnce these are sorted we can get you up and running. Cheers!`;
+}
+
+/* The board: one column per milestone. Clients sit in the column of the
+   milestone they're working through, so they move along on their own as
+   tasks get ticked. */
+function renderOnboarding(){
+  const board = $("#onb-board");
+  if (!board) return;
+  const clients = state.clients.filter(isOnboardingClient);
+  const states = new Map(clients.map(c => [c.id, launchState(c)]));
+  const navCount = $("#nav-onb-count");
+  if (navCount){ navCount.hidden = !clients.length; navCount.textContent = clients.length; }
+  // Average days from signing to live, over clients that have launched.
+  const launchedDurations = state.clients.map(c => {
+    const p = c.onboarding_progress || {};
+    const start = p.signed_at || c.created_at, end = p.live_at || null;
+    return start && end ? daysBetween(new Date(start), new Date(end)) : null;
+  }).filter(v => v != null && v >= 0);
+  const avgLaunch = launchedDurations.length ? Math.round(launchedDurations.reduce((a,b) => a+b, 0) / launchedDurations.length) : null;
+  const waiting = clients.filter(c => states.get(c.id).waitingOnClient).length;
+  const late = clients.filter(c => ["late", "stalled"].includes(states.get(c.id).status.key)).length;
+  const ready = clients.filter(c => states.get(c.id).launched).length;
+  const kpis = $("#onb-kpis");
+  if (kpis) kpis.innerHTML = `
+    <div class="onb-kpi"><span class="onb-kpi-label">Onboarding now</span><span class="onb-kpi-value">${clients.length}</span><span class="onb-kpi-sub">${ready ? `${ready} ready to go live` : "clients being set up"}</span></div>
+    <div class="onb-kpi"><span class="onb-kpi-label">Signed to live</span><span class="onb-kpi-value">${avgLaunch != null ? `${avgLaunch}<small> days</small>` : "-"}</span><span class="onb-kpi-sub">${avgLaunch != null ? `average over ${launchedDurations.length} launch${launchedDurations.length === 1 ? "" : "es"}` : "shows once a client goes live"}</span></div>
+    <div class="onb-kpi ${waiting ? "warn" : ""}"><span class="onb-kpi-label">Waiting on client</span><span class="onb-kpi-value">${waiting}</span><span class="onb-kpi-sub">${waiting ? "chase these up" : "nothing to chase"}</span></div>
+    <div class="onb-kpi ${late ? "bad" : ""}"><span class="onb-kpi-label">Behind</span><span class="onb-kpi-value">${late}</span><span class="onb-kpi-sub">${late ? "past target or stalled" : "all moving"}</span></div>`;
+
+  if (!clients.length){
+    board.innerHTML = `<div class="card onb-empty">
+      <div class="onb-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg></div>
+      <h3>No one's onboarding right now</h3>
+      <p>Drag a deal into <b>Onboarding</b> on the Sales pipeline and they'll land here automatically, or add a client yourself.</p>
+    </div>`;
+    return;
   }
-  const isOnb = (c.stage || "onboarding") === "onboarding";
-  card.classList.toggle("is-onboarding", isOnb);
-  const main = $("#client-detail-main");
-  if (main){ if (isOnb) main.prepend(card); else main.append(card); }
-  renderOnboardingDetail(c);
-}
-function renderOnboardingDetail(c){
-  const done = onboardingDoneCount(c);
-  const pct = Math.round(done / ONBOARDING_STEPS.length * 100);
-  $("#onboarding-detail-progress-fill").style.width = pct + "%";
-  $("#onboarding-detail-progress-label").textContent = `${done} of ${ONBOARDING_STEPS.length} steps complete`;
-  const progress = c.onboarding_progress || {};
-
-  // If a realtime update re-renders this list while someone's mid-typing an
-  // answer, preserve their unsaved text + cursor instead of clobbering it.
-  const listEl = $("#onboarding-steps-list");
-  const activeEl = document.activeElement;
-  const isEditingAnswer = listEl && activeEl && activeEl.classList?.contains("onboarding-answer-textarea") && listEl.contains(activeEl);
-  const activeStepKey = isEditingAnswer ? activeEl.dataset.step : null;
-  const activeValue = isEditingAnswer ? activeEl.value : null;
-  const activeSelStart = isEditingAnswer ? activeEl.selectionStart : null;
-  const activeSelEnd = isEditingAnswer ? activeEl.selectionEnd : null;
-
-  let lastSection = null;
-  const rows = ONBOARDING_STEPS.map(s => {
-    const isDone = isOnboardingStepDone(c, s);
-    const sectionHeader = s.section !== lastSection ? `<div class="onboarding-section-head">${escapeHtml(s.section)}</div>` : "";
-    lastSection = s.section;
-    const answerBlock = s.answerable ? `
-      <div class="onboarding-step-answer">
-        <label>${escapeHtml(s.fieldLabel)}</label>
-        <textarea class="onboarding-answer-textarea" rows="2" data-id="${c.id}" data-step="${s.key}" placeholder="Type their answer as you go...">${escapeHtml(progress[s.key + ONBOARDING_ANSWER_SUFFIX] || "")}</textarea>
-      </div>` : "";
-    if (s.derivedFrom){
-      // Auto-detected from the client's own data - no manual toggle, clicking
-      // it jumps straight to Edit Client so there's nothing to remember to tick.
-      return `${sectionHeader}
-        <div class="onboarding-step-row derived ${isDone?'done':''}" data-action="onboarding-edit-client" data-id="${c.id}" title="${isDone?'Already set':'Click to add it'}">
-          <div class="mtr-check task-check ${isDone?'done':''}">${TASK_CHECK_SVG}</div>
-          <div class="onboarding-step-label">${escapeHtml(s.label)}</div>
-          <span class="onboarding-step-auto">${isDone ? 'Auto-detected ✓' : 'Auto-detects - click to add'}</span>
-        </div>`;
-    }
-    return `${sectionHeader}
-      <div class="onboarding-step-row ${isDone?'done':''}" data-action="toggle-onboarding-step" data-id="${c.id}" data-step="${s.key}">
-        <div class="mtr-check task-check ${isDone?'done':''}">${TASK_CHECK_SVG}</div>
-        <div class="onboarding-step-label">${escapeHtml(s.label)}</div>
-      </div>${answerBlock}`;
+  const order = (a, b) => (states.get(a.id).status.key === "late" ? -1 : 0) - (states.get(b.id).status.key === "late" ? -1 : 0) || states.get(b.id).daysIn - states.get(a.id).daysIn;
+  board.innerHTML = LAUNCH_MILESTONES.map((m, i) => {
+    const col = clients.filter(c => states.get(c.id).current === i).sort(order);
+    return `
+      <div class="onb-col" data-milestone="${m.key}">
+        <div class="onb-col-head"><span class="onb-col-num">${i + 1}</span>${escapeHtml(m.label)}<span class="onb-col-count">${col.length}</span></div>
+        <div class="onb-col-body">
+          ${col.length ? col.map(c => onbCardHtml(c, states.get(c.id))).join("") : `<div class="onb-col-empty">Nobody here</div>`}
+        </div>
+      </div>`;
   }).join("");
-  $("#onboarding-steps-list").innerHTML = rows;
+  if (state.onbOpenId) renderOnbModal();
+}
+function onbCardHtml(c, ls){
+  const m = ls.milestones[ls.current];
+  const next = ls.launched
+    ? `<button type="button" class="btn gold sm onb-golive" data-action="onb-golive" data-id="${c.id}">Go live →</button>`
+    : ls.nextTask ? `<div class="onb-next"><span>Next</span>${escapeHtml(ls.nextTask.label)}${ls.nextTask.who === "client" ? `<em>Client</em>` : ""}</div>` : "";
+  return `
+    <article class="onb-card status-${ls.status.key}" data-action="onb-open" data-id="${c.id}" tabindex="0">
+      <div class="onb-card-top">
+        <div class="onb-card-name">${escapeHtml(c.name)}</div>
+        <span class="onb-status ${ls.status.key}">${escapeHtml(ls.status.label)}</span>
+      </div>
+      <div class="onb-card-meta">${ownerChipHtml(ls.owner)}<span>Day ${ls.daysIn}</span>${ls.target ? `<span>Live ${escapeHtml(fmtShortDate(ls.target))}</span>` : ""}</div>
+      <div class="onb-mini">
+        ${ls.milestones.map((mm, i) => `<span class="${mm.complete ? "done" : i === ls.current ? "now" : ""}" title="${escapeHtml(mm.label)}"></span>`).join("")}
+      </div>
+      <div class="onb-card-step">${escapeHtml(m.label)} · ${m.done}/${m.total}</div>
+      ${next}
+    </article>`;
+}
 
-  if (activeStepKey){
-    const restored = listEl.querySelector(`.onboarding-answer-textarea[data-step="${activeStepKey}"]`);
-    if (restored){
-      restored.value = activeValue;
-      restored.focus();
-      if (activeSelStart != null) restored.setSelectionRange(activeSelStart, activeSelEnd);
-    }
+/* The client's launch, opened from a card. */
+function openOnbModal(id){
+  state.onbOpenId = id;
+  renderOnbModal();
+  openModal("onb-modal");
+}
+function renderOnbModal(){
+  const body = $("#onb-modal-body");
+  const c = state.clients.find(x => x.id === state.onbOpenId);
+  if (!body) return;
+  if (!c){ state.onbOpenId = null; closeModal("onb-modal"); return; }
+  const ls = launchState(c);
+  const p = c.onboarding_progress || {};
+  // A realtime re-render mustn't throw away what someone is typing.
+  const active = document.activeElement;
+  const keep = active && body.contains(active) && active.dataset.onbField ? { field: active.dataset.onbField, value: active.value, s: active.selectionStart, e: active.selectionEnd } : null;
+
+  $("#onb-modal-title").textContent = c.name;
+  $("#onb-modal-sub").innerHTML = `Signed ${ls.daysIn === 0 ? "today" : `${ls.daysIn} day${ls.daysIn === 1 ? "" : "s"} ago`} · <span class="onb-status ${ls.status.key}">${escapeHtml(ls.status.label)}</span>`;
+  const taskRow = (t) => {
+    const done = launchTaskDone(c, t);
+    const tag = t.who === "client" ? `<span class="onb-tag">Client</span>` : "";
+    const dateInput = t.dateField ? `<input type="datetime-local" class="onb-inline-date" data-onb-field="${t.dateField}" value="${escapeHtml(p[t.dateField] || "")}" aria-label="Kickoff call time">` : "";
+    const hint = t.hint && !done ? `<span class="onb-task-hint">${escapeHtml(t.hint)}</span>` : "";
+    // Derived tasks tick themselves from the client's data, so they aren't buttons.
+    const inner = `<span class="task-check ${done ? "done" : ""}">${TASK_CHECK_SVG}</span><span class="onb-task-text">${escapeHtml(t.label)}${tag}${hint}</span>`;
+    return `
+      <div class="onb-task ${done ? "done" : ""} ${t.derived ? "auto" : ""}">
+        ${t.derived ? `<span class="onb-task-hit">${inner}</span>` : `<button type="button" class="onb-task-hit" data-action="onb-toggle" data-id="${c.id}" data-task="${t.key}" aria-pressed="${done}">${inner}</button>`}
+        ${dateInput}
+      </div>`;
+  };
+  const asks = ls.clientAsks;
+  body.innerHTML = `
+    <div class="onb-m-top">
+      <label class="onb-m-field"><span>Target go-live</span><input type="date" data-onb-field="target_live" value="${escapeHtml(ls.target)}"></label>
+      <label class="onb-m-field"><span>Owner</span>
+        <select data-onb-field="owner">
+          <option value="">No owner</option>
+          ${Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${ls.owner === k ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")}
+        </select>
+      </label>
+      <div class="onb-m-actions">
+        <button type="button" class="btn ghost sm" data-action="onb-pack" data-id="${c.id}">Welcome pack</button>
+        <button type="button" class="btn ghost sm" data-action="onb-client-page" data-id="${c.id}">Client page</button>
+      </div>
+    </div>
+    <ol class="onb-stepper">
+      ${ls.milestones.map((m, i) => `<li class="${m.complete ? "done" : i === ls.current ? "now" : ""}"><span class="onb-step-dot">${m.complete ? TASK_CHECK_SVG : i + 1}</span><span class="onb-step-label">${escapeHtml(m.label)}</span><span class="onb-step-count">${m.done}/${m.total}</span></li>`).join("")}
+    </ol>
+    <div class="onb-m-grid">
+      <div class="onb-m-tasks">
+        ${ls.milestones.map((m, i) => `
+          <section class="onb-group ${m.complete ? "complete" : ""} ${i === ls.current ? "current" : ""}">
+            <h4>${escapeHtml(m.label)}<span>${m.done}/${m.total}</span></h4>
+            ${m.tasks.map(taskRow).join("")}
+          </section>`).join("")}
+      </div>
+      <aside class="onb-m-side">
+        <div class="onb-side-card">
+          <h4>Lead essentials</h4>
+          <p>Four answers from the kickoff call. They become this client's qualified lead structure.</p>
+          ${LAUNCH_ESSENTIALS.map(e => `
+            <label class="onb-ess"><span>${escapeHtml(e.label)}</span>
+              <input type="text" data-onb-field="ess:${e.key}" value="${escapeHtml(p[e.key + ONBOARDING_ANSWER_SUFFIX] || "")}" placeholder="${escapeHtml(e.placeholder)}">
+            </label>`).join("")}
+        </div>
+        <div class="onb-side-card ${asks.length ? "asks" : "asks-done"}">
+          <h4>Needed from ${escapeHtml(c.name)}</h4>
+          ${asks.length
+            ? `<ul>${asks.map(t => `<li>${escapeHtml(t.label)}</li>`).join("")}</ul>
+               <button type="button" class="btn ghost sm" data-action="onb-copy-asks" data-id="${c.id}">Copy chase-up message</button>`
+            : `<p>Nothing outstanding from the client.</p>`}
+        </div>
+      </aside>
+    </div>
+    <div class="onb-m-foot">
+      <span>${ls.doneTasks} of ${ls.total} done</span>
+      <button type="button" class="btn ${ls.launched ? "gold" : "ghost"}" data-action="onb-golive" data-id="${c.id}">Go live → ${escapeHtml(CLIENT_STAGE_MAP[postOnboardingStage(c)].label)}</button>
+    </div>`;
+  if (keep){
+    const el = body.querySelector(`[data-onb-field="${keep.field}"]`);
+    if (el){ el.value = keep.value; el.focus(); try { if (keep.s != null) el.setSelectionRange(keep.s, keep.e); } catch(e){} }
   }
+}
+// Saves a field from the launch pop-up. Essentials go through the same
+// answer store the qualified lead structure is built from.
+async function saveOnbField(c, field, value){
+  if (field.startsWith("ess:")){
+    await saveOnboardingAnswer(c.id, field.slice(4), value);
+    await saveLaunchProgress(c, {});
+    return;
+  }
+  if (field === "kickoff_at") return saveLaunchProgress(c, { kickoff_at: value || null, kickoff_booked: value ? true : (c.onboarding_progress || {}).kickoff_booked || null });
+  return saveLaunchProgress(c, { [field]: value || null });
+}
+function setupOnboarding(){
+  const body = $("#onb-modal-body");
+  body?.addEventListener("change", async (e) => {
+    const el = e.target.closest("[data-onb-field]");
+    const c = state.clients.find(x => x.id === state.onbOpenId);
+    if (!el || !c) return;
+    await saveOnbField(c, el.dataset.onbField, el.value.trim());
+    if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+  });
+  $("#onb-modal")?.addEventListener("click", (e) => {
+    if (e.target.closest("[data-close='onb-modal']") || e.target.id === "onb-modal") state.onbOpenId = null;
+  });
+  $("#onb-board")?.addEventListener("keydown", (e) => {
+    const card = e.target.closest(".onb-card");
+    if (card && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); openOnbModal(card.dataset.id); }
+  });
+}
+async function handleOnbAction(action, id, btn){
+  if (action === "onb-add-client"){
+    $("#add-client-btn")?.click();
+    const stageSel = $("#client-stage");
+    if (stageSel){ stageSel.value = "onboarding"; stageSel.dispatchEvent(new Event("change")); }
+    return true;
+  }
+  const c = state.clients.find(x => x.id === id);
+  if (!c) return false;
+  if (action === "onb-open"){ openOnbModal(id); return true; }
+  if (action === "onb-toggle"){
+    const key = btn.dataset.task;
+    const on = !(c.onboarding_progress || {})[key];
+    await saveLaunchProgress(c, { [key]: on ? true : null });
+    if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+    return true;
+  }
+  if (action === "onb-golive"){ await goLive(c); return true; }
+  if (action === "onb-pack"){ openWelcomePack(c.id); return true; }
+  if (action === "onb-client-page"){
+    state.onbOpenId = null; closeModal("onb-modal");
+    state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click();
+    return true;
+  }
+  if (action === "onb-copy-asks"){
+    const text = clientAsksMessage(c, launchState(c));
+    try { await navigator.clipboard.writeText(text); btn.textContent = "Copied - paste it into a text or email"; }
+    catch(e){ prompt("Copy this message:", text); }
+    setTimeout(() => { if (btn.isConnected) btn.textContent = "Copy chase-up message"; }, 2500);
+    return true;
+  }
+  return false;
+}
 
-  const completeBtn = $("#onboarding-complete-btn");
-  if (completeBtn) completeBtn.dataset.id = c.id;
-  const completeWrap = $("#onboarding-complete-wrap");
-  if (completeWrap) completeWrap.style.display = done === ONBOARDING_STEPS.length && (c.stage || "onboarding") === "onboarding" ? "" : "none";
+/* On the client's own page: a compact view of the same launch. */
+function renderClientOnboarding(c){
+  const card = $("#client-launch-card");
+  if (!card) return;
+  if (!isOnboardingClient(c)){ card.hidden = true; return; }
+  card.hidden = false;
+  const ls = launchState(c);
+  card.innerHTML = `
+    <div class="cl-launch-head">
+      <div>
+        <h3>Launch</h3>
+        <p>${escapeHtml(ls.status.label)} · day ${ls.daysIn}${ls.target ? ` · target ${escapeHtml(fmtShortDate(ls.target))}` : ""}</p>
+      </div>
+      <button type="button" class="btn gold sm" data-action="onb-open" data-id="${c.id}">Open launch</button>
+    </div>
+    <ol class="onb-stepper compact">
+      ${ls.milestones.map((m, i) => `<li class="${m.complete ? "done" : i === ls.current ? "now" : ""}"><span class="onb-step-dot">${m.complete ? TASK_CHECK_SVG : i + 1}</span><span class="onb-step-label">${escapeHtml(m.label)}</span></li>`).join("")}
+    </ol>
+    ${ls.nextTask && !ls.launched ? `<div class="onb-next"><span>Next</span>${escapeHtml(ls.nextTask.label)}${ls.nextTask.who === "client" ? `<em>Client</em>` : ""}</div>` : ""}`;
+  const main = $("#client-detail-main");
+  if (main && main.firstElementChild !== card) main.prepend(card);
 }
 
 /* ───────── Render: Creative Library ───────── */
@@ -4119,23 +4412,36 @@ function renderCreativeLibrary(){
 }
 
 /* ───────── Auto-create a Client (Onboarding) when a deal wins ───────── */
-async function maybeCreateClientFromDeal(deal){
-  if (!deal || (deal.stage !== "pending_results" && deal.stage !== "closed_won")) return;
-  if (state.clients.some(c => c.source_deal_id === deal.id)) return;
+// The business a deal is for: the linked contact's company, else the part
+// after " - " in "Person - Business", else the deal title before " - ".
+function dealBusinessName(deal){
   const contact = deal.contact_id ? state.contacts.find(c => c.id === deal.contact_id) : null;
-  const name = (contact?.company || deal.contact_name || deal.title || "").trim();
-  if (!name) return;
-  if (state.clients.some(c => (c.name||"").trim().toLowerCase() === name.toLowerCase())) return;
+  const fromContactName = (deal.contact_name || "").split(" - ")[1];
+  const fromTitle = (deal.title || "").split(" - ")[0];
+  return (contact?.company || fromContactName || fromTitle || deal.contact_name || deal.title || "").trim();
+}
+// Signing (Onboarding on the pipeline) or winning a deal makes them a client,
+// straight onto the Onboarding board. Returns the new client, if one was made.
+const CLIENT_FROM_DEAL_STAGES = new Set(["onboarding", "pending_results", "closed_won"]);
+async function maybeCreateClientFromDeal(deal){
+  if (!deal || !CLIENT_FROM_DEAL_STAGES.has(deal.stage)) return null;
+  if (state.clients.some(c => c.source_deal_id === deal.id)) return null;
+  const name = dealBusinessName(deal);
+  if (!name) return null;
+  if (state.clients.some(c => (c.name||"").trim().toLowerCase() === name.toLowerCase())) return null;
+  const now = new Date().toISOString();
   const created = await DataLayer.insert("clients", {
     name,
     stage: "onboarding",
-    stage_changed_at: new Date().toISOString(),
+    stage_changed_at: now,
     source_deal_id: deal.id,
-    notes: `Auto-created when "${deal.title}" landed on ${CLOSED_STAGES.has(deal.stage) ? "Closed Won" : "Pending Results"}.`,
+    onboarding_progress: { signed_at: now, ...(ASSIGNEES[deal.assignee] ? { owner: deal.assignee } : {}) },
+    notes: `Auto-created when "${deal.title}" moved to ${STAGES.find(s => s.key === deal.stage)?.label || deal.stage}.`,
   });
   if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
-  // A won deal is a new onboarding client - time for their welcome pack.
+  // A new client - time for their welcome pack.
   if (created?.id) openWelcomePack(created.id);
+  return created || null;
 }
 
 /* ───────── Auto-create a follow-up task when a deal lands on No Show ─────────
@@ -4915,6 +5221,7 @@ function renderAll(){
   renderProspectList();
   renderDialer();
   renderClients();
+  renderOnboarding();
   renderCreativeLibrary();
   renderContentProduction();
   renderTasks();
@@ -6129,8 +6436,8 @@ function setupModals(){
     const stageBefore = id ? state.deals.find(d => d.id === id)?.stage : null;
     const deal = id ? await DataLayer.update("deals", id, row) : await DataLayer.insert("deals", { ...row, notes: "" });
     if (deal) await saveDealContactRows(deal.id);
-    if (deal && row.stage === "onboarding" && stageBefore !== "onboarding") openWelcomePackForDeal(deal);
-    if (deal) await maybeCreateClientFromDeal(deal);
+    const createdClient = deal ? await maybeCreateClientFromDeal(deal) : null;
+    if (deal && !createdClient && row.stage === "onboarding" && stageBefore !== "onboarding") openWelcomePackForDeal(deal);
     if (deal) await maybeCreateNoShowFollowup(deal);
     // Keep the linked client's Ad Start Date lined up with what was just
     // entered here as the invoice date - one date, editable from either
@@ -6460,6 +6767,7 @@ function setupModals(){
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const { action, id, outcome } = btn.dataset;
+    if (action.startsWith("onb-") && await handleOnbAction(action, id, btn)) return;
     if (action === "delete-contact" && confirm("Delete this contact?")) await DataLayer.remove("contacts", id);
     if (action === "select-playbook"){ state.selectedPlaybookId = id; renderPlaybooks(); }
     if (action === "edit-playbook"){
@@ -6660,6 +6968,7 @@ function setupModals(){
     if (action === "reactivate-vertical") { await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll(); }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
+    if (action === "open-onboarding-board"){ $('.nav-item[data-page="onboarding"]')?.click(); }
     if (action === "toggle-onboarding-step"){
       const c = state.clients.find(x => x.id === id);
       if (!c) return;
@@ -6891,6 +7200,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupNav();
   setupModals();
   setupWelcomePack();
+  setupOnboarding();
   populateRegionIndustrySelects();
   setupSearchFilters();
   setupTeam();
