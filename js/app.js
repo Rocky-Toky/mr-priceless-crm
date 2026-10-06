@@ -1741,7 +1741,7 @@ function renderDeals(){
     renderDealDetail(selected);
   }
 }
-const KANBAN_PREVIEW_COUNT = 3;
+const KANBAN_PREVIEW_COUNT = 2;
 function renderDealStageCol(stage){
   const deals = state.deals.filter(d => d.stage === stage.key);
   const expanded = !!state.expandedStages[stage.key];
