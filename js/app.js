@@ -3725,6 +3725,12 @@ function setupWelcomePack(){
     e.dataTransfer.effectAllowed = "copy";
     e.dataTransfer.setData("DownloadURL", `application/pdf:${wpLastName}:${wpLastUrl}`);
   });
+  // The company introduction goes out with every welcome pack - same drag, fixed file.
+  $("#wp-intro-file")?.addEventListener("dragstart", (e) => {
+    const link = e.currentTarget;
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("DownloadURL", `application/pdf:${link.getAttribute("download")}:${new URL(link.getAttribute("href"), location.href).href}`);
+  });
   $("#wp-edit")?.addEventListener("click", () => { $("#wp-done").hidden = true; $("#welcome-pack-form").hidden = false; });
   $("#wp-preview")?.addEventListener("click", () => { if (wpLastUrl) window.open(wpLastUrl, "_blank"); });
 }
