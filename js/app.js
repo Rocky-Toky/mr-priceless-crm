@@ -1211,6 +1211,7 @@ async function handleSignedIn(session, freshLogin){
     showUnauthorized(session.user.email);
     return;
   }
+  window.CRM_TRACKER_DEFAULT_PERSON?.(personKeyFromEmail(session.user.email));
 
   await DataLayer.fetchAll();
   await repairNzProspectCountryCodes();
@@ -1628,16 +1629,25 @@ async function saveTeamFocus(person, industry){
   }
   renderProspectList();
 }
+// The calendar day where the person is (NZ), not UTC - otherwise anything
+// logged before ~1pm lands on yesterday's row.
+function localDayStr(d = new Date()){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
 window.CRM_CALL_ACTIVITY = {
-  async upsertToday(person, patch){
+  // Adds to today's counts (e.g. { calls: 1 }). Both the Dialer and the
+  // Meetings Booked tap counters feed this same row, so it only ever adds -
+  // overwriting it with one side's own totals wiped out the other's calls.
+  async bump(person, deltas){
     if (!person) return;
-    const today = new Date().toISOString().slice(0,10);
+    const today = localDayStr();
     let row = state.callActivity.find(r => r.person === person && r.activity_date === today);
     if (!row){
       row = { id: uid(), person, activity_date: today, calls:0, conversations:0, meetings_booked:0 };
       state.callActivity.push(row);
     }
-    Object.assign(row, patch, { updated_at: new Date().toISOString() });
+    for (const [k, v] of Object.entries(deltas)) row[k] = Math.max(0, Number(row[k]||0) + v);
+    row.updated_at = new Date().toISOString();
     if (IS_CONFIGURED){
       try {
         await supabase.from("call_activity").upsert(
@@ -2456,15 +2466,13 @@ function personKeyFromEmail(email){
 // Meetings Booked page's own tap counters feed into.
 async function bumpCallActivity(personKey, outcome){
   if (!personKey) return;
-  const today = new Date().toISOString().slice(0,10);
-  const existing = state.callActivity.find(r => r.person === personKey && r.activity_date === today);
-  const patch = { calls: Number(existing?.calls||0) + 1 };
+  const deltas = { calls: 1 };
   // A "conversation" is any call where an actual human was reached - every
   // outcome except No Answer. This is what Call Conversion % on Statistics
   // divides by, so it has to move for real calls, not just demo seed data.
-  if (outcome !== "no_answer") patch.conversations = Number(existing?.conversations||0) + 1;
-  if (outcome === "booked_meeting") patch.meetings_booked = Number(existing?.meetings_booked||0) + 1;
-  await window.CRM_CALL_ACTIVITY.upsertToday(personKey, patch);
+  if (outcome !== "no_answer") deltas.conversations = 1;
+  if (outcome === "booked_meeting") deltas.meetings_booked = 1;
+  await window.CRM_CALL_ACTIVITY.bump(personKey, deltas);
 }
 // Bridges a Prospecting/Dialer "Booked Meeting" outcome into the real Book
 // Meeting form - name/phone/company are already known from the prospect
@@ -4926,7 +4934,7 @@ function renderAll(){
 /* ───────── Render: Statistics (long-term, any person / any time range) ───────── */
 function statsRangeBounds(range, customFrom, customTo){
   const today = new Date();
-  const toStr = d => d.toISOString().slice(0,10);
+  const toStr = localDayStr;
   const startOfMonth = d => new Date(d.getFullYear(), d.getMonth(), 1);
   const endOfMonth = d => new Date(d.getFullYear(), d.getMonth()+1, 0);
   switch (range){
@@ -4951,14 +4959,18 @@ function inStatsRange(dateStr, bounds){
 // Meetings booked/closed here are counted from deal records (same approach
 // as the Team Analytics "Meeting Conversion" figure) so the two line up;
 // Calls/Conversations still come from the daily call_activity tap counters.
+// A meeting counts as closed once the client has signed - Onboarding onwards.
+const STATS_CLOSED_MEETING_STAGES = new Set([...MEETING_CLOSE_STAGES, "onboarding", ADHOC_STAGE]);
+// p is a person key, or null for deals nobody is assigned to (calls always have a person).
 function statsForPerson(p, bounds){
-  const rows = state.callActivity.filter(r => r.person === p && inStatsRange(r.activity_date, bounds));
+  const rows = p ? state.callActivity.filter(r => r.person === p && inStatsRange(r.activity_date, bounds)) : [];
   const calls = rows.reduce((s,r) => s + (r.calls||0), 0);
   const convos = rows.reduce((s,r) => s + (r.conversations||0), 0);
-  const dealsBooked = state.deals.filter(d => d.assignee === p && inStatsRange(d.created_at, bounds));
+  const mine = (d) => p ? d.assignee === p : !ASSIGNEES[d.assignee];
+  const dealsBooked = state.deals.filter(d => mine(d) && inStatsRange(d.created_at, bounds));
   const meetingsBooked = dealsBooked.length;
-  const closedMeetings = dealsBooked.filter(d => MEETING_CLOSE_STAGES.has(d.stage) || d.stage === ADHOC_STAGE).length;
-  const closedDeals = state.deals.filter(d => d.assignee === p && (d.stage === "closed_won" || d.stage === ADHOC_STAGE) && inStatsRange(d.updated_at||d.created_at, bounds)).length;
+  const closedMeetings = dealsBooked.filter(d => STATS_CLOSED_MEETING_STAGES.has(d.stage)).length;
+  const closedDeals = state.deals.filter(d => mine(d) && (d.stage === "closed_won" || d.stage === ADHOC_STAGE) && inStatsRange(d.updated_at||d.created_at, bounds)).length;
   const callRate = calls ? Math.round(convos/calls*100) : 0;
   const meetingRate = meetingsBooked ? Math.round(closedMeetings/meetingsBooked*100) : 0;
   return { calls, convos, meetingsBooked, closedMeetings, closedDeals, callRate, meetingRate };
@@ -4969,7 +4981,10 @@ function renderStatistics(){
   const f = state.statsFilter;
   const bounds = statsRangeBounds(f.range, f.customFrom, f.customTo);
   const people = Object.keys(ASSIGNEES);
-  const scope = f.person ? [f.person] : people;
+  // The whole team also takes in deals with no one assigned, so the totals match the pipeline.
+  const none = f.person ? null : statsForPerson(null, bounds);
+  const unassigned = !!none && none.meetingsBooked + none.closedDeals > 0;
+  const scope = f.person ? [f.person] : unassigned ? [...people, null] : people;
   const totals = scope.reduce((acc, p) => {
     const s = statsForPerson(p, bounds);
     acc.calls += s.calls; acc.convos += s.convos; acc.meetingsBooked += s.meetingsBooked;
@@ -4991,7 +5006,7 @@ function renderStatistics(){
     const rows = scope.map(p => {
       const s = statsForPerson(p, bounds);
       return `<tr>
-        <td>${escapeHtml(ASSIGNEES[p].label)}</td>
+        <td>${p ? escapeHtml(ASSIGNEES[p].label) : `<span class="muted">Unassigned</span>`}</td>
         <td>${s.calls}</td>
         <td>${s.convos}</td>
         <td>${s.callRate}%</td>
