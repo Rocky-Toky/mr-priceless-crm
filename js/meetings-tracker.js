@@ -863,7 +863,6 @@ function toggle(idx, el, e){
     }
   }
   updateStats();
-  syncCallActivity();
 }
 
 /* ══════════════════════════════════════════
@@ -943,21 +942,19 @@ function renderCounters(){
   document.getElementById('cc-convos').classList.toggle('has-count', convos > 0);
 }
 
-// Mirrors today's totals into the shared call_activity table so the
-// Team Analytics section (and the other person) can see them.
-function syncCallActivity(){
-  if (!window.CRM_CALL_ACTIVITY) return;
-  window.CRM_CALL_ACTIVITY.upsertToday(getActivePerson(), {
-    calls: state.calls,
-    conversations: state.convos,
-    meetings_booked: state.meetings.filter(m=>m.done).length,
-  });
+// Adds each tap to the shared call_activity counts that Statistics reads.
+// Only ever +1 / -1: the Dialer adds to the same row, so sending this page's
+// own totals would wipe out every call logged from the Dialer.
+const COUNTER_FIELD = { calls: 'calls', convos: 'conversations' };
+function syncCallActivity(key, delta){
+  if (!window.CRM_CALL_ACTIVITY || !COUNTER_FIELD[key]) return;
+  window.CRM_CALL_ACTIVITY.bump(getActivePerson(), { [COUNTER_FIELD[key]]: delta });
 }
 
 function incCounter(key){
   state[key]++;
   save();
-  syncCallActivity();
+  syncCallActivity(key, 1);
   const numEl = document.getElementById('cnt-' + key);
   const cardEl = document.getElementById('cc-' + key);
   numEl.textContent = state[key];
@@ -978,7 +975,7 @@ function decCounter(key){
   if(state[key] <= 0) return;
   state[key]--;
   save();
-  syncCallActivity();
+  syncCallActivity(key, -1);
   renderCounters();
 }
 
@@ -1006,7 +1003,6 @@ function resetDay(){
   // Lock in today's final tally in the shared analytics table BEFORE
   // wiping local counters - otherwise the reset below would sync zeros
   // over whatever was actually booked today.
-  syncCallActivity();
   const done=state.meetings.filter(m=>m.done).length;
   if(done>0) state.history[getToday()]=done;
   state.meetings.forEach(m=>{m.done=false;m.time=null;}); state.log=[]; state.calls=0; state.convos=0; goalShown=false; godShown=false; megaShown=false; insaneShown=false;
@@ -1031,7 +1027,6 @@ window.bookMeetingInTracker = function(name, x, y, explicitIdx){
     // Every slot today is already booked - still log it and sync analytics,
     // there's just no checklist row left to fill in.
     addLog(`<strong>${name}</strong> booked - added to Deals pipeline`, 'green');
-    syncCallActivity();
     return;
   }
   const m = state.meetings[idx];
@@ -1060,7 +1055,6 @@ window.bookMeetingInTracker = function(name, x, y, explicitIdx){
   if (done===TOTAL && !insaneShown){ insaneShown=true; setTimeout(()=>{ playInsaneSound(); showInsane(); }, 400); }
 
   updateStats();
-  syncCallActivity();
 };
 
 /* ══════════════════════════════════════════
@@ -1081,3 +1075,14 @@ if(personSelect){
   state = await loadState();
   renderAll();
 })();
+// Until someone picks "Tracking as" on this device, track as whoever is signed
+// in (app.js calls this after sign-in) rather than defaulting to Rocky - which
+// put everyone's taps on Rocky's numbers.
+window.CRM_TRACKER_DEFAULT_PERSON = async function(person){
+  try { if (!person || localStorage.getItem(PERSON_KEY)) return; } catch(e){ return; }
+  setActivePerson(person);
+  if (personSelect) personSelect.value = person;
+  state = await loadState();
+  renderAll();
+  window.CRM_REFRESH_PROSPECTING?.();
+};
