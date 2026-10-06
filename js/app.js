@@ -3588,7 +3588,7 @@ function renderContentProduction(){
    finished text - no fill-in boxes and no viewer highlighting. Everything
    happens in the browser; nothing is uploaded. pdf-lib + fontkit are bundled in
    assets/vendor and load only the first time a pack is made. */
-const WP_FIELDS = ["client_first_name","business_name","trade","town","call_when","ads_live","catchup_when","why_excited","account_manager","phone","email"];
+const WP_FIELDS = ["client_first_name","business_name","trade","town","call_when","ads_live","why_excited","account_manager","phone","email"];
 const WP_LIBS = [
   "assets/vendor/pdf-lib-1.17.1.min.js",
   "assets/vendor/fontkit-1.1.1.umd.min.js",
@@ -3627,7 +3627,6 @@ function wpPrefill(c){
     town: prospect?.region || "",
     call_when: "",
     ads_live: ads,
-    catchup_when: "",
     why_excited: "",
     account_manager: saved.account_manager || ASSIGNEES[person]?.label || "",
     phone: saved.phone || "",
@@ -3667,8 +3666,8 @@ async function buildWelcomePackPdf(values){
   // answer goes and in what size, weight and colour, so answers read as part
   // of the page rather than as filled-in boxes.
   const [tpl, layout, f400, f600, f700, e400, e600, e700] = await Promise.all([
-    get("assets/welcome-pack-template.pdf?v=2", "welcome pack template"),
-    get("assets/welcome-pack-layout.json?v=2", "welcome pack layout", "json"),
+    get("assets/welcome-pack-template.pdf?v=3", "welcome pack template"),
+    get("assets/welcome-pack-layout.json?v=3", "welcome pack layout", "json"),
     get("assets/fonts/figtree-400.ttf?v=1", "brand font"),
     get("assets/fonts/figtree-600.ttf?v=1", "brand font"),
     get("assets/fonts/figtree-700.ttf?v=1", "brand font"),
