@@ -1976,7 +1976,10 @@ function setupDragDrop(){
         e.preventDefault();
         col.classList.remove("dragover");
         if (!dealDragId) return;
-        const updated = await DataLayer.update("deals", dealDragId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
+        const dragId = dealDragId;
+        const before = state.deals.find(d => d.id === dragId)?.stage;
+        const updated = await DataLayer.update("deals", dragId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
+        if (col.dataset.stage === "onboarding" && before !== "onboarding") openWelcomePackForDeal(updated || state.deals.find(d => d.id === dragId));
         await maybeCreateClientFromDeal(updated);
         await maybeCreateNoShowFollowup(updated);
       });
@@ -3629,8 +3632,19 @@ function wpPrefill(c){
     email: saved.email || state.user?.email || "",
   };
 }
-function openWelcomePack(clientId){
-  const c = state.clients.find(x => x.id === clientId);
+// A deal dragged into the sales pipeline's Onboarding column: use its client
+// if one exists yet, otherwise prefill straight from the deal.
+function openWelcomePackForDeal(deal){
+  if (!deal) return;
+  const client = state.clients.find(c => c.source_deal_id === deal.id);
+  if (client) return openWelcomePack(client.id);
+  const contact = deal.contact_id ? state.contacts.find(c => c.id === deal.contact_id) : null;
+  const fromContactName = (deal.contact_name || "").split(" - ")[1];
+  const name = (contact?.company || fromContactName || deal.title || "").trim();
+  openWelcomePack(null, { id: "", name, source_deal_id: deal.id, ad_start_date: deal.commission_invoice_date || null });
+}
+function openWelcomePack(clientId, asClient){
+  const c = asClient || state.clients.find(x => x.id === clientId);
   if (!c) return;
   const v = wpPrefill(c);
   $("#wp-client-id").value = c.id;
@@ -6035,8 +6049,10 @@ function setupModals(){
       updated_at: new Date().toISOString(),
     };
     if (!row.title) return;
+    const stageBefore = id ? state.deals.find(d => d.id === id)?.stage : null;
     const deal = id ? await DataLayer.update("deals", id, row) : await DataLayer.insert("deals", { ...row, notes: "" });
     if (deal) await saveDealContactRows(deal.id);
+    if (deal && row.stage === "onboarding" && stageBefore !== "onboarding") openWelcomePackForDeal(deal);
     if (deal) await maybeCreateClientFromDeal(deal);
     if (deal) await maybeCreateNoShowFollowup(deal);
     // Keep the linked client's Ad Start Date lined up with what was just
