@@ -1099,8 +1099,10 @@ const DataLayer = {
       renderAll();
       return;
     }
-    const { error } = await supabase.from(table).delete().eq("id", id);
+    const { data: gone, error } = await supabase.from(table).delete().eq("id", id).select("id");
     if (error){ alert(error.message); return; }
+    // No error but nothing deleted means the database quietly said no (row permissions).
+    if (!gone || !gone.length){ alert("The database didn't delete that - your account may not have permission to delete it. Nothing was changed."); return; }
     const arr = stateArray(table);
     const idx = arr ? arr.findIndex(x => x.id === id) : -1;
     if (idx > -1) arr.splice(idx,1);
@@ -3331,7 +3333,7 @@ function clientProgress(c){
   const stage = c.stage || "onboarding";
   if (stage === "onboarding"){
     const ls = launchState(c);
-    return { pct: ls.pct, label: ls.launched ? "Ready to go live" : `${ls.milestones[ls.current].label} · ${ls.doneTasks}/${ls.total}` };
+    return { pct: ls.pct, label: `${ls.stage.label} · ${ls.doneTasks}/${ls.total}` };
   }
   if (stage === "quote_guarantee" && c.quote_target){
     const sent = Number(c.quotes_sent||0);
@@ -3349,13 +3351,18 @@ function churnRiskPillHtml(c){
 // Deleting a client keeps their ad creatives in the Creative Library: they
 // get unlinked (client_id -> null) and remember the client's name, so the
 // library still shows who they were for. Needs sql/055 on the live DB.
+// The one-time database update (sql/055) that lets creatives outlive their client.
+const KEEP_CREATIVES_SQL = "alter table client_ad_creatives add column if not exists client_name text;\nupdate client_ad_creatives cr\nset client_name = cl.name\nfrom clients cl\nwhere cl.id = cr.client_id and cr.client_name is null;\nalter table client_ad_creatives alter column client_id drop not null;\nalter table client_ad_creatives drop constraint if exists client_ad_creatives_client_id_fkey;\nalter table client_ad_creatives\n  add constraint client_ad_creatives_client_id_fkey\n  foreign key (client_id) references clients(id) on delete set null;";
 async function deleteClientKeepingCreatives(c){
   if (IS_CONFIGURED && state.adCreatives.some(a => a.client_id === c.id)){
     const { error } = await supabase.from("client_ad_creatives")
       .update({ client_id: null, client_name: c.name, campaign_id: null })
       .eq("client_id", c.id);
     if (error){
-      alert("Couldn't keep this client's creatives, so nothing was deleted. Run sql/055_keep_creatives_on_client_delete.sql in Supabase first.\n\n" + error.message);
+      // Without the update, deleting would take their creatives with them - so stop, and hand over the fix.
+      let copied = false;
+      try { await navigator.clipboard.writeText(KEEP_CREATIVES_SQL); copied = true; } catch(e){}
+      alert(`${c.name} wasn't deleted, so their ad creatives are safe.\n\nYour database needs a one-time update before a client with creatives can be deleted (it keeps their creatives in the Creative Library).\n\n${copied ? "The update has been copied for you. " : ""}In Supabase, open SQL Editor, start a new query, ${copied ? "paste" : "paste the contents of sql/055_keep_creatives_on_client_delete.sql"} and press Run. Then delete the client again.\n\n(Database said: ${error.message})`);
       return false;
     }
   }
@@ -3816,12 +3823,14 @@ function setupWelcomePack(){
   $("#wp-preview")?.addEventListener("click", () => { if (wpLastUrl) window.open(wpLastUrl, "_blank"); });
 }
 
-/* ───────── Onboarding: signed → live launch tracker ─────────
-   Every client in the Onboarding stage moves through five milestones. Each
-   milestone is a short list of tasks; ticks live in client.onboarding_progress
-   (keys reuse the old checklist's where the meaning is the same, so earlier
-   progress carries over). Tasks marked who:"client" are the ones we can't do
-   without them - those drive "Waiting on client" and the chase-up message. */
+/* ───────── Onboarding: Welcome → Kickoff Call → Ads Due → Live ─────────
+   Every client in the Onboarding stage sits in one of four stages on a
+   drag-and-drop board. The stage is set by dragging (saved as onb_stage in
+   client.onboarding_progress); until a client has been dragged, it's worked
+   out from their ticked tasks. Each stage has a short task list - keys reuse
+   the old checklist's where the meaning is the same, so earlier ticks carry
+   over. Tasks marked who:"client" are the ones we can't do without them:
+   they drive "Waiting on client" and the chase-up message. */
 const LAUNCH_ESSENTIALS = [
   { key: "good_lead_1", label: "A job they're happy to quote", placeholder: "e.g. Kitchen and bathroom renos over $15k" },
   { key: "good_lead_3", label: "Average job value", placeholder: "e.g. $18,000" },
@@ -3829,32 +3838,31 @@ const LAUNCH_ESSENTIALS = [
   { key: "good_lead_6", label: "After hours or weekend quotes", placeholder: "e.g. Saturday mornings only" },
 ];
 const LAUNCH_MILESTONES = [
-  { key: "welcome", label: "Welcome", tasks: [
+  { key: "welcome", label: "Welcome", blurb: "Pack out, logins sent", tasks: [
     { key: "wp_sent", label: "Welcome pack sent", hint: "Ticks itself when you make their pack." },
     { key: "crm_login", label: "CRM login sent and working" },
   ]},
-  { key: "kickoff", label: "Kickoff call", tasks: [
+  { key: "kickoff", label: "Kickoff Call", blurb: "Learn the business", tasks: [
     { key: "kickoff_booked", label: "Kickoff call booked", dateField: "kickoff_at" },
     { key: "honest_expect_1", label: "Honest expectations set (paid leads, month one)" },
     { key: "essentials", label: "Lead essentials captured", derived: "essentials", hint: "Fill in the four lead essentials." },
   ]},
-  { key: "access", label: "Access", tasks: [
+  { key: "ads_due", label: "Ads Due", blurb: "Access in, ads built", tasks: [
     { key: "meta_partner_access", label: "Partner access to their Meta ad account", who: "client", ask: "Partner access to your Meta ad account" },
     { key: "fb_page_access", label: "Facebook Page access (content, ads, leads)", who: "client", ask: "Access to your Facebook Page (content, ads and leads)" },
-    { key: "meta_ad_account_id", label: "Ad account ID added to their client page", derived: "meta_ad_account_id", hint: "Add it on their client page." },
     { key: "cal_share_max", label: "Calendar shared and synced with GHL", who: "client", ask: "Your calendar shared with us, with your busy times blocked out" },
-  ]},
-  { key: "build", label: "Build", tasks: [
     { key: "photos_in", label: "Job photos and a team photo received", who: "client", ask: "Some before and after job photos, plus a photo of you and the team" },
+    { key: "meta_ad_account_id", label: "Ad account ID added to their client page", derived: "meta_ad_account_id", hint: "Add it on their client page." },
     { key: "ghl_template", label: "GHL pipeline and calendar set up" },
     { key: "fb_lead_form", label: "Lead form built and connected to GHL" },
     { key: "launch_creatives", label: "2 proven creatives and 1 test loaded" },
   ]},
-  { key: "live", label: "Live", tasks: [
+  { key: "live", label: "Live", blurb: "Ads running", tasks: [
+    { key: "ad_start_date", label: "Ads switched on", derived: "ad_start_date", hint: "Set when they're dropped into Live." },
     { key: "cadence_catchup", label: "Fortnightly catch-up locked in" },
-    { key: "ad_start_date", label: "Ads switched on", derived: "ad_start_date", hint: "Press Go live once the ads are running." },
   ]},
 ];
+const ONB_STAGE_KEYS = LAUNCH_MILESTONES.map(m => m.key);
 const LAUNCH_TASKS = LAUNCH_MILESTONES.flatMap(m => m.tasks.map(t => ({ ...t, milestone: m.key })));
 const ONB_STALL_DAYS = 5;
 const isOnboardingClient = (c) => (c.stage || "onboarding") === "onboarding";
@@ -3870,6 +3878,15 @@ function launchTaskDone(c, t){
 }
 function localDateOnly(s){ return s ? new Date(String(s).slice(0,10) + "T00:00:00") : null; }
 function daysBetween(a, b){ return Math.round((b - a) / 86400e3); }
+// Which column a client sits in: wherever they were last dragged, otherwise
+// worked out from what's been ticked.
+function onbStageIndex(c){
+  const set = ONB_STAGE_KEYS.indexOf((c.onboarding_progress || {}).onb_stage);
+  if (set > -1) return set;
+  if (c.ad_start_date) return 3;
+  const firstOpen = LAUNCH_MILESTONES.slice(0, 2).findIndex(m => m.tasks.some(t => !launchTaskDone(c, t)));
+  return firstOpen === -1 ? 2 : firstOpen;
+}
 // Everything the board, the card and the client page need to know about one launch.
 function launchState(c){
   const p = c.onboarding_progress || {};
@@ -3879,13 +3896,13 @@ function launchState(c){
   });
   const doneTasks = milestones.reduce((s, m) => s + m.done, 0);
   const total = LAUNCH_TASKS.length;
-  let current = milestones.findIndex(m => !m.complete);
-  const launched = current === -1;
-  if (launched) current = milestones.length - 1;
-  const open = milestones[current].tasks.filter(t => !launchTaskDone(c, t));
+  const current = onbStageIndex(c);
+  const launched = current === ONB_STAGE_KEYS.length - 1;
+  // What's still open up to and including this stage, earliest first.
+  const open = milestones.slice(0, current + 1).flatMap(m => m.tasks.filter(t => !launchTaskDone(c, t)));
   const nextTask = open.find(t => t.who !== "client") || open[0] || null;
-  // Waiting on the client when everything left in this milestone is theirs to do.
-  const waitingOnClient = !launched && open.length > 0 && open.every(t => t.who === "client");
+  const stageOpen = milestones[current].tasks.filter(t => !launchTaskDone(c, t));
+  const waitingOnClient = !launched && stageOpen.length > 0 && stageOpen.every(t => t.who === "client");
   const clientAsks = LAUNCH_TASKS.filter(t => t.who === "client" && !launchTaskDone(c, t));
   const signed = p.signed_at || c.stage_changed_at || c.created_at;
   const daysIn = signed ? Math.max(0, daysSince(signed)) : 0;
@@ -3894,41 +3911,50 @@ function launchState(c){
   const daysToTarget = target ? daysBetween(today, target) : null;
   const sinceTouch = p.touched_at ? daysSince(p.touched_at) : daysIn;
   let status = { key: "track", label: "On track" };
-  if (launched) status = { key: "ready", label: "Ready to go live" };
-  else if (daysToTarget != null && daysToTarget < 0) status = { key: "late", label: `${-daysToTarget}d past target` };
+  if (launched) status = { key: "ready", label: "Ads live" };
+  else if (daysToTarget != null && daysToTarget < 0) status = { key: "late", label: `Ads ${-daysToTarget}d overdue` };
   else if (waitingOnClient) status = { key: "client", label: "Waiting on client" };
-  else if (sinceTouch >= ONB_STALL_DAYS) status = { key: "stalled", label: `No progress in ${sinceTouch}d` };
-  else if (daysToTarget != null && daysToTarget <= 2) status = { key: "soon", label: daysToTarget === 0 ? "Go-live today" : `Go-live in ${daysToTarget}d` };
+  else if (sinceTouch >= ONB_STALL_DAYS) status = { key: "stalled", label: `Quiet for ${sinceTouch}d` };
+  else if (daysToTarget != null && daysToTarget <= 2) status = { key: "soon", label: daysToTarget === 0 ? "Ads due today" : `Ads due in ${daysToTarget}d` };
   const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
   const owner = p.owner || deal?.assignee || null;
-  return { milestones, doneTasks, total, pct: Math.round(doneTasks / total * 100), current, launched, nextTask, waitingOnClient, clientAsks, daysIn, target: p.target_live || "", daysToTarget, status, owner, deal };
+  const stage = milestones[current];
+  return { milestones, stage, doneTasks, total, pct: Math.round(doneTasks / total * 100), current, launched, nextTask, waitingOnClient, clientAsks, daysIn, target: p.target_live || "", daysToTarget, status, owner, deal };
 }
-function ownerChipHtml(owner){
+function ownerChipHtml(owner, compact){
   const a = owner && ASSIGNEES[owner];
-  if (!a) return `<span class="onb-owner none">No owner</span>`;
-  return `<span class="onb-owner"><span class="onb-owner-dot ${a.cls}">${escapeHtml(a.label[0])}</span>${escapeHtml(a.label)}</span>`;
+  if (!a) return compact ? "" : `<span class="onb-owner none">No owner</span>`;
+  return compact
+    ? `<span class="onb-owner-dot ${a.cls}" title="${escapeHtml(a.label)}">${escapeHtml(a.label[0])}</span>`
+    : `<span class="onb-owner"><span class="onb-owner-dot ${a.cls}">${escapeHtml(a.label[0])}</span>${escapeHtml(a.label)}</span>`;
 }
 function fmtShortDate(s){
   const d = localDateOnly(s);
   return d ? d.toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "";
 }
-async function saveLaunchProgress(c, patch){
+async function saveLaunchProgress(c, patch, extra){
   const progress = { ...(c.onboarding_progress || {}), ...patch, touched_at: new Date().toISOString() };
   Object.keys(patch).forEach(k => { if (patch[k] === null) delete progress[k]; });
   c.onboarding_progress = progress;
-  await DataLayer.update("clients", c.id, { onboarding_progress: progress });
+  await DataLayer.update("clients", c.id, { onboarding_progress: progress, ...(extra || {}) });
+}
+// Moves a client to another onboarding stage. Landing in Live means the ads
+// are running, so it sets the ads start date if there isn't one yet.
+async function moveOnbStage(c, stageKey){
+  if (!ONB_STAGE_KEYS.includes(stageKey) || launchState(c).stage.key === stageKey) return;
+  const extra = stageKey === "live" && !c.ad_start_date ? { ad_start_date: localDayStr() } : null;
+  await saveLaunchProgress(c, { onb_stage: stageKey }, extra);
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
 }
 // The step after onboarding: the quote guarantee if they're on one, otherwise Month 1.
 function postOnboardingStage(c){ return c.quote_target ? "quote_guarantee" : "month_1"; }
-async function goLive(c){
+async function finishOnboarding(c){
   const next = postOnboardingStage(c);
-  const label = CLIENT_STAGE_MAP[next].label;
-  if (!confirm(`Mark ${c.name} as live and move them to ${label}?${c.ad_start_date ? "" : " Their ads start date will be set to today."}`)) return;
+  if (!confirm(`Finish onboarding for ${c.name} and move them to ${CLIENT_STAGE_MAP[next].label}?${c.ad_start_date ? "" : " Their ads start date will be set to today."}`)) return;
   const now = new Date().toISOString();
   const patch = { stage: next, stage_changed_at: now, updated_at: now };
   if (!c.ad_start_date) patch.ad_start_date = localDayStr();
-  const progress = { ...(c.onboarding_progress || {}), live_at: now, touched_at: now };
-  patch.onboarding_progress = progress;
+  patch.onboarding_progress = { ...(c.onboarding_progress || {}), onb_stage: "live", live_at: (c.onboarding_progress || {}).live_at || now, touched_at: now };
   if (state.onbOpenId === c.id){ state.onbOpenId = null; closeModal("onb-modal"); }
   await DataLayer.update("clients", c.id, patch);
   if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
@@ -3940,9 +3966,7 @@ function clientAsksMessage(c, ls){
   return `Hi ${first}, to get your ads live we just need a few things from you:\n${lines.join("\n")}\nOnce these are sorted we can get you up and running. Cheers!`;
 }
 
-/* The board: one column per milestone. Clients sit in the column of the
-   milestone they're working through, so they move along on their own as
-   tasks get ticked. */
+/* The board */
 function renderOnboarding(){
   const board = $("#onb-board");
   if (!board) return;
@@ -3950,65 +3974,115 @@ function renderOnboarding(){
   const states = new Map(clients.map(c => [c.id, launchState(c)]));
   const navCount = $("#nav-onb-count");
   if (navCount){ navCount.hidden = !clients.length; navCount.textContent = clients.length; }
-  // Average days from signing to live, over clients that have launched.
+  // Average days from signing to ads live, over every client that got there.
   const launchedDurations = state.clients.map(c => {
     const p = c.onboarding_progress || {};
-    const start = p.signed_at || c.created_at, end = p.live_at || null;
+    const start = p.signed_at || c.created_at;
+    const end = p.live_at || (c.ad_start_date && p.signed_at ? c.ad_start_date + "T12:00:00" : null);
     return start && end ? daysBetween(new Date(start), new Date(end)) : null;
   }).filter(v => v != null && v >= 0);
   const avgLaunch = launchedDurations.length ? Math.round(launchedDurations.reduce((a,b) => a+b, 0) / launchedDurations.length) : null;
   const waiting = clients.filter(c => states.get(c.id).waitingOnClient).length;
-  const late = clients.filter(c => ["late", "stalled"].includes(states.get(c.id).status.key)).length;
-  const ready = clients.filter(c => states.get(c.id).launched).length;
+  const behind = clients.filter(c => ["late", "stalled"].includes(states.get(c.id).status.key)).length;
+  const live = clients.filter(c => states.get(c.id).launched).length;
   const kpis = $("#onb-kpis");
   if (kpis) kpis.innerHTML = `
-    <div class="onb-kpi"><span class="onb-kpi-label">Onboarding now</span><span class="onb-kpi-value">${clients.length}</span><span class="onb-kpi-sub">${ready ? `${ready} ready to go live` : "clients being set up"}</span></div>
-    <div class="onb-kpi"><span class="onb-kpi-label">Signed to live</span><span class="onb-kpi-value">${avgLaunch != null ? `${avgLaunch}<small> days</small>` : "-"}</span><span class="onb-kpi-sub">${avgLaunch != null ? `average over ${launchedDurations.length} launch${launchedDurations.length === 1 ? "" : "es"}` : "shows once a client goes live"}</span></div>
+    <div class="onb-kpi"><span class="onb-kpi-label">Onboarding</span><span class="onb-kpi-value">${clients.length}</span><span class="onb-kpi-sub">${live ? `${live} with ads live` : "clients being set up"}</span></div>
+    <div class="onb-kpi"><span class="onb-kpi-label">Signed to live</span><span class="onb-kpi-value">${avgLaunch != null ? `${avgLaunch}<small> days</small>` : "-"}</span><span class="onb-kpi-sub">${avgLaunch != null ? `average of ${launchedDurations.length}` : "shows once ads go live"}</span></div>
     <div class="onb-kpi ${waiting ? "warn" : ""}"><span class="onb-kpi-label">Waiting on client</span><span class="onb-kpi-value">${waiting}</span><span class="onb-kpi-sub">${waiting ? "chase these up" : "nothing to chase"}</span></div>
-    <div class="onb-kpi ${late ? "bad" : ""}"><span class="onb-kpi-label">Behind</span><span class="onb-kpi-value">${late}</span><span class="onb-kpi-sub">${late ? "past target or stalled" : "all moving"}</span></div>`;
+    <div class="onb-kpi ${behind ? "bad" : ""}"><span class="onb-kpi-label">Behind</span><span class="onb-kpi-value">${behind}</span><span class="onb-kpi-sub">${behind ? "overdue or gone quiet" : "all moving"}</span></div>`;
 
-  if (!clients.length){
-    board.innerHTML = `<div class="card onb-empty">
-      <div class="onb-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg></div>
-      <h3>No one's onboarding right now</h3>
-      <p>Drag a deal into <b>Onboarding</b> on the Sales pipeline and they'll land here automatically, or add a client yourself.</p>
-    </div>`;
-    return;
-  }
-  const order = (a, b) => (states.get(a.id).status.key === "late" ? -1 : 0) - (states.get(b.id).status.key === "late" ? -1 : 0) || states.get(b.id).daysIn - states.get(a.id).daysIn;
+  const order = (a, b) => {
+    const rank = (c) => ({ late: 0, stalled: 1, soon: 2, client: 3 })[states.get(c.id).status.key] ?? 4;
+    return rank(a) - rank(b) || states.get(b.id).daysIn - states.get(a.id).daysIn;
+  };
   board.innerHTML = LAUNCH_MILESTONES.map((m, i) => {
     const col = clients.filter(c => states.get(c.id).current === i).sort(order);
     return `
-      <div class="onb-col" data-milestone="${m.key}">
-        <div class="onb-col-head"><span class="onb-col-num">${i + 1}</span>${escapeHtml(m.label)}<span class="onb-col-count">${col.length}</span></div>
+      <section class="onb-col" data-stage="${m.key}" aria-label="${escapeHtml(m.label)}">
+        <header class="onb-col-head">
+          <span class="onb-col-num">${i + 1}</span>
+          <div><div class="onb-col-title">${escapeHtml(m.label)}</div><div class="onb-col-blurb">${escapeHtml(m.blurb)}</div></div>
+          <span class="onb-col-count">${col.length}</span>
+        </header>
         <div class="onb-col-body">
-          ${col.length ? col.map(c => onbCardHtml(c, states.get(c.id))).join("") : `<div class="onb-col-empty">Nobody here</div>`}
+          ${col.map(c => onbCardHtml(c, states.get(c.id))).join("")}
+          <div class="onb-drop-hint">${col.length ? "Drop here" : (clients.length ? "Drag a client here" : "Nobody here yet")}</div>
         </div>
-      </div>`;
+      </section>`;
   }).join("");
+  $("#onb-empty")?.toggleAttribute("hidden", clients.length > 0);
   if (state.onbOpenId) renderOnbModal();
 }
 function onbCardHtml(c, ls){
-  const m = ls.milestones[ls.current];
-  const next = ls.launched
-    ? `<button type="button" class="btn gold sm onb-golive" data-action="onb-golive" data-id="${c.id}">Go live →</button>`
-    : ls.nextTask ? `<div class="onb-next"><span>Next</span>${escapeHtml(ls.nextTask.label)}${ls.nextTask.who === "client" ? `<em>Client</em>` : ""}</div>` : "";
+  const m = ls.stage;
+  const pct = Math.round(m.done / m.total * 100);
+  const showStatus = ls.status.key !== "track";
+  const footer = ls.launched
+    ? `<button type="button" class="onb-finish" data-action="onb-finish" data-id="${c.id}">Finish onboarding →</button>`
+    : ls.nextTask ? `<div class="onb-next" title="${escapeHtml(ls.nextTask.label)}">${ls.nextTask.who === "client" ? `<em>Client</em>` : ""}${escapeHtml(ls.nextTask.label)}</div>` : `<div class="onb-next done">Stage done - drag on</div>`;
   return `
-    <article class="onb-card status-${ls.status.key}" data-action="onb-open" data-id="${c.id}" tabindex="0">
+    <article class="onb-card status-${ls.status.key}" draggable="true" data-action="onb-open" data-id="${c.id}" tabindex="0" aria-label="${escapeHtml(c.name)}, ${escapeHtml(m.label)}">
       <div class="onb-card-top">
-        <div class="onb-card-name">${escapeHtml(c.name)}</div>
-        <span class="onb-status ${ls.status.key}">${escapeHtml(ls.status.label)}</span>
+        <span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>
+        <div class="onb-card-id">
+          <div class="onb-card-name">${escapeHtml(c.name)}</div>
+          <div class="onb-card-meta">Day ${ls.daysIn}${ls.target ? ` · ads ${escapeHtml(fmtShortDate(ls.target))}` : ""}</div>
+        </div>
+        ${ownerChipHtml(ls.owner, true)}
       </div>
-      <div class="onb-card-meta">${ownerChipHtml(ls.owner)}<span>Day ${ls.daysIn}</span>${ls.target ? `<span>Live ${escapeHtml(fmtShortDate(ls.target))}</span>` : ""}</div>
-      <div class="onb-mini">
-        ${ls.milestones.map((mm, i) => `<span class="${mm.complete ? "done" : i === ls.current ? "now" : ""}" title="${escapeHtml(mm.label)}"></span>`).join("")}
+      ${showStatus ? `<span class="onb-status ${ls.status.key}">${escapeHtml(ls.status.label)}</span>` : ""}
+      <div class="onb-card-progress">
+        <div class="onb-bar"><span style="width:${pct}%"></span></div>
+        <span class="onb-bar-label">${m.done}/${m.total}</span>
       </div>
-      <div class="onb-card-step">${escapeHtml(m.label)} · ${m.done}/${m.total}</div>
-      ${next}
+      ${footer}
     </article>`;
 }
 
-/* The client's launch, opened from a card. */
+/* Dragging cards between stages */
+function setupOnbDrag(){
+  const board = $("#onb-board");
+  if (!board) return;
+  let dragId = null;
+  board.addEventListener("dragstart", (e) => {
+    const card = e.target.closest(".onb-card");
+    if (!card) return;
+    dragId = card.dataset.id;
+    card.classList.add("dragging");
+    board.classList.add("is-dragging");
+    if (e.dataTransfer){ e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragId); }
+  });
+  board.addEventListener("dragend", (e) => {
+    e.target.closest?.(".onb-card")?.classList.remove("dragging");
+    board.classList.remove("is-dragging");
+    $$(".onb-col.drag-over").forEach(col => col.classList.remove("drag-over"));
+    dragId = null;
+  });
+  board.addEventListener("dragover", (e) => {
+    const col = e.target.closest(".onb-col");
+    if (!col || !dragId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    $$(".onb-col.drag-over").forEach(x => { if (x !== col) x.classList.remove("drag-over"); });
+    col.classList.add("drag-over");
+  });
+  board.addEventListener("dragleave", (e) => {
+    const col = e.target.closest(".onb-col");
+    if (col && !col.contains(e.relatedTarget)) col.classList.remove("drag-over");
+  });
+  board.addEventListener("drop", async (e) => {
+    const col = e.target.closest(".onb-col");
+    if (!col || !dragId) return;
+    e.preventDefault();
+    col.classList.remove("drag-over");
+    const c = state.clients.find(x => x.id === dragId);
+    dragId = null;
+    if (c) await moveOnbStage(c, col.dataset.stage);
+  });
+}
+
+/* The client's launch, opened from a card */
 function openOnbModal(id){
   state.onbOpenId = id;
   renderOnbModal();
@@ -4018,15 +4092,18 @@ function renderOnbModal(){
   const body = $("#onb-modal-body");
   const c = state.clients.find(x => x.id === state.onbOpenId);
   if (!body) return;
-  if (!c){ state.onbOpenId = null; closeModal("onb-modal"); return; }
+  if (!c || !isOnboardingClient(c)){ state.onbOpenId = null; closeModal("onb-modal"); return; }
   const ls = launchState(c);
   const p = c.onboarding_progress || {};
   // A realtime re-render mustn't throw away what someone is typing.
   const active = document.activeElement;
   const keep = active && body.contains(active) && active.dataset.onbField ? { field: active.dataset.onbField, value: active.value, s: active.selectionStart, e: active.selectionEnd } : null;
+  const openSections = new Set([...body.querySelectorAll("details.onb-group[open]")].map(d => d.dataset.stage));
+  const firstRender = body.dataset.client !== c.id;
+  body.dataset.client = c.id;
 
   $("#onb-modal-title").textContent = c.name;
-  $("#onb-modal-sub").innerHTML = `Signed ${ls.daysIn === 0 ? "today" : `${ls.daysIn} day${ls.daysIn === 1 ? "" : "s"} ago`} · <span class="onb-status ${ls.status.key}">${escapeHtml(ls.status.label)}</span>`;
+  $("#onb-modal-sub").innerHTML = `Signed ${ls.daysIn === 0 ? "today" : `${ls.daysIn} day${ls.daysIn === 1 ? "" : "s"} ago`}<span class="onb-status ${ls.status.key}">${escapeHtml(ls.status.label)}</span>`;
   const taskRow = (t) => {
     const done = launchTaskDone(c, t);
     const tag = t.who === "client" ? `<span class="onb-tag">Client</span>` : "";
@@ -4042,31 +4119,41 @@ function renderOnbModal(){
   };
   const asks = ls.clientAsks;
   body.innerHTML = `
-    <div class="onb-m-top">
-      <label class="onb-m-field"><span>Target go-live</span><input type="date" data-onb-field="target_live" value="${escapeHtml(ls.target)}"></label>
-      <label class="onb-m-field"><span>Owner</span>
-        <select data-onb-field="owner">
-          <option value="">No owner</option>
-          ${Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${ls.owner === k ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")}
-        </select>
-      </label>
-      <div class="onb-m-actions">
-        <button type="button" class="btn ghost sm" data-action="onb-pack" data-id="${c.id}">Welcome pack</button>
-        <button type="button" class="btn ghost sm" data-action="onb-client-page" data-id="${c.id}">Client page</button>
-      </div>
+    <div class="onb-seg" role="group" aria-label="Stage">
+      ${ls.milestones.map((m, i) => `<button type="button" class="onb-seg-btn ${i === ls.current ? "active" : ""} ${m.complete ? "past" : ""}" data-action="onb-move" data-id="${c.id}" data-stage="${m.key}" aria-pressed="${i === ls.current}"><span class="onb-seg-num">${m.complete ? TASK_CHECK_SVG : i + 1}</span>${escapeHtml(m.label)}<span class="onb-seg-count">${m.done}/${m.total}</span></button>`).join("")}
     </div>
-    <ol class="onb-stepper">
-      ${ls.milestones.map((m, i) => `<li class="${m.complete ? "done" : i === ls.current ? "now" : ""}"><span class="onb-step-dot">${m.complete ? TASK_CHECK_SVG : i + 1}</span><span class="onb-step-label">${escapeHtml(m.label)}</span><span class="onb-step-count">${m.done}/${m.total}</span></li>`).join("")}
-    </ol>
     <div class="onb-m-grid">
       <div class="onb-m-tasks">
-        ${ls.milestones.map((m, i) => `
-          <section class="onb-group ${m.complete ? "complete" : ""} ${i === ls.current ? "current" : ""}">
-            <h4>${escapeHtml(m.label)}<span>${m.done}/${m.total}</span></h4>
-            ${m.tasks.map(taskRow).join("")}
-          </section>`).join("")}
+        ${ls.milestones.map((m, i) => {
+          const isOpen = firstRender ? i === ls.current : openSections.has(m.key);
+          return `
+          <details class="onb-group ${i === ls.current ? "current" : ""} ${m.complete ? "complete" : ""}" data-stage="${m.key}" ${isOpen ? "open" : ""}>
+            <summary><span class="onb-group-title">${escapeHtml(m.label)}</span>${i === ls.current ? `<span class="onb-here">Here now</span>` : ""}<span class="onb-group-count">${m.done}/${m.total}</span></summary>
+            <div class="onb-group-body">${m.tasks.map(taskRow).join("")}</div>
+          </details>`;
+        }).join("")}
       </div>
       <aside class="onb-m-side">
+        <div class="onb-side-card onb-side-plan">
+          <label class="onb-m-field"><span>Ads due</span><input type="date" data-onb-field="target_live" value="${escapeHtml(ls.target)}"></label>
+          <label class="onb-m-field"><span>Owner</span>
+            <select data-onb-field="owner">
+              <option value="">No owner</option>
+              ${Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${ls.owner === k ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")}
+            </select>
+          </label>
+          <div class="onb-side-links">
+            <button type="button" class="btn ghost sm" data-action="onb-pack" data-id="${c.id}">Welcome pack</button>
+            <button type="button" class="btn ghost sm" data-action="onb-client-page" data-id="${c.id}">Client page</button>
+          </div>
+        </div>
+        <div class="onb-side-card ${asks.length ? "asks" : "asks-done"}">
+          <h4>Needed from the client</h4>
+          ${asks.length
+            ? `<ul>${asks.map(t => `<li>${escapeHtml(t.ask || t.label)}</li>`).join("")}</ul>
+               <button type="button" class="btn ghost sm" data-action="onb-copy-asks" data-id="${c.id}">Copy chase-up message</button>`
+            : `<p>Nothing outstanding from them.</p>`}
+        </div>
         <div class="onb-side-card">
           <h4>Lead essentials</h4>
           <p>Four answers from the kickoff call. They become this client's qualified lead structure.</p>
@@ -4075,18 +4162,13 @@ function renderOnbModal(){
               <input type="text" data-onb-field="ess:${e.key}" value="${escapeHtml(p[e.key + ONBOARDING_ANSWER_SUFFIX] || "")}" placeholder="${escapeHtml(e.placeholder)}">
             </label>`).join("")}
         </div>
-        <div class="onb-side-card ${asks.length ? "asks" : "asks-done"}">
-          <h4>Needed from ${escapeHtml(c.name)}</h4>
-          ${asks.length
-            ? `<ul>${asks.map(t => `<li>${escapeHtml(t.label)}</li>`).join("")}</ul>
-               <button type="button" class="btn ghost sm" data-action="onb-copy-asks" data-id="${c.id}">Copy chase-up message</button>`
-            : `<p>Nothing outstanding from the client.</p>`}
-        </div>
       </aside>
     </div>
     <div class="onb-m-foot">
-      <span>${ls.doneTasks} of ${ls.total} done</span>
-      <button type="button" class="btn ${ls.launched ? "gold" : "ghost"}" data-action="onb-golive" data-id="${c.id}">Go live → ${escapeHtml(CLIENT_STAGE_MAP[postOnboardingStage(c)].label)}</button>
+      <span>${ls.doneTasks} of ${ls.total} tasks done</span>
+      ${ls.launched
+        ? `<button type="button" class="btn gold" data-action="onb-finish" data-id="${c.id}">Finish onboarding → ${escapeHtml(CLIENT_STAGE_MAP[postOnboardingStage(c)].label)}</button>`
+        : `<button type="button" class="btn gold" data-action="onb-move" data-id="${c.id}" data-stage="${ONB_STAGE_KEYS[ls.current + 1]}">Move to ${escapeHtml(LAUNCH_MILESTONES[ls.current + 1].label)} →</button>`}
     </div>`;
   if (keep){
     const el = body.querySelector(`[data-onb-field="${keep.field}"]`);
@@ -4120,6 +4202,7 @@ function setupOnboarding(){
     const card = e.target.closest(".onb-card");
     if (card && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); openOnbModal(card.dataset.id); }
   });
+  setupOnbDrag();
 }
 async function handleOnbAction(action, id, btn){
   if (action === "onb-add-client"){
@@ -4138,7 +4221,8 @@ async function handleOnbAction(action, id, btn){
     if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
     return true;
   }
-  if (action === "onb-golive"){ await goLive(c); return true; }
+  if (action === "onb-move"){ await moveOnbStage(c, btn.dataset.stage); return true; }
+  if (action === "onb-finish"){ await finishOnboarding(c); return true; }
   if (action === "onb-pack"){ openWelcomePack(c.id); return true; }
   if (action === "onb-client-page"){
     state.onbOpenId = null; closeModal("onb-modal");
@@ -4165,15 +4249,15 @@ function renderClientOnboarding(c){
   card.innerHTML = `
     <div class="cl-launch-head">
       <div>
-        <h3>Launch</h3>
-        <p>${escapeHtml(ls.status.label)} · day ${ls.daysIn}${ls.target ? ` · target ${escapeHtml(fmtShortDate(ls.target))}` : ""}</p>
+        <h3>Onboarding · ${escapeHtml(ls.stage.label)}</h3>
+        <p>${escapeHtml(ls.status.label)} · day ${ls.daysIn}${ls.target ? ` · ads due ${escapeHtml(fmtShortDate(ls.target))}` : ""}</p>
       </div>
-      <button type="button" class="btn gold sm" data-action="onb-open" data-id="${c.id}">Open launch</button>
+      <button type="button" class="btn gold sm" data-action="onb-open" data-id="${c.id}">Open onboarding</button>
     </div>
-    <ol class="onb-stepper compact">
-      ${ls.milestones.map((m, i) => `<li class="${m.complete ? "done" : i === ls.current ? "now" : ""}"><span class="onb-step-dot">${m.complete ? TASK_CHECK_SVG : i + 1}</span><span class="onb-step-label">${escapeHtml(m.label)}</span></li>`).join("")}
-    </ol>
-    ${ls.nextTask && !ls.launched ? `<div class="onb-next"><span>Next</span>${escapeHtml(ls.nextTask.label)}${ls.nextTask.who === "client" ? `<em>Client</em>` : ""}</div>` : ""}`;
+    <div class="onb-seg compact">
+      ${ls.milestones.map((m, i) => `<span class="onb-seg-btn ${i === ls.current ? "active" : ""} ${m.complete ? "past" : ""}"><span class="onb-seg-num">${m.complete ? TASK_CHECK_SVG : i + 1}</span>${escapeHtml(m.label)}</span>`).join("")}
+    </div>
+    ${ls.nextTask && !ls.launched ? `<div class="onb-next"><span class="onb-next-label">Next</span>${ls.nextTask.who === "client" ? `<em>Client</em>` : ""}${escapeHtml(ls.nextTask.label)}</div>` : ""}`;
   const main = $("#client-detail-main");
   if (main && main.firstElementChild !== card) main.prepend(card);
 }
