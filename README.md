@@ -92,10 +92,7 @@ Two small server-side functions live in [`supabase/functions/`](supabase/functio
 
 This is a static folder, hosted free on **GitHub Pages** straight from this repo. Every merge into `main` goes live automatically, usually within a minute or two.
 
-**One-time setup**
-1. On GitHub, open the repo → **Settings** → **Pages**.
-2. Under **Build and deployment**, set **Source** to **Deploy from a branch**, then pick **Branch: `main`** and folder **`/ (root)`**, and click **Save**.
-3. After a minute the page shows your live URL: `https://rocky-toky.github.io/mr-priceless-crm/`. Bookmark it and share it with the team.
+A GitHub Actions workflow (`.github/workflows/pages.yml`) publishes the site on every push to `main`. The live URL is `https://rocky-toky.github.io/mr-priceless-crm/`. If a deploy ever fails because Pages is switched off, open the repo → **Settings** → **Pages** and set **Source** to **GitHub Actions**.
 
 The `.nojekyll` file in the root tells GitHub to serve the files as-is. Leave it in place.
 
