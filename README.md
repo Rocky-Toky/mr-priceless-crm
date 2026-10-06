@@ -90,16 +90,16 @@ Two small server-side functions live in [`supabase/functions/`](supabase/functio
 
 ## 7. Deploy it so you can both access it from anywhere
 
-This is a static folder, so any static host works.
+This is a static folder, hosted free on **GitHub Pages** straight from this repo. Every merge into `main` goes live automatically, usually within a minute or two.
 
-**Netlify Drop (simplest, no account needed)**
-1. Go to [app.netlify.com/drop](https://app.netlify.com/drop).
-2. Drag the whole `mr-priceless-crm` folder onto the page.
-3. You'll get a live URL immediately. Bookmark it and share it with your partner.
+**One-time setup**
+1. On GitHub, open the repo → **Settings** → **Pages**.
+2. Under **Build and deployment**, set **Source** to **Deploy from a branch**, then pick **Branch: `main`** and folder **`/ (root)`**, and click **Save**.
+3. After a minute the page shows your live URL: `https://rocky-toky.github.io/mr-priceless-crm/`. Bookmark it and share it with the team.
 
-**Cloudflare Pages / GitHub Pages** also work if you'd prefer a custom domain later.
+The `.nojekyll` file in the root tells GitHub to serve the files as-is. Leave it in place.
 
-One extra step after deploying: add your live URL to Google Cloud Console under **OAuth consent screen → Authorized domains**, and add `https://your-live-url/` to Supabase's **Authentication → URL Configuration → Redirect URLs** - otherwise Google sign-in will only work on localhost.
+One extra step after deploying: add your live URL to Google Cloud Console under **OAuth consent screen → Authorized domains** (add `rocky-toky.github.io`), and add `https://rocky-toky.github.io/mr-priceless-crm/` to Supabase's **Authentication → URL Configuration → Redirect URLs** - otherwise Google sign-in will only work on localhost.
 
 ## 8. Set up automated Meta Ads client reporting (optional)
 
