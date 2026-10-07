@@ -1724,7 +1724,7 @@ async function bookMeeting(name, phone, person, extra={}){
   if (!contact) return null;
   const stage = extra.stage || "qualified";
   const deal = await DataLayer.insert("deals", {
-    title: `${name} - ${STAGES.find(s => s.key === stage)?.label || "Meeting Booked"}`,
+    title: (extra.company || name).trim(),
     contact_id: contact.id,
     contact_name: name,
     contract_type: "retainer",
@@ -6989,7 +6989,7 @@ function setupModals(){
     delete form.dataset.x; delete form.dataset.y;
     const deal = await bookMeeting(name, phone, person, { company, email, stage });
     closeModal("book-meeting-modal");
-    if (deal) window.bookMeetingInTracker?.(name, x, y, slotIdx);
+    if (deal) window.bookMeetingInTracker?.(company || name, x, y, slotIdx);
     if (!IS_CONFIGURED) return; renderAll();
   });
 

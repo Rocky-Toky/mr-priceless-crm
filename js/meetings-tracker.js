@@ -1,7 +1,9 @@
 /* Meetings Booked - ported as-is from the standalone tracker tool.
-   Not wrapped in an IIFE: the markup's inline onclick handlers (incCounter,
-   resetDay, addMeeting, closeModal, closeMegaC9, closeInsane) call these as
-   globals, exactly like the original standalone file. */
+   Only tracks meetings booked: five big tick slots (2 for the goal, Cloud 9
+   at 3, bonus to 5), each one booked through the Book Meeting form so it
+   lands in the Deals pipeline. Not wrapped in an IIFE: the markup's inline
+   onclick handlers (resetDay, closeModal, closeMegaC9, closeInsane) call
+   these as globals, exactly like the original standalone file. */
 
 /* ══════════════════════════════════════════
    AUDIO ENGINE - Web Audio API
@@ -504,9 +506,11 @@ function normalizeState(s){
     const doneCt = s.meetings.filter(m=>m.done).length;
     if(prev) s.history[prev] = doneCt;
     s.today = getToday();
-    s.meetings.forEach(m=>{m.done=false;m.time=null;});
+    s.meetings = defaultState().meetings;
     s.log = []; s.calls = 0; s.convos = 0;
   }
+  if (s.meetings.length > TOTAL) s.meetings = s.meetings.slice(0, TOTAL);
+  while (s.meetings.length < TOTAL) s.meetings.push({ name: `Meeting booked ${s.meetings.length + 1}`, done: false, time: null, bonus: s.meetings.length >= GOAL });
   return s;
 }
 
@@ -641,6 +645,7 @@ function shakeEl(el){
 
 function popVal(id){
   const el=document.getElementById(id);
+  if (!el) return;
   el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
 }
 
@@ -747,6 +752,7 @@ function addLog(text,type){
 }
 function renderLog(){
   const el=document.getElementById('activity-log');
+  if (!el) return;
   if(!state.log.length){ el.innerHTML='<div class="empty-state" style="padding:20px 0;"><p>No activity yet today.</p></div>'; return; }
   el.innerHTML=state.log.slice(0,6).map(l=>`
     <div class="activity-row">
@@ -764,51 +770,27 @@ function renderLog(){
 function updateStats(){
   const done=state.meetings.filter(m=>m.done).length;
   const goalDone=state.meetings.filter((m,i)=>m.done&&i<GOAL).length;
-  const bonusDone=state.meetings.filter((m,i)=>m.done&&i>=GOAL).length;
-  const pct=Math.round((goalDone/GOAL)*100);
 
   document.getElementById('kpi-done').textContent=done;
-  document.getElementById('kpi-done-sub').textContent=`of ${GOAL} goal`;
-  document.getElementById('kpi-left').textContent=Math.max(0,GOAL-goalDone);
-  document.getElementById('kpi-left-sub').textContent=goalDone>=GOAL?'goal hit! 🎯':'to hit goal';
-  document.getElementById('kpi-bonus').textContent=`+${bonusDone}`;
-  document.getElementById('kpi-bonus-sub').textContent=done>=CLOUD9?'☁️ Cloud 9!':bonusDone>0?'unlocked!':'available';
-  document.getElementById('kpi-rate').textContent=Math.round((done/TOTAL)*100)+'%';
-  document.getElementById('kpi-rate-sub').textContent=done>=CLOUD9?'☁️ Cloud 9':done>=GOAL?'goal hit!':'of daily target';
-  document.getElementById('goal-count').textContent=`${goalDone} / ${GOAL}`;
-  document.getElementById('bonus-count').textContent=`${bonusDone} / 3`;
-  document.getElementById('prog-count').textContent=`${done} / ${TOTAL}`;
+  const label=document.getElementById('mb-count-label');
+  if (label) label.textContent = done===1 ? 'meeting booked today' : 'meetings booked today';
+  const sub=document.getElementById('mb-goal-line');
+  if (sub) sub.textContent = done>=TOTAL ? 'Every slot filled. Absolute machine.' : done>=CLOUD9 ? '☁️ Cloud 9 - keep going' : goalDone>=GOAL ? '🏆 Goal hit - one more for Cloud 9' : `${GOAL-goalDone} to hit today's goal`;
+  document.getElementById('mb-hero')?.classList.toggle('is-goal', goalDone>=GOAL);
+  document.getElementById('mb-hero')?.classList.toggle('is-cloud9', done>=CLOUD9);
 
-  // progress bar
+  // progress bar - goal marker at 40% (2/5), Cloud 9 at 60% (3/5)
   const fill=document.getElementById('prog-fill');
   fill.style.width=(done/TOTAL*100)+'%';
   fill.className='mtr-progress-fill'+(done>=CLOUD9?' cloud9':'');
+  document.getElementById('m3').classList.toggle('hit', goalDone>=GOAL);
+  document.getElementById('m5').classList.toggle('hit', done>=CLOUD9);
 
-  // milestones - m3 at 40% (2/5), m5 at 60% (3/5)
-  const m3=document.getElementById('m3'), m5=document.getElementById('m5');
-  m3.classList.toggle('hit', goalDone>=GOAL);
-  m5.classList.toggle('hit', done>=CLOUD9);
-
-  // sidebar ring
-  const circumference=2*Math.PI*43;
-  const ring=document.getElementById('sidebar-ring');
-  ring.style.strokeDashoffset=circumference*(1-pct/100);
-  ring.style.stroke=done>=CLOUD9?'var(--gold-deep)':'var(--gold)';
-  document.getElementById('ring-pct-text').textContent=pct+'%';
-  document.getElementById('ring-sub-text').textContent=done>=CLOUD9?'CLOUD 9':done>=GOAL?'GOAL HIT':'OF GOAL';
-
-  // banner
-  const banner=document.getElementById('banner');
-  banner.className='mtr-banner';
-  if(done>=CLOUD9){ banner.textContent='☁️ Cloud 9 unlocked - you are floating right now.'; banner.classList.add('show','cloud9'); }
-  else if(goalDone>=GOAL){ banner.textContent='🏆 Goal hit! 2/2 booked. One more for Cloud 9 ☁️'; banner.classList.add('show'); }
-
-  // clouds
   if(done>=CLOUD9) startClouds(); else stopClouds();
 
-  // streak chip
   const streak=calcStreak();
-  if(streak>1){ document.getElementById('streak-chip').style.display='flex'; document.getElementById('streak-num').textContent=streak; }
+  const chip=document.getElementById('streak-chip');
+  if (chip){ chip.style.display = streak>1 ? 'flex' : 'none'; document.getElementById('streak-num').textContent=streak; }
 
   updateAmbient(done);
   renderWeekGrid();
@@ -840,7 +822,7 @@ function toggle(idx, el, e){
     spawnParticles(e.clientX, e.clientY, isBonus?'gold':'normal');
     spawnScorePop(e.clientX, e.clientY, isBonus);
     flash(isBonus?'rgba(255,171,0,0.08)':'rgba(0,230,118,0.08)');
-    popVal('kpi-done'); popVal('kpi-rate');
+    popVal('kpi-done');
     el.classList.remove('just-checked'); void el.offsetWidth; el.classList.add('just-checked');
     addLog(`<strong>${m.name}</strong> marked as booked`, isBonus?'amber':'green');
     if(navigator.vibrate) navigator.vibrate(isBonus?[60,20,80,20,150]:[40,10,60]);
@@ -870,29 +852,24 @@ function toggle(idx, el, e){
 ══════════════════════════════════════════ */
 const MTR_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
 
-const BONUS_LABELS=['☁️ Cloud 9','⚙️ Machine','🦾 Terminator'];
+const SLOT_LABELS=['Goal','Goal','☁️ Cloud 9','⚙️ Machine','🦾 Terminator'];
+const isDefaultName = (n) => !n || /^Meeting( booked)? \d+$/.test(n);
 function renderItem(idx){
-  const list=idx<GOAL?document.getElementById('goal-list'):document.getElementById('bonus-list');
-  const existing=list.children[idx<GOAL?idx:idx-GOAL];
+  const wrap=document.getElementById('mb-slots');
+  if (!wrap) return;
+  const existing=wrap.children[idx];
   const m=state.meetings[idx]; const isBonus=idx>=GOAL;
-  const el=existing||document.createElement('div');
-  const badgeClass=m.done?'green':'gold';
-  const badgeText=m.done?'Booked!':(isBonus?'Bonus':'Goal');
-  const timeStr=m.time?new Date(m.time).toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit',hour12:true}):'';
-  const bonusLabel=BONUS_LABELS[idx-GOAL]||BONUS_LABELS[BONUS_LABELS.length-1];
-  el.className=`mtr-row${isBonus?' bonus':''}${m.done?' done':''}`;
+  const el=existing||document.createElement('button');
+  const timeStr=m.time?new Date(m.time).toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit',hour12:true}):'';
+  el.type='button';
+  el.className=`mb-slot${isBonus?' bonus':''}${idx===CLOUD9-1?' cloud9-slot':''}${m.done?' done':''}`;
+  el.setAttribute('aria-pressed', m.done);
+  el.setAttribute('aria-label', m.done ? `Meeting ${idx+1} booked${isDefaultName(m.name)?'':': '+m.name}. Click to untick.` : `Book meeting ${idx+1}`);
   el.innerHTML=`
-    <div class="mtr-check">${MTR_CHECK_SVG}</div>
-    <div class="mtr-row-content">
-      <div class="mtr-row-name-wrap">
-        <span class="mtr-row-name">${m.name}</span>
-      </div>
-      <div class="mtr-row-meta">
-        <span>${isBonus?bonusLabel+' - booking '+(idx+1):'Booking '+(idx+1)+' of '+GOAL}</span>
-        ${timeStr?`<span>· ${timeStr}</span>`:''}
-      </div>
-    </div>
-    <span class="badge ${badgeClass}">${badgeText}</span>`;
+    <span class="mb-slot-circle">${m.done ? MTR_CHECK_SVG : `<span class="mb-slot-num">${idx+1}</span>`}</span>
+    <span class="mb-slot-tag">${SLOT_LABELS[idx]||'Bonus'}</span>
+    <span class="mb-slot-name">${m.done ? (isDefaultName(m.name) ? 'Booked' : m.name) : 'Tap to book'}</span>
+    <span class="mb-slot-time">${timeStr || '&nbsp;'}</span>`;
   if(!existing){
     el.addEventListener('click',e=>{
       const m = state.meetings[idx];
@@ -902,94 +879,22 @@ function renderItem(idx){
         toggle(idx,el,e);
       }
     });
-    list.appendChild(el);
+    wrap.appendChild(el);
   }
 }
 
 /* ══════════════════════════════════════════
    RENDER ALL / RESET / ADD
 ══════════════════════════════════════════ */
-/* ══════════════════════════════════════════
-   COUNTERS
-══════════════════════════════════════════ */
-function playCounterTick(isConvo){
-  const ac = getAudio();
-  if(ac.state==='suspended') ac.resume();
-  const t = ac.currentTime;
-  const freq = isConvo ? 440 : 330;
-  const osc = ac.createOscillator(), g = ac.createGain();
-  osc.connect(g); g.connect(ac.destination);
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(freq, t);
-  osc.frequency.exponentialRampToValueAtTime(freq * 1.35, t + 0.08);
-  g.gain.setValueAtTime(0.15, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-  osc.start(t); osc.stop(t + 0.2);
-  const osc2 = ac.createOscillator(), g2 = ac.createGain();
-  osc2.connect(g2); g2.connect(ac.destination);
-  osc2.type = 'sine';
-  osc2.frequency.setValueAtTime(freq * 2, t + 0.04);
-  g2.gain.setValueAtTime(0.07, t + 0.04);
-  g2.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
-  osc2.start(t + 0.04); osc2.stop(t + 0.18);
-}
-
-function renderCounters(){
-  const calls = state.calls, convos = state.convos;
-  document.getElementById('cnt-calls').textContent = calls;
-  document.getElementById('cnt-convos').textContent = convos;
-  document.getElementById('cc-calls').classList.toggle('has-count', calls > 0);
-  document.getElementById('cc-convos').classList.toggle('has-count', convos > 0);
-}
-
-// Adds each tap to the shared call_activity counts that Statistics reads.
-// Only ever +1 / -1: the Dialer adds to the same row, so sending this page's
-// own totals would wipe out every call logged from the Dialer.
-const COUNTER_FIELD = { calls: 'calls', convos: 'conversations' };
-function syncCallActivity(key, delta){
-  if (!window.CRM_CALL_ACTIVITY || !COUNTER_FIELD[key]) return;
-  window.CRM_CALL_ACTIVITY.bump(getActivePerson(), { [COUNTER_FIELD[key]]: delta });
-}
-
-function incCounter(key){
-  state[key]++;
-  save();
-  syncCallActivity(key, 1);
-  const numEl = document.getElementById('cnt-' + key);
-  const cardEl = document.getElementById('cc-' + key);
-  numEl.textContent = state[key];
-  numEl.classList.remove('cn-pop'); void numEl.offsetWidth; numEl.classList.add('cn-pop');
-  cardEl.classList.remove('cc-pop'); void cardEl.offsetWidth; cardEl.classList.add('cc-pop');
-  cardEl.classList.toggle('has-count', state[key] > 0);
-  playCounterTick(key === 'convos');
-  // spawn a small +1 float
-  const rect = cardEl.getBoundingClientRect();
-  const el = document.createElement('div'); el.className = 'mtr-score-pop';
-  el.textContent = '+1';
-  el.style.cssText = `left:${rect.left + rect.width/2 - 20}px;top:${rect.top + 30}px;font-size:20px;`;
-  document.body.appendChild(el); setTimeout(()=>el.remove(), 1000);
-  if(navigator.vibrate) navigator.vibrate(18);
-}
-
-function decCounter(key){
-  if(state[key] <= 0) return;
-  state[key]--;
-  save();
-  syncCallActivity(key, -1);
-  renderCounters();
-}
-
 function renderAll(){
-  const gl=document.getElementById('goal-list'), bl=document.getElementById('bonus-list');
-  gl.innerHTML=''; bl.innerHTML='';
+  const slots=document.getElementById('mb-slots');
+  if (slots) slots.innerHTML='';
   goalShown=state.meetings.slice(0,GOAL).every(m=>m.done);
   godShown=state.meetings.filter((m,i)=>m.done&&i<CLOUD9).length>=CLOUD9;
   megaShown=state.meetings.filter(m=>m.done).length>=CLOUD9;
   insaneShown=state.meetings.filter(m=>m.done).length>=TOTAL;
   state.meetings.forEach((_,i)=>renderItem(i));
-  updateStats(); renderLog(); renderCounters();
-  const addSlotBtn = document.getElementById('add-slot-btn');
-  if (addSlotBtn) addSlotBtn.disabled = state.meetings.length >= TOTAL;
+  updateStats(); renderLog();
 }
 
 function addMeeting(){
@@ -1044,7 +949,7 @@ window.bookMeetingInTracker = function(name, x, y, explicitIdx){
   spawnParticles(x, y, isBonus?'gold':'normal');
   spawnScorePop(x, y, isBonus);
   flash(isBonus?'rgba(255,171,0,0.08)':'rgba(0,230,118,0.08)');
-  popVal('kpi-done'); popVal('kpi-rate');
+  popVal('kpi-done');
   addLog(`<strong>${name}</strong> booked - added to Deals pipeline`, isBonus?'amber':'green');
   if (navigator.vibrate) navigator.vibrate(isBonus?[60,20,80,20,150]:[40,10,60]);
 
