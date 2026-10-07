@@ -78,6 +78,7 @@ Deno.serve(async (req: Request) => {
     clients = [data];
   } else {
     const { data, error } = await admin.from("clients").select("*")
+      .neq("stage", "archived")
       .not("meta_ad_account_id", "is", null)
       .not("report_email", "is", null);
     if (error) return json({ error: error.message }, 500);

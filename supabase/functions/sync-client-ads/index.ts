@@ -265,6 +265,7 @@ Deno.serve(async (req: Request) => {
     const { data: clients, error: clientsError } = await supabaseAdmin
       .from("clients")
       .select("id, meta_ad_account_id")
+      .neq("stage", "archived")
       .not("meta_ad_account_id", "is", null)
       .neq("meta_ad_account_id", "");
 
