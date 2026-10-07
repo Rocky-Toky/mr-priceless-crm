@@ -4697,7 +4697,7 @@ function renderCreativeLibrary(){
   // chosen sort still applies inside each one.
   const groups = CREATIVE_SEGMENTS.map(seg => ({ ...seg, items: [] }));
   const bySeg = Object.fromEntries(groups.map(g => [g.key, g]));
-  filtered.forEach(a => bySeg[creativeSegmentOf(a, tierClsFor(a))].items.push(a));
+  filtered.forEach(a => bySeg[creativeSegmentOf(a)].items.push(a));
   const shown = groups.filter(g => g.items.length);
   renderCreativeSegmentNav(shown);
   grid.innerHTML = shown.map(g => {
@@ -4723,21 +4723,22 @@ const CREATIVE_SEG_PREVIEW = 4;
 const CREATIVE_SEGMENTS = [
   { key: "refresh", label: "Needs a refresh", blurb: "Live ads you've flagged as fatiguing. Line up replacements before results drop off." },
   { key: "attention", label: "Needs attention", blurb: "Meta has these held up: disapproved, in review, or a billing issue." },
-  { key: "performing", label: "Top performers", blurb: "Rated top performer, or live and beating your average cost per lead." },
-  { key: "testing", label: "Average performers", blurb: "Live or new ads doing an okay job." },
-  { key: "low", label: "Low performers", blurb: "Not pulling their weight. Pause or replace them." },
+  { key: "performing", label: "Top performers", blurb: "Ads you've tagged as top performers." },
+  { key: "testing", label: "Average performers", blurb: "Ads tagged average, including new ads synced from Meta until you rate them." },
+  { key: "low", label: "Low performers", blurb: "Ads tagged low performers. Pause or replace them." },
   { key: "off", label: "Not running", blurb: "Paused in Meta. Kept here for reference.", collapsed: true },
   { key: "engagement", label: "Engagement posts", blurb: "Not lead-gen ads, so they sit apart from the rest.", collapsed: true },
 ];
-function creativeSegmentOf(a, tierCls){
+function creativeSegmentOf(a){
   if (a.result === "engagement") return "engagement";
   const group = DELIVERY_STATUS[a.delivery_status]?.group;
   if (group === "attention") return "attention";
   const off = group === "paused";
   if (!off && (a.fatigue_status === "fatiguing" || a.fatigue_status === "fatigued")) return "refresh";
   if (off) return "off";
+  // The performer tag you set decides the section; the numbers never override it.
   if (a.result === "killed") return "low";
-  if (a.result === "winner" || tierCls === "creative-metric-good") return "performing";
+  if (a.result === "winner") return "performing";
   return "testing";
 }
 function renderCreativeSegmentNav(groups){
