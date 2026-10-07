@@ -5372,7 +5372,8 @@ async function syncClientAds(clientId, btnEl){
   const { data, error } = await supabase.functions.invoke("sync-client-ads", { body: { client_id: clientId } });
   if (btn){ btn.disabled = false; btn.textContent = btnLabel; }
   if (error || data?.error){ alert("Couldn't sync the ad account: " + (data?.error || error.message)); return; }
-  alert(`Synced ${data.ads_found} ad${data.ads_found===1?"":"s"}: ${data.creatives_created} new, ${data.creatives_updated} updated, ${data.campaigns_created} new campaign${data.campaigns_created===1?"":"s"} found.`);
+  const pl = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  alert(`Synced ${client.name}: found ${pl(data.campaigns_found ?? 0, "campaign")}, ${pl(data.adsets_found ?? 0, "ad set")} and ${pl(data.ads_found, "ad")}.\n${data.creatives_created} new creative${data.creatives_created===1?"":"s"}, ${data.creatives_updated} updated, ${pl(data.campaigns_created, "new campaign")}.${data.stats_error ? `\n\nThe ads were saved, but Meta wouldn't send their stats this time (${data.stats_error}). They'll fill in on the next sync.` : ""}`);
   await DataLayer.fetchAll(); renderAll();
 }
 function renderReportHistoryModal(clientId){

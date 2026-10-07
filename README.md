@@ -233,3 +233,19 @@ so revenue, spend and return "to date" build up from one report to the next.
 Until that's done, type the numbers into the report form; everything else
 (ad spend since the last report, management fee, enquiries from the Lead
 Center import, quote guarantee, top ad) fills in from the CRM.
+
+## Automatic deploys for the server functions
+
+`.github/workflows/supabase-functions.yml` deploys `sync-client-ads` and
+`ghl-report-data` to Supabase whenever their code changes on main. It needs
+one GitHub secret, `SUPABASE_ACCESS_TOKEN` (a token from
+https://supabase.com/dashboard/account/tokens), added under the repo's
+Settings -> Secrets and variables -> Actions. Without it the workflow is
+skipped and the functions have to be deployed by hand
+(`supabase functions deploy sync-client-ads --no-verify-jwt`).
+
+The Meta ad sync (`sync-client-ads`) runs daily from the cron job in
+`sql/044_daily_creative_sync.sql`. Each run pulls every campaign, ad set and
+ad in the client's ad account (anything not archived or deleted), adds new
+campaigns and creatives, and then pulls lifetime stats in a separate call so
+a stats error never stops new ads coming through.
