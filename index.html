@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=154">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=154">
+<link rel="stylesheet" href="css/style.css?v=155">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=155">
 </head>
 <body>
 
@@ -1071,7 +1071,7 @@
     <!-- Reporting (Meta Ads client reports) -->
     <section class="page" id="page-reporting">
       <div class="page-header">
-        <div><h2>Reporting</h2><p>Fortnightly finance reports for every client: revenue won, what it cost, and the return. Make one, then drag the PDF into your email.</p></div>
+        <div><h2>Reporting</h2><p>A report for every client each fortnight, showing how their month is going: revenue won, the 10-quote guarantee, and the return. Make one, then drag the PDF into your email.</p></div>
       </div>
       <div class="onb-kpis rp-kpis" id="rp-kpis"></div>
       <div class="rp-list" id="rp-client-list"></div>
@@ -1757,10 +1757,10 @@
     </div>
     <form class="modal-body rp-form" id="report-form">
       <div class="rp-section">
-        <div class="rp-section-head"><h4>The fortnight</h4></div>
+        <div class="rp-section-head"><h4>The month so far</h4><span class="rp-ghl-note">Each report covers the month up to the end date.</span></div>
         <div class="rp-grid rp-grid-2">
-          <div class="field"><label for="rp-from">From</label><input type="date" id="rp-from" required></div>
-          <div class="field"><label for="rp-to">To</label><input type="date" id="rp-to" required></div>
+          <div class="field"><label for="rp-from">From (start of the month)</label><input type="date" id="rp-from" required></div>
+          <div class="field"><label for="rp-to">Up to</label><input type="date" id="rp-to" required></div>
         </div>
       </div>
       <div class="rp-section">
@@ -1774,18 +1774,25 @@
           <button type="button" class="btn gold sm" data-action="rp-ghl-connect">Connect</button>
         </div>
         <div class="rp-grid rp-grid-4">
-          <div class="field"><label for="rp-revenueFortnight">Revenue won ($)</label><input type="number" min="0" step="any" id="rp-revenueFortnight" placeholder="41800"></div>
-          <div class="field"><label for="rp-jobsFortnight">Jobs signed</label><input type="number" min="0" id="rp-jobsFortnight" placeholder="2"></div>
+          <div class="field"><label for="rp-revenueMonth">Revenue won in <span class="rp-month-name">this month</span> ($)</label><input type="number" min="0" step="any" id="rp-revenueMonth" placeholder="41800"></div>
+          <div class="field"><label for="rp-jobsMonth">Jobs signed</label><input type="number" min="0" id="rp-jobsMonth" placeholder="2"></div>
           <div class="field"><label for="rp-openQuotesValue">Open quotes ($)</label><input type="number" min="0" step="any" id="rp-openQuotesValue" placeholder="144600"></div>
           <div class="field"><label for="rp-openQuotesCount">Open quotes</label><input type="number" min="0" id="rp-openQuotesCount" placeholder="8"></div>
         </div>
         <div class="field rp-override"><label for="rp-revenueToDateOverride">Revenue won to date ($) <span class="wp-opt">leave blank to add up the reports</span></label><input type="number" min="0" step="any" id="rp-revenueToDateOverride"></div>
       </div>
+      <div class="rp-section rp-section-gold">
+        <div class="rp-section-head"><h4>Quote guarantee</h4></div>
+        <div class="rp-grid rp-grid-2">
+          <div class="field"><label for="rp-quotesBooked">Quotes booked so far</label><input type="number" min="0" id="rp-quotesBooked" placeholder="7"></div>
+          <div class="field"><label for="rp-quoteTarget">Guarantee (quotes)</label><input type="number" min="1" id="rp-quoteTarget" placeholder="10"></div>
+        </div>
+      </div>
       <div class="rp-section">
         <div class="rp-section-head"><h4>What it cost</h4></div>
         <div class="rp-grid rp-grid-2">
-          <div class="field"><label for="rp-adSpendFortnight">Ad spend this fortnight ($)</label><input type="number" min="0" step="any" id="rp-adSpendFortnight"></div>
-          <div class="field"><label for="rp-mgmtFortnight">Management this fortnight ($)</label><input type="number" min="0" step="any" id="rp-mgmtFortnight"></div>
+          <div class="field"><label for="rp-adSpendMonth">Ad spend in <span class="rp-month-name">this month</span> ($)</label><input type="number" min="0" step="any" id="rp-adSpendMonth"></div>
+          <div class="field"><label for="rp-mgmtMonth">Management fee for the month ($)</label><input type="number" min="0" step="any" id="rp-mgmtMonth"></div>
         </div>
         <div class="rp-totals" id="rp-totals"></div>
       </div>
@@ -1799,7 +1806,7 @@
       </div>
       <div class="rp-section">
         <div class="rp-section-head"><h4>The story</h4></div>
-        <div class="field"><label for="rp-summary">This fortnight in plain English</label><textarea id="rp-summary" rows="3" placeholder="Your ads brought in 24 enquiries. We qualified each one and passed 15 quote-ready leads to you. Two have already turned into signed jobs worth $41,800."></textarea></div>
+        <div class="field"><label for="rp-summary">The month so far, in plain English</label><textarea id="rp-summary" rows="3" placeholder="Your ads brought in 24 enquiries. We qualified each one and passed 15 quote-ready leads to you. Two have already turned into signed jobs worth $41,800."></textarea></div>
         <div class="rp-grid rp-grid-2">
           <div class="field"><label>What we did</label><input type="text" id="rp-did1" placeholder="Launched a before-and-after kitchen ad"><input type="text" id="rp-did2"><input type="text" id="rp-did3"></div>
           <div class="field"><label>What's next</label><input type="text" id="rp-next1" placeholder="Move more budget onto the kitchen ad"><input type="text" id="rp-next2"><input type="text" id="rp-next3"></div>
@@ -2158,11 +2165,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=154"></script>
-<script src="js/supabaseClient.js?v=154"></script>
-<script src="js/report-pdf.js?v=154"></script>
-<script src="js/app.js?v=154"></script>
-<script src="js/meetings-tracker.js?v=154"></script>
-<script src="js/todo.js?v=154"></script>
+<script src="js/config.js?v=155"></script>
+<script src="js/supabaseClient.js?v=155"></script>
+<script src="js/report-pdf.js?v=155"></script>
+<script src="js/app.js?v=155"></script>
+<script src="js/meetings-tracker.js?v=155"></script>
+<script src="js/todo.js?v=155"></script>
 </body>
 </html>
