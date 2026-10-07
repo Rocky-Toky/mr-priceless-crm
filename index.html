@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=152">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=152">
+<link rel="stylesheet" href="css/style.css?v=153">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=153">
 </head>
 <body>
 
@@ -989,10 +989,10 @@
       </div>
       <div class="stat-grid stat-grid-5">
         <div class="stat-card"><div class="stat-label">Total Creatives</div><div class="stat-value" id="creative-stat-total">0</div></div>
-        <div class="stat-card"><div class="stat-label">Winners</div><div class="stat-value" id="creative-stat-winners">0</div></div>
-        <div class="stat-card"><div class="stat-label">Testing</div><div class="stat-value" id="creative-stat-testing">0</div></div>
-        <div class="stat-card"><div class="stat-label">Killed</div><div class="stat-value" id="creative-stat-killed">0</div></div>
-        <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="creative-stat-winrate">-</div></div>
+        <div class="stat-card"><div class="stat-label">Top Performers</div><div class="stat-value" id="creative-stat-winners">0</div></div>
+        <div class="stat-card"><div class="stat-label">Average Performers</div><div class="stat-value" id="creative-stat-testing">0</div></div>
+        <div class="stat-card"><div class="stat-label">Low Performers</div><div class="stat-value" id="creative-stat-killed">0</div></div>
+        <div class="stat-card"><div class="stat-label">Top Rate</div><div class="stat-value" id="creative-stat-winrate">-</div><div class="stat-sub">top vs low performers</div></div>
       </div>
       <div class="creative-status-strip" id="creative-status-strip"></div>
       <div class="toolbar">
@@ -1001,10 +1001,9 @@
         </select>
         <select class="filter-select" id="creative-filter-result">
           <option value="">All Results</option>
-          <option value="testing">Testing</option>
-          <option value="winner">Winner</option>
-          <option value="killed">Killed</option>
-          <option value="engagement">Engagement Post</option>
+          <option value="winner">Top Performer</option>
+          <option value="testing">Average Performer</option>
+          <option value="killed">Low Performer</option>
         </select>
         <select class="filter-select" id="creative-filter-delivery">
           <option value="">All Delivery Statuses</option>
@@ -1951,10 +1950,9 @@
       <div class="field"><label>Facebook Ad ID (optional)</label><input type="text" id="ad-creative-meta-id" placeholder="e.g. 120211234567890123 - pulls live stats"></div>
       <div class="field"><label>Result</label>
         <select id="ad-creative-result">
-          <option value="testing">Testing</option>
-          <option value="winner">Winner</option>
-          <option value="killed">Killed</option>
-          <option value="engagement">Engagement Post</option>
+          <option value="winner">Top Performer</option>
+          <option value="testing">Average Performer</option>
+          <option value="killed">Low Performer</option>
         </select>
       </div>
       <div class="field">
@@ -2160,11 +2158,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=152"></script>
-<script src="js/supabaseClient.js?v=152"></script>
-<script src="js/report-pdf.js?v=152"></script>
-<script src="js/app.js?v=152"></script>
-<script src="js/meetings-tracker.js?v=152"></script>
-<script src="js/todo.js?v=152"></script>
+<script src="js/config.js?v=153"></script>
+<script src="js/supabaseClient.js?v=153"></script>
+<script src="js/report-pdf.js?v=153"></script>
+<script src="js/app.js?v=153"></script>
+<script src="js/meetings-tracker.js?v=153"></script>
+<script src="js/todo.js?v=153"></script>
 </body>
 </html>

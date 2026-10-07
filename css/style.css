@@ -1537,3 +1537,4 @@ button.onb-task-hit:hover .task-check:not(.done){border-color:var(--gold);}
 .rp-totals b.gold{color:var(--gold-bright);}
 @media (max-width:900px){.rp-row{grid-template-columns:auto minmax(0,1fr) auto;}.rp-row-stat{display:none;}.rp-row-actions{grid-column:1/-1;justify-content:flex-start;flex-wrap:wrap;}}
 @media (max-width:640px){.rp-grid-2,.rp-grid-3,.rp-grid-4,.rp-totals,.rp-kpis{grid-template-columns:repeat(2,minmax(0,1fr));}.rp-row .onb-status{display:none;}}
+.cr-seg-low,.cr-chip-low{--seg:#c96a4a;}
