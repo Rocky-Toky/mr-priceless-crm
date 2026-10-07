@@ -50,11 +50,15 @@ const CONTENT_TYPES = {
   post: { label: "Post", cls: "green" },
   other: { label: "Other", cls: "gray" },
 };
+// How a creative is performing. The stored values are the original ones
+// (winner / testing / killed) so every existing creative keeps its rating;
+// only the labels changed. "engagement" is retired - no longer offered, but
+// old engagement posts keep their tag.
 const AD_RESULTS = {
-  testing: { label: "Testing", cls: "gray" },
-  winner: { label: "Winner", cls: "green" },
-  killed: { label: "Killed", cls: "red" },
-  engagement: { label: "Engagement Post", cls: "blue" },
+  winner: { label: "Top Performer", cls: "green" },
+  testing: { label: "Average Performer", cls: "gold" },
+  killed: { label: "Low Performer", cls: "red" },
+  engagement: { label: "Engagement Post", cls: "blue", retired: true },
 };
 // Meta's real delivery status per ad, pulled live via sync/refresh - distinct
 // from the manually-set AD_RESULTS tag above.
@@ -4719,18 +4723,20 @@ const CREATIVE_SEG_PREVIEW = 4;
 const CREATIVE_SEGMENTS = [
   { key: "refresh", label: "Needs a refresh", blurb: "Live ads you've flagged as fatiguing. Line up replacements before results drop off." },
   { key: "attention", label: "Needs attention", blurb: "Meta has these held up: disapproved, in review, or a billing issue." },
-  { key: "performing", label: "Performing", blurb: "Winners, and live ads beating your average cost per lead." },
-  { key: "testing", label: "Testing", blurb: "Live or new ads still proving themselves." },
-  { key: "off", label: "Not running", blurb: "Paused or killed. Kept here for reference.", collapsed: true },
+  { key: "performing", label: "Top performers", blurb: "Rated top performer, or live and beating your average cost per lead." },
+  { key: "testing", label: "Average performers", blurb: "Live or new ads doing an okay job." },
+  { key: "low", label: "Low performers", blurb: "Not pulling their weight. Pause or replace them." },
+  { key: "off", label: "Not running", blurb: "Paused in Meta. Kept here for reference.", collapsed: true },
   { key: "engagement", label: "Engagement posts", blurb: "Not lead-gen ads, so they sit apart from the rest.", collapsed: true },
 ];
 function creativeSegmentOf(a, tierCls){
   if (a.result === "engagement") return "engagement";
   const group = DELIVERY_STATUS[a.delivery_status]?.group;
   if (group === "attention") return "attention";
-  const off = group === "paused" || a.result === "killed";
+  const off = group === "paused";
   if (!off && (a.fatigue_status === "fatiguing" || a.fatigue_status === "fatigued")) return "refresh";
   if (off) return "off";
+  if (a.result === "killed") return "low";
   if (a.result === "winner" || tierCls === "creative-metric-good") return "performing";
   return "testing";
 }
@@ -7676,7 +7682,10 @@ function setupModals(){
       populateAdCreativeCampaignSelect(a.client_id, a.campaign_id);
       $("#ad-creative-name").value = a.name||"";
       $("#ad-creative-meta-id").value = a.meta_ad_id||"";
-      $("#ad-creative-result").value = a.result||"testing";
+      const resultSel = $("#ad-creative-result");
+      resultSel.querySelector('option[value="engagement"]')?.remove();
+      if (a.result === "engagement") resultSel.insertAdjacentHTML("beforeend", `<option value="engagement">Engagement Post</option>`);
+      resultSel.value = a.result||"testing";
       $("#ad-creative-notes").value = a.notes||"";
       $("#ad-creative-image").value = "";
       $("#ad-creative-current-image").innerHTML = a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="ad-creative-thumb">` : "";
