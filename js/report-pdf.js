@@ -48,6 +48,10 @@ async function makeKit(){
     return { m, x, mSet: new Set(m.getCharacterSet()), xSet: new Set(x.getCharacterSet()) };
   };
   const F = { r: await pair("r", "rX"), sb: await pair("sb", "sbX"), b: await pair("b", "bX"), d7: await pair("d7", "d7X"), d8: await pair("d8", "d8X") };
+  // The real logo (light version for the dark pages).
+  const logoRes = await fetch("assets/logo-light.png?v=1"); if (!logoRes.ok) throw new Error("Couldn't load the logo.");
+  const logo = await pdf.embedPng(await logoRes.arrayBuffer());
+  const drawLogo = (page, x, y, h) => page.drawImage(logo, { x, y, width: h * logo.width / logo.height, height: h });
 
   // Text in runs, so letters outside basic Latin (macrons) use the extended font.
   const runs = (f, text) => {
@@ -93,16 +97,16 @@ async function makeKit(){
   const hr = (page, x1, x2, y, color = C.line, t = 0.7) => page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness: t, color: hex(color) });
   const vr = (page, x, y1, y2, color = C.line) => page.drawLine({ start: { x, y: y1 }, end: { x, y: y2 }, thickness: 0.7, color: hex(color) });
   const tick = (page, cx, cy, s, color) => page.drawSvgPath(`M ${-s*0.45} ${s*0.02} L ${-s*0.12} ${s*0.32} L ${s*0.48} ${-s*0.3}`, { x: cx, y: cy, borderColor: hex(color), borderWidth: s * 0.22, borderLineCap: 1 });
-  return { pdf, F, runs, width, text, label, wrap, box, hr, vr, tick };
+  return { pdf, F, runs, width, text, label, wrap, box, hr, vr, tick, drawLogo };
 }
 
 async function build(data){
-  const { pdf, F, width, text, label, wrap, box, hr, vr, tick } = await makeKit();
+  const { pdf, F, width, text, label, wrap, box, hr, vr, tick, drawLogo } = await makeKit();
 
   const newPage = (n) => {
     const page = pdf.addPage([W, H]);
     page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: hex(C.bg) });
-    text(page, "MR. PRICELESS", M, H - 50, { f: F.d8, size: 14, ls: 3 });
+    drawLogo(page, M, H - 64, 34);
     label(page, "Performance report", W - M, H - 44, { align: "right", color: C.gold, size: 7, ls: 1.6 });
     text(page, `Report ${data.reportNumber} · ${data.periodLabel}`, W - M, H - 57, { align: "right", size: 8.5, color: C.muted });
     hr(page, M, W - M, H - 70, C.gold2, 0.9);
