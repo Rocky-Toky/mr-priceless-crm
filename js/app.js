@@ -3893,7 +3893,7 @@ async function buildWelcomePackPdf(values){
   // answer goes and in what size, weight and colour, so answers read as part
   // of the page rather than as filled-in boxes.
   const [tpl, layout, f400, f600, f700, e400, e600, e700] = await Promise.all([
-    get("assets/welcome-pack-template.pdf?v=4", "welcome pack template"),
+    get("assets/welcome-pack-template.pdf?v=5", "welcome pack template"),
     get("assets/welcome-pack-layout.json?v=4", "welcome pack layout", "json"),
     get("assets/fonts/figtree-400.ttf?v=1", "brand font"),
     get("assets/fonts/figtree-600.ttf?v=1", "brand font"),
