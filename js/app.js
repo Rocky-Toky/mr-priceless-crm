@@ -3903,7 +3903,8 @@ async function buildWelcomePackPdf(values){
   // Each weight comes in two halves: basic Latin, and the extended letters
   // (macrons for te reo place names and the like).
   const pair = async (main, ext) => {
-    const m = await pdf.embedFont(main), x = await pdf.embedFont(ext);
+    const opt = { features: { calt: false, liga: false, rvrn: false, rlig: false } };
+    const m = await pdf.embedFont(main, opt), x = await pdf.embedFont(ext, opt);
     return { m, x, mSet: new Set(m.getCharacterSet()), xSet: new Set(x.getCharacterSet()) };
   };
   const fonts = { 400: await pair(f400, e400), 600: await pair(f600, e600), 700: await pair(f700, e700) };
@@ -5005,64 +5006,336 @@ function renderWeeklyReport(){
   }
 }
 
-/* ───────── Render: Reporting (Meta Ads client reports) ───────── */
-function reportDueLabel(client){
-  if (!client.last_report_sent_at) return "Due now";
-  const dueAt = new Date(client.last_report_sent_at).getTime() + REPORT_CADENCE_DAYS*24*60*60*1000;
-  return dueAt <= Date.now() ? "Due now" : fmtDate(new Date(dueAt));
+/* ───────── Reporting: fortnightly finance reports ─────────
+   One report per client per fortnight, made here and handed over as a PDF
+   to drag into an email (drawn by js/report-pdf.js). Each report's numbers
+   are saved in client_reports (metrics.kind = "fortnightly") so totals to
+   date build up report by report and past reports can be downloaded again.
+   Revenue, jobs and open quotes can be pulled from the client's GHL through
+   the ghl-report-data function; everything stays editable before making it. */
+const FORTNIGHT_DAYS = 14;
+const REPORT_KIND = "fortnightly";
+const isActiveReportClient = (c) => !["onboarding", "churned"].includes(c.stage || "onboarding");
+function fortnightlyReportsFor(clientId){
+  return state.clientReports
+    .filter(r => r.client_id === clientId && r.metrics?.kind === REPORT_KIND)
+    .sort((a, b) => String(a.period_end).localeCompare(String(b.period_end)));
 }
-function renderReporting(){
-  const tbody = $("#reporting-tbody");
-  if (!tbody) return;
-  const configured = state.clients.filter(c => c.meta_ad_account_id);
-  $("#reporting-stat-configured").textContent = configured.length;
-  $("#reporting-stat-due").textContent = configured.filter(c => reportDueLabel(c) === "Due now").length;
-  $("#reporting-stat-sent").textContent = state.clientReports.filter(r => r.status === "sent").length;
+function addDays(dateStr, n){ const d = localDateOnly(dateStr); d.setDate(d.getDate() + n); return localDayStr(d); }
+function fmtPeriod(from, to){
+  const a = localDateOnly(from), b = localDateOnly(to);
+  if (!a || !b) return "";
+  const sameMonth = a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+  const d = (x, o) => x.toLocaleDateString("en-NZ", o);
+  return sameMonth ? `${a.getDate()}–${d(b, { day: "numeric", month: "long", year: "numeric" })}` : `${d(a, { day: "numeric", month: "long" })} – ${d(b, { day: "numeric", month: "long", year: "numeric" })}`;
+}
+// When the next report is due: a fortnight after the last one ended.
+function reportDueInfo(c){
+  const reps = fortnightlyReportsFor(c.id);
+  const last = reps[reps.length - 1];
+  if (!last) return { due: true, label: "First report due", last: null };
+  const nextEnd = addDays(last.period_end, FORTNIGHT_DAYS);
+  const days = daysBetween(localDateOnly(localDayStr()), localDateOnly(nextEnd));
+  return { due: days <= 0, label: days <= 0 ? (days === 0 ? "Due today" : `Due ${-days}d ago`) : `Due in ${days}d`, last };
+}
+// Matches the report: whole numbers from 10× up, one decimal below.
+const fmtTimes = (v) => v == null || !isFinite(v) ? "-" : (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + "×";
+const sumField = (reps, key) => reps.reduce((s, r) => s + (Number(r.metrics?.[key]) || 0), 0);
+const toNum = (v) => v === "" || v == null || isNaN(Number(v)) ? null : Number(v);
+// The numbers for a report, from what the CRM already knows.
+function reportPrefill(c, from, to){
+  const prev = fortnightlyReportsFor(c.id).filter(r => r.period_end < from);
+  const last = prev[prev.length - 1];
+  const creatives = state.adCreatives.filter(a => a.client_id === c.id);
+  const lifetimeSpend = creatives.reduce((s, a) => s + (Number(a.spend) || 0), 0);
+  const inPeriod = (d) => d && String(d).slice(0, 10) >= from && String(d).slice(0, 10) <= to;
+  const leads = state.clientLeads.filter(l => l.client_id === c.id && inPeriod(l.lead_created_at || l.imported_at));
+  const retainer = clientRetainer(c);
+  const withResults = creatives.filter(a => Number(a.results) > 0 && a.cost_per_result != null);
+  const best = [...withResults].sort((a, b) => a.cost_per_result - b.cost_per_result)[0];
+  return {
+    reportNumber: prev.length + 1,
+    adSpendFortnight: last?.metrics?.ad_lifetime_spend != null && lifetimeSpend ? Math.max(0, Math.round(lifetimeSpend - last.metrics.ad_lifetime_spend)) : "",
+    mgmtFortnight: retainer != null ? Math.round(retainer * 12 / 26) : "",
+    enquiries: leads.length || "",
+    quoteReady: leads.filter(l => classifyLeadStatus(l.status) === "Qualified").length || "",
+    topAdId: best?.id || "",
+    lifetimeSpend,
+    prev,
+  };
+}
+// Default period: the fortnight after the last report, or the last 14 days.
+function defaultReportPeriod(c){
+  const reps = fortnightlyReportsFor(c.id);
+  const last = reps[reps.length - 1];
+  if (last){ const from = addDays(last.period_end, 1); return { from, to: addDays(from, FORTNIGHT_DAYS - 1) }; }
+  const to = addDays(localDayStr(), -1);
+  return { from: addDays(to, -(FORTNIGHT_DAYS - 1)), to };
+}
+const REPORT_FIELDS = ["from", "to", "revenueFortnight", "jobsFortnight", "openQuotesValue", "openQuotesCount", "revenueToDateOverride", "adSpendFortnight", "mgmtFortnight", "enquiries", "quoteReady", "quoted", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"];
+let rpClientId = null, rpLastUrl = null, rpLastName = "", rpExisting = null;
+function rpVal(k){ return $("#rp-" + k)?.value ?? ""; }
+function rpSet(k, v){ const el = $("#rp-" + k); if (el) el.value = v ?? ""; }
 
-  if (!configured.length){ tbody.innerHTML = `<tr><td colspan="6">${emptyState("No clients have a Meta Ad Account linked yet. Add one from a client's Edit Client form.")}</td></tr>`; return; }
-  tbody.innerHTML = configured.map(c => {
-    const reportCount = state.clientReports.filter(r => r.client_id === c.id).length;
+function openReportModal(clientId, existingId){
+  const c = state.clients.find(x => x.id === clientId);
+  if (!c) return;
+  rpClientId = c.id;
+  rpExisting = existingId ? state.clientReports.find(r => r.id === existingId) : null;
+  $("#rp-title").textContent = `Fortnightly report · ${c.name}`;
+  $("#report-form").hidden = false; $("#rp-done").hidden = true;
+  REPORT_FIELDS.forEach(k => rpSet(k, ""));
+  const creatives = state.adCreatives.filter(a => a.client_id === c.id);
+  $("#rp-topAdId").innerHTML = `<option value="">No ad this time</option>` + creatives.map(a => `<option value="${a.id}">${escapeHtml(a.name)}${a.cost_per_result != null ? ` · ${fmtMoney(a.cost_per_result)}/lead` : ""}</option>`).join("");
+  if (rpExisting){
+    const m = rpExisting.metrics || {};
+    rpSet("from", rpExisting.period_start); rpSet("to", rpExisting.period_end);
+    REPORT_FIELDS.slice(2).forEach(k => rpSet(k, m[k] ?? ""));
+  } else {
+    const per = defaultReportPeriod(c);
+    rpSet("from", per.from); rpSet("to", per.to);
+    rpApplyPrefill(c);
+  }
+  rpStatus("");
+  rpRenderTotals();
+  rpRenderGhl(c);
+  openModal("report-modal");
+}
+function rpApplyPrefill(c){
+  const pre = reportPrefill(c, rpVal("from"), rpVal("to"));
+  ["adSpendFortnight", "mgmtFortnight", "enquiries", "quoteReady", "topAdId"].forEach(k => { if (!rpVal(k)) rpSet(k, pre[k]); });
+}
+function rpStatus(msg, warn){ const el = $("#rp-status"); if (el){ el.textContent = msg; el.classList.toggle("warn", !!warn); } }
+// Totals to date: every earlier report plus this one.
+function rpTotals(c){
+  const from = rpVal("from");
+  const prev = fortnightlyReportsFor(c.id).filter(r => r.period_end < from && r.id !== rpExisting?.id);
+  const rev = toNum(rpVal("revenueFortnight")) || 0, spend = toNum(rpVal("adSpendFortnight")) || 0, mgmt = toNum(rpVal("mgmtFortnight")) || 0;
+  const revenueToDate = toNum(rpVal("revenueToDateOverride")) ?? (sumField(prev, "revenueFortnight") + rev);
+  const adSpendToDate = sumField(prev, "adSpendFortnight") + spend, mgmtToDate = sumField(prev, "mgmtFortnight") + mgmt;
+  const investedFortnight = spend + mgmt, investedToDate = adSpendToDate + mgmtToDate;
+  return { prev, revenueToDate, adSpendToDate, mgmtToDate, investedFortnight, investedToDate,
+    roiFortnight: investedFortnight ? rev / investedFortnight : null, roiToDate: investedToDate ? revenueToDate / investedToDate : null };
+}
+function rpRenderTotals(){
+  const c = state.clients.find(x => x.id === rpClientId);
+  const el = $("#rp-totals");
+  if (!c || !el) return;
+  const t = rpTotals(c);
+  const x = fmtTimes;
+  el.innerHTML = `
+    <div><span>Revenue to date</span><b>${fmtMoney(t.revenueToDate)}</b></div>
+    <div><span>Invested to date</span><b>${fmtMoney(t.investedToDate)}</b></div>
+    <div><span>Return this fortnight</span><b>${x(t.roiFortnight)}</b></div>
+    <div><span>Return to date</span><b class="gold">${x(t.roiToDate)}</b></div>`;
+  $("#rp-period-note").textContent = `Report ${t.prev.length + 1} · ${fmtPeriod(rpVal("from"), rpVal("to"))}`;
+}
+
+/* GHL connection (through the ghl-report-data function, so the key never reaches the browser). */
+async function ghlCall(body){
+  if (!IS_CONFIGURED) return { error: "demo" };
+  const { data, error } = await supabase.functions.invoke("ghl-report-data", { body });
+  if (error){
+    let msg = error.message || "Couldn't reach GHL.";
+    try { const j = await error.context?.json?.(); if (j?.error) msg = j.error; } catch(e){}
+    return { error: msg };
+  }
+  return data || {};
+}
+async function rpRenderGhl(c){
+  const box = $("#rp-ghl");
+  if (!box) return;
+  if (!IS_CONFIGURED){ box.innerHTML = `<span class="rp-ghl-note">GHL pulls work on the live CRM. In demo mode, type the numbers in.</span>`; return; }
+  box.innerHTML = `<span class="rp-ghl-note">Checking GHL…</span>`;
+  const s = await ghlCall({ action: "status", client_id: c.id });
+  if (rpClientId !== c.id) return;
+  if (s.error){
+    box.innerHTML = `<span class="rp-ghl-note warn">GHL isn't set up on the server yet (${escapeHtml(s.error)}). Type the numbers in for now.</span>`;
+    return;
+  }
+  box.innerHTML = s.connected
+    ? `<span class="rp-ghl-ok">GHL connected</span><button type="button" class="btn gold sm" data-action="rp-ghl-pull">Pull from GHL</button><button type="button" class="btn ghost sm" data-action="rp-ghl-connect-show">Change</button>`
+    : `<span class="rp-ghl-note">Connect ${escapeHtml(c.name)}'s GHL to fill revenue, jobs and quotes automatically.</span><button type="button" class="btn ghost sm" data-action="rp-ghl-connect-show">Connect GHL</button>`;
+}
+async function rpGhlPull(){
+  const c = state.clients.find(x => x.id === rpClientId);
+  if (!c) return;
+  rpStatus("Pulling from GHL…");
+  const r = await ghlCall({ action: "pull", client_id: c.id, from: rpVal("from"), to: rpVal("to") });
+  if (r.error){ rpStatus(`Couldn't pull from GHL: ${r.error}`, true); return; }
+  const m = r.metrics || {};
+  const set = (k, v) => { if (v != null) rpSet(k, v); };
+  set("revenueFortnight", m.revenue_won); set("jobsFortnight", m.jobs_won);
+  set("openQuotesValue", m.open_quotes_value); set("openQuotesCount", m.open_quotes);
+  set("revenueToDateOverride", m.revenue_won_to_date);
+  set("enquiries", m.enquiries); set("quoted", m.quoted);
+  if (m.quote_ready != null) set("quoteReady", m.quote_ready);
+  rpRenderTotals();
+  rpStatus(`Pulled from GHL: ${m.opportunities_checked ?? 0} opportunities checked${m.quote_stage_names?.length ? `, quote stages: ${m.quote_stage_names.join(", ")}` : ""}. Check the numbers, then make the report.`);
+}
+async function rpGhlConnect(){
+  const c = state.clients.find(x => x.id === rpClientId);
+  const location_id = $("#rp-ghl-location").value.trim(), token = $("#rp-ghl-token").value.trim();
+  if (!c || !location_id || !token){ rpStatus("Add the GHL location ID and the private integration key.", true); return; }
+  rpStatus("Connecting to GHL…");
+  const r = await ghlCall({ action: "connect", client_id: c.id, location_id, token });
+  if (r.error){ rpStatus(`Couldn't connect: ${r.error}`, true); return; }
+  $("#rp-ghl-connect").hidden = true;
+  $("#rp-ghl-token").value = "";
+  rpStatus(`Connected to ${r.location_name || "GHL"}.`);
+  rpRenderGhl(c);
+}
+
+/* Making the PDF */
+async function loadImageBytes(url){
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) return null;
+    const type = (res.headers.get("content-type") || "").includes("png") ? "png" : "jpg";
+    if (!/png|jpe?g/i.test(res.headers.get("content-type") || "jpeg")) return null;
+    return { bytes: await res.arrayBuffer(), type };
+  } catch(e){ return null; }
+}
+async function makeReport(){
+  const c = state.clients.find(x => x.id === rpClientId);
+  if (!c) return;
+  const from = rpVal("from"), to = rpVal("to");
+  if (!from || !to || to < from){ rpStatus("Pick the fortnight's start and end dates.", true); return; }
+  const btn = $("#rp-make"); btn.disabled = true; rpStatus("Making the report…");
+  try {
+    await wpLoadLibs();
+    const t = rpTotals(c);
+    const form = Object.fromEntries(REPORT_FIELDS.map(k => [k, rpVal(k).trim ? rpVal(k).trim() : rpVal(k)]));
+    const n = (k) => toNum(form[k]);
+    const ad = state.adCreatives.find(a => a.id === form.topAdId);
+    const clientResults = state.adCreatives.filter(a => a.client_id === c.id).reduce((s, a) => s + (Number(a.results) || 0), 0);
+    const img = ad ? await loadImageBytes(ad.image_url) : null;
+    const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+    const person = window.getActivePerson ? window.getActivePerson() : null;
+    let am = {}; try { am = JSON.parse(localStorage.getItem(wpAmKey(person)) || "{}"); } catch(e){}
+    const firstReport = t.prev[0];
+    const sinceDate = firstReport?.period_start || c.ad_start_date || from;
+    const spendF = n("adSpendFortnight"), enq = n("enquiries"), ready = n("quoteReady"), quoted = n("quoted"), jobs = n("jobsFortnight"), rev = n("revenueFortnight");
+    const data = {
+      clientName: c.name, reportNumber: t.prev.length + 1, periodLabel: fmtPeriod(from, to),
+      since: localDateOnly(sinceDate).toLocaleDateString("en-NZ", { month: "long", year: "numeric" }),
+      revenueFortnight: rev ?? 0, jobsFortnight: jobs ?? 0, revenueToDate: t.revenueToDate,
+      openQuotesValue: n("openQuotesValue"), openQuotesCount: n("openQuotesCount"),
+      adSpendFortnight: spendF, adSpendToDate: t.adSpendToDate, mgmtFortnight: n("mgmtFortnight"), mgmtToDate: t.mgmtToDate,
+      investedFortnight: t.investedFortnight, investedToDate: t.investedToDate, roiFortnight: t.roiFortnight, roiToDate: t.roiToDate,
+      enquiries: enq, quoteReady: ready, quoted, won: jobs,
+      guaranteeTarget: c.quote_target || null, guaranteeDelivered: c.quotes_sent || 0, guaranteeLabel: "Quote guarantee",
+      summary: form.summary, didList: [form.did1, form.did2, form.did3], nextList: [form.next1, form.next2, form.next3],
+      topAd: ad ? { name: ad.name, leads: ad.results, cpl: ad.cost_per_result, share: clientResults ? Math.round((Number(ad.results) || 0) / clientResults * 100) : null, imageBytes: img?.bytes, imageType: img?.type } : null,
+      hood: [
+        ["Cost per enquiry", spendF != null && enq ? fmtMoney(spendF / enq) : null, "Ad spend divided by every enquiry, qualified or not"],
+        ["Cost per quote-ready lead", spendF != null && ready ? fmtMoney(spendF / ready) : null, "Ad spend divided by the leads ready for a quote"],
+        ["Quote rate", ready && quoted != null ? Math.round(quoted / ready * 100) + "%" : null, "Share of quote-ready leads that got a quote"],
+        ["Close rate", quoted && jobs != null ? Math.round(jobs / quoted * 100) + "%" : null, "Share of quotes that turned into signed jobs"],
+        ["Average job value", jobs && rev ? fmtMoney(rev / jobs) : null, "Revenue won divided by jobs signed"],
+      ],
+      contactName: am.account_manager || ASSIGNEES[deal?.assignee]?.label || "", contactPhone: am.phone || "",
+    };
+    const bytes = await window.MPReportPDF.build(data);
+    // Save this fortnight's numbers so the next report's totals build on them.
+    const metrics = { kind: REPORT_KIND, ...Object.fromEntries(REPORT_FIELDS.slice(2).map(k => [k, form[k]])),
+      report_number: data.reportNumber, revenueToDate: t.revenueToDate, investedToDate: t.investedToDate, roiToDate: t.roiToDate,
+      ad_lifetime_spend: state.adCreatives.filter(a => a.client_id === c.id).reduce((s, a) => s + (Number(a.spend) || 0), 0) };
+    const row = { client_id: c.id, period_start: from, period_end: to, metrics, status: "made" };
+    const same = rpExisting || fortnightlyReportsFor(c.id).find(r => r.period_start === from && r.period_end === to);
+    if (same) await DataLayer.update("client_reports", same.id, row); else await DataLayer.insert("client_reports", row);
+    if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+
+    if (rpLastUrl) URL.revokeObjectURL(rpLastUrl);
+    rpLastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    rpLastName = `Mr Priceless Fortnightly Report - ${(c.name || "Client").replace(/[\\/:*?"<>|]+/g, "")} - ${to}.pdf`;
+    const link = $("#rp-file"); link.href = rpLastUrl; link.download = rpLastName;
+    $("#rp-file-name").textContent = rpLastName;
+    const a = document.createElement("a"); a.href = rpLastUrl; a.download = rpLastName; document.body.appendChild(a); a.click(); a.remove();
+    $("#report-form").hidden = true; $("#rp-done").hidden = false;
+    rpStatus("");
+  } catch(err){
+    console.error(err);
+    rpStatus("Couldn't make the report: " + (err.message || err), true);
+  } finally { btn.disabled = false; }
+}
+
+/* The Reporting page */
+function renderReporting(){
+  const list = $("#rp-client-list");
+  if (!list) return;
+  const clients = state.clients.filter(isActiveReportClient).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const infos = new Map(clients.map(c => [c.id, reportDueInfo(c)]));
+  const due = clients.filter(c => infos.get(c.id).due);
+  const thisMonth = localDayStr().slice(0, 7);
+  const monthReports = state.clientReports.filter(r => r.metrics?.kind === REPORT_KIND && String(r.period_end).slice(0, 7) === thisMonth);
+  const revenueMonth = monthReports.reduce((s, r) => s + (Number(r.metrics.revenueFortnight) || 0), 0);
+  const rois = clients.map(c => infos.get(c.id).last?.metrics?.roiToDate).filter(v => v != null && isFinite(v));
+  const kpis = $("#rp-kpis");
+  if (kpis) kpis.innerHTML = `
+    <div class="onb-kpi ${due.length ? "warn" : ""}"><span class="onb-kpi-label">Reports due</span><span class="onb-kpi-value">${due.length}</span><span class="onb-kpi-sub">${due.length ? "of " + clients.length + " active clients" : "all caught up"}</span></div>
+    <div class="onb-kpi"><span class="onb-kpi-label">Revenue reported this month</span><span class="onb-kpi-value">${fmtMoney(revenueMonth)}</span><span class="onb-kpi-sub">across ${monthReports.length} report${monthReports.length === 1 ? "" : "s"}</span></div>
+    <div class="onb-kpi"><span class="onb-kpi-label">Average return to date</span><span class="onb-kpi-value">${rois.length ? fmtTimes(rois.reduce((a, b) => a + b, 0) / rois.length) : "-"}</span><span class="onb-kpi-sub">from each client's latest report</span></div>`;
+  if (!clients.length){ list.innerHTML = `<div class="card onb-empty"><div><h3>No active clients to report on</h3><p>Clients get reports once they've finished onboarding.</p></div></div>`; return; }
+  const order = [...clients].sort((a, b) => (infos.get(b.id).due - infos.get(a.id).due) || (a.name || "").localeCompare(b.name || ""));
+  list.innerHTML = order.map(c => {
+    const info = infos.get(c.id), m = info.last?.metrics || {};
+    const reps = fortnightlyReportsFor(c.id).slice().reverse();
     return `
-      <tr data-id="${c.id}">
-        <td><div class="row-name">${escapeHtml(c.name)}</div><div class="row-sub">${escapeHtml(c.meta_ad_account_id)}</div></td>
-        <td>${c.last_report_sent_at ? fmtDate(c.last_report_sent_at) : "Never"}</td>
-        <td>${reportDueLabel(c)}</td>
-        <td>${escapeHtml(c.report_email || "-")}</td>
-        <td style="text-align:right;white-space:nowrap;">
-          <button class="btn ghost" data-action="view-report-history" data-id="${c.id}">History (${reportCount})</button>
-          <button class="btn gold" data-action="send-report-now" data-id="${c.id}">Send Now</button>
-        </td>
-      </tr>
-    `;
+      <article class="rp-row ${info.due ? "is-due" : ""}">
+        <span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>
+        <div class="rp-row-id">
+          <div class="rp-row-name">${escapeHtml(c.name)}</div>
+          <div class="rp-row-sub">${info.last ? `Last: report ${m.report_number || reps.length} · ${escapeHtml(fmtPeriod(info.last.period_start, info.last.period_end))}` : "No reports yet"}</div>
+        </div>
+        <div class="rp-row-stat"><span>Revenue to date</span><b>${info.last ? fmtMoney(m.revenueToDate) : "-"}</b></div>
+        <div class="rp-row-stat"><span>Return to date</span><b>${fmtTimes(m.roiToDate)}</b></div>
+        <span class="onb-status ${info.due ? "client" : "track"}">${escapeHtml(info.label)}</span>
+        <div class="rp-row-actions">
+          ${reps.length ? `<select class="filter-select rp-past" data-client="${c.id}" aria-label="Past reports for ${escapeHtml(c.name)}"><option value="">Past reports (${reps.length})</option>${reps.map(r => `<option value="${r.id}">Report ${r.metrics.report_number || ""} · ${escapeHtml(fmtPeriod(r.period_start, r.period_end))}</option>`).join("")}</select>` : ""}
+          <button type="button" class="btn gold sm" data-action="make-report" data-id="${c.id}">Make report</button>
+        </div>
+      </article>`;
   }).join("");
   ensureWeeklyCreativeSnapshot();
 }
-async function sendReportNow(clientId){
-  const client = state.clients.find(c => c.id === clientId);
-  if (!client) return;
-  if (!client.meta_ad_account_id || !client.report_email){ alert("This client needs a Meta Ad Account ID and a report email set first."); return; }
-  if (!IS_CONFIGURED){
-    // Demo mode: simulate what the real Edge Function would do, so the flow is testable without live Meta/Resend credentials.
-    const periodEnd = new Date(), periodStart = new Date(Date.now() - REPORT_CADENCE_DAYS*86400e3);
-    await DataLayer.insert("client_reports", {
-      client_id: clientId,
-      period_start: periodStart.toISOString().slice(0,10),
-      period_end: periodEnd.toISOString().slice(0,10),
-      metrics: { spend:"512.00", impressions:"30120", reach:"14802", clicks:"401", ctr:"1.33", cpc:"1.28", cpm:"17.00", actions:[{action_type:"lead",value:"12"}], cost_per_action_type:[{action_type:"lead",value:"42.67"}] },
-      status: "sent",
-    });
-    await DataLayer.update("clients", clientId, { last_report_sent_at: new Date().toISOString() });
-    alert(`Demo mode: simulated sending ${client.name}'s report to ${client.report_email}. Connect Supabase + Meta + Resend for a real send.`);
-    return;
-  }
-  const btn = document.querySelector(`[data-action="send-report-now"][data-id="${clientId}"]`);
-  if (btn){ btn.disabled = true; btn.textContent = "Sending..."; }
-  const { data, error } = await supabase.functions.invoke("generate-client-reports", { body: { client_id: clientId } });
-  if (error){ alert("Couldn't send the report: " + error.message); }
-  else if (data?.results?.[0]?.status === "failed"){ alert("Report failed: " + data.results[0].error); }
-  else { alert(`Report sent to ${client.report_email}.`); }
-  await DataLayer.fetchAll(); renderAll();
+function setupReporting(){
+  $("#report-form")?.addEventListener("input", (e) => {
+    if (e.target.closest("#rp-ghl-connect")) return;
+    rpRenderTotals();
+  });
+  $("#report-form")?.addEventListener("change", (e) => {
+    if (e.target.id === "rp-from" || e.target.id === "rp-to"){
+      if (e.target.id === "rp-from" && rpVal("from")) rpSet("to", addDays(rpVal("from"), FORTNIGHT_DAYS - 1));
+      const c = state.clients.find(x => x.id === rpClientId);
+      if (c && !rpExisting) rpApplyPrefill(c);
+      rpRenderTotals();
+    }
+  });
+  $("#report-form")?.addEventListener("submit", (e) => { e.preventDefault(); makeReport(); });
+  $("#rp-client-list")?.addEventListener("change", (e) => {
+    const sel = e.target.closest(".rp-past");
+    if (!sel || !sel.value) return;
+    const id = sel.value; sel.value = "";
+    openReportModal(sel.dataset.client, id);
+  });
+  $("#rp-file")?.addEventListener("dragstart", (e) => {
+    if (!rpLastUrl) return;
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("DownloadURL", `application/pdf:${rpLastName}:${rpLastUrl}`);
+  });
+  $("#rp-preview")?.addEventListener("click", () => { if (rpLastUrl) window.open(rpLastUrl, "_blank"); });
+  $("#rp-edit")?.addEventListener("click", () => { $("#rp-done").hidden = true; $("#report-form").hidden = false; });
 }
+async function handleReportAction(action, id){
+  if (action === "make-report"){ openReportModal(id); return true; }
+  if (action === "rp-ghl-pull"){ await rpGhlPull(); return true; }
+  if (action === "rp-ghl-connect-show"){ $("#rp-ghl-connect").hidden = false; $("#rp-ghl-location")?.focus(); return true; }
+  if (action === "rp-ghl-connect"){ await rpGhlConnect(); return true; }
+  return false;
+}
+
 async function syncClientAds(clientId, btnEl){
   const client = state.clients.find(c => c.id === clientId);
   if (!client) return;
@@ -7434,7 +7707,7 @@ function setupModals(){
     if (action === "edit-task") openEditTaskModal(id);
     if (action === "view-overdue-task"){ closeModal("overdue-tasks-modal"); openEditTaskModal(id); }
     if (action === "delete-task" && confirm("Delete this task?")) await DataLayer.remove("tasks", id);
-    if (action === "send-report-now") await sendReportNow(id);
+    if (action.startsWith("make-report") || action.startsWith("rp-")){ if (await handleReportAction(action, id)) return; }
     if (action === "view-report-history") renderReportHistoryModal(id);
     if (action === "edit-contact"){
       const c = state.contacts.find(x => x.id === id);
@@ -7559,6 +7832,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupModals();
   setupWelcomePack();
   setupOnboarding();
+  setupReporting();
   populateRegionIndustrySelects();
   setupSearchFilters();
   setupTeam();
