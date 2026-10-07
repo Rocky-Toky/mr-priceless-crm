@@ -1,10 +1,10 @@
 // Edge Function: sync-client-ads
-// Pulls every active/paused ad for a client's whole Meta ad account in one
-// go (using the same Business Manager System User token as creative-insights
-// and generate-client-reports), instead of requiring each ad's Facebook Ad
-// ID to be entered and refreshed one at a time. For each ad found:
-//   - finds-or-creates a matching client_campaigns row by campaign name
-//   - finds-or-creates a matching client_ad_creatives row by meta_ad_id,
+// Pulls a client's whole Meta ad account (using the same Business Manager
+// System User token as creative-insights and generate-client-reports):
+// every campaign, every ad set and every ad that isn't archived or deleted,
+// so new campaigns, ad sets and ads are picked up on every run. Then:
+//   - finds-or-creates a client_campaigns row per campaign (by name)
+//   - finds-or-creates a client_ad_creatives row per ad (by meta_ad_id),
 //     and writes the live spend/impressions/clicks/results onto it
 //
 // Two ways to trigger it:
@@ -40,22 +40,35 @@ const RELEVANT_STATUSES = [
   "PENDING_BILLING_INFO", "IN_PROCESS", "WITH_ISSUES",
 ];
 
-const RICH_FIELDS = "id,name,effective_status,campaign{id,name},adset{learning_stage_info},creative{image_url,thumbnail_url},insights.date_preset(maximum){impressions,clicks,spend,actions,cost_per_action_type}";
-const BASIC_FIELDS = "id,name,effective_status,campaign{id,name},creative{image_url,thumbnail_url},insights.date_preset(maximum){impressions,clicks,spend,actions,cost_per_action_type}";
+const CAMPAIGN_STATUSES = ["ACTIVE", "PAUSED", "IN_PROCESS", "WITH_ISSUES"];
+const ADSET_STATUSES = ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "IN_PROCESS", "WITH_ISSUES"];
+const GRAPH = "https://graph.facebook.com/v21.0";
 
-function buildAdsUrl(adAccountId: string, fields: string, filtering: string, token: string) {
-  return `https://graph.facebook.com/v21.0/${encodeURIComponent(adAccountId)}/ads` +
-    `?fields=${encodeURIComponent(fields)}` +
-    `&filtering=${encodeURIComponent(filtering)}` +
-    `&limit=100` +
-    // Ads without a directly-hashed image (e.g. built from a Page post) only
-    // have thumbnail_url, not image_url - Meta defaults that thumbnail to a
-    // tiny size (~64x64), which is what was showing up blurry once displayed
-    // any bigger than a table-row icon. These dimensions are request-level,
-    // so they apply wherever thumbnail_url shows up in the field expansion.
-    `&thumbnail_width=1080` +
-    `&thumbnail_height=1080` +
-    `&access_token=${encodeURIComponent(token)}`;
+function graphUrl(path: string, params: Record<string, string>, token: string) {
+  const q = new URLSearchParams({ ...params, access_token: token });
+  return `${GRAPH}/${path}?${q.toString()}`;
+}
+const statusFilter = (values: string[]) => JSON.stringify([{ field: "effective_status", operator: "IN", value: values }]);
+
+// Every row from a Graph API list, following paging.next. Big accounts used
+// to stop at the first error; this retries a failing page once with a smaller
+// page size (Meta's "please reduce the amount of data" error) before giving up.
+async function graphAll(url: string, maxPages = 60): Promise<any[]> {
+  const out: any[] = [];
+  let next: string | null = url;
+  for (let page = 0; next && page < maxPages; page++) {
+    let resp = await fetch(next);
+    let body = await resp.json();
+    if (!resp.ok && /limit=\d+/.test(next)) {
+      next = next.replace(/limit=\d+/, "limit=50");
+      resp = await fetch(next);
+      body = await resp.json();
+    }
+    if (!resp.ok) throw new Error(body?.error?.message || "Meta API error");
+    out.push(...(body?.data ?? []));
+    next = body?.paging?.next ?? null;
+  }
+  return out;
 }
 
 // Maps Meta's effective_status (+ adset learning-phase info, when available)
@@ -85,143 +98,132 @@ function computeDeliveryStatus(ad: any): string | null {
   return map[es] || es.toLowerCase();
 }
 
-// Syncs one client's whole Meta ad account. Shared by both the manual,
-// single-client path and the cron path that loops over every client.
+// Syncs one client's whole Meta ad account, in separate steps so one
+// failure can't stop new creatives coming through:
+//   1. every campaign  -> client_campaigns (new ones added even before they have ads)
+//   2. every ad set    -> learning-phase status, and which campaign each sits in
+//   3. every ad        -> client_ad_creatives (new ones added, existing refreshed)
+//   4. lifetime stats  -> one account-level insights call, joined on ad id; if
+//      it fails the ads are still saved and their old stats are left alone.
+// Shared by the manual single-client path and the scheduled all-clients path.
 async function syncOneClient(admin: any, metaToken: string, clientId: string, rawMetaAdAccountId: string) {
-  const metaAdAccountId = String(rawMetaAdAccountId).startsWith("act_")
-    ? String(rawMetaAdAccountId)
-    : `act_${rawMetaAdAccountId}`;
+  const act = String(rawMetaAdAccountId).trim().startsWith("act_") ? String(rawMetaAdAccountId).trim() : `act_${String(rawMetaAdAccountId).trim()}`;
 
-  const filtering = JSON.stringify([
-    { field: "effective_status", operator: "IN", value: RELEVANT_STATUSES },
-  ]);
+  // 1. Campaigns
+  const campaigns = await graphAll(graphUrl(`${act}/campaigns`, { fields: "id,name,effective_status", filtering: statusFilter(CAMPAIGN_STATUSES), limit: "200" }, metaToken));
+  const campaignNameById = new Map<string, string>(campaigns.map((c: any) => [String(c.id), c.name]));
 
-  const ads: any[] = [];
-  let pagesFetched = 0;
-
-  // Try the rich field set (includes adset learning-phase info) first; if
-  // the account/token can't access that nested field, fall back to the
-  // basic set rather than failing the whole sync.
-  let nextUrl: string | null = buildAdsUrl(metaAdAccountId, RICH_FIELDS, filtering, metaToken);
-  let resp = await fetch(nextUrl);
-  let pageJson = await resp.json();
-  if (!resp.ok) {
-    nextUrl = buildAdsUrl(metaAdAccountId, BASIC_FIELDS, filtering, metaToken);
-    resp = await fetch(nextUrl);
-    pageJson = await resp.json();
-    if (!resp.ok) throw new Error(pageJson?.error?.message || "Meta API error");
+  // 2. Ad sets (learning-phase info needs extra access on some accounts - fall back without it)
+  let adsets: any[] = [];
+  try {
+    adsets = await graphAll(graphUrl(`${act}/adsets`, { fields: "id,name,campaign_id,effective_status,learning_stage_info", filtering: statusFilter(ADSET_STATUSES), limit: "200" }, metaToken));
+  } catch {
+    adsets = await graphAll(graphUrl(`${act}/adsets`, { fields: "id,name,campaign_id,effective_status", filtering: statusFilter(ADSET_STATUSES), limit: "200" }, metaToken));
   }
-  ads.push(...(pageJson?.data ?? []));
-  nextUrl = pageJson?.paging?.next ?? null;
-  pagesFetched += 1;
+  const adsetById = new Map<string, any>(adsets.map((a: any) => [String(a.id), a]));
 
-  while (nextUrl && pagesFetched < 10) {
-    const pageResp = await fetch(nextUrl);
-    const pageData = await pageResp.json();
-    if (!pageResp.ok) {
-      throw new Error(pageData?.error?.message || "Meta API error");
-    }
-    ads.push(...(pageData?.data ?? []));
-    nextUrl = pageData?.paging?.next ?? null;
-    pagesFetched += 1;
+  // 3. Ads - light fields only, so every page comes back
+  const ads = await graphAll(graphUrl(`${act}/ads`, {
+    fields: "id,name,effective_status,campaign_id,adset_id,creative{image_url,thumbnail_url}",
+    filtering: statusFilter(RELEVANT_STATUSES), limit: "200",
+    // Ads built from a Page post only have thumbnail_url, which Meta defaults
+    // to ~64px - ask for a full-size one so the library image isn't blurry.
+    thumbnail_width: "1080", thumbnail_height: "1080",
+  }, metaToken));
+
+  // 4. Lifetime stats for every ad at once
+  const statsByAd = new Map<string, any>();
+  let statsError: string | null = null;
+  try {
+    const rows = await graphAll(graphUrl(`${act}/insights`, { level: "ad", date_preset: "maximum", fields: "ad_id,impressions,clicks,spend,actions,cost_per_action_type", limit: "500" }, metaToken));
+    for (const r of rows) if (r?.ad_id) statsByAd.set(String(r.ad_id), r);
+  } catch (e) {
+    statsError = e instanceof Error ? e.message : String(e);
   }
 
   const [{ data: existingCampaigns }, { data: existingCreatives }] = await Promise.all([
     admin.from("client_campaigns").select("id, client_id, name, platform, status").eq("client_id", clientId),
     admin.from("client_ad_creatives").select("id, client_id, meta_ad_id, name, result, campaign_id, image_url").eq("client_id", clientId),
   ]);
-
   const campaignByName = new Map<string, any>();
-  for (const row of existingCampaigns ?? []) {
-    if (row?.name) campaignByName.set(row.name, row);
-  }
-
+  for (const row of existingCampaigns ?? []) if (row?.name) campaignByName.set(row.name, row);
   const creativeByMetaId = new Map<string, any>();
-  for (const row of existingCreatives ?? []) {
-    if (row?.meta_ad_id != null) creativeByMetaId.set(String(row.meta_ad_id), row);
-  }
+  for (const row of existingCreatives ?? []) if (row?.meta_ad_id != null) creativeByMetaId.set(String(row.meta_ad_id), row);
 
-  let campaignsCreated = 0;
-  let creativesCreated = 0;
-  let creativesUpdated = 0;
+  let campaignsCreated = 0, creativesCreated = 0, creativesUpdated = 0;
+
+  // Campaign rows (matched by name, as before), with their live status.
+  for (const c of campaigns) {
+    if (!c?.name) continue;
+    const status = c.effective_status === "ACTIVE" ? "active" : "paused";
+    const existing = campaignByName.get(c.name);
+    if (!existing) {
+      const { data: inserted } = await admin.from("client_campaigns")
+        .insert({ client_id: clientId, name: c.name, platform: "Meta", status })
+        .select("id").maybeSingle();
+      if (inserted?.id) campaignByName.set(c.name, { id: inserted.id, name: c.name, status });
+      campaignsCreated += 1;
+    } else if (existing.platform === "Meta" && existing.status !== status) {
+      await admin.from("client_campaigns").update({ status }).eq("id", existing.id);
+    }
+  }
 
   for (const ad of ads) {
-    const campaignName = ad?.campaign?.name;
+    const campaignName = campaignNameById.get(String(ad?.campaign_id)) || null;
     let campaignId: string | null = null;
-
     if (campaignName) {
-      const existing = campaignByName.get(campaignName);
-      if (!existing) {
-        const { data: insertedCampaign } = await admin
-          .from("client_campaigns")
-          .insert({
-            client_id: clientId,
-            name: campaignName,
-            platform: "Meta",
-            status: ad?.effective_status === "ACTIVE" ? "active" : "paused",
-          })
-          .select("id")
-          .maybeSingle();
-
-        campaignId = insertedCampaign?.id ?? null;
-        if (campaignId) campaignByName.set(campaignName, { id: campaignId, name: campaignName });
-        campaignsCreated += 1;
-      } else {
-        campaignId = existing?.id ?? null;
+      let row = campaignByName.get(campaignName);
+      if (!row) {
+        const { data: inserted } = await admin.from("client_campaigns")
+          .insert({ client_id: clientId, name: campaignName, platform: "Meta", status: ad?.effective_status === "ACTIVE" ? "active" : "paused" })
+          .select("id").maybeSingle();
+        row = inserted ? { id: inserted.id, name: campaignName } : null;
+        if (row) { campaignByName.set(campaignName, row); campaignsCreated += 1; }
       }
+      campaignId = row?.id ?? null;
     }
 
-    const insights = ad?.insights?.data?.[0] ?? {};
-    const actions = insights?.actions ?? [];
-    const costPerActionType = insights?.cost_per_action_type ?? [];
-
-    const leadAction = actions.find((a: any) =>
-      ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"].includes(a?.action_type)
-    );
-    const results = leadAction ? Math.round(Number(leadAction.value)) : null;
-    const leadCost = leadAction ? costPerActionType.find((c: any) => c?.action_type === leadAction?.action_type) : null;
-    const spend = Number(insights?.spend || 0);
-    const costPerResult = leadCost ? Number(leadCost.value) : (results ? spend / results : null);
-
-    const patch = {
+    const adset = adsetById.get(String(ad?.adset_id));
+    const patch: Record<string, unknown> = {
       campaign_id: campaignId,
-      impressions: Math.round(Number(insights?.impressions || 0)),
-      clicks: Math.round(Number(insights?.clicks || 0)),
-      spend,
-      results,
-      cost_per_result: costPerResult,
-      delivery_status: computeDeliveryStatus(ad),
-      insights_updated_at: new Date().toISOString(),
+      delivery_status: computeDeliveryStatus({ ...ad, adset }),
     };
+    const insights = statsByAd.get(String(ad?.id));
+    if (insights) {
+      const actions = insights?.actions ?? [];
+      const costPerActionType = insights?.cost_per_action_type ?? [];
+      const leadAction = actions.find((a: any) =>
+        ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"].includes(a?.action_type)
+      );
+      const results = leadAction ? Math.round(Number(leadAction.value)) : null;
+      const leadCost = leadAction ? costPerActionType.find((c: any) => c?.action_type === leadAction?.action_type) : null;
+      const spend = Number(insights?.spend || 0);
+      Object.assign(patch, {
+        impressions: Math.round(Number(insights?.impressions || 0)),
+        clicks: Math.round(Number(insights?.clicks || 0)),
+        spend,
+        results,
+        cost_per_result: leadCost ? Number(leadCost.value) : (results ? spend / results : null),
+        insights_updated_at: new Date().toISOString(),
+      });
+    } else if (!statsError) {
+      // No delivery yet (e.g. a brand-new ad) - zero stats, but checked just now.
+      Object.assign(patch, { impressions: 0, clicks: 0, spend: 0, results: null, cost_per_result: null, insights_updated_at: new Date().toISOString() });
+    }
 
     const creativeImageUrl: string | null = ad?.creative?.image_url || ad?.creative?.thumbnail_url || null;
-    const adId = ad?.id;
-    const existingCreative = adId != null ? creativeByMetaId.get(String(adId)) : undefined;
-
+    const existingCreative = ad?.id != null ? creativeByMetaId.get(String(ad.id)) : undefined;
     if (existingCreative) {
       const updatePatch: Record<string, unknown> = { ...patch };
-      // Don't clobber a manually-uploaded image (stored in our own Supabase
-      // bucket) with Meta's version, but DO let a Meta-sourced image get
-      // replaced on later syncs - otherwise a low-res thumbnail_url grabbed
-      // before the bigger thumbnail_width/height above was added would
-      // stay stuck as blurry forever, since this only used to fire once
-      // when image_url was still empty.
+      // Keep a manually-uploaded image (in our own Supabase bucket); let a
+      // Meta-sourced one be replaced, so an old blurry thumbnail gets fixed.
       const isOwnUpload = typeof existingCreative.image_url === "string" &&
         existingCreative.image_url.includes("/storage/v1/object/public/");
-      if (creativeImageUrl && !isOwnUpload && creativeImageUrl !== existingCreative.image_url) {
-        updatePatch.image_url = creativeImageUrl;
-      }
+      if (creativeImageUrl && !isOwnUpload && creativeImageUrl !== existingCreative.image_url) updatePatch.image_url = creativeImageUrl;
       await admin.from("client_ad_creatives").update(updatePatch).eq("id", existingCreative.id);
       creativesUpdated += 1;
     } else {
-      const insertPayload = {
-        client_id: clientId,
-        meta_ad_id: ad?.id,
-        name: ad?.name,
-        result: "testing",
-        image_url: creativeImageUrl,
-        ...patch,
-      };
+      const insertPayload = { client_id: clientId, meta_ad_id: ad?.id, name: ad?.name, result: "testing", image_url: creativeImageUrl, ...patch };
       await admin.from("client_ad_creatives").insert(insertPayload);
       creativesCreated += 1;
       if (ad?.id != null) creativeByMetaId.set(String(ad.id), insertPayload);
@@ -229,10 +231,13 @@ async function syncOneClient(admin: any, metaToken: string, clientId: string, ra
   }
 
   return {
+    campaigns_found: campaigns.length,
+    adsets_found: adsets.length,
     ads_found: ads.length,
     campaigns_created: campaignsCreated,
     creatives_created: creativesCreated,
     creatives_updated: creativesUpdated,
+    stats_error: statsError,
   };
 }
 
