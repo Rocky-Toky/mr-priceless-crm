@@ -11,7 +11,7 @@
 async function build(data){
   const R = window.MPReportPDF;
   const { C, W, H, M, hex, has, money, num } = R;
-  const { pdf, F, width, text, label, wrap, box, hr, vr } = await R.makeKit();
+  const { pdf, F, width, text, label, wrap, box, hr, vr, drawLogo } = await R.makeKit();
   const CW = W - 2 * M, PAGES = 3;
   // Big numbers in the cards are kept short: $18.4k rather than $18,400.
   const short = (v) => { const n = Number(v); return n >= 1e6 ? "$" + +(n / 1e6).toFixed(1) + "m" : n >= 1e4 ? "$" + +(n / 1e3).toFixed(1) + "k" : money(n); };
@@ -20,7 +20,7 @@ async function build(data){
   const newPage = (n) => {
     const page = pdf.addPage([W, H]);
     page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: hex(C.bg) });
-    text(page, "MR. PRICELESS", M, H - 50, { f: F.d8, size: 14, ls: 3 });
+    drawLogo(page, M, H - 64, 34);
     label(page, "90-day growth plan", W - M, H - 44, { align: "right", color: C.gold, size: 7, ls: 1.6 });
     text(page, `Plan ${data.planNumber} · ${data.rangeLabel}`, W - M, H - 57, { align: "right", size: 8.5, color: C.muted });
     hr(page, M, W - M, H - 70, C.gold2, 0.9);
