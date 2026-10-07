@@ -3893,8 +3893,8 @@ async function buildWelcomePackPdf(values){
   // answer goes and in what size, weight and colour, so answers read as part
   // of the page rather than as filled-in boxes.
   const [tpl, layout, f400, f600, f700, e400, e600, e700] = await Promise.all([
-    get("assets/welcome-pack-template.pdf?v=3", "welcome pack template"),
-    get("assets/welcome-pack-layout.json?v=3", "welcome pack layout", "json"),
+    get("assets/welcome-pack-template.pdf?v=4", "welcome pack template"),
+    get("assets/welcome-pack-layout.json?v=4", "welcome pack layout", "json"),
     get("assets/fonts/figtree-400.ttf?v=1", "brand font"),
     get("assets/fonts/figtree-600.ttf?v=1", "brand font"),
     get("assets/fonts/figtree-700.ttf?v=1", "brand font"),
@@ -3960,6 +3960,14 @@ async function buildWelcomePackPdf(values){
       while (size > L.size * 0.7 && widthOf(font, text, size, L.ls) > L.w) size -= 0.2;
       draw(page, font, text, L.x, H - L.base, size, L.ls, color);
     }
+  }
+  // Real tick boxes over the "send us" items, so the client can tick them off in any PDF viewer.
+  const form = pdf.getForm();
+  for (const ck of layout.checks || []){
+    const page = pages[ck.p], H = page.getHeight();
+    const box = form.createCheckBox(ck.name);
+    box.addToPage(page, { x: ck.x, y: H - ck.top - ck.size, width: ck.size, height: ck.size,
+      textColor: colour("#7e611a"), backgroundColor: rgb(1, 1, 1), borderColor: colour("#b8912c"), borderWidth: 1.05 });
   }
   pdf.setTitle(`Mr Priceless Welcome Pack - ${values.business_name || ""}`.trim());
   pdf.setAuthor("Mr Priceless");
