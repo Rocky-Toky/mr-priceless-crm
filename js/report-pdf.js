@@ -32,7 +32,8 @@ const num = (v) => has(v) ? Math.round(Number(v)).toLocaleString("en-NZ") : "-";
 const times = (v) => v == null || !isFinite(v) ? "-" : (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + "×";
 const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
 
-async function build(data){
+// Shared drawing kit: fonts and helpers, also used by the 90-day plan PDF.
+async function makeKit(){
   const { PDFDocument } = window.PDFLib;
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(window.fontkit);
@@ -92,6 +93,11 @@ async function build(data){
   const hr = (page, x1, x2, y, color = C.line, t = 0.7) => page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness: t, color: hex(color) });
   const vr = (page, x, y1, y2, color = C.line) => page.drawLine({ start: { x, y: y1 }, end: { x, y: y2 }, thickness: 0.7, color: hex(color) });
   const tick = (page, cx, cy, s, color) => page.drawSvgPath(`M ${-s*0.45} ${s*0.02} L ${-s*0.12} ${s*0.32} L ${s*0.48} ${-s*0.3}`, { x: cx, y: cy, borderColor: hex(color), borderWidth: s * 0.22, borderLineCap: 1 });
+  return { pdf, F, runs, width, text, label, wrap, box, hr, vr, tick };
+}
+
+async function build(data){
+  const { pdf, F, width, text, label, wrap, box, hr, vr, tick } = await makeKit();
 
   const newPage = (n) => {
     const page = pdf.addPage([W, H]);
@@ -282,5 +288,5 @@ async function build(data){
   return pdf.save();
 }
 
-window.MPReportPDF = { build };
+window.MPReportPDF = { build, makeKit, C, W, H, M, hex, has, money, num };
 })();
