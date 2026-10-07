@@ -495,6 +495,7 @@ const state = {
   contactFilter: "",
   contactSearch: "",
   creativeFilter: { client: "", result: "", delivery: "", sort: "top" },
+  creativeSegOpen: new Set(),
   contentFilter: { search: "", client: "", type: "" },
   clientsGallerySearch: "",
   clientsStageFilter: "all",
@@ -4646,8 +4647,8 @@ function renderCreativeLibrary(){
     return new Date(b.created_at) - new Date(a.created_at);
   });
 
-  if (!filtered.length){ grid.innerHTML = emptyState("No ad creatives match. Add one from here or from a client's page."); return; }
-  grid.innerHTML = filtered.map(a => {
+  if (!filtered.length){ grid.innerHTML = emptyState("No ad creatives match. Add one from here or from a client's page."); renderCreativeSegmentNav([]); return; }
+  const cardHtml = (a) => {
     const client = state.clients.find(c => c.id === a.client_id);
     const initial = (client?.name || a.client_name || archivedClientName(a.client_id) || "?").trim().charAt(0).toUpperCase();
     const delivery = DELIVERY_STATUS[a.delivery_status];
@@ -4685,7 +4686,57 @@ function renderCreativeLibrary(){
       </div>
     </div>
   `;
+  };
+  // Segment the library so it's obvious what's working, what's tiring and
+  // what's switched off. Each creative lands in exactly one section; the
+  // chosen sort still applies inside each one.
+  const groups = CREATIVE_SEGMENTS.map(seg => ({ ...seg, items: [] }));
+  const bySeg = Object.fromEntries(groups.map(g => [g.key, g]));
+  filtered.forEach(a => bySeg[creativeSegmentOf(a, tierClsFor(a))].items.push(a));
+  const shown = groups.filter(g => g.items.length);
+  renderCreativeSegmentNav(shown);
+  grid.innerHTML = shown.map(g => {
+    const open = state.creativeSegOpen.has(g.key);
+    const limit = g.collapsed && !open ? 0 : (open ? Infinity : CREATIVE_SEG_PREVIEW);
+    const items = g.items.slice(0, limit);
+    const hidden = g.items.length - items.length;
+    return `
+      <section class="cr-seg cr-seg-${g.key}" id="cr-seg-${g.key}">
+        <header class="cr-seg-head">
+          <span class="cr-seg-dot"></span>
+          <div class="cr-seg-text"><h3>${escapeHtml(g.label)}<span class="cr-seg-count">${g.items.length}</span></h3><p>${escapeHtml(g.blurb)}</p></div>
+          ${hidden > 0 || open ? `<button type="button" class="btn ghost sm cr-seg-toggle" data-action="toggle-creative-seg" data-key="${g.key}">${open ? (g.collapsed ? "Hide" : "Show less") : `Show ${g.collapsed ? "" : "all "}${g.items.length}`}</button>` : ""}
+        </header>
+        ${items.length ? `<div class="creative-grid">${items.map(cardHtml).join("")}</div>` : ""}
+      </section>`;
   }).join("");
+}
+// Which section a creative belongs in. Only Rocky's fatigue flag decides
+// "Needs a refresh" - never the numbers - and it only counts while the ad is
+// still live; a fatigued ad that's already switched off is just not running.
+const CREATIVE_SEG_PREVIEW = 4;
+const CREATIVE_SEGMENTS = [
+  { key: "refresh", label: "Needs a refresh", blurb: "Live ads you've flagged as fatiguing. Line up replacements before results drop off." },
+  { key: "attention", label: "Needs attention", blurb: "Meta has these held up: disapproved, in review, or a billing issue." },
+  { key: "performing", label: "Performing", blurb: "Winners, and live ads beating your average cost per lead." },
+  { key: "testing", label: "Testing", blurb: "Live or new ads still proving themselves." },
+  { key: "off", label: "Not running", blurb: "Paused or killed. Kept here for reference.", collapsed: true },
+  { key: "engagement", label: "Engagement posts", blurb: "Not lead-gen ads, so they sit apart from the rest.", collapsed: true },
+];
+function creativeSegmentOf(a, tierCls){
+  if (a.result === "engagement") return "engagement";
+  const group = DELIVERY_STATUS[a.delivery_status]?.group;
+  if (group === "attention") return "attention";
+  const off = group === "paused" || a.result === "killed";
+  if (!off && (a.fatigue_status === "fatiguing" || a.fatigue_status === "fatigued")) return "refresh";
+  if (off) return "off";
+  if (a.result === "winner" || tierCls === "creative-metric-good") return "performing";
+  return "testing";
+}
+function renderCreativeSegmentNav(groups){
+  const nav = $("#creative-seg-nav");
+  if (!nav) return;
+  nav.innerHTML = groups.map(g => `<button type="button" class="cr-seg-chip cr-chip-${g.key}" data-action="jump-creative-seg" data-key="${g.key}"><span class="cr-seg-dot"></span>${escapeHtml(g.label)}<b>${g.items.length}</b></button>`).join("");
 }
 
 /* ───────── Auto-create a Client (Onboarding) when a deal wins ───────── */
@@ -7256,6 +7307,19 @@ function setupModals(){
       const key = btn.dataset.key;
       if (boardExpanded.has(key)) boardExpanded.delete(key); else boardExpanded.add(key);
       if (key.startsWith("onb:")) renderOnboarding(); else renderClientsList();
+      return;
+    }
+    if (action === "toggle-creative-seg"){
+      const key = btn.dataset.key;
+      if (state.creativeSegOpen.has(key)) state.creativeSegOpen.delete(key); else state.creativeSegOpen.add(key);
+      renderCreativeLibrary();
+      return;
+    }
+    if (action === "jump-creative-seg"){
+      const key = btn.dataset.key;
+      const seg = CREATIVE_SEGMENTS.find(x => x.key === key);
+      if (seg?.collapsed && !state.creativeSegOpen.has(key)){ state.creativeSegOpen.add(key); renderCreativeLibrary(); }
+      document.getElementById("cr-seg-" + key)?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (action === "open-onboarding-board"){ $('.nav-item[data-page="onboarding"]')?.click(); }
