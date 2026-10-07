@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=155">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=155">
+<link rel="stylesheet" href="css/style.css?v=156">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=156">
 </head>
 <body>
 
@@ -186,6 +186,10 @@
       <button class="nav-item" data-page="onboarding" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>
         <span>Onboarding</span><span class="nav-count" id="nav-onb-count" hidden></span>
+      </button>
+      <button class="nav-item" data-page="workshops" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18v12H3z"/><path d="M8 20h8M12 16v4"/><path d="M7 12l3-3 2 2 4-4"/></svg>
+        <span>Workshops</span>
       </button>
       <button class="nav-item" data-page="creative" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
@@ -966,6 +970,20 @@
       <div class="onb-board" id="onb-board"></div>
     </section>
 
+    <!-- Workshops: monthly consulting sessions with each client -->
+    <section class="page" id="page-workshops">
+      <div class="page-header">
+        <div><h2>Workshops</h2><p>Once a month we sit down with each client and look at their business. Drag each client to the workshop they need next, and open one to log the session.</p></div>
+        <div class="ws-tabs" role="group" aria-label="Workshops view">
+          <button type="button" class="ws-tab active" data-ws-tab="board" aria-pressed="true">Who needs what</button>
+          <button type="button" class="ws-tab" data-ws-tab="library" aria-pressed="false">Workshop library</button>
+        </div>
+      </div>
+      <div class="onb-kpis ws-kpis" id="ws-kpis"></div>
+      <div id="ws-board-wrap"><div class="onb-board ws-board" id="ws-board"></div></div>
+      <div class="ws-library" id="ws-library" hidden></div>
+    </section>
+
     <!-- Creative Library (every ad creative across all clients) -->
     <section class="page" id="page-creative">
       <div class="page-header">
@@ -1292,6 +1310,48 @@
       </div>
     </section>
   </main>
+</div>
+
+<!-- ───────── Modal: Workshops for a client ───────── -->
+<div class="overlay" id="ws-modal">
+  <div class="modal ws-modal">
+    <div class="modal-header"><div><h3 id="ws-modal-title">Workshops</h3><p class="ws-modal-sub" id="ws-modal-sub"></p></div><button class="modal-close" data-close="ws-modal">&times;</button></div>
+    <div class="modal-body ws-modal-body">
+      <form id="ws-form" class="ws-log">
+        <h4>Log a workshop</h4>
+        <div class="field-row">
+          <div class="field"><label for="ws-date">Date</label><input type="date" id="ws-date" required></div>
+          <div class="field"><label for="ws-category">Workshop</label><select id="ws-category"><option value="financial">Financial</option><option value="sales">Sales</option><option value="marketing">Marketing</option></select></div>
+        </div>
+        <div class="field"><label for="ws-by">Run by</label><select id="ws-by"></select></div>
+        <div class="ws-prompts" id="ws-prompts"></div>
+        <div class="field"><label for="ws-notes">What we found</label><textarea id="ws-notes" rows="4" placeholder="What came up, what's working, what's not..."></textarea></div>
+        <div class="field-row">
+          <div class="field"><label for="ws-actions-us">Our actions <small>(one per line)</small></label><textarea id="ws-actions-us" rows="3" placeholder="e.g. New ad set for heat pumps"></textarea></div>
+          <div class="field"><label for="ws-actions-them">Their actions <small>(one per line)</small></label><textarea id="ws-actions-them" rows="3" placeholder="e.g. Ask every finished job for a review"></textarea></div>
+        </div>
+        <div class="modal-actions"><span class="ws-status" id="ws-status" role="status"></span><button type="submit" class="btn gold">Log workshop</button></div>
+      </form>
+      <div class="ws-history-wrap"><h4>Past workshops</h4><div id="ws-history"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────── Modal: Edit a workshop in the library ───────── -->
+<div class="overlay" id="ws-lib-modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header"><h3 id="ws-lib-title">Edit workshop</h3><button class="modal-close" data-close="ws-lib-modal">&times;</button></div>
+    <form id="ws-lib-form" class="modal-body">
+      <input type="hidden" id="ws-lib-key">
+      <div class="field"><label for="ws-lib-covers">What it covers</label><textarea id="ws-lib-covers" rows="3"></textarea></div>
+      <div class="field"><label for="ws-lib-questions">Questions to ask <small>(one per line)</small></label><textarea id="ws-lib-questions" rows="7"></textarea></div>
+      <div class="field"><label for="ws-lib-checklist">Run it like this <small>(one step per line)</small></label><textarea id="ws-lib-checklist" rows="6"></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="ws-lib-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <!-- ───────── Modal: Contact ───────── -->
@@ -2165,11 +2225,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=155"></script>
-<script src="js/supabaseClient.js?v=155"></script>
-<script src="js/report-pdf.js?v=155"></script>
-<script src="js/app.js?v=155"></script>
-<script src="js/meetings-tracker.js?v=155"></script>
-<script src="js/todo.js?v=155"></script>
+<script src="js/config.js?v=156"></script>
+<script src="js/supabaseClient.js?v=156"></script>
+<script src="js/report-pdf.js?v=156"></script>
+<script src="js/app.js?v=156"></script>
+<script src="js/meetings-tracker.js?v=156"></script>
+<script src="js/todo.js?v=156"></script>
 </body>
 </html>

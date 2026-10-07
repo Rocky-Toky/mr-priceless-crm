@@ -5365,6 +5365,345 @@ async function handleReportAction(action, id){
   return false;
 }
 
+/* ───────── Workshops: monthly consulting sessions ─────────
+   Once a month we sit down with each client and look at their business.
+   Three kinds of workshop: Financial, Sales and Marketing.
+   - The board shows which client needs which workshop next (drag to assign),
+     with a suggestion worked out from their numbers.
+   - Each session is logged on the client (date, who ran it, notes, action
+     items for us and for them) in client.onboarding_progress.workshops, and
+     the next pick in onboarding_progress.workshop_next.
+   - The library holds what each workshop covers, the questions to ask and a
+     run sheet. Starter content lives here; edits are saved as rows in the
+     rules table titled "workshop:<category>" (kept off the Rules page). */
+const WORKSHOP_CATS = [
+  { key: "financial", label: "Financial", blurb: "Pricing, margins and cash flow",
+    covers: "Making sure the jobs they're winning are actually making them money. We look at what they charge, what each job really costs them, how cash comes in and out, and set a revenue target they can plan around.",
+    questions: [
+      "What was your revenue last month, and what do you want it to be in 12 months?",
+      "On a typical job, what's left after materials, labour and travel?",
+      "When did you last put your prices up?",
+      "Which jobs make you the most money for the time they take?",
+      "How long does it usually take to get paid once a job's done?",
+      "Do you know what it costs to run the business each month before you earn a cent?",
+      "Are there jobs you keep taking that don't really pay?",
+    ],
+    checklist: [
+      "Pull their revenue, jobs won and return to date from the CRM before the call",
+      "Work out their average job value and margin together",
+      "Spot their most and least profitable job types",
+      "Agree a monthly revenue target and what it means in jobs",
+      "Check deposits, invoicing and payment terms",
+      "Leave them with 2 or 3 actions, and note ours",
+    ] },
+  { key: "sales", label: "Sales", blurb: "Quoting, follow-up and closing",
+    covers: "Turning more of the leads we send into signed jobs. We look at how fast they get back to people, how they quote, how they follow up, and what's stopping quotes from turning into work.",
+    questions: [
+      "How quickly do you call a new lead back, and who does it?",
+      "Walk me through what happens at a quote, from arriving to leaving.",
+      "How do you send the quote, and how long does it take?",
+      "What do you do if they go quiet after the quote?",
+      "What reasons do people give when they don't go ahead?",
+      "Which jobs do you close easily, and which ones slip away?",
+      "Are you pricing on the spot, or going away to think about it?",
+    ],
+    checklist: [
+      "Check their quote rate and close rate in the CRM before the call",
+      "Go through the last few quotes that didn't land, and why",
+      "Agree a follow-up routine (day 2, day 5, day 10)",
+      "Tighten how quotes are sent: same day, clear options, easy yes",
+      "Handle their top 2 objections together",
+      "Leave them with 2 or 3 actions, and note ours",
+    ] },
+  { key: "marketing", label: "Marketing", blurb: "Leads, offer and reputation",
+    covers: "Getting more of the right enquiries in. We look at the work they want more of, what makes them the obvious choice, their reviews and photos, and what's working in the ads.",
+    questions: [
+      "What kind of job do you want more of in the next 3 months?",
+      "Why should someone pick you over the next business on Google?",
+      "How many Google reviews do you have, and do you ask every happy customer?",
+      "Have you got fresh before and after photos from recent jobs?",
+      "Where else do your best jobs come from, like referrals or repeat work?",
+      "Is there a season or slow patch coming we should plan for?",
+      "Anything in the leads lately that hasn't been a good fit?",
+    ],
+    checklist: [
+      "Check their lead flow, cost per lead and top ads before the call",
+      "Agree the job type to push for the next month",
+      "Sharpen their offer and why-us in one sentence",
+      "Set up a review request after every finished job",
+      "Line up new photos and video for the next ads",
+      "Leave them with 2 or 3 actions, and note ours",
+    ] },
+];
+const WORKSHOP_MAP = Object.fromEntries(WORKSHOP_CATS.map(c => [c.key, c]));
+const WORKSHOP_RULE_PREFIX = "workshop:";
+const isWorkshopRule = (r) => String(r?.title || "").startsWith(WORKSHOP_RULE_PREFIX);
+// The library entry for a category: saved edits if there are any, else the starter content.
+function workshopContent(key){
+  const base = WORKSHOP_MAP[key];
+  const row = state.rules.find(r => r.title === WORKSHOP_RULE_PREFIX + key);
+  if (!row) return base;
+  try { const saved = JSON.parse(row.content || "{}"); return { ...base, ...saved, rowId: row.id }; } catch(e){ return { ...base, rowId: row.id }; }
+}
+const workshopsOf = (c) => [...((c.onboarding_progress || {}).workshops || [])].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+const isWorkshopClient = (c) => !["onboarding", "churned"].includes(c.stage || "onboarding");
+
+// Which workshop their numbers point to, and why. Uses the latest report,
+// their creatives and what they've already had recently.
+function workshopSuggestion(c){
+  const rep = monthReportsFor(c.id).slice(-1)[0]?.metrics || {};
+  const n = (k) => toNum(rep[k]);
+  const recent = new Set(workshopsOf(c).filter(w => daysSince(w.date) <= 60).map(w => w.category));
+  const ideas = [];
+  const quoted = n("quoted"), jobs = n("jobsMonth"), ready = n("quoteReady"), enq = n("enquiries"), roi = n("roiToDate");
+  if (quoted >= 4 && jobs != null && jobs / quoted < 0.25) ideas.push({ cat: "sales", why: `Only ${Math.round(jobs / quoted * 100)}% of quotes are closing`, weight: 3 });
+  if (ready >= 4 && quoted != null && quoted / ready < 0.5) ideas.push({ cat: "sales", why: `Only ${Math.round(quoted / ready * 100)}% of quote-ready leads got a quote`, weight: 2.5 });
+  const fatiguing = clientFatiguingCount(c);
+  if (fatiguing >= 2) ideas.push({ cat: "marketing", why: `${fatiguing} ads are fatiguing`, weight: 2 });
+  if (enq != null && enq < 10) ideas.push({ cat: "marketing", why: `${enq} enquiries so far this month`, weight: 2 });
+  const target = n("quoteTarget") || c.quote_target, got = n("quotesBooked");
+  if (target && got != null && got < target / 2) ideas.push({ cat: "marketing", why: `${got} of ${target} guarantee quotes so far`, weight: 1.5 });
+  if (roi != null && roi < 3) ideas.push({ cat: "financial", why: `Return to date is ${fmtTimes(roi)}`, weight: 2.5 });
+  if (n("revenueMonth") > 0 && !recent.has("financial")) ideas.push({ cat: "financial", why: "Jobs are coming in: check pricing and margins", weight: 1 });
+  const pick = ideas.filter(i => !recent.has(i.cat)).sort((a, b) => b.weight - a.weight)[0];
+  if (pick) return pick;
+  // Nothing stands out: whichever they haven't had for longest.
+  const lastBy = (cat) => workshopsOf(c).find(w => w.category === cat)?.date || "";
+  const rotation = [...WORKSHOP_CATS].sort((a, b) => lastBy(a.key).localeCompare(lastBy(b.key)))[0];
+  return { cat: rotation.key, why: lastBy(rotation.key) ? `Longest since their last ${rotation.label.toLowerCase()} workshop` : `Haven't had a ${rotation.label.toLowerCase()} workshop yet`, weight: 0 };
+}
+const doneThisMonth = (c) => workshopsOf(c).find(w => ymOf(w.date) === ymOf(localDayStr()));
+const openActions = (c, owner) => workshopsOf(c).flatMap(w => (w.actions || []).filter(a => !a.done && (!owner || a.owner === owner)));
+
+async function saveWorkshopProgress(c, patch){
+  const progress = { ...(c.onboarding_progress || {}), ...patch };
+  Object.keys(patch).forEach(k => { if (patch[k] === null) delete progress[k]; });
+  c.onboarding_progress = progress;
+  await DataLayer.update("clients", c.id, { onboarding_progress: progress });
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+}
+
+/* The page */
+function renderWorkshops(){
+  const board = $("#ws-board");
+  if (!board) return;
+  const tab = state.wsTab || "board";
+  $$("[data-ws-tab]").forEach(b => { const on = b.dataset.wsTab === tab; b.classList.toggle("active", on); b.setAttribute("aria-pressed", on); });
+  $("#ws-board-wrap").hidden = tab !== "board";
+  $("#ws-library").hidden = tab !== "library";
+  const clients = state.clients.filter(isWorkshopClient).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const done = clients.filter(doneThisMonth);
+  const ours = clients.reduce((s, c) => s + openActions(c, "us").length, 0), theirs = clients.reduce((s, c) => s + openActions(c, "them").length, 0);
+  const month = monthNameOf(localDayStr());
+  const kpis = $("#ws-kpis");
+  if (kpis) kpis.innerHTML = `
+    <div class="onb-kpi"><span class="onb-kpi-label">Done in ${escapeHtml(month)}</span><span class="onb-kpi-value">${done.length}<small> of ${clients.length}</small></span><span class="onb-kpi-sub">${clients.length - done.length ? `${clients.length - done.length} still to run` : "everyone's had theirs"}</span></div>
+    <div class="onb-kpi ${ours ? "warn" : ""}"><span class="onb-kpi-label">Our open actions</span><span class="onb-kpi-value">${ours}</span><span class="onb-kpi-sub">from past workshops</span></div>
+    <div class="onb-kpi"><span class="onb-kpi-label">Their open actions</span><span class="onb-kpi-value">${theirs}</span><span class="onb-kpi-sub">to check in on next time</span></div>`;
+  if (tab === "library"){ renderWorkshopLibrary(); return; }
+  const cols = [{ key: "", label: "Not picked yet", blurb: "Suggested from their numbers" }, ...WORKSHOP_CATS];
+  const nextOf = (c) => (c.onboarding_progress || {}).workshop_next || "";
+  board.innerHTML = cols.map((col, i) => {
+    const list = clients.filter(c => nextOf(c) === col.key).sort((a, b) => Boolean(doneThisMonth(a)) - Boolean(doneThisMonth(b)) || (a.name || "").localeCompare(b.name || ""));
+    return `
+      <section class="onb-col ws-col" data-stage="${col.key || "none"}" data-ws-cat="${col.key}" aria-label="${escapeHtml(col.label)}">
+        <header class="onb-col-head">
+          <span class="onb-col-num">${i ? WORKSHOP_ICONS[col.key] : "?"}</span>
+          <div><div class="onb-col-title">${escapeHtml(col.label)}</div><div class="onb-col-blurb">${escapeHtml(col.blurb)}</div></div>
+          <span class="onb-col-count">${list.length}</span>
+        </header>
+        <div class="onb-col-body">
+          ${boardColumnCards("ws", col.key || "none", list.map(c => workshopCardHtml(c, col.key)))}
+          <div class="onb-drop-hint">${list.length ? "Drop here" : "Drag a client here"}</div>
+        </div>
+      </section>`;
+  }).join("");
+  if (state.wsOpenId) renderWorkshopModal();
+}
+const WORKSHOP_ICONS = {
+  financial: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>`,
+  sales: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>`,
+  marketing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 11l18-8v18L3 13z"/><path d="M11.6 16.8a3 3 0 11-5.8-1.6"/></svg>`,
+};
+function workshopCardHtml(c, colKey){
+  const last = workshopsOf(c)[0];
+  const thisMonth = doneThisMonth(c);
+  const sug = workshopSuggestion(c);
+  const ours = openActions(c, "us").length, theirs = openActions(c, "them").length;
+  const status = thisMonth
+    ? `<span class="onb-status track">Done ${escapeHtml(fmtShortDate(thisMonth.date))} · ${escapeHtml(WORKSHOP_MAP[thisMonth.category]?.label || "")}</span>`
+    : `<span class="onb-status client">Due in ${escapeHtml(monthNameOf(localDayStr()))}</span>`;
+  const suggestion = !colKey
+    ? `<div class="ws-sug ws-sug-${sug.cat}"><span>Suggested: <b>${escapeHtml(WORKSHOP_MAP[sug.cat].label)}</b></span><em>${escapeHtml(sug.why)}</em>
+         <button type="button" class="ws-sug-use" data-action="ws-use-suggestion" data-id="${c.id}" data-cat="${sug.cat}">Use</button></div>`
+    : (sug.cat === colKey && sug.weight > 0 ? `<div class="ws-why">${escapeHtml(sug.why)}</div>` : "");
+  return `
+    <article class="onb-card ws-card" draggable="true" data-action="ws-open" data-id="${c.id}" tabindex="0" aria-label="${escapeHtml(c.name)}">
+      <div class="onb-card-top">
+        <span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>
+        <div class="onb-card-id">
+          <div class="onb-card-name">${escapeHtml(c.name)}</div>
+          <div class="onb-card-meta">${last ? `Last: ${escapeHtml(WORKSHOP_MAP[last.category]?.label || "Workshop")} · ${escapeHtml(fmtShortDate(last.date))}` : "No workshops yet"}</div>
+        </div>
+      </div>
+      ${status}
+      ${suggestion}
+      ${ours || theirs ? `<div class="cl-card-stats"><span><b>${ours}</b> ours open</span><span><b>${theirs}</b> theirs open</span></div>` : ""}
+    </article>`;
+}
+
+/* Dragging a client to the workshop they need next */
+function setupWorkshopDrag(){
+  const board = $("#ws-board");
+  if (!board) return;
+  let dragId = null;
+  board.addEventListener("dragstart", (e) => {
+    const card = e.target.closest?.(".ws-card"); if (!card) return;
+    dragId = card.dataset.id; card.classList.add("dragging"); board.classList.add("is-dragging");
+    if (e.dataTransfer){ e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragId); }
+  });
+  board.addEventListener("dragend", (e) => {
+    e.target.closest?.(".ws-card")?.classList.remove("dragging"); board.classList.remove("is-dragging");
+    $$("#ws-board .onb-col.drag-over").forEach(col => col.classList.remove("drag-over")); dragId = null;
+  });
+  board.addEventListener("dragover", (e) => {
+    const col = e.target.closest?.(".ws-col"); if (!col || !dragId) return;
+    e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    $$("#ws-board .onb-col.drag-over").forEach(x => { if (x !== col) x.classList.remove("drag-over"); });
+    col.classList.add("drag-over");
+  });
+  board.addEventListener("dragleave", (e) => { const col = e.target.closest?.(".ws-col"); if (col && !col.contains(e.relatedTarget)) col.classList.remove("drag-over"); });
+  board.addEventListener("drop", async (e) => {
+    const col = e.target.closest?.(".ws-col"); if (!col || !dragId) return;
+    e.preventDefault(); col.classList.remove("drag-over");
+    const c = state.clients.find(x => x.id === dragId); dragId = null;
+    if (c && ((c.onboarding_progress || {}).workshop_next || "") !== col.dataset.wsCat) await saveWorkshopProgress(c, { workshop_next: col.dataset.wsCat || null });
+  });
+  board.addEventListener("keydown", (e) => {
+    const card = e.target.closest?.(".ws-card");
+    if (card && e.target === card && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); card.click(); }
+  });
+}
+
+/* A client's workshops: log one, see past ones, tick off actions */
+function openWorkshopModal(id){
+  state.wsOpenId = id;
+  const c = state.clients.find(x => x.id === id);
+  if (!c) return;
+  $("#ws-form").reset();
+  $("#ws-date").value = localDayStr();
+  $("#ws-category").value = (c.onboarding_progress || {}).workshop_next || workshopSuggestion(c).cat;
+  const person = window.getActivePerson ? window.getActivePerson() : "";
+  $("#ws-by").innerHTML = Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${k === person ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("");
+  $("#ws-actions-us").value = ""; $("#ws-actions-them").value = "";
+  renderWorkshopModal();
+  openModal("ws-modal");
+}
+function renderWorkshopModal(){
+  const c = state.clients.find(x => x.id === state.wsOpenId);
+  if (!c){ state.wsOpenId = null; return; }
+  $("#ws-modal-title").textContent = `${c.name} · workshops`;
+  const sug = workshopSuggestion(c);
+  $("#ws-modal-sub").innerHTML = `Suggested next: <b>${escapeHtml(WORKSHOP_MAP[sug.cat].label)}</b> · ${escapeHtml(sug.why)}`;
+  const cat = workshopContent($("#ws-category").value || sug.cat);
+  $("#ws-prompts").innerHTML = `<h4>Questions to ask · ${escapeHtml(cat.label)}</h4><ol>${(cat.questions || []).map(q => `<li>${escapeHtml(q)}</li>`).join("")}</ol>`;
+  const past = workshopsOf(c);
+  $("#ws-history").innerHTML = past.length ? past.map(w => `
+    <article class="ws-past">
+      <header><span class="ws-pill ws-pill-${escapeHtml(w.category)}">${escapeHtml(WORKSHOP_MAP[w.category]?.label || "Workshop")}</span><b>${escapeHtml(fmtShortDate(w.date))}</b><span class="ws-by">${escapeHtml(ASSIGNEES[w.by]?.label || "")}</span>
+        <button type="button" class="icon-btn ws-del" data-action="ws-delete" data-id="${c.id}" data-ws="${escapeHtml(w.id)}" title="Delete this workshop">${ICONS.trash}</button></header>
+      ${w.notes ? `<p>${escapeHtml(w.notes)}</p>` : ""}
+      ${(w.actions || []).length ? `<ul class="ws-actions">${w.actions.map((a, i) => `
+        <li class="${a.done ? "done" : ""}"><button type="button" class="ws-action-hit" data-action="ws-toggle-action" data-id="${c.id}" data-ws="${escapeHtml(w.id)}" data-i="${i}" aria-pressed="${!!a.done}"><span class="task-check ${a.done ? "done" : ""}">${TASK_CHECK_SVG}</span><span>${escapeHtml(a.text)}</span></button><em>${a.owner === "them" ? "Them" : "Us"}</em></li>`).join("")}</ul>` : ""}
+    </article>`).join("") : `<p class="ws-none">No workshops logged yet.</p>`;
+}
+async function logWorkshop(){
+  const c = state.clients.find(x => x.id === state.wsOpenId);
+  if (!c) return;
+  const lines = (id, owner) => $(id).value.split("\n").map(s => s.trim()).filter(Boolean).map(text => ({ text, owner, done: false }));
+  const entry = {
+    id: uid(), date: $("#ws-date").value || localDayStr(), category: $("#ws-category").value, by: $("#ws-by").value,
+    notes: $("#ws-notes").value.trim(), actions: [...lines("#ws-actions-us", "us"), ...lines("#ws-actions-them", "them")],
+  };
+  const progress = c.onboarding_progress || {};
+  // Logging the workshop they were lined up for clears the pick for next month.
+  await saveWorkshopProgress(c, { workshops: [...(progress.workshops || []), entry], workshop_next: progress.workshop_next === entry.category ? null : (progress.workshop_next || null) });
+  $("#ws-form").reset(); $("#ws-date").value = localDayStr();
+  $("#ws-category").value = (c.onboarding_progress || {}).workshop_next || workshopSuggestion(c).cat;
+  renderWorkshopModal();
+  $("#ws-status").textContent = `Logged ${WORKSHOP_MAP[entry.category].label} workshop for ${fmtShortDate(entry.date)}.`;
+}
+
+/* Library */
+function renderWorkshopLibrary(){
+  const lib = $("#ws-library");
+  if (!lib) return;
+  lib.innerHTML = WORKSHOP_CATS.map(base => {
+    const w = workshopContent(base.key);
+    return `
+      <article class="ws-lib ws-lib-${base.key}">
+        <header><span class="ws-lib-icon">${WORKSHOP_ICONS[base.key]}</span><div><h3>${escapeHtml(base.label)}</h3><p>${escapeHtml(base.blurb)}</p></div>
+          <button type="button" class="btn ghost sm" data-action="ws-edit-lib" data-cat="${base.key}">Edit</button></header>
+        <div class="ws-lib-body">
+          <section><h4>What it covers</h4><p>${escapeHtml(w.covers || "")}</p></section>
+          <section><h4>Questions to ask</h4><ol>${(w.questions || []).map(q => `<li>${escapeHtml(q)}</li>`).join("")}</ol></section>
+          <section><h4>Run it like this</h4><ul class="ws-check">${(w.checklist || []).map(q => `<li>${escapeHtml(q)}</li>`).join("")}</ul></section>
+        </div>
+      </article>`;
+  }).join("");
+}
+function openWorkshopLibEditor(key){
+  const w = workshopContent(key);
+  $("#ws-lib-key").value = key;
+  $("#ws-lib-title").textContent = `Edit ${w.label} workshop`;
+  $("#ws-lib-covers").value = w.covers || "";
+  $("#ws-lib-questions").value = (w.questions || []).join("\n");
+  $("#ws-lib-checklist").value = (w.checklist || []).join("\n");
+  openModal("ws-lib-modal");
+}
+async function saveWorkshopLib(){
+  const key = $("#ws-lib-key").value;
+  const lines = (id) => $(id).value.split("\n").map(s => s.trim()).filter(Boolean);
+  const content = JSON.stringify({ covers: $("#ws-lib-covers").value.trim(), questions: lines("#ws-lib-questions"), checklist: lines("#ws-lib-checklist") });
+  const existing = state.rules.find(r => r.title === WORKSHOP_RULE_PREFIX + key);
+  if (existing) await DataLayer.update("rules", existing.id, { content, updated_at: new Date().toISOString() });
+  else await DataLayer.insert("rules", { title: WORKSHOP_RULE_PREFIX + key, content, sort_order: 9000 });
+  closeModal("ws-lib-modal");
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); } else renderWorkshops();
+}
+
+function setupWorkshops(){
+  setupWorkshopDrag();
+  $$("[data-ws-tab]").forEach(b => b.addEventListener("click", () => { state.wsTab = b.dataset.wsTab; renderWorkshops(); }));
+  $("#ws-category")?.addEventListener("change", renderWorkshopModal);
+  $("#ws-form")?.addEventListener("submit", (e) => { e.preventDefault(); logWorkshop(); });
+  $("#ws-lib-form")?.addEventListener("submit", (e) => { e.preventDefault(); saveWorkshopLib(); });
+  $("#ws-modal")?.addEventListener("click", (e) => { if (e.target.closest("[data-close='ws-modal']") || e.target.id === "ws-modal") state.wsOpenId = null; });
+}
+async function handleWorkshopAction(action, id, btn){
+  if (action === "ws-edit-lib"){ openWorkshopLibEditor(btn.dataset.cat); return true; }
+  const c = state.clients.find(x => x.id === id);
+  if (!c) return false;
+  if (action === "ws-open"){ openWorkshopModal(id); return true; }
+  if (action === "ws-use-suggestion"){ await saveWorkshopProgress(c, { workshop_next: btn.dataset.cat }); return true; }
+  if (action === "ws-toggle-action" || action === "ws-delete"){
+    const list = [...((c.onboarding_progress || {}).workshops || [])].map(w => ({ ...w, actions: [...(w.actions || [])] }));
+    const w = list.find(x => x.id === btn.dataset.ws);
+    if (!w) return true;
+    if (action === "ws-delete"){
+      if (!confirm("Delete this workshop and its notes?")) return true;
+      await saveWorkshopProgress(c, { workshops: list.filter(x => x.id !== w.id) });
+    } else {
+      const a = w.actions[Number(btn.dataset.i)];
+      if (a) a.done = !a.done;
+      await saveWorkshopProgress(c, { workshops: list });
+    }
+    renderWorkshopModal();
+    return true;
+  }
+  return false;
+}
+
 async function syncClientAds(clientId, btnEl){
   const client = state.clients.find(c => c.id === clientId);
   if (!client) return;
@@ -5858,6 +6197,7 @@ function renderAll(){
   renderContentProduction();
   renderTasks();
   renderReporting();
+  renderWorkshops();
   renderWeeklyReport();
   renderLeadCenterImport();
   renderTeam();
@@ -6214,7 +6554,7 @@ function renderRules(){
   const listEl = $("#rules-list");
   const viewer = $("#rule-viewer");
   if (!listEl || !viewer) return;
-  const list = [...state.rules].sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
+  const list = state.rules.filter(r => !isWorkshopRule(r)).sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
   if (!list.length){
     listEl.innerHTML = "";
     viewer.innerHTML = `<div class="playbook-empty"><div class="playbook-empty-icon">${ICONS.shield}</div>No rule lists yet.<br>Add one for Meta Ads, Google Ads, Landing Pages, SEO, or anything else.</div>`;
@@ -7741,6 +8081,7 @@ function setupModals(){
     if (action === "view-overdue-task"){ closeModal("overdue-tasks-modal"); openEditTaskModal(id); }
     if (action === "delete-task" && confirm("Delete this task?")) await DataLayer.remove("tasks", id);
     if (action.startsWith("make-report") || action.startsWith("rp-")){ if (await handleReportAction(action, id)) return; }
+    if (action.startsWith("ws-") && await handleWorkshopAction(action, id, btn)) return;
     if (action === "view-report-history") renderReportHistoryModal(id);
     if (action === "edit-contact"){
       const c = state.contacts.find(x => x.id === id);
@@ -7866,6 +8207,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupWelcomePack();
   setupOnboarding();
   setupReporting();
+  setupWorkshops();
   populateRegionIndustrySelects();
   setupSearchFilters();
   setupTeam();
