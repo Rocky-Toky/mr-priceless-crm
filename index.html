@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=156">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=156">
+<link rel="stylesheet" href="css/style.css?v=157">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=157">
 </head>
 <body>
 
@@ -1089,10 +1089,15 @@
     <!-- Reporting (Meta Ads client reports) -->
     <section class="page" id="page-reporting">
       <div class="page-header">
-        <div><h2>Reporting</h2><p>A report for every client each fortnight, showing how their month is going: revenue won, the 10-quote guarantee, and the return. Make one, then drag the PDF into your email.</p></div>
+        <div><h2>Reporting</h2><p>A report for every client each fortnight, showing how their month is going: revenue won, the 10-quote guarantee, and the return. Make one, then drag the PDF into your email. Each client also gets a 90-day plan, further down.</p></div>
       </div>
       <div class="onb-kpis rp-kpis" id="rp-kpis"></div>
       <div class="rp-list" id="rp-client-list"></div>
+
+      <div class="pl-head">
+        <div><h3>90-day plans</h3><p>A strategy document for each client: the goal, the roadmap month by month, and every check-in already in the calendar. <span id="pl-sub"></span></p></div>
+      </div>
+      <div class="rp-list" id="pl-client-list"></div>
 
       <details class="rp-tools">
         <summary>Ad performance and lead imports</summary>
@@ -1809,6 +1814,85 @@
   </div>
 </div>
 
+<!-- ───────── Modal: 90-day plan ───────── -->
+<div class="overlay" id="plan-modal">
+  <div class="modal rp-modal" role="dialog" aria-labelledby="pl-title">
+    <div class="modal-header">
+      <div><h3 id="pl-title">90-day plan</h3><div class="onb-modal-sub" id="pl-range"></div></div>
+      <button class="modal-close" data-close="plan-modal" aria-label="Close">&times;</button>
+    </div>
+    <form class="modal-body rp-form" id="plan-form">
+      <div class="rp-section rp-section-gold">
+        <div class="rp-section-head"><h4>The goal</h4><span class="rp-ghl-note">Starter text is filled in. Tweak it for this client.</span></div>
+        <div class="field"><label for="pl-start">Plan starts</label><input type="date" id="pl-start" required></div>
+        <div class="field"><label for="pl-goal">Our goal for the next 90 days</label><textarea id="pl-goal" rows="2" required></textarea></div>
+      </div>
+      <div class="rp-section">
+        <div class="rp-section-head"><h4>Now vs day 90</h4><span class="rp-ghl-note">"Now" comes from their latest report. Leave a target blank to leave it off.</span></div>
+        <div class="rp-grid rp-grid-2 pl-targets">
+          <div class="field"><label for="pl-s-enq">Enquiries a month · now</label><input type="number" min="0" id="pl-s-enq"></div>
+          <div class="field"><label for="pl-t-enq">Day 90 target</label><input type="number" min="0" id="pl-t-enq"></div>
+          <div class="field"><label for="pl-s-quotes">Quotes booked a month · now</label><input type="number" min="0" id="pl-s-quotes"></div>
+          <div class="field"><label for="pl-t-quotes">Day 90 target</label><input type="number" min="0" id="pl-t-quotes"></div>
+          <div class="field"><label for="pl-s-rev">Revenue won a month ($) · now</label><input type="number" min="0" step="any" id="pl-s-rev"></div>
+          <div class="field"><label for="pl-t-rev">Day 90 target ($)</label><input type="number" min="0" step="any" id="pl-t-rev"></div>
+        </div>
+      </div>
+      <div class="rp-section pl-month">
+        <div class="rp-section-head"><h4>Month 1</h4><span class="rp-ghl-note" id="pl-m1-range"></span></div>
+        <div class="rp-grid rp-grid-2">
+          <div class="field"><label for="pl-m1-theme">Theme</label><input type="text" id="pl-m1-theme"></div>
+          <div class="field"><label for="pl-m1-ws">Workshop this month</label><select id="pl-m1-ws"><option value="financial">Financial</option><option value="sales">Sales</option><option value="marketing">Marketing</option></select></div>
+        </div>
+        <div class="field"><label for="pl-m1-focus">The focus</label><textarea id="pl-m1-focus" rows="2"></textarea></div>
+        <div class="field"><label>What we'll do</label><input type="text" id="pl-m1-do1"><input type="text" id="pl-m1-do2"><input type="text" id="pl-m1-do3"></div>
+        <div class="field"><label for="pl-m1-milestone">Milestone</label><input type="text" id="pl-m1-milestone"></div>
+      </div>
+      <div class="rp-section pl-month">
+        <div class="rp-section-head"><h4>Month 2</h4><span class="rp-ghl-note" id="pl-m2-range"></span></div>
+        <div class="rp-grid rp-grid-2">
+          <div class="field"><label for="pl-m2-theme">Theme</label><input type="text" id="pl-m2-theme"></div>
+          <div class="field"><label for="pl-m2-ws">Workshop this month</label><select id="pl-m2-ws"><option value="financial">Financial</option><option value="sales">Sales</option><option value="marketing">Marketing</option></select></div>
+        </div>
+        <div class="field"><label for="pl-m2-focus">The focus</label><textarea id="pl-m2-focus" rows="2"></textarea></div>
+        <div class="field"><label>What we'll do</label><input type="text" id="pl-m2-do1"><input type="text" id="pl-m2-do2"><input type="text" id="pl-m2-do3"></div>
+        <div class="field"><label for="pl-m2-milestone">Milestone</label><input type="text" id="pl-m2-milestone"></div>
+      </div>
+      <div class="rp-section pl-month">
+        <div class="rp-section-head"><h4>Month 3</h4><span class="rp-ghl-note" id="pl-m3-range"></span></div>
+        <div class="rp-grid rp-grid-2">
+          <div class="field"><label for="pl-m3-theme">Theme</label><input type="text" id="pl-m3-theme"></div>
+          <div class="field"><label for="pl-m3-ws">Workshop this month</label><select id="pl-m3-ws"><option value="financial">Financial</option><option value="sales">Sales</option><option value="marketing">Marketing</option></select></div>
+        </div>
+        <div class="field"><label for="pl-m3-focus">The focus</label><textarea id="pl-m3-focus" rows="2"></textarea></div>
+        <div class="field"><label>What we'll do</label><input type="text" id="pl-m3-do1"><input type="text" id="pl-m3-do2"><input type="text" id="pl-m3-do3"></div>
+        <div class="field"><label for="pl-m3-milestone">Milestone</label><input type="text" id="pl-m3-milestone"></div>
+      </div>
+      <div class="rp-section">
+        <div class="rp-section-head"><h4>What we need from them</h4></div>
+        <div class="field"><input type="text" id="pl-need1"><input type="text" id="pl-need2"><input type="text" id="pl-need3"><input type="text" id="pl-need4"></div>
+      </div>
+      <div class="wp-status" id="pl-status" role="status"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="plan-modal">Cancel</button>
+        <button type="submit" class="btn gold" id="pl-make">Make 90-day plan</button>
+      </div>
+    </form>
+    <div class="modal-body wp-done" id="pl-done" hidden>
+      <a class="wp-file" id="pl-file" draggable="true" href="#" download>
+        <span class="wp-file-icon">PDF</span>
+        <span class="wp-file-text"><strong id="pl-file-name">Plan.pdf</strong><span>Drag this straight into your email, or click to download again</span></span>
+      </a>
+      <p class="wp-done-note">Saved to your Downloads, and the plan is saved on the client so you can open it again from Past plans.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="pl-edit">Change plan</button>
+        <button type="button" class="btn ghost" id="pl-preview">Preview</button>
+        <button type="button" class="btn gold" data-close="plan-modal">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="report-modal">
   <div class="modal rp-modal" role="dialog" aria-labelledby="rp-title">
     <div class="modal-header">
@@ -2225,11 +2309,12 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=156"></script>
-<script src="js/supabaseClient.js?v=156"></script>
-<script src="js/report-pdf.js?v=156"></script>
-<script src="js/app.js?v=156"></script>
-<script src="js/meetings-tracker.js?v=156"></script>
-<script src="js/todo.js?v=156"></script>
+<script src="js/config.js?v=157"></script>
+<script src="js/supabaseClient.js?v=157"></script>
+<script src="js/report-pdf.js?v=157"></script>
+<script src="js/plan-pdf.js?v=157"></script>
+<script src="js/app.js?v=157"></script>
+<script src="js/meetings-tracker.js?v=157"></script>
+<script src="js/todo.js?v=157"></script>
 </body>
 </html>

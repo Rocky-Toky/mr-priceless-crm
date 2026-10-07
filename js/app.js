@@ -5359,10 +5359,220 @@ function setupReporting(){
 }
 async function handleReportAction(action, id){
   if (action === "make-report"){ openReportModal(id); return true; }
+  if (action === "make-plan"){ openPlanModal(id); return true; }
   if (action === "rp-ghl-pull"){ await rpGhlPull(); return true; }
   if (action === "rp-ghl-connect-show"){ $("#rp-ghl-connect").hidden = false; $("#rp-ghl-location")?.focus(); return true; }
   if (action === "rp-ghl-connect"){ await rpGhlConnect(); return true; }
   return false;
+}
+
+/* ───────── 90-day plans: a strategy document for the client ─────────
+   Made from the Reporting page. Each plan is saved on the client in
+   client.onboarding_progress.plans (no migration needed) and turned into a
+   3-page PDF by js/plan-pdf.js. Starter text for each month means it never
+   starts blank; the dates, check-ins and starting numbers fill themselves in. */
+const PLAN_DAYS = 90;
+const PLAN_MONTHS = [
+  { theme: "Launch & Learn", focus: "Get your ads live, find out what your customers respond to, and set a clear baseline for leads and cost.",
+    actions: ["Launch 3 to 4 ad angles to find the winner", "Qualify every enquiry before it reaches you", "Track every lead through to quote and job"],
+    milestone: "First quotes booked and a clear cost per lead", workshop: "marketing" },
+  { theme: "Optimise", focus: "Double down on what's working and tighten the path from enquiry to booked quote.",
+    actions: ["Move budget onto the best-performing ads", "Refresh creative before it wears out", "Sharpen follow-up so more enquiries become quotes"],
+    milestone: "Quote guarantee met at a lower cost per lead", workshop: "sales" },
+  { theme: "Scale", focus: "Grow the number of jobs coming in while protecting your margins.",
+    actions: ["Scale budget on the proven ads", "Launch a fresh offer for the season ahead", "Review pricing and job mix for profit"],
+    milestone: "A steady month of booked quotes and the next 90 days mapped out", workshop: "financial" },
+];
+const PLAN_NEEDS = ["Call new enquiries back within the hour where you can", "Send us photos and videos from recent jobs", "Let us know which quotes turn into jobs", "Ask every happy customer for a Google review"];
+const PLAN_PROMISES = ["A clear report every fortnight on how the month is going", "A strategy workshop with you every month", "Your ads checked and tuned every week", "Every enquiry qualified before it reaches you"];
+const PLAN_FIELDS = ["start", "goal", "s-enq", "t-enq", "s-quotes", "t-quotes", "s-rev", "t-rev",
+  ...[1, 2, 3].flatMap(i => ["theme", "focus", "do1", "do2", "do3", "milestone", "ws"].map(k => `m${i}-${k}`)), "need1", "need2", "need3", "need4"];
+const plansOf = (c) => [...((c.onboarding_progress || {}).plans || [])].sort((a, b) => String(a.start).localeCompare(String(b.start)));
+const isPlanClient = (c) => (c.stage || "onboarding") !== "churned";
+let plClientId = null, plExisting = null, plLastUrl = null, plLastName = "";
+const plVal = (k) => $("#pl-" + k)?.value ?? "";
+const plSet = (k, v) => { const el = $("#pl-" + k); if (el) el.value = v ?? ""; };
+const fmtDayMonth = (s, year) => localDateOnly(s).toLocaleDateString("en-NZ", year ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+const planRange = (start) => `${fmtDayMonth(start)} – ${fmtDayMonth(addDays(start, PLAN_DAYS - 1), true)}`;
+
+// Where a client is up to: the current plan, what day of it, and when the next is due.
+function planInfo(c){
+  const plans = plansOf(c), cur = plans[plans.length - 1];
+  if (!cur) return { cur: null, label: "No plan yet", cls: "client", due: true };
+  const day = daysBetween(localDateOnly(cur.start), localDateOnly(localDayStr())) + 1;
+  const left = PLAN_DAYS - day;
+  if (day < 1) return { cur, day: 0, label: `Starts ${fmtDayMonth(cur.start)}`, cls: "track", due: false };
+  if (left < 0) return { cur, day: PLAN_DAYS, label: "Plan finished · next one due", cls: "client", due: true };
+  if (left <= 14) return { cur, day, label: `Ends in ${left}d · next one due soon`, cls: "soon", due: true };
+  return { cur, day, label: `Day ${day} of ${PLAN_DAYS}`, cls: "track", due: false };
+}
+
+// Starting numbers from their last full month's report (or the latest one).
+function planPrefill(c){
+  const prior = latestPerEarlierMonth(c.id, ymOf(localDayStr())).pop() || monthReportsFor(c.id).slice(-1)[0];
+  const m = prior?.metrics || {};
+  const target = toNum(m.quoteTarget) || c.quote_target || 10;
+  const enq = toNum(m.enquiries), quotes = toNum(m.quotesBooked), rev = toNum(m.revenueMonth);
+  const last = plansOf(c).slice(-1)[0];
+  const start = last && addDays(last.start, PLAN_DAYS) > localDayStr() ? addDays(last.start, PLAN_DAYS) : localDayStr();
+  const next = (c.onboarding_progress || {}).workshop_next;
+  const out = {
+    start, goal: `Book ${target} quality quotes every month and turn more of them into signed jobs`,
+    "s-enq": enq ?? "", "t-enq": enq ? Math.ceil(enq * 1.3) : "", "s-quotes": quotes ?? "", "t-quotes": target,
+    "s-rev": rev ?? "", "t-rev": "",
+    need1: PLAN_NEEDS[0], need2: PLAN_NEEDS[1], need3: PLAN_NEEDS[2], need4: PLAN_NEEDS[3],
+  };
+  PLAN_MONTHS.forEach((mo, i) => {
+    const p = `m${i + 1}-`;
+    Object.assign(out, { [p + "theme"]: mo.theme, [p + "focus"]: mo.focus, [p + "do1"]: mo.actions[0], [p + "do2"]: mo.actions[1], [p + "do3"]: mo.actions[2], [p + "milestone"]: mo.milestone,
+      [p + "ws"]: i === 0 && next ? next : mo.workshop });
+  });
+  // Month 1's workshop is whatever they're lined up for; keep the three different where we can.
+  if (next && next !== "marketing"){ const clash = [2, 3].find(i => out[`m${i}-ws`] === next); if (clash) out[`m${clash}-ws`] = "marketing"; }
+  return out;
+}
+
+function openPlanModal(clientId, planId){
+  const c = state.clients.find(x => x.id === clientId);
+  if (!c) return;
+  plClientId = c.id;
+  plExisting = planId ? plansOf(c).find(p => p.id === planId) : null;
+  $("#pl-title").textContent = `90-day plan · ${c.name}`;
+  $("#plan-form").hidden = false; $("#pl-done").hidden = true;
+  const vals = plExisting ? plExisting.fields || {} : planPrefill(c);
+  PLAN_FIELDS.forEach(k => plSet(k, vals[k]));
+  plStatus("");
+  plRenderRange();
+  openModal("plan-modal");
+}
+function plStatus(msg, warn){ const el = $("#pl-status"); if (el){ el.textContent = msg; el.classList.toggle("warn", !!warn); } }
+function plRenderRange(){
+  const s = plVal("start"), el = $("#pl-range");
+  if (!el) return;
+  el.textContent = s ? `${planRange(s)} · 6 fortnightly reports and 3 workshops` : "";
+  [1, 2, 3].forEach(i => { const m = $(`#pl-m${i}-range`); if (m) m.textContent = s ? `${fmtDayMonth(addDays(s, (i - 1) * 30))} – ${fmtDayMonth(addDays(s, i === 3 ? PLAN_DAYS - 1 : i * 30 - 1))}` : ""; });
+}
+
+// The plan's data for the PDF: dates, check-ins and the month-by-month roadmap.
+function planPdfData(c, f, number){
+  const start = f.start, end = addDays(start, PLAN_DAYS - 1);
+  const mondayOf = (d) => { const x = localDateOnly(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return localDayStr(x); };
+  const months = [1, 2, 3].map(i => {
+    const p = `m${i}-`, ws = WORKSHOP_MAP[f[p + "ws"]];
+    // Workshops land mid-month, in the week starting that Monday.
+    const wsDay = daysBetween(localDateOnly(start), localDateOnly(mondayOf(addDays(start, (i - 1) * 30 + 14))));
+    return {
+      theme: f[p + "theme"], focus: f[p + "focus"], actions: [f[p + "do1"], f[p + "do2"], f[p + "do3"]].filter(Boolean), milestone: f[p + "milestone"],
+      rangeLabel: `${fmtDayMonth(addDays(start, (i - 1) * 30))} – ${fmtDayMonth(addDays(start, i === 3 ? PLAN_DAYS - 1 : i * 30 - 1))}`,
+      workshop: ws ? `${ws.label} workshop` : "", workshopWhen: ws ? `Week of ${fmtDayMonth(addDays(start, wsDay))}` : "", wsDay, ws,
+    };
+  });
+  const cal = [{ day: 0, type: "start", title: "We kick off the plan and lock in the targets" }];
+  for (let d = 14; d < PLAN_DAYS; d += 14) cal.push({ day: d, type: "report", title: "Your fortnightly report: how the month is going" });
+  months.forEach(m => { if (m.ws) cal.push({ day: m.wsDay, type: "workshop", title: `${m.ws.label} workshop: ${m.ws.blurb.toLowerCase()}`, when: m.workshopWhen }); });
+  cal.push({ day: PLAN_DAYS - 1, type: "review", title: "We review the results together and map out the next 90 days" });
+  cal.sort((a, b) => a.day - b.day || (a.type === "workshop") - (b.type === "workshop"));
+  const person = window.getActivePerson ? window.getActivePerson() : null;
+  let am = {}; try { am = JSON.parse(localStorage.getItem(wpAmKey(person)) || "{}"); } catch(e){}
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  const n = (k) => toNum(f[k]);
+  const pctUp = (a, b) => a && b && b > a ? `+${Math.round((b - a) / a * 100)}%` : "";
+  return {
+    clientName: c.name, planNumber: number, rangeLabel: planRange(start),
+    startLabel: fmtDayMonth(start, true), endLabel: fmtDayMonth(end, true), checkinsLabel: `${cal.filter(e => e.type === "report").length} reports · ${months.filter(m => m.ws).length} workshops`,
+    goal: f.goal,
+    metrics: [
+      { label: "Enquiries a month", now: n("s-enq"), target: n("t-enq"), kind: "num", note: pctUp(n("s-enq"), n("t-enq")) },
+      { label: "Quotes booked a month", now: n("s-quotes"), target: n("t-quotes"), kind: "num", note: pctUp(n("s-quotes"), n("t-quotes")) },
+      { label: "Revenue won a month", now: n("s-rev"), target: n("t-rev"), kind: "money", note: pctUp(n("s-rev"), n("t-rev")) },
+    ].filter(m => m.target != null),
+    months,
+    markers: cal.map(e => ({ day: e.day, type: e.type })),
+    calendar: cal.map(e => ({ type: e.type, title: e.title, dateLabel: e.type === "workshop" ? e.when.replace("Week of", "w/c") : fmtDayMonth(addDays(start, e.day)) })),
+    promises: PLAN_PROMISES, needs: [f.need1, f.need2, f.need3, f.need4].filter(Boolean),
+    contactName: am.account_manager || ASSIGNEES[deal?.assignee]?.label || "", contactPhone: am.phone || "",
+  };
+}
+
+async function makePlan(){
+  const c = state.clients.find(x => x.id === plClientId);
+  if (!c) return;
+  const f = Object.fromEntries(PLAN_FIELDS.map(k => [k, String(plVal(k)).trim()]));
+  if (!f.start){ plStatus("Pick the day the plan starts.", true); return; }
+  if (!f.goal){ plStatus("Write the goal for the 90 days.", true); return; }
+  const btn = $("#pl-make"); btn.disabled = true; plStatus("Making the plan…");
+  try {
+    await wpLoadLibs();
+    const plans = plansOf(c);
+    const number = plExisting ? (plExisting.number || plans.indexOf(plExisting) + 1) : plans.length + 1;
+    const bytes = await window.MPPlanPDF.build(planPdfData(c, f, number));
+    const entry = { id: plExisting?.id || uid(), number, start: f.start, end: addDays(f.start, PLAN_DAYS - 1), fields: f, made_at: new Date().toISOString() };
+    const list = [...((c.onboarding_progress || {}).plans || [])].filter(p => p.id !== entry.id);
+    const progress = { ...(c.onboarding_progress || {}), plans: [...list, entry] };
+    c.onboarding_progress = progress;
+    plExisting = entry;
+    await DataLayer.update("clients", c.id, { onboarding_progress: progress });
+    if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+
+    if (plLastUrl) URL.revokeObjectURL(plLastUrl);
+    plLastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    plLastName = `Mr Priceless 90-Day Plan - ${(c.name || "Client").replace(/[\\/:*?"<>|]+/g, "")} - ${f.start}.pdf`;
+    const link = $("#pl-file"); link.href = plLastUrl; link.download = plLastName;
+    $("#pl-file-name").textContent = plLastName;
+    const a = document.createElement("a"); a.href = plLastUrl; a.download = plLastName; document.body.appendChild(a); a.click(); a.remove();
+    $("#plan-form").hidden = true; $("#pl-done").hidden = false;
+    plStatus("");
+  } catch(err){
+    console.error(err);
+    plStatus("Couldn't make the plan: " + (err.message || err), true);
+  } finally { btn.disabled = false; }
+}
+
+function renderPlans(){
+  const list = $("#pl-client-list");
+  if (!list) return;
+  const clients = state.clients.filter(isPlanClient);
+  const infos = new Map(clients.map(c => [c.id, planInfo(c)]));
+  const due = clients.filter(c => infos.get(c.id).due).length;
+  const sub = $("#pl-sub");
+  if (sub) sub.textContent = due ? `${due} of ${clients.length} client${clients.length === 1 ? "" : "s"} need${due === 1 ? "s" : ""} a new plan` : "Everyone has a plan running";
+  if (!clients.length){ list.innerHTML = `<div class="card onb-empty"><div><h3>No clients yet</h3><p>Each client gets a 90-day plan once they're signed.</p></div></div>`; return; }
+  const order = [...clients].sort((a, b) => (infos.get(b.id).due - infos.get(a.id).due) || (a.name || "").localeCompare(b.name || ""));
+  list.innerHTML = order.map(c => {
+    const info = infos.get(c.id), plans = plansOf(c).slice().reverse();
+    const pct = info.cur ? Math.round(Math.min(PLAN_DAYS, Math.max(0, info.day)) / PLAN_DAYS * 100) : 0;
+    return `
+      <article class="rp-row pl-row ${info.due ? "is-due" : ""}">
+        <span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>
+        <div class="rp-row-id">
+          <div class="rp-row-name">${escapeHtml(c.name)}</div>
+          <div class="rp-row-sub">${info.cur ? `Plan ${info.cur.number || plans.length} · ${escapeHtml(planRange(info.cur.start))}` : (c.stage || "onboarding") === "onboarding" ? "Onboarding · send one after kickoff" : "Hasn't had one yet"}</div>
+        </div>
+        <div class="pl-progress" title="${pct}% through">${info.cur ? `<div class="onb-bar"><span style="width:${pct}%"></span></div><small>${escapeHtml(info.cur.fields?.goal || "")}</small>` : ""}</div>
+        <span class="onb-status ${info.cls}">${escapeHtml(info.label)}</span>
+        <div class="rp-row-actions">
+          ${plans.length ? `<select class="filter-select pl-past" data-client="${c.id}" aria-label="Past plans for ${escapeHtml(c.name)}"><option value="">Past plans (${plans.length})</option>${plans.map(p => `<option value="${p.id}">Plan ${p.number || ""} · ${escapeHtml(planRange(p.start))}</option>`).join("")}</select>` : ""}
+          <button type="button" class="btn ${info.due ? "gold" : "ghost"} sm" data-action="make-plan" data-id="${c.id}">${info.due ? "Make 90-day plan" : "New plan"}</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+function setupPlans(){
+  $("#plan-form")?.addEventListener("submit", (e) => { e.preventDefault(); makePlan(); });
+  $("#pl-start")?.addEventListener("change", plRenderRange);
+  $("#pl-client-list")?.addEventListener("change", (e) => {
+    const sel = e.target.closest(".pl-past");
+    if (!sel || !sel.value) return;
+    const id = sel.value; sel.value = "";
+    openPlanModal(sel.dataset.client, id);
+  });
+  $("#pl-file")?.addEventListener("dragstart", (e) => {
+    if (!plLastUrl) return;
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("DownloadURL", `application/pdf:${plLastName}:${plLastUrl}`);
+  });
+  $("#pl-preview")?.addEventListener("click", () => { if (plLastUrl) window.open(plLastUrl, "_blank"); });
+  $("#pl-edit")?.addEventListener("click", () => { $("#pl-done").hidden = true; $("#plan-form").hidden = false; });
 }
 
 /* ───────── Workshops: monthly consulting sessions ─────────
@@ -6197,6 +6407,7 @@ function renderAll(){
   renderContentProduction();
   renderTasks();
   renderReporting();
+  renderPlans();
   renderWorkshops();
   renderWeeklyReport();
   renderLeadCenterImport();
@@ -8080,7 +8291,7 @@ function setupModals(){
     if (action === "edit-task") openEditTaskModal(id);
     if (action === "view-overdue-task"){ closeModal("overdue-tasks-modal"); openEditTaskModal(id); }
     if (action === "delete-task" && confirm("Delete this task?")) await DataLayer.remove("tasks", id);
-    if (action.startsWith("make-report") || action.startsWith("rp-")){ if (await handleReportAction(action, id)) return; }
+    if (action.startsWith("make-report") || action === "make-plan" || action.startsWith("rp-")){ if (await handleReportAction(action, id)) return; }
     if (action.startsWith("ws-") && await handleWorkshopAction(action, id, btn)) return;
     if (action === "view-report-history") renderReportHistoryModal(id);
     if (action === "edit-contact"){
@@ -8207,6 +8418,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupWelcomePack();
   setupOnboarding();
   setupReporting();
+  setupPlans();
   setupWorkshops();
   populateRegionIndustrySelects();
   setupSearchFilters();
