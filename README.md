@@ -208,11 +208,18 @@ Without it, an unanswered inbound call just hears a short "nobody's available, t
 - **Calendar sync**: when you sign in, Google hands back a short-lived access token (used immediately) and a refresh token (saved to `google_tokens`, write-only from the browser). Clicking the calendar icon next to a cold call's follow-up date creates an event on *your own* Google Calendar. If your access token has expired, the app calls `refresh-google-token` to get a new one automatically.
 - No build step, no npm - just `index.html`, `css/style.css`, and plain `js/*.js` files, talking to Supabase via its JS client loaded from a CDN.
 
-## Fortnightly finance reports (Reporting page)
+## Client reports (Reporting page)
 
-Reports are made in the CRM (Reporting → Make report) and come out as a PDF
-to drag into an email. Each report's numbers are saved in `client_reports`,
-so revenue, spend and return "to date" build up from one report to the next.
+Reports go out every fortnight, but each one covers the month so far: a
+mid-month check-in and a month-end wrap. They're made in the CRM (Reporting →
+Make report) and come out as a PDF to drag into an email: revenue won this
+month, return on everything invested to date, the 10-quote guarantee, the
+pipeline and the enquiry-to-job funnel, then the plain-English story, top ad
+and the numbers explained.
+
+Each report's numbers are saved in `client_reports` (`metrics.kind = "mtd"`).
+Totals to date add up the latest report of every earlier month plus the
+current one, so a mid-month and a month-end report never double count.
 
 ### Pulling revenue from each client's GHL (one-time setup)
 
