@@ -311,10 +311,25 @@ const CLIENT_STAGES = [
   { key: "month_2", label: "Month 2", days: 30, cls: "gold" },
   { key: "month_3", label: "Month 3", days: 30, cls: "gold" },
   { key: "established", label: "Established", days: null, cls: "green" },
+  // Existing clients whose creatives are fatiguing or who are changing direction.
+  { key: "creatives_due", label: "New Creatives Due", days: 14, cls: "gold" },
   { key: "at_risk", label: "At Risk", days: null, cls: "red" },
   { key: "churned", label: "Churned", days: null, cls: "gray" },
 ];
 const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
+const ARCHIVED_STAGE = "archived";
+const archivedClientName = (id) => (state.archivedClients || []).find(c => c.id === id)?.name || "";
+// An archived client's campaigns, content, reports and leads stay in the
+// database but out of the CRM - only their ad creatives stay visible.
+function dropArchivedClientData(){
+  const gone = new Set((state.archivedClients || []).map(c => c.id));
+  if (!gone.size) return;
+  const keep = (x) => !gone.has(x.client_id);
+  state.clientContent = state.clientContent.filter(keep);
+  state.campaigns = state.campaigns.filter(keep);
+  state.clientReports = (state.clientReports || []).filter(keep);
+  state.clientLeads = (state.clientLeads || []).filter(keep);
+}
 // The fields that make a client's profile genuinely useful to anyone on the
 // team - drives the completeness bar on the Client Info card and kanban card.
 const CLIENT_INFO_FIELDS = [
@@ -450,6 +465,7 @@ const state = {
   selectedEmailTemplateId: null,
   expenses: [],
   callActivity: [],
+  archivedClients: [],
   creativeSnapshots: [],
   clientLeads: [],
   completedVerticals: [],
@@ -1033,7 +1049,10 @@ const DataLayer = {
     state.deals = d.data || [];
     state.regions = r.data || [];
     state.prospects = p.data || [];
-    state.clients = cl.data || [];
+    // "Deleted" clients that still have ad creatives are archived instead, so
+    // their creatives stay in the Creative Library - keep them out of everything else.
+    state.archivedClients = (cl.data || []).filter(c => c.stage === ARCHIVED_STAGE);
+    state.clients = (cl.data || []).filter(c => c.stage !== ARCHIVED_STAGE);
     state.clientContent = ccon.data || [];
     state.adCreatives = cad.data || [];
     state.campaigns = camp.data || [];
@@ -1052,6 +1071,7 @@ const DataLayer = {
     state.creativeSnapshots = cws.data || [];
     state.clientLeads = clead.data || [];
     state.completedVerticals = cv.data || [];
+    dropArchivedClientData();
   },
   async insert(table, row){
     if (TABLES_WITH_CREATED_BY.has(table)) row.created_by = state.user ? state.user.email : "demo";
@@ -3295,6 +3315,13 @@ function renderClientsList(){
   if (!state.clients.length){ list.innerHTML = `<div class="card">${emptyState("No clients yet. Add your first client to get started.")}</div>`; return; }
 
   const q = state.clientsGallerySearch.trim().toLowerCase();
+  const boardView = clientsView() === "board";
+  $("#clients-stage-chips")?.toggleAttribute("hidden", boardView);
+  $$("[data-cl-view]").forEach(b => { const on = b.dataset.clView === clientsView(); b.classList.toggle("active", on); b.setAttribute("aria-pressed", on); });
+  if (boardView){
+    list.innerHTML = clientsBoardHtml(state.clients.filter(c => !q || (c.name||"").toLowerCase().includes(q)), alertsById);
+    return;
+  }
   const visible = state.clients
     .filter(c => !q || (c.name||"").toLowerCase().includes(q))
     .filter(c => filter === "all" || (filter === "attention" ? alertsById.get(c.id).length : stageOf(c) === filter));
@@ -3320,6 +3347,142 @@ function renderClientsList(){
         ${g.clients.map(c => renderClientRow(c, alertsById.get(c.id))).join("")}
       `).join("")}
     </div>`;
+}
+/* ───────── Clients board: drag clients between lifecycle stages ───────── */
+function clientsView(){
+  if (!state.clientsView){ try { state.clientsView = localStorage.getItem("mp_clients_view") === "list" ? "list" : "board"; } catch(e){ state.clientsView = "board"; } }
+  return state.clientsView;
+}
+const CLIENT_STAGE_BLURBS = {
+  onboarding: "Signed, getting set up", quote_guarantee: "Delivering the quotes", month_1: "First month live",
+  month_2: "Second month", month_3: "Third month", established: "Steady and happy",
+  creatives_due: "Fatiguing ads or a new direction", at_risk: "Needs attention", churned: "No longer with us",
+};
+function clientFatiguingCount(c){
+  return state.adCreatives.filter(a => a.client_id === c.id && (a.fatigue_status === "fatiguing" || a.fatigue_status === "fatigued")).length;
+}
+function clientsBoardHtml(clients, alertsById){
+  const stageOf = (c) => c.stage || "onboarding";
+  return `<div class="onb-board cl-board" id="clients-board">${CLIENT_STAGES.map((st, i) => {
+    const col = clients.filter(c => stageOf(c) === st.key).sort((a,b) => (a.name||"").localeCompare(b.name||""));
+    const mrr = col.map(clientRetainer).filter(v => v != null).reduce((a,b) => a+b, 0);
+    return `
+      <section class="onb-col" data-stage="${st.key}" data-board="clients" aria-label="${escapeHtml(st.label)}">
+        <header class="onb-col-head">
+          <span class="onb-col-num">${i + 1}</span>
+          <div><div class="onb-col-title">${escapeHtml(st.label)}</div><div class="onb-col-blurb">${mrr ? `${fmtMoney(mrr)}/mo` : escapeHtml(CLIENT_STAGE_BLURBS[st.key] || "")}</div></div>
+          <span class="onb-col-count">${col.length}</span>
+        </header>
+        <div class="onb-col-body">
+          ${col.map(c => clientBoardCardHtml(c, alertsById.get(c.id) || [])).join("")}
+          <div class="onb-drop-hint">${col.length ? "Drop here" : "Drag a client here"}</div>
+        </div>
+      </section>`;
+  }).join("")}</div>`;
+}
+function clientBoardCardHtml(c, alerts){
+  const stage = c.stage || "onboarding";
+  const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
+  const retainer = clientRetainer(c);
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  const owner = (c.onboarding_progress || {}).owner || deal?.assignee || null;
+  const live = runningCampaignsFor(c.id).length;
+  const fatiguing = clientFatiguingCount(c);
+  const chips = [];
+  alerts.forEach(a => chips.push(`<span class="onb-status ${a.type === "danger" ? "late" : "client"}">${escapeHtml(a.text.replace(" - overdue to move on", ""))}</span>`));
+  if (fatiguing && stage !== "creatives_due") chips.push(`<span class="onb-status client">${fatiguing} creative${fatiguing === 1 ? "" : "s"} fatiguing</span>`);
+  if (c.churn_risk === "high" || c.churn_risk === "medium") chips.push(`<span class="onb-status ${c.churn_risk === "high" ? "late" : "client"}">${c.churn_risk === "high" ? "High" : "Medium"} churn risk</span>`);
+  let body = "";
+  if (stage === "onboarding"){
+    const ls = launchState(c);
+    body = `<div class="onb-card-progress"><span class="cl-card-label">${escapeHtml(ls.stage.label)}</span><div class="onb-bar"><span style="width:${ls.pct}%"></span></div><span class="onb-bar-label">${ls.doneTasks}/${ls.total}</span></div>`;
+  } else if (stage === "quote_guarantee" && c.quote_target){
+    const sent = Number(c.quotes_sent || 0);
+    body = `<div class="onb-card-progress"><span class="cl-card-label">Quotes</span><div class="onb-bar"><span style="width:${Math.min(100, Math.round(sent / c.quote_target * 100))}%"></span></div><span class="onb-bar-label">${sent}/${c.quote_target}</span></div>`;
+  }
+  const stats = [
+    c.cost_per_lead != null ? `<span><b>${fmtMoney(c.cost_per_lead)}</b> CPL</span>` : "",
+    `<span><b>${live}</b> live</span>`,
+    stage === "creatives_due" || fatiguing ? `<span><b>${fatiguing}</b> fatiguing</span>` : "",
+  ].filter(Boolean).join("");
+  const back = (c.onboarding_progress || {}).before_creatives;
+  const footer = stage === "creatives_due"
+    ? `<button type="button" class="onb-finish" data-action="creatives-done" data-id="${c.id}">New creatives live → ${escapeHtml(CLIENT_STAGE_MAP[back]?.label || "Established")}</button>`
+    : "";
+  return `
+    <article class="onb-card cl-card" draggable="true" data-action="view-client" data-id="${c.id}" tabindex="0" aria-label="${escapeHtml(c.name)}">
+      <div class="onb-card-top">
+        <span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>
+        <div class="onb-card-id">
+          <div class="onb-card-name">${escapeHtml(c.name)}</div>
+          <div class="onb-card-meta">${[retainer != null ? `${fmtMoney(retainer)}/mo` : "", days != null ? `${days}d here` : ""].filter(Boolean).join(" · ") || "&nbsp;"}</div>
+        </div>
+        ${ownerChipHtml(owner, true)}
+        <button type="button" class="cl-card-del" data-action="delete-client-row" data-id="${c.id}" title="Delete ${escapeHtml(c.name)}" aria-label="Delete ${escapeHtml(c.name)}">${ICONS.trash}</button>
+      </div>
+      ${chips.length ? `<div class="cl-card-chips">${chips.join("")}</div>` : ""}
+      ${body}
+      <div class="cl-card-stats">${stats}</div>
+      ${footer}
+    </article>`;
+}
+// Moves a client to another lifecycle stage. Going into New Creatives Due
+// remembers where they came from, so the card can send them back after.
+async function moveClientStage(c, stage){
+  const before = c.stage || "onboarding";
+  if (!CLIENT_STAGE_MAP[stage] || stage === before) return;
+  const now = new Date().toISOString();
+  const patch = { stage, stage_changed_at: now, updated_at: now };
+  if (stage === "creatives_due") patch.onboarding_progress = { ...(c.onboarding_progress || {}), before_creatives: before };
+  if (before === "onboarding" && stage !== "onboarding" && !(c.onboarding_progress || {}).live_at)
+    patch.onboarding_progress = { ...(patch.onboarding_progress || c.onboarding_progress || {}), live_at: now };
+  await DataLayer.update("clients", c.id, patch);
+  if (stage === "onboarding") openWelcomePack(c.id);
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+}
+function setupClientsBoardDrag(){
+  const host = $("#clients-gallery");
+  if (!host) return;
+  let dragId = null;
+  host.addEventListener("dragstart", (e) => {
+    const card = e.target.closest?.(".cl-card");
+    if (!card) return;
+    dragId = card.dataset.id;
+    card.classList.add("dragging");
+    $("#clients-board")?.classList.add("is-dragging");
+    if (e.dataTransfer){ e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragId); }
+  });
+  host.addEventListener("dragend", (e) => {
+    e.target.closest?.(".cl-card")?.classList.remove("dragging");
+    $("#clients-board")?.classList.remove("is-dragging");
+    $$("#clients-board .onb-col.drag-over").forEach(col => col.classList.remove("drag-over"));
+    dragId = null;
+  });
+  host.addEventListener("dragover", (e) => {
+    const col = e.target.closest?.(".onb-col[data-board='clients']");
+    if (!col || !dragId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    $$("#clients-board .onb-col.drag-over").forEach(x => { if (x !== col) x.classList.remove("drag-over"); });
+    col.classList.add("drag-over");
+  });
+  host.addEventListener("dragleave", (e) => {
+    const col = e.target.closest?.(".onb-col[data-board='clients']");
+    if (col && !col.contains(e.relatedTarget)) col.classList.remove("drag-over");
+  });
+  host.addEventListener("drop", async (e) => {
+    const col = e.target.closest?.(".onb-col[data-board='clients']");
+    if (!col || !dragId) return;
+    e.preventDefault();
+    col.classList.remove("drag-over");
+    const c = state.clients.find(x => x.id === dragId);
+    dragId = null;
+    if (c) await moveClientStage(c, col.dataset.stage);
+  });
+  host.addEventListener("keydown", (e) => {
+    const card = e.target.closest?.(".cl-card");
+    if (card && e.target === card && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); card.click(); }
+  });
 }
 // What a client pays us each month, from the retainer deal they came from.
 function clientRetainer(c){
@@ -3348,33 +3511,50 @@ function churnRiskPillHtml(c){
   const label = c.churn_risk ? c.churn_risk.charAt(0).toUpperCase() + c.churn_risk.slice(1) : "Not set";
   return `<span class="cl-risk ${c.churn_risk||"none"}"><span class="cl-risk-dot"></span>${label}</span>`;
 }
-// Deleting a client keeps their ad creatives in the Creative Library: they
-// get unlinked (client_id -> null) and remember the client's name, so the
-// library still shows who they were for. Needs sql/055 on the live DB.
-// The one-time database update (sql/055) that lets creatives outlive their client.
-const KEEP_CREATIVES_SQL = "alter table client_ad_creatives add column if not exists client_name text;\nupdate client_ad_creatives cr\nset client_name = cl.name\nfrom clients cl\nwhere cl.id = cr.client_id and cr.client_name is null;\nalter table client_ad_creatives alter column client_id drop not null;\nalter table client_ad_creatives drop constraint if exists client_ad_creatives_client_id_fkey;\nalter table client_ad_creatives\n  add constraint client_ad_creatives_client_id_fkey\n  foreign key (client_id) references clients(id) on delete set null;";
+// Deleting a client never touches their ad creatives. A client with no
+// creatives is deleted outright; one with creatives is archived instead -
+// gone from every list in the CRM, while the Creative Library keeps showing
+// their creatives under their name. Archiving also clears the report email
+// and ad account so scheduled reports and ad syncing stop for them.
 async function deleteClientKeepingCreatives(c){
-  if (IS_CONFIGURED && state.adCreatives.some(a => a.client_id === c.id)){
-    const { error } = await supabase.from("client_ad_creatives")
-      .update({ client_id: null, client_name: c.name, campaign_id: null })
-      .eq("client_id", c.id);
-    if (error){
-      // Without the update, deleting would take their creatives with them - so stop, and hand over the fix.
-      let copied = false;
-      try { await navigator.clipboard.writeText(KEEP_CREATIVES_SQL); copied = true; } catch(e){}
-      alert(`${c.name} wasn't deleted, so their ad creatives are safe.\n\nYour database needs a one-time update before a client with creatives can be deleted (it keeps their creatives in the Creative Library).\n\n${copied ? "The update has been copied for you. " : ""}In Supabase, open SQL Editor, start a new query, ${copied ? "paste" : "paste the contents of sql/055_keep_creatives_on_client_delete.sql"} and press Run. Then delete the client again.\n\n(Database said: ${error.message})`);
-      return false;
+  const hasCreatives = state.adCreatives.some(a => a.client_id === c.id);
+  let deleted = false;
+  if (!hasCreatives){
+    if (!IS_CONFIGURED) deleted = true;
+    else {
+      const { data, error } = await supabase.from("clients").delete().eq("id", c.id).select("id");
+      deleted = !error && !!data?.length;
     }
   }
-  state.adCreatives.forEach(a => {
-    if (a.client_id === c.id){ a.client_id = null; a.client_name = c.name; a.campaign_id = null; }
-  });
+  if (!deleted){
+    const now = new Date().toISOString();
+    const progress = { ...(c.onboarding_progress || {}), archived_at: now, archived_from: c.stage || "onboarding",
+      ...(c.report_email ? { archived_report_email: c.report_email } : {}), ...(c.meta_ad_account_id ? { archived_ad_account: c.meta_ad_account_id } : {}) };
+    const patch = { stage: ARCHIVED_STAGE, stage_changed_at: now, updated_at: now, onboarding_progress: progress };
+    if (c.report_email) patch.report_email = null;
+    if (c.meta_ad_account_id) patch.meta_ad_account_id = null;
+    if (IS_CONFIGURED){
+      const { error } = await supabase.from("clients").update(patch).eq("id", c.id);
+      if (error){ alert(`Couldn't delete ${c.name}. Nothing was changed.\n\n${error.message}`); return false; }
+    }
+    (state.archivedClients = state.archivedClients || []).push({ ...c, ...patch });
+  }
+  state.clients = state.clients.filter(x => x.id !== c.id);
+  if (deleted) state.archivedClients = (state.archivedClients || []).filter(x => x.id !== c.id);
+  else dropArchivedClientData();
+  if (deleted){
+    const keep = (x) => x.client_id !== c.id;
+    state.clientContent = state.clientContent.filter(keep);
+    state.campaigns = state.campaigns.filter(keep);
+    state.clientReports = (state.clientReports || []).filter(keep);
+    state.clientLeads = (state.clientLeads || []).filter(keep);
+  }
   if (state.selectedClientId === c.id) state.selectedClientId = null;
-  await DataLayer.remove("clients", c.id);
-  renderClients();
+  if (state.onbOpenId === c.id){ state.onbOpenId = null; closeModal("onb-modal"); }
+  renderAll();
   return true;
 }
-const DELETE_CLIENT_CONFIRM = (name) => `Delete ${name}? This removes their campaigns, content pieces, leads and onboarding progress. Their ad creatives stay in the Creative Library. This can't be undone.`;
+const DELETE_CLIENT_CONFIRM = (name) => `Delete ${name}? They'll be removed from the CRM. Their ad creatives stay in the Creative Library.`;
 function renderClientRow(c, alerts){
   const initial = (c.name||"?").trim().charAt(0).toUpperCase();
   const prog = clientProgress(c);
@@ -4342,7 +4522,7 @@ function renderCreativeLibrary(){
   const clientSel = $("#creative-filter-client");
   if (clientSel){
     clientSel.innerHTML = `<option value="">All Clients</option>` + state.clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")
-      + (state.adCreatives.some(a => !a.client_id) ? `<option value="__deleted__">Deleted clients</option>` : "");
+      + (state.adCreatives.some(a => !a.client_id || !state.clients.some(c => c.id === a.client_id)) ? `<option value="__deleted__">Deleted clients</option>` : "");
     clientSel.value = state.creativeFilter.client;
     if (clientSel.value !== state.creativeFilter.client) state.creativeFilter.client = clientSel.value;
   }
@@ -4411,7 +4591,7 @@ function renderCreativeLibrary(){
   };
 
   const filtered = all.filter(a => {
-    const matchesClient = !state.creativeFilter.client || (state.creativeFilter.client === "__deleted__" ? !a.client_id : a.client_id === state.creativeFilter.client);
+    const matchesClient = !state.creativeFilter.client || (state.creativeFilter.client === "__deleted__" ? (!a.client_id || !state.clients.some(c => c.id === a.client_id)) : a.client_id === state.creativeFilter.client);
     const matchesResult = !state.creativeFilter.result || a.result === state.creativeFilter.result;
     const matchesDelivery = !state.creativeFilter.delivery || a.delivery_status === state.creativeFilter.delivery;
     return matchesClient && matchesResult && matchesDelivery;
@@ -4456,7 +4636,7 @@ function renderCreativeLibrary(){
   if (!filtered.length){ grid.innerHTML = emptyState("No ad creatives match. Add one from here or from a client's page."); return; }
   grid.innerHTML = filtered.map(a => {
     const client = state.clients.find(c => c.id === a.client_id);
-    const initial = (client?.name || a.client_name || "?").trim().charAt(0).toUpperCase();
+    const initial = (client?.name || a.client_name || archivedClientName(a.client_id) || "?").trim().charAt(0).toUpperCase();
     const delivery = DELIVERY_STATUS[a.delivery_status];
     const fatigue = FATIGUE_STATUS[a.fatigue_status];
     const cardTierCls = a.fatigue_status === "fatiguing" ? "is-fatiguing" : a.fatigue_status === "fatigued" ? "is-fatigued" : "";
@@ -4470,7 +4650,7 @@ function renderCreativeLibrary(){
       </div>
       <div class="creative-card-body">
         <div class="creative-card-name">${escapeHtml(a.name)}</div>
-        <div class="creative-card-client">${client ? escapeHtml(client.name) : `${escapeHtml(a.client_name || "No client")} <span class="creative-deleted-client">Deleted client</span>`}${a.campaign_id ? ` · ${escapeHtml(campaignName(a.campaign_id))}` : ""}</div>
+        <div class="creative-card-client">${client ? escapeHtml(client.name) : `${escapeHtml(a.client_name || archivedClientName(a.client_id) || "No client")} <span class="creative-deleted-client">Deleted client</span>`}${a.campaign_id && campaignName(a.campaign_id) ? ` · ${escapeHtml(campaignName(a.campaign_id))}` : ""}</div>
         ${a.notes ? `<div class="creative-card-notes">${escapeHtml(a.notes)}</div>` : ""}
         ${creativeMetricsBlock(a, tierClsFor(a))}
         <div class="field" style="margin-bottom:11px;">
@@ -4735,8 +4915,9 @@ function renderWeeklyReport(){
     const delta = creativeWeeklyDelta(c);
     totalSpend += delta.spend; totalResults += delta.results;
     const client = state.clients.find(cl => cl.id === c.client_id);
-    const key = client ? client.id : (c.client_name ? "deleted:" + c.client_name : "unassigned");
-    if (!byClient[key]) byClient[key] = { name: client ? client.name : (c.client_name ? `${c.client_name} (deleted)` : "Unassigned"), spend:0, results:0, lifetimeSpend:0 };
+    const goneName = c.client_name || archivedClientName(c.client_id);
+    const key = client ? client.id : (goneName ? "deleted:" + goneName : "unassigned");
+    if (!byClient[key]) byClient[key] = { name: client ? client.name : (goneName ? `${goneName} (deleted)` : "Unassigned"), spend:0, results:0, lifetimeSpend:0 };
     byClient[key].spend += delta.spend;
     byClient[key].results += delta.results;
     byClient[key].lifetimeSpend += Number(c.spend||0);
@@ -6697,6 +6878,12 @@ function setupModals(){
   $("#content-production-filter-type")?.addEventListener("change", (e) => { state.contentFilter.type = e.target.value; renderContentProduction(); });
 
   $("#clients-gallery-search")?.addEventListener("input", (e) => { state.clientsGallerySearch = e.target.value; renderClientsList(); });
+  setupClientsBoardDrag();
+  $$("[data-cl-view]").forEach(btn => btn.addEventListener("click", () => {
+    state.clientsView = btn.dataset.clView;
+    try { localStorage.setItem("mp_clients_view", state.clientsView); } catch(e){}
+    renderClientsList();
+  }));
   $("#clients-stage-chips")?.addEventListener("click", (e) => {
     const chip = e.target.closest("[data-cl-filter]");
     if (!chip) return;
@@ -7053,6 +7240,10 @@ function setupModals(){
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
     if (action === "open-onboarding-board"){ $('.nav-item[data-page="onboarding"]')?.click(); }
+    if (action === "creatives-done"){
+      const c = state.clients.find(x => x.id === id);
+      if (c) await moveClientStage(c, (c.onboarding_progress || {}).before_creatives || "established");
+    }
     if (action === "toggle-onboarding-step"){
       const c = state.clients.find(x => x.id === id);
       if (!c) return;
@@ -7121,9 +7312,9 @@ function setupModals(){
       if (!a) return;
       $("#ad-creative-form-id").value = a.id;
       populateAdCreativeClientSelect(a.client_id);
-      if (!a.client_id){
+      if (!a.client_id || !state.clients.some(c => c.id === a.client_id)){
         const sel = $("#ad-creative-client");
-        sel.insertAdjacentHTML("afterbegin", `<option value="">${escapeHtml(a.client_name || "No client")} (deleted)</option>`);
+        sel.insertAdjacentHTML("afterbegin", `<option value="">${escapeHtml(a.client_name || archivedClientName(a.client_id) || "No client")} (deleted)</option>`);
         sel.value = "";
       }
       populateAdCreativeCampaignSelect(a.client_id, a.campaign_id);
