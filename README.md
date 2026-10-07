@@ -207,3 +207,29 @@ Without it, an unanswered inbound call just hears a short "nobody's available, t
 - **Inviting people**: the Team page calls the `invite-user` Edge Function, which (a) adds the email to `allowlist` and (b) sends Supabase's built-in invite email - using the service role key, which only that function ever touches.
 - **Calendar sync**: when you sign in, Google hands back a short-lived access token (used immediately) and a refresh token (saved to `google_tokens`, write-only from the browser). Clicking the calendar icon next to a cold call's follow-up date creates an event on *your own* Google Calendar. If your access token has expired, the app calls `refresh-google-token` to get a new one automatically.
 - No build step, no npm - just `index.html`, `css/style.css`, and plain `js/*.js` files, talking to Supabase via its JS client loaded from a CDN.
+
+## Fortnightly finance reports (Reporting page)
+
+Reports are made in the CRM (Reporting → Make report) and come out as a PDF
+to drag into an email. Each report's numbers are saved in `client_reports`,
+so revenue, spend and return "to date" build up from one report to the next.
+
+### Pulling revenue from each client's GHL (one-time setup)
+
+1. In Supabase → SQL Editor, run `sql/056_ghl_connections.sql`. It creates the
+   `client_ghl` table that holds each client's GHL key. The browser can never
+   read it; only the function below can.
+2. Deploy the function: `supabase functions deploy ghl-report-data`
+   (it uses the SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY
+   secrets already set for the other functions).
+3. For each client, in their GHL sub-account: Settings → Private Integrations →
+   Create, with the Opportunities and Locations read scopes. Copy the key, and
+   the location ID from Settings → Business Profile.
+4. In the CRM: Reporting → Make report → Connect GHL, paste both, Connect.
+   After that, "Pull from GHL" fills revenue won, jobs, open quotes and the
+   enquiry numbers for the fortnight. Any pipeline stage with "quote" in its
+   name counts as a quote stage.
+
+Until that's done, type the numbers into the report form; everything else
+(ad spend since the last report, management fee, enquiries from the Lead
+Center import, quote guarantee, top ad) fills in from the CRM.
