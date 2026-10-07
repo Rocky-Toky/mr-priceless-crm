@@ -3348,6 +3348,19 @@ function renderClientsList(){
       `).join("")}
     </div>`;
 }
+/* Board columns (Clients and Onboarding) show 2 cards until "Show more" is pressed. */
+const BOARD_PREVIEW_COUNT = 2;
+const boardExpanded = new Set();
+function boardColumnCards(boardKey, stageKey, cardsHtml){
+  const key = `${boardKey}:${stageKey}`;
+  const open = boardExpanded.has(key);
+  const shown = open ? cardsHtml : cardsHtml.slice(0, BOARD_PREVIEW_COUNT);
+  const extra = cardsHtml.length - BOARD_PREVIEW_COUNT;
+  return shown.join("") + (extra > 0
+    ? `<button type="button" class="kanban-more board-more" data-action="toggle-board-col" data-key="${key}" aria-expanded="${open}">${open ? "Show less" : `Show ${extra} more`}</button>`
+    : "");
+}
+
 /* ───────── Clients board: drag clients between lifecycle stages ───────── */
 function clientsView(){
   if (!state.clientsView){ try { state.clientsView = localStorage.getItem("mp_clients_view") === "list" ? "list" : "board"; } catch(e){ state.clientsView = "board"; } }
@@ -3374,7 +3387,7 @@ function clientsBoardHtml(clients, alertsById){
           <span class="onb-col-count">${col.length}</span>
         </header>
         <div class="onb-col-body">
-          ${col.map(c => clientBoardCardHtml(c, alertsById.get(c.id) || [])).join("")}
+          ${boardColumnCards("clients", st.key, col.map(c => clientBoardCardHtml(c, alertsById.get(c.id) || [])))}
           <div class="onb-drop-hint">${col.length ? "Drop here" : "Drag a client here"}</div>
         </div>
       </section>`;
@@ -4186,7 +4199,7 @@ function renderOnboarding(){
           <span class="onb-col-count">${col.length}</span>
         </header>
         <div class="onb-col-body">
-          ${col.map(c => onbCardHtml(c, states.get(c.id))).join("")}
+          ${boardColumnCards("onb", m.key, col.map(c => onbCardHtml(c, states.get(c.id))))}
           <div class="onb-drop-hint">${col.length ? "Drop here" : (clients.length ? "Drag a client here" : "Nobody here yet")}</div>
         </div>
       </section>`;
@@ -7239,6 +7252,12 @@ function setupModals(){
     if (action === "reactivate-vertical") { await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll(); }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
+    if (action === "toggle-board-col"){
+      const key = btn.dataset.key;
+      if (boardExpanded.has(key)) boardExpanded.delete(key); else boardExpanded.add(key);
+      if (key.startsWith("onb:")) renderOnboarding(); else renderClientsList();
+      return;
+    }
     if (action === "open-onboarding-board"){ $('.nav-item[data-page="onboarding"]')?.click(); }
     if (action === "creatives-done"){
       const c = state.clients.find(x => x.id === id);

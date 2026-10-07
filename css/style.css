@@ -1459,3 +1459,4 @@ button.onb-task-hit:hover .task-check:not(.done){border-color:var(--gold);}
 .cl-card-stats{display:flex;gap:12px;font-size:11.5px;color:var(--text2);border-top:1px solid #f1ece1;padding-top:8px;}
 .cl-card-stats b{color:var(--text);font-weight:700;}
 @media (max-width:760px){.cl-board{grid-template-columns:1fr;}.cl-toolbar{grid-template-columns:1fr auto;}}
+.board-more{background:var(--white);border-style:solid;border-color:#e6dfcf;}
