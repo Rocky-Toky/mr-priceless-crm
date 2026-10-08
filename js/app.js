@@ -1016,38 +1016,52 @@ Cheers,
 }
 
 /* ───────── Data layer ───────── */
+// Supabase hands back at most 1,000 rows per request, so a big table (the
+// Dialler's prospects passed that) silently lost whatever sorted last - for
+// prospects, the ones called most recently. This pages through until every
+// row is in. The id tiebreaker keeps page boundaries stable when rows tie.
+const FETCH_PAGE = 1000;
+async function allRows(build){
+  let rows = [];
+  for (let from = 0; ; from += FETCH_PAGE){
+    const { data, error } = await build().order("id", { ascending: true }).range(from, from + FETCH_PAGE - 1);
+    if (error) return { data: rows.length ? rows : null, error };
+    rows = rows.concat(data || []);
+    if (!data || data.length < FETCH_PAGE) return { data: rows, error: null };
+  }
+}
 const DataLayer = {
   async fetchAll(){
     if (!IS_CONFIGURED){ return; }
     const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv] = await Promise.all([
-      supabase.from("contacts").select("*").order("created_at",{ascending:false}),
-      supabase.from("cold_calls").select("*").order("created_at",{ascending:false}),
-      supabase.from("deals").select("*").order("created_at",{ascending:false}),
-      supabase.from("prospecting_regions").select("*").order("region",{ascending:true}),
+      allRows(() => supabase.from("contacts").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("cold_calls").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("deals").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("prospecting_regions").select("*").order("region",{ascending:true})),
       // Secondary order key matters: a lot of prospects tie on last_called_at
       // (every never-called one is null), and without a deterministic
       // tiebreaker Postgres can return tied rows in a different order on
       // every fetch - which looked like prospects randomly jumping around
       // the queue on every realtime refresh (claims, outcomes logged, etc).
-      supabase.from("dial_prospects").select("*").order("last_called_at",{ascending:true,nullsFirst:true}).order("created_at",{ascending:true}),
-      supabase.from("clients").select("*").order("name",{ascending:true}),
-      supabase.from("client_content").select("*").order("created_at",{ascending:false}),
-      supabase.from("client_ad_creatives").select("*").order("created_at",{ascending:false}),
-      supabase.from("client_campaigns").select("*").order("created_at",{ascending:false}),
-      supabase.from("deal_contacts").select("*").order("created_at",{ascending:false}),
-      supabase.from("tasks").select("*").order("created_at",{ascending:false}),
-      supabase.from("client_reports").select("*").order("created_at",{ascending:false}),
-      supabase.from("notes").select("*").order("created_at",{ascending:false}),
-      supabase.from("playbooks").select("*").order("sort_order",{ascending:true}),
-      supabase.from("rules").select("*").order("sort_order",{ascending:true}),
-      supabase.from("email_templates").select("*").order("sort_order",{ascending:true}),
-      supabase.from("expenses").select("*").order("expense_date",{ascending:false}),
-      supabase.from("call_activity").select("*").order("activity_date",{ascending:false}),
-      supabase.from("playbook_usage").select("*").order("month",{ascending:false}),
+      allRows(() => supabase.from("dial_prospects").select("*").order("last_called_at",{ascending:true,nullsFirst:true}).order("created_at",{ascending:true})),
+      allRows(() => supabase.from("clients").select("*").order("name",{ascending:true})),
+      allRows(() => supabase.from("client_content").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("client_ad_creatives").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("client_campaigns").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("deal_contacts").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("tasks").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("client_reports").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("notes").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("playbooks").select("*").order("sort_order",{ascending:true})),
+      allRows(() => supabase.from("rules").select("*").order("sort_order",{ascending:true})),
+      allRows(() => supabase.from("email_templates").select("*").order("sort_order",{ascending:true})),
+      allRows(() => supabase.from("expenses").select("*").order("expense_date",{ascending:false})),
+      allRows(() => supabase.from("call_activity").select("*").order("activity_date",{ascending:false})),
+      allRows(() => supabase.from("playbook_usage").select("*").order("month",{ascending:false})),
       supabase.from("team_focus").select("*"),
-      supabase.from("creative_weekly_snapshots").select("*"),
-      supabase.from("client_leads").select("*").order("created_at",{ascending:false}),
-      supabase.from("completed_verticals").select("*").order("completed_at",{ascending:false}),
+      allRows(() => supabase.from("creative_weekly_snapshots").select("*")),
+      allRows(() => supabase.from("client_leads").select("*").order("created_at",{ascending:false})),
+      allRows(() => supabase.from("completed_verticals").select("*").order("completed_at",{ascending:false})),
     ]);
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
