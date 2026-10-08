@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=160">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=160">
+<link rel="stylesheet" href="css/style.css?v=161">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=161">
 </head>
 <body>
 
@@ -395,6 +395,21 @@
         </div>
       </div>
 
+      <div class="mb-counters">
+        <div class="mb-counter" id="cc-calls" role="button" tabindex="0" aria-label="Add one to calls" onclick="incCounter('calls', event)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();incCounter('calls', event)}">
+          <span class="mb-counter-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></span>
+          <span class="mb-counter-body"><span class="mb-counter-num" id="cnt-calls">0</span><span class="mb-counter-lbl">Calls</span><span class="mb-counter-sub" id="cnt-calls-sub">today</span></span>
+          <span class="mb-counter-tap">Tap +1</span>
+          <button type="button" class="mb-counter-undo" onclick="event.stopPropagation();decCounter('calls')" aria-label="Take one off calls" title="Undo">&minus;</button>
+        </div>
+        <div class="mb-counter" id="cc-convos" role="button" tabindex="0" aria-label="Add one to conversations" onclick="incCounter('convos', event)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();incCounter('convos', event)}">
+          <span class="mb-counter-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg></span>
+          <span class="mb-counter-body"><span class="mb-counter-num" id="cnt-convos">0</span><span class="mb-counter-lbl">Conversations</span><span class="mb-counter-sub" id="cnt-convos-sub">today</span></span>
+          <span class="mb-counter-tap">Tap +1</span>
+          <button type="button" class="mb-counter-undo" onclick="event.stopPropagation();decCounter('convos')" aria-label="Take one off conversations" title="Undo">&minus;</button>
+        </div>
+      </div>
+
       <div class="card mb-hero" id="mb-hero">
         <div class="mb-count">
           <span class="mb-count-num" id="kpi-done">0</span>
@@ -425,20 +440,6 @@
         <div class="mtr-week-grid" id="week-grid"></div>
       </div>
 
-      <div class="card mtr-card-gap" style="margin-top:24px;">
-        <div class="card-header"><h3>Recently Booked Meetings</h3><span class="stat-sub">Booked from this page - automatically added to the Deals pipeline.</span></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Name</th><th>Phone</th><th>Assigned</th><th>Booked</th><th></th></tr></thead>
-            <tbody id="meetings-pipeline-tbody"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card mtr-card-gap" style="margin-top:24px;">
-        <div class="card-header"><h3>Playbook This Month</h3><span class="stat-sub">Which script each person is running with - calls, meetings, and conversion rates have moved to the Statistics page.</span></div>
-        <div class="analytics-month-grid" id="playbook-usage-cards"></div>
-      </div>
     </section>
 
     <!-- Calendar -->
@@ -2309,12 +2310,12 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=160"></script>
-<script src="js/supabaseClient.js?v=160"></script>
-<script src="js/report-pdf.js?v=160"></script>
-<script src="js/plan-pdf.js?v=160"></script>
-<script src="js/app.js?v=160"></script>
-<script src="js/meetings-tracker.js?v=160"></script>
-<script src="js/todo.js?v=160"></script>
+<script src="js/config.js?v=161"></script>
+<script src="js/supabaseClient.js?v=161"></script>
+<script src="js/report-pdf.js?v=161"></script>
+<script src="js/plan-pdf.js?v=161"></script>
+<script src="js/app.js?v=161"></script>
+<script src="js/meetings-tracker.js?v=161"></script>
+<script src="js/todo.js?v=161"></script>
 </body>
 </html>
