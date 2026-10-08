@@ -5625,23 +5625,61 @@ const WORKSHOP_CATS = [
       "Check deposits, invoicing and payment terms",
       "Leave them with 2 or 3 actions, and note ours",
     ] },
-  { key: "sales", label: "Sales", blurb: "Quoting, follow-up and closing",
-    covers: "Turning more of the leads we send into signed jobs. We look at how fast they get back to people, how they quote, how they follow up, and what's stopping quotes from turning into work.",
+  { key: "leads", label: "Lead response", blurb: "Calling back and booking quotes",
+    covers: "Turning more enquiries into booked quote visits. We look at how fast leads get a call back, who answers when they're on the tools, and how quote visits get booked.",
     questions: [
       "How quickly do you call a new lead back, and who does it?",
-      "Walk me through what happens at a quote, from arriving to leaving.",
-      "How do you send the quote, and how long does it take?",
-      "What do you do if they go quiet after the quote?",
-      "What reasons do people give when they don't go ahead?",
-      "Which jobs do you close easily, and which ones slip away?",
-      "Are you pricing on the spot, or going away to think about it?",
+      "What happens to the calls you miss while you're on a job?",
+      "How soon after the enquiry do you get out to quote?",
+      "What do you ask on that first call before booking a visit?",
+      "Have leads booked with someone else before you got back to them?",
+      "How many enquiries last month never got a quote visit, and why?",
+      "Would a missed-call text or someone answering for you help?",
     ],
     checklist: [
-      "Check their quote rate and close rate in the CRM before the call",
+      "Check their quote-ready to quoted rate in the CRM before the call",
+      "Go through a few recent leads that never got a visit",
+      "Agree a call-back-within-the-hour rule, and who covers it",
+      "Write a simple first-call script: three questions, then book the visit",
+      "Set up a text back for missed calls",
+      "Leave them with 2 or 3 actions, and note ours",
+    ] },
+  { key: "sales", label: "Sales & closing", blurb: "Closing more quotes",
+    covers: "Winning more of the quotes they go out to. We look at what happens at the visit, how the quote is presented and priced, and what's stopping people from saying yes.",
+    questions: [
+      "Walk me through a quote visit, from arriving to leaving.",
+      "Are you pricing on the spot, or going away to think about it?",
+      "How do you send the quote, and how long does it take?",
+      "Do you give options, or one price?",
+      "What reasons do people give when they don't go ahead?",
+      "Which jobs do you close easily, and which ones slip away?",
+      "Do you ask for the job before you leave?",
+    ],
+    checklist: [
+      "Check their close rate in the CRM before the call",
       "Go through the last few quotes that didn't land, and why",
-      "Agree a follow-up routine (day 2, day 5, day 10)",
       "Tighten how quotes are sent: same day, clear options, easy yes",
       "Handle their top 2 objections together",
+      "Practise asking for the job at the end of the visit",
+      "Leave them with 2 or 3 actions, and note ours",
+    ] },
+  { key: "followup", label: "Quote follow-up", blurb: "Turning open quotes into jobs",
+    covers: "Chasing the quotes that are already out. Most jobs are won in the follow-up, so we set a simple routine that turns open quotes into signed work without being pushy.",
+    questions: [
+      "How many quotes are open right now, and what are they worth?",
+      "What do you do after the quote's been sent?",
+      "How many times do you follow up before giving up?",
+      "Call, text or email: which do your customers actually reply to?",
+      "Who's in charge of following up, and when do they do it?",
+      "Do you know why quotes go quiet?",
+      "Have you ever won a job on the third or fourth follow-up?",
+    ],
+    checklist: [
+      "Pull their open quotes and what they're worth before the call",
+      "Agree a routine: call on day 2, text on day 5, check in on day 10",
+      "Write the follow-up texts together so they're ready to send",
+      "Decide who owns follow-up, and when in the week it happens",
+      "Set up reminders so no quote goes quiet without a chase",
       "Leave them with 2 or 3 actions, and note ours",
     ] },
   { key: "marketing", label: "Marketing", blurb: "Leads, offer and reputation",
@@ -5661,6 +5699,44 @@ const WORKSHOP_CATS = [
       "Sharpen their offer and why-us in one sentence",
       "Set up a review request after every finished job",
       "Line up new photos and video for the next ads",
+      "Leave them with 2 or 3 actions, and note ours",
+    ] },
+  { key: "recruitment", label: "Recruitment & team", blurb: "Hiring and keeping good people", manual: true,
+    covers: "Making sure there's a team to deliver the work coming in. We look at when to hire, who to hire, how to find good people, and how to keep them.",
+    questions: [
+      "Are you turning work away or pushing jobs back because you're stretched?",
+      "If you had one more person, what would you hand over first?",
+      "Apprentice, qualified tradie or admin: which would free you up most?",
+      "Where have your best people come from?",
+      "What does a new starter need to know on day one?",
+      "What would a hire cost you, and what would it free up?",
+      "Is anyone on the team at risk of leaving?",
+    ],
+    checklist: [
+      "Compare the jobs they're winning with what the team can deliver",
+      "Agree the first role to fill, and why that one",
+      "Write the job ad together (we can run it as an ad)",
+      "Plan where to find candidates: ads, referrals, trade schools",
+      "Sketch a simple first-week plan for the new starter",
+      "Leave them with 2 or 3 actions, and note ours",
+    ] },
+  { key: "operations", label: "Systems & operations", blurb: "Scheduling and admin", manual: true,
+    covers: "Freeing up their time so the business doesn't rely on them for everything. We look at scheduling, admin, what happens once a job is won, and the tools they use.",
+    questions: [
+      "What eats most of your time that isn't on the tools?",
+      "How do jobs get scheduled, and who does it?",
+      "What happens between a signed quote and the job starting?",
+      "Where do things fall through the cracks?",
+      "What tools or apps are you using right now?",
+      "What do you do over and over that could be a template?",
+      "If you took two weeks off, what would stop?",
+    ],
+    checklist: [
+      "Map the steps from signed quote to job done and paid",
+      "Spot their top 3 time drains",
+      "Pick one thing to template or automate this month",
+      "Agree who owns each admin task",
+      "Check their CRM stages match how they actually work",
       "Leave them with 2 or 3 actions, and note ours",
     ] },
 ];
@@ -5685,8 +5761,11 @@ function workshopSuggestion(c){
   const recent = new Set(workshopsOf(c).filter(w => daysSince(w.date) <= 60).map(w => w.category));
   const ideas = [];
   const quoted = n("quoted"), jobs = n("jobsMonth"), ready = n("quoteReady"), enq = n("enquiries"), roi = n("roiToDate");
+  const openQuotes = n("openQuotesCount");
+  if (openQuotes >= 3) ideas.push({ cat: "followup", why: `${openQuotes} quotes still open${n("openQuotesValue") ? `, worth ${fmtMoney(n("openQuotesValue"))}` : ""}`, weight: openQuotes >= 6 ? 3.2 : 2.2 });
   if (quoted >= 4 && jobs != null && jobs / quoted < 0.25) ideas.push({ cat: "sales", why: `Only ${Math.round(jobs / quoted * 100)}% of quotes are closing`, weight: 3 });
-  if (ready >= 4 && quoted != null && quoted / ready < 0.5) ideas.push({ cat: "sales", why: `Only ${Math.round(quoted / ready * 100)}% of quote-ready leads got a quote`, weight: 2.5 });
+  if (ready >= 4 && quoted != null && quoted / ready < 0.5) ideas.push({ cat: "leads", why: `Only ${Math.round(quoted / ready * 100)}% of quote-ready leads got a quote`, weight: 2.5 });
+  if (jobs >= 6) ideas.push({ cat: "recruitment", why: `${jobs} jobs won this month: check the team can keep up`, weight: 1.2 });
   const fatiguing = clientFatiguingCount(c);
   if (fatiguing >= 2) ideas.push({ cat: "marketing", why: `${fatiguing} ads are fatiguing`, weight: 2 });
   if (enq != null && enq < 10) ideas.push({ cat: "marketing", why: `${enq} enquiries so far this month`, weight: 2 });
@@ -5698,7 +5777,8 @@ function workshopSuggestion(c){
   if (pick) return pick;
   // Nothing stands out: whichever they haven't had for longest.
   const lastBy = (cat) => workshopsOf(c).find(w => w.category === cat)?.date || "";
-  const rotation = [...WORKSHOP_CATS].sort((a, b) => lastBy(a.key).localeCompare(lastBy(b.key)))[0];
+  // Recruitment and operations are picked by hand, so they stay out of the rotation.
+  const rotation = WORKSHOP_CATS.filter(w => !w.manual).sort((a, b) => lastBy(a.key).localeCompare(lastBy(b.key)))[0];
   return { cat: rotation.key, why: lastBy(rotation.key) ? `Longest since their last ${rotation.label.toLowerCase()} workshop` : `Haven't had a ${rotation.label.toLowerCase()} workshop yet`, weight: 0 };
 }
 const doneThisMonth = (c) => workshopsOf(c).find(w => ymOf(w.date) === ymOf(localDayStr()));
@@ -5753,7 +5833,16 @@ const WORKSHOP_ICONS = {
   financial: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>`,
   sales: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>`,
   marketing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 11l18-8v18L3 13z"/><path d="M11.6 16.8a3 3 0 11-5.8-1.6"/></svg>`,
+  leads: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z"/></svg>`,
+  followup: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>`,
+  recruitment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0112 0v1"/><path d="M19 8v6M16 11h6"/></svg>`,
+  operations: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>`,
 };
+// The workshop pick-lists (logging a session, the 90-day plan) follow the library.
+function fillWorkshopSelects(){
+  const opts = WORKSHOP_CATS.map(w => `<option value="${w.key}">${escapeHtml(w.label)}</option>`).join("");
+  ["#ws-category", "#pl-m1-ws", "#pl-m2-ws", "#pl-m3-ws"].forEach(sel => { const el = $(sel); if (el){ const v = el.value; el.innerHTML = opts; if (v) el.value = v; } });
+}
 function workshopCardHtml(c, colKey){
   const last = workshopsOf(c)[0];
   const thisMonth = doneThisMonth(c);
@@ -5902,6 +5991,7 @@ async function saveWorkshopLib(){
 }
 
 function setupWorkshops(){
+  fillWorkshopSelects();
   setupWorkshopDrag();
   $$("[data-ws-tab]").forEach(b => b.addEventListener("click", () => { state.wsTab = b.dataset.wsTab; renderWorkshops(); }));
   $("#ws-category")?.addEventListener("change", renderWorkshopModal);
@@ -8179,7 +8269,7 @@ function setupModals(){
     if (action === "toggle-board-col"){
       const key = btn.dataset.key;
       if (boardExpanded.has(key)) boardExpanded.delete(key); else boardExpanded.add(key);
-      if (key.startsWith("onb:")) renderOnboarding(); else renderClientsList();
+      if (key.startsWith("onb:")) renderOnboarding(); else if (key.startsWith("ws:")) renderWorkshops(); else renderClientsList();
       return;
     }
     if (action === "toggle-creative-seg"){
