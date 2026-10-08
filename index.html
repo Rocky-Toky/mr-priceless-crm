@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=172">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=172">
+<link rel="stylesheet" href="css/style.css?v=173">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=173">
 </head>
 <body>
 
@@ -1907,14 +1907,8 @@
     </div>
     <form class="modal-body rp-form" id="report-form">
       <div class="rp-section">
-        <div class="rp-section-head"><h4>The month so far</h4><span class="rp-ghl-note">Each report covers the month up to the end date.</span></div>
-        <div class="rp-grid rp-grid-2">
-          <div class="field"><label for="rp-from">From (start of the month)</label><input type="date" id="rp-from" required></div>
-          <div class="field"><label for="rp-to">Up to</label><input type="date" id="rp-to" required></div>
-        </div>
-      </div>
-      <div class="rp-section">
-        <div class="rp-section-head"><h4>Revenue</h4><div class="rp-ghl" id="rp-ghl"></div></div>
+        <div class="rp-section-head"><h4>Since the last report</h4><div class="rp-ghl" id="rp-ghl"></div></div>
+        <p class="rp-since" id="rp-since-note"></p>
         <div class="rp-ghl-connect" id="rp-ghl-connect" hidden>
           <p>In the client's GHL sub-account: <b>Settings → Private Integrations → Create</b>, tick the <b>Opportunities</b> and <b>Locations</b> read scopes, then paste the key here. The location ID is in <b>Settings → Business Profile</b>. The key is stored on the server only.</p>
           <div class="rp-grid rp-grid-2">
@@ -1923,40 +1917,33 @@
           </div>
           <button type="button" class="btn gold sm" data-action="rp-ghl-connect">Connect</button>
         </div>
-        <div class="rp-grid rp-grid-4">
-          <div class="field"><label for="rp-revenueMonth">Revenue won in <span class="rp-month-name">this month</span> ($)</label><input type="number" min="0" step="any" id="rp-revenueMonth" placeholder="41800"></div>
-          <div class="field"><label for="rp-jobsMonth">Jobs signed</label><input type="number" min="0" id="rp-jobsMonth" placeholder="2"></div>
-          <div class="field"><label for="rp-openQuotesValue">Open quotes ($)</label><input type="number" min="0" step="any" id="rp-openQuotesValue" placeholder="144600"></div>
-          <div class="field"><label for="rp-openQuotesCount">Open quotes</label><input type="number" min="0" id="rp-openQuotesCount" placeholder="8"></div>
+        <div class="rp-stack field">
+          <span></span><span class="rp-stack-h">New since last report</span><span class="rp-stack-h"><span class="rp-month-name">This month</span> so far</span>
+            <label for="rp-dRevenue">Revenue won ($)</label><input type="number" min="0" step="any" id="rp-dRevenue" placeholder="8400"><b id="rp-m-dRevenue">0</b>
+            <label for="rp-dJobs">Jobs signed</label><input type="number" min="0" step="1" id="rp-dJobs" placeholder="1"><b id="rp-m-dJobs">0</b>
+            <label for="rp-dAdSpend">Ad spend ($)</label><input type="number" min="0" step="any" id="rp-dAdSpend" placeholder="700"><b id="rp-m-dAdSpend">0</b>
+            <label for="rp-dEnquiries">Enquiries</label><input type="number" min="0" step="1" id="rp-dEnquiries" placeholder="12"><b id="rp-m-dEnquiries">0</b>
+            <label for="rp-dBooked">Quotes booked</label><input type="number" min="0" step="1" id="rp-dBooked" placeholder="7"><b id="rp-m-dBooked">0</b>
+            <label for="rp-dQuoted">Quotes sent</label><input type="number" min="0" step="1" id="rp-dQuoted" placeholder="4"><b id="rp-m-dQuoted">0</b>
         </div>
-        <div class="field rp-override"><label for="rp-revenueToDateOverride">Revenue won to date ($) <span class="wp-opt">leave blank to add up the reports</span></label><input type="number" min="0" step="any" id="rp-revenueToDateOverride"></div>
+        <p class="rp-hint"><b>Quotes booked</b> are quote visits in the calendar. Some won't have been quoted yet, so <b>quotes sent</b> catches up over the following weeks.</p>
+        <div class="rp-grid rp-grid-2 rp-dates">
+          <div class="field"><label for="rp-from">From <span class="wp-opt">the day after the last report</span></label><input type="date" id="rp-from" readonly></div>
+          <div class="field"><label for="rp-to">Up to</label><input type="date" id="rp-to" required></div>
+        </div>
       </div>
       <div class="rp-section rp-section-gold">
-        <div class="rp-section-head"><h4>Quote guarantee</h4></div>
-        <div class="rp-grid rp-grid-2">
-          <div class="field"><label for="rp-quotesBooked">Quotes booked so far</label><input type="number" min="0" id="rp-quotesBooked" placeholder="7"></div>
-          <div class="field"><label for="rp-quoteTarget">Guarantee (quotes)</label><input type="number" min="1" id="rp-quoteTarget" placeholder="10"></div>
-        </div>
-      </div>
-      <div class="rp-section">
-        <div class="rp-section-head"><h4>What it cost</h4></div>
-        <div class="rp-grid rp-grid-2">
-          <div class="field"><label for="rp-adSpendMonth">Ad spend in <span class="rp-month-name">this month</span> ($)</label><input type="number" min="0" step="any" id="rp-adSpendMonth"></div>
-          <div class="field"><label for="rp-mgmtMonth">Management fee for the month ($)</label><input type="number" min="0" step="any" id="rp-mgmtMonth"></div>
+        <div class="rp-section-head"><h4>Totals to date</h4></div>
+        <div class="rp-grid rp-grid-3">
+          <div class="field"><label for="rp-mgmtMonth">Management fee for <span class="rp-month-name">this month</span> ($)</label><input type="number" min="0" step="any" id="rp-mgmtMonth"></div>
+          <div class="field"><label for="rp-quoteTarget">Quote guarantee (a month)</label><input type="number" min="1" id="rp-quoteTarget" placeholder="10"></div>
+          <div class="field"><label for="rp-revenueToDateOverride">Revenue won to date ($) <span class="wp-opt">only to correct it</span></label><input type="number" min="0" step="any" id="rp-revenueToDateOverride"></div>
         </div>
         <div class="rp-totals" id="rp-totals"></div>
       </div>
       <div class="rp-section">
-        <div class="rp-section-head"><h4>Enquiry to job</h4></div>
-        <div class="rp-grid rp-grid-3">
-          <div class="field"><label for="rp-enquiries">Enquiries</label><input type="number" min="0" id="rp-enquiries"></div>
-          <div class="field"><label for="rp-quoteReady">Quote-ready</label><input type="number" min="0" id="rp-quoteReady"></div>
-          <div class="field"><label for="rp-quoted">Quoted</label><input type="number" min="0" id="rp-quoted"></div>
-        </div>
-      </div>
-      <div class="rp-section">
         <div class="rp-section-head"><h4>The story</h4></div>
-        <div class="field"><label for="rp-summary">The month so far, in plain English</label><textarea id="rp-summary" rows="3" placeholder="Your ads brought in 24 enquiries. We qualified each one and passed 15 quote-ready leads to you. Two have already turned into signed jobs worth $41,800."></textarea></div>
+        <div class="field"><label for="rp-summary">The month so far, in plain English</label><textarea id="rp-summary" rows="3" placeholder="Your ads brought in 26 enquiries so far this month, and 15 have booked a quote with you. Two have already turned into signed jobs worth $18,400."></textarea></div>
         <div class="rp-grid rp-grid-2">
           <div class="field"><label>What we did</label><input type="text" id="rp-did1" placeholder="Launched a before-and-after kitchen ad"><input type="text" id="rp-did2"><input type="text" id="rp-did3"></div>
           <div class="field"><label>What's next</label><input type="text" id="rp-next1" placeholder="Move more budget onto the kitchen ad"><input type="text" id="rp-next2"><input type="text" id="rp-next3"></div>
@@ -2316,13 +2303,13 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=172"></script>
-<script src="js/supabaseClient.js?v=172"></script>
-<script src="js/report-pdf.js?v=172"></script>
-<script src="js/plan-pdf.js?v=172"></script>
-<script src="js/workshop-pdf.js?v=172"></script>
-<script src="js/app.js?v=172"></script>
-<script src="js/meetings-tracker.js?v=172"></script>
-<script src="js/todo.js?v=172"></script>
+<script src="js/config.js?v=173"></script>
+<script src="js/supabaseClient.js?v=173"></script>
+<script src="js/report-pdf.js?v=173"></script>
+<script src="js/plan-pdf.js?v=173"></script>
+<script src="js/workshop-pdf.js?v=173"></script>
+<script src="js/app.js?v=173"></script>
+<script src="js/meetings-tracker.js?v=173"></script>
+<script src="js/todo.js?v=173"></script>
 </body>
 </html>
