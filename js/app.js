@@ -1202,6 +1202,12 @@ function subscribeRealtime(){
 }
 
 /* ───────── Auth (Google sign-in + allowlist gate) ───────── */
+function authFailed(msg){
+  const btn = $("#auth-submit");
+  if (btn){ btn.disabled = false; btn.textContent = "Sign In"; }
+  const box = $("#auth-error");
+  if (box){ box.textContent = msg; box.classList.add("visible"); }
+}
 async function initAuth(){
   if (!IS_CONFIGURED){
     seedDemo();
@@ -1214,15 +1220,20 @@ async function initAuth(){
     checkOverdueTasksPopup();
     return;
   }
+  if (!supabase){ showAuth(); return; }
   const { data:{ session } } = await supabase.auth.getSession();
-  if (session) await handleSignedIn(session);
+  if (session){
+    try { await handleSignedIn(session); }
+    catch (err){ console.error(err); showAuth(); authFailed("The CRM couldn't load: " + (err.message || err) + ". Refresh to try again."); }
+  }
   else showAuth();
 
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === "PASSWORD_RECOVERY"){
       showResetPassword();
     } else if (event === "SIGNED_IN" && session){
-      await handleSignedIn(session, /*freshLogin*/ true);
+      try { await handleSignedIn(session, /*freshLogin*/ true); }
+      catch (err){ console.error(err); authFailed("Signed in, but the CRM couldn't load: " + (err.message || err) + ". Refresh to try again."); }
     } else if (event === "SIGNED_OUT"){
       state.user = null;
       location.reload();
@@ -1349,18 +1360,28 @@ function setupEmailAuth(){
     const password = $("#auth-password").value;
     const errBox = $("#auth-error");
     errBox.classList.remove("visible");
+    const btn = $("#auth-submit"), label = btn.textContent;
+    btn.disabled = true; btn.textContent = mode === "signin" ? "Signing in…" : "Creating account…";
+    // Loading everything after sign-in can take a few seconds; never leave the button looking dead.
+    const slow = setTimeout(() => { if (!state.user || $("#auth-screen")?.offsetParent){ btn.textContent = "Still loading…"; } }, 8000);
+    const restore = () => { clearTimeout(slow); btn.disabled = false; btn.textContent = label; };
     try {
+      if (!supabase) throw new Error("Couldn't load the sign-in tools. Refresh the page and try again.");
       if (mode === "signin"){
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        btn.textContent = "Loading your CRM…";
+        clearTimeout(slow);
       } else {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         errBox.textContent = "Account created. Check your email if confirmation is required, then sign in.";
         errBox.classList.add("visible");
+        restore();
         return;
       }
     } catch (err){
+      restore();
       errBox.textContent = err.message || "Something went wrong.";
       errBox.classList.add("visible");
     }
