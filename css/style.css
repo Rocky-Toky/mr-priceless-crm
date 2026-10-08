@@ -1800,3 +1800,4 @@ button.onb-task-hit:hover .task-check:not(.done){border-color:var(--gold);}
 .ws-past header .ws-del{margin-left:0;}
 .ws-past-plan{font-size:12.5px;color:var(--text2);line-height:1.45;}
 .ws-past-plan b{color:var(--gold-deep);}
+.pl-head[hidden],.rp-list[hidden]{display:none;}

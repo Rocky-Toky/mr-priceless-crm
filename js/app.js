@@ -3838,7 +3838,7 @@ function renderClientProfileExtras(c){
   if (repEl){
     const due = reportDueInfo(c), plan = planInfo(c);
     repEl.innerHTML = `
-      <div class="cl-panel-head cp-panel-head"><div><h3>Reports & plans</h3><p>What they've been sent.</p></div></div>
+      <div class="cl-panel-head cp-panel-head"><div><h3>${PLANS_ENABLED ? "Reports & plans" : "Reports"}</h3><p>What they've been sent.</p></div></div>
       <div class="cp-docs">
         <div class="cp-doc">
           <span class="cp-doc-ico">PDF</span>
@@ -3846,12 +3846,12 @@ function renderClientProfileExtras(c){
             <span class="onb-status ${due.due ? "client" : "track"}">${escapeHtml(due.label)}</span></div>
           <button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make</button>
         </div>
-        <div class="cp-doc">
+        ${PLANS_ENABLED ? `<div class="cp-doc">
           <span class="cp-doc-ico">90</span>
           <div><b>90-day plan</b><small>${plan.cur ? `Plan ${plan.cur.number || 1} · ${escapeHtml(planRange(plan.cur.start))}` : "Make their first one"}</small>
             <span class="onb-status ${plan.cls}">${escapeHtml(plan.label)}</span></div>
           <button type="button" class="btn ${plan.due ? "gold" : "ghost"} sm" data-action="make-plan" data-id="${c.id}">Make</button>
-        </div>
+        </div>` : ""}
       </div>`;
   }
 }
@@ -5499,6 +5499,8 @@ async function handleReportAction(action, id){
    client.onboarding_progress.plans (no migration needed) and turned into a
    3-page PDF by js/plan-pdf.js. Starter text for each month means it never
    starts blank; the dates, check-ins and starting numbers fill themselves in. */
+// Switched off for now: the 90-day plan is hidden everywhere. Saved plans are kept.
+const PLANS_ENABLED = false;
 const PLAN_DAYS = 90;
 const PLAN_MONTHS = [
   { theme: "Launch & Learn", focus: "Get your ads live, find out what your customers respond to, and set a clear baseline for leads and cost.",
@@ -5659,6 +5661,8 @@ async function makePlan(){
 function renderPlans(){
   const list = $("#pl-client-list");
   if (!list) return;
+  list.hidden = !PLANS_ENABLED; if ($("#pl-section-head")) $("#pl-section-head").hidden = !PLANS_ENABLED;
+  if (!PLANS_ENABLED) return;
   const clients = state.clients.filter(isPlanClient);
   const infos = new Map(clients.map(c => [c.id, planInfo(c)]));
   const due = clients.filter(c => infos.get(c.id).due).length;

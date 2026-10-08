@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=169">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=169">
+<link rel="stylesheet" href="css/style.css?v=170">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=170">
 </head>
 <body>
 
@@ -1083,15 +1083,16 @@
     <!-- Reporting (Meta Ads client reports) -->
     <section class="page" id="page-reporting">
       <div class="page-header">
-        <div><h2>Reporting</h2><p>A report for every client each fortnight, showing how their month is going: revenue won, the 10-quote guarantee, and the return. Make one, then drag the PDF into your email. Each client also gets a 90-day plan, further down.</p></div>
+        <div><h2>Reporting</h2><p>A report for every client each fortnight, showing how their month is going: revenue won, the 10-quote guarantee, and the return. Make one, then drag the PDF into your email.</p></div>
       </div>
       <div class="onb-kpis rp-kpis" id="rp-kpis"></div>
       <div class="rp-list" id="rp-client-list"></div>
 
-      <div class="pl-head">
+      <!-- 90-day plans: switched off for now (PLANS_ENABLED in app.js). -->
+      <div class="pl-head" id="pl-section-head" hidden>
         <div><h3>90-day plans</h3><p>A strategy document for each client: the goal, the roadmap month by month, and every check-in already in the calendar. <span id="pl-sub"></span></p></div>
       </div>
-      <div class="rp-list" id="pl-client-list"></div>
+      <div class="rp-list" id="pl-client-list" hidden></div>
 
       <details class="rp-tools">
         <summary>Ad performance and lead imports</summary>
@@ -2315,13 +2316,13 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=169"></script>
-<script src="js/supabaseClient.js?v=169"></script>
-<script src="js/report-pdf.js?v=169"></script>
-<script src="js/plan-pdf.js?v=169"></script>
-<script src="js/workshop-pdf.js?v=169"></script>
-<script src="js/app.js?v=169"></script>
-<script src="js/meetings-tracker.js?v=169"></script>
-<script src="js/todo.js?v=169"></script>
+<script src="js/config.js?v=170"></script>
+<script src="js/supabaseClient.js?v=170"></script>
+<script src="js/report-pdf.js?v=170"></script>
+<script src="js/plan-pdf.js?v=170"></script>
+<script src="js/workshop-pdf.js?v=170"></script>
+<script src="js/app.js?v=170"></script>
+<script src="js/meetings-tracker.js?v=170"></script>
+<script src="js/todo.js?v=170"></script>
 </body>
 </html>
