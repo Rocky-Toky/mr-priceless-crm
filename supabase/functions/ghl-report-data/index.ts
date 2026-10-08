@@ -10,14 +10,17 @@
 //   disconnect  -> removes the saved key
 //   pull        -> { from, to } (YYYY-MM-DD) -> { metrics }
 //
-// What "pull" works out, from every opportunity in the sub-account:
+// What "pull" works out, from every opportunity in the sub-account, for the
+// period asked for (the CRM asks for the month so far and works out what's new
+// since the last report itself):
 //   revenue_won / jobs_won   status "won" with the win landing in the period
-//   revenue_won_to_date      every won opportunity, all time
-//   open_quotes(_value)      status "open" sitting in a quote stage
 //   enquiries                opportunities created in the period
-//   quoted                   created in the period and now in a quote stage or won
-//   quote_ready              created in the period and past the first stage
-// A "quote stage" is any pipeline stage whose name contains "quote".
+//   quote_ready              created in the period and at or past the "quote booked" stage
+//   quoted                   created in the period and at or past the "quote sent" stage
+// Which stages count as "quote booked" and "quote sent" is picked per client in
+// the CRM (body.stages = { booked, sent }, stage ids). Without a pick, a stage
+// name with "book", "appoint" or "visit" is booked, one with "sent" or "quote"
+// is sent, and anything past the first stage counts as booked.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -64,40 +67,49 @@ async function allOpportunities(locationId: string, token: string) {
   return out;
 }
 
-export function summarise(opps: any[], pipelines: any[], from: string, to: string) {
+export function summarise(opps: any[], pipelines: any[], from: string, to: string, picked: { booked?: string; sent?: string } = {}) {
   const start = new Date(from + "T00:00:00Z").getTime() - 13 * 3600e3; // NZ day starts ~13h before UTC midnight
   const end = new Date(to + "T23:59:59Z").getTime() - 11 * 3600e3;
   const inPeriod = (d: any) => { const t = d ? new Date(d).getTime() : NaN; return t >= start && t <= end; };
-  const stageInfo = new Map<string, { name: string; index: number; quote: boolean }>();
-  const quoteStageNames = new Set<string>();
+  // For each pipeline: where every stage sits, and the booked and sent points.
+  const stageAt = new Map<string, { pipeline: string; index: number }>();
+  const marks = new Map<string, { booked: number; sent: number; bookedName: string; sentName: string }>();
   for (const p of pipelines || []) {
-    (p.stages || []).forEach((s: any, i: number) => {
-      const quote = /quot/i.test(s.name || "");
-      if (quote) quoteStageNames.add(s.name);
-      stageInfo.set(s.id, { name: s.name, index: i, quote });
-    });
+    const stages = p.stages || [];
+    stages.forEach((s: any, i: number) => stageAt.set(s.id, { pipeline: p.id, index: i }));
+    const find = (re: RegExp, after = -1) => stages.findIndex((s: any, i: number) => i > after && re.test(s.name || ""));
+    let booked = stages.findIndex((s: any) => s.id === picked.booked);
+    if (booked < 0) booked = find(/book|appoint|visit|site/i);
+    if (booked < 0) booked = Math.min(1, stages.length - 1);
+    let sent = stages.findIndex((s: any) => s.id === picked.sent);
+    if (sent < 0) sent = find(/sent|quoted|proposal/i, booked);
+    if (sent < 0) sent = find(/quot/i, booked);
+    if (sent < 0) sent = stages.length; // no sent stage: only won counts as quoted
+    marks.set(p.id, { booked, sent, bookedName: stages[booked]?.name || "", sentName: stages[sent]?.name || "Won" });
   }
   const value = (o: any) => Number(o.monetaryValue) || 0;
   const status = (o: any) => String(o.status || "").toLowerCase();
   const wonAt = (o: any) => o.lastStatusChangeAt || o.updatedAt || o.createdAt;
+  const reached = (o: any, which: "booked" | "sent") => {
+    if (status(o) === "won") return true;
+    const at = stageAt.get(o.pipelineStageId), m = at && marks.get(at.pipeline);
+    return Boolean(at && m && at.index >= m[which]);
+  };
   const won = opps.filter((o) => status(o) === "won");
   const wonInPeriod = won.filter((o) => inPeriod(wonAt(o)));
-  const openQuotes = opps.filter((o) => status(o) === "open" && stageInfo.get(o.pipelineStageId)?.quote);
   const created = opps.filter((o) => inPeriod(o.createdAt || o.dateAdded));
-  const atOrPastQuote = (o: any) => status(o) === "won" || Boolean(stageInfo.get(o.pipelineStageId)?.quote);
-  const pastFirst = (o: any) => status(o) === "won" || (stageInfo.get(o.pipelineStageId)?.index ?? 0) > 0;
+  const firstMarks = [...marks.values()][0];
   return {
     revenue_won: Math.round(wonInPeriod.reduce((s, o) => s + value(o), 0)),
     jobs_won: wonInPeriod.length,
     revenue_won_to_date: Math.round(won.reduce((s, o) => s + value(o), 0)),
-    jobs_won_to_date: won.length,
-    open_quotes: openQuotes.length,
-    open_quotes_value: Math.round(openQuotes.reduce((s, o) => s + value(o), 0)),
     enquiries: created.length,
-    quoted: created.filter(atOrPastQuote).length,
-    quote_ready: created.filter(pastFirst).length,
+    quote_ready: created.filter((o) => reached(o, "booked")).length,
+    quoted: created.filter((o) => reached(o, "sent")).length,
+    won_missing_value: wonInPeriod.filter((o) => !value(o)).length,
     opportunities_checked: opps.length,
-    quote_stage_names: [...quoteStageNames],
+    booked_stage: firstMarks?.bookedName || "",
+    sent_stage: firstMarks?.sentName || "",
   };
 }
 
@@ -126,7 +138,15 @@ Deno.serve(async (req: Request) => {
     if (action === "status") {
       const { data, error } = await admin.from("client_ghl").select("location_id, location_name, connected_at").eq("client_id", client_id).maybeSingle();
       if (error) return json({ error: error.message.includes("client_ghl") ? "Run sql/056_ghl_connections.sql in Supabase first." : error.message }, 500);
-      return json({ connected: Boolean(data), location_id: data?.location_id || null, location_name: data?.location_name || null });
+      if (!data) return json({ connected: false });
+      // The stages, so the CRM can ask which ones mean "quote booked" and "quote sent".
+      let pipelines: any[] = [];
+      try {
+        const { data: conn } = await admin.from("client_ghl").select("token").eq("client_id", client_id).maybeSingle();
+        const pipes = await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(data.location_id)}`, conn!.token);
+        pipelines = (pipes?.pipelines || []).map((p: any) => ({ id: p.id, name: p.name, stages: (p.stages || []).map((s: any) => ({ id: s.id, name: s.name })) }));
+      } catch (_e) { /* still connected; stages just can't be listed right now */ }
+      return json({ connected: true, location_id: data.location_id, location_name: data.location_name || null, pipelines });
     }
     if (action === "connect") {
       const location_id = String(body.location_id || "").trim(), token = String(body.token || "").trim();
@@ -149,7 +169,7 @@ Deno.serve(async (req: Request) => {
       if (!conn) return json({ error: "This client's GHL isn't connected yet." }, 400);
       const pipes = await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(conn.location_id)}`, conn.token);
       const opps = await allOpportunities(conn.location_id, conn.token);
-      return json({ metrics: summarise(opps, pipes?.pipelines || [], from, to) });
+      return json({ metrics: summarise(opps, pipes?.pipelines || [], from, to, body.stages || {}) });
     }
     return json({ error: "Unknown action." }, 400);
   } catch (e) {

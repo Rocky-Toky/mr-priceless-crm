@@ -1814,3 +1814,4 @@ button.onb-task-hit:hover .task-check:not(.done){border-color:var(--gold);}
 .rp-dates input[readonly]{background:#f3f0e8;color:var(--text2);}
 @media (max-width:640px){.rp-stack{grid-template-columns:1fr 1fr;}.rp-stack > span:first-child{display:none;}.rp-stack label{grid-column:1/-1;margin-top:4px;}}
 .rp-stack.field{margin-bottom:0;}.rp-stack.field label{margin:0;text-transform:none;letter-spacing:0;font-size:13.5px;}
+.rp-ghl-stages{margin-bottom:12px;}
