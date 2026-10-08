@@ -122,43 +122,64 @@ async function build(data){
   label(p1, "Prepared for", M, H - 96);
   text(p1, data.clientName || "Client", M, H - 128, { f: F.d7, size: 28, maxWidth: CW });
 
-  // Hero: revenue this month + return on everything invested.
-  const heroH = 168, heroY = H - 150 - heroH;
-  box(p1, M, heroY, CW, heroH, { fill: C.panel, stroke: C.line });
-  const split = M + CW * 0.6;
-  label(p1, `Revenue won in ${data.monthName}`, M + 22, heroY + heroH - 28);
-  text(p1, money(data.revenueMonth), M + 20, heroY + heroH - 84, { f: F.d8, size: 50, color: C.gold });
+  // Centrepiece: everything invested vs everything won, and the return on it.
+  // The month so far sits beside it.
+  const heroH = 196, heroY = H - 150 - heroH, gapX = 12;
+  const mainW = CW * 0.64, sideX = M + mainW + gapX, sideW = CW - mainW - gapX;
+  box(p1, M, heroY, mainW, heroH, { fill: C.panel, stroke: C.gold3, bw: 1 });
+  label(p1, `Your return to date${data.since ? ` · since ${data.since}` : ""}`, M + 22, heroY + heroH - 28, { color: C.gold });
+  const roiW = text(p1, times(data.roiToDate), M + 20, heroY + heroH - 86, { f: F.d8, size: 54, color: C.gold });
+  text(p1, "return on everything", M + 34 + roiW, heroY + heroH - 62, { size: 10, color: C.soft });
+  text(p1, "you've invested with us", M + 34 + roiW, heroY + heroH - 76, { size: 10, color: C.soft });
+  // Invested vs won, side by side, with bars to scale.
+  const won = Number(data.revenueToDate) || 0, inv = Number(data.investedToDate) || 0, scaleTop = Math.max(won, inv, 1);
+  const colW = (mainW - 44 - 20) / 2, rowY = heroY + 50;
+  [["Revenue won", won, C.gold, money(data.revenueToDate), `from jobs our ads brought in`],
+   ["Invested", inv, C.muted, money(data.investedToDate), `${money(data.adSpendToDate)} ads + ${money(data.mgmtToDate)} management`]].forEach(([l, v, col, val, sub], i) => {
+    const x = M + 22 + i * (colW + 20);
+    label(p1, l, x, rowY + 34, { size: 6.4 });
+    text(p1, val, x, rowY + 12, { f: F.d7, size: 20, color: i ? C.text : C.gold, maxWidth: colW });
+    box(p1, x, rowY - 4, colW, 6, { fill: C.panel2, r: 3 });
+    if (v > 0) box(p1, x, rowY - 4, Math.max(6, v / scaleTop * colW), 6, { fill: col, r: 3 });
+    text(p1, sub, x, rowY - 20, { size: 7.6, color: C.muted, maxWidth: colW });
+  });
+
+  // Side: where this month is at.
+  box(p1, sideX, heroY, sideW, heroH, { fill: C.panel, stroke: C.line });
+  label(p1, `${data.monthName} so far`, sideX + 18, heroY + heroH - 28);
+  text(p1, money(data.revenueMonth), sideX + 18, heroY + heroH - 62, { f: F.d8, size: 28, maxWidth: sideW - 36 });
+  text(p1, "revenue won this month", sideX + 18, heroY + heroH - 76, { size: 8.5, color: C.muted });
   const jobs = Number(data.jobsMonth) || 0;
-  text(p1, jobs ? `${jobs} job${jobs === 1 ? "" : "s"} signed from enquiries our ads brought in` : "No jobs signed yet this month", M + 22, heroY + heroH - 104, { size: 9.5, color: C.muted, maxWidth: split - M - 40 });
-  hr(p1, M + 22, split - 22, heroY + 50);
-  label(p1, `Won since ${data.since}`, M + 22, heroY + 32, { size: 6.4 });
-  text(p1, money(data.revenueToDate), M + 22, heroY + 14, { f: F.d7, size: 14 });
-  label(p1, `Last month${data.lastMonthName ? " · " + data.lastMonthName : ""}`, M + 150, heroY + 32, { size: 6.4 });
-  text(p1, has(data.revenueLastMonth) ? money(data.revenueLastMonth) : "-", M + 150, heroY + 14, { f: F.d7, size: 14 });
-  vr(p1, split, heroY + 18, heroY + heroH - 18);
-  text(p1, times(data.roiToDate), split + 22, heroY + heroH - 68, { f: F.d8, size: 38 });
-  text(p1, "return on your total", split + 22, heroY + heroH - 86, { size: 9.5, color: C.soft });
-  text(p1, "investment to date", split + 22, heroY + heroH - 99, { size: 9.5, color: C.soft });
-  hr(p1, split + 22, W - M - 22, heroY + 50);
-  text(p1, `${money(data.investedToDate)} invested`, split + 22, heroY + 31, { f: F.b, size: 10.5 });
-  text(p1, `${money(data.adSpendToDate)} ad spend + ${money(data.mgmtToDate)} management`, split + 22, heroY + 17, { size: 7.8, color: C.muted, maxWidth: W - M - 22 - split - 22 });
+  const sideRows = [
+    ["Jobs signed", jobs ? String(jobs) : "0"],
+    [data.lastMonthName ? `${data.lastMonthName} revenue` : "Last month", has(data.revenueLastMonth) ? money(data.revenueLastMonth) : "-"],
+    ["Ad spend", has(data.adSpendMonth) ? money(data.adSpendMonth) : "-"],
+    ["Quotes booked", `${num(data.quotesBooked ?? 0)} of ${num(data.quoteTarget || 10)}`],
+  ];
+  let sy = heroY + heroH - 100;
+  sideRows.forEach(([k, v]) => {
+    hr(p1, sideX + 18, sideX + sideW - 18, sy + 12, C.line, 0.5);
+    text(p1, k, sideX + 18, sy, { size: 8.8, color: C.soft, maxWidth: sideW - 90 });
+    text(p1, v, sideX + sideW - 18, sy, { f: F.b, size: 9.5, align: "right" });
+    sy -= 22;
+  });
 
   // The 10-quote guarantee, front and centre.
   const target = Math.max(1, Number(data.quoteTarget) || 10), got = Math.max(0, Number(data.quotesBooked) || 0);
-  const gH = 136, gY = heroY - 14 - gH;
+  const gH = 118, gY = heroY - 14 - gH;
   box(p1, M, gY, CW, gH, { fill: C.panel, stroke: got >= target ? C.gold : C.gold3, bw: 1 });
   label(p1, `Your ${target}-quote guarantee · ${data.monthName}`, M + 22, gY + gH - 26, { color: C.gold });
   const big = `${num(Math.min(got, 999))}`;
-  const bw = text(p1, big, M + 22, gY + gH - 66, { f: F.d8, size: 34 });
-  text(p1, ` of ${target} quotes booked`, M + 24 + bw, gY + gH - 66, { f: F.sb, size: 12, color: C.soft });
+  const bw = text(p1, big, M + 22, gY + gH - 58, { f: F.d8, size: 34 });
+  text(p1, ` of ${target} quotes booked`, M + 24 + bw, gY + gH - 58, { f: F.sb, size: 12, color: C.soft });
   const pill = got >= target ? (got > target ? `Guarantee met · +${got - target} extra` : "Guarantee met") : `${target - got} to go`;
   const pw = width(F.b, pill, 9) + 24;
-  box(p1, W - M - 22 - pw, gY + gH - 72, pw, 22, { fill: got >= target ? C.gold : C.panel2, stroke: got >= target ? undefined : C.gold3, r: 11 });
-  text(p1, pill, W - M - 22 - pw / 2, gY + gH - 64.5, { f: F.b, size: 9, color: got >= target ? C.bg : C.gold, align: "center" });
+  box(p1, W - M - 22 - pw, gY + gH - 64, pw, 22, { fill: got >= target ? C.gold : C.panel2, stroke: got >= target ? undefined : C.gold3, r: 11 });
+  text(p1, pill, W - M - 22 - pw / 2, gY + gH - 56.5, { f: F.b, size: 9, color: got >= target ? C.bg : C.gold, align: "center" });
   // One circle per quote.
   const slots = Math.min(target, 20), gap = 8, rowW = CW - 44;
   const d = Math.min(36, (rowW - gap * (slots - 1)) / slots);
-  const startX = M + 22, cy = gY + 32;
+  const startX = M + 22, cy = gY + 28;
   for (let i = 0; i < slots; i++){
     const cx = startX + d / 2 + i * (d + gap);
     const done = i < got;
