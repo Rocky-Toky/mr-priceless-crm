@@ -3815,7 +3815,7 @@ function renderContentProduction(){
    finished text - no fill-in boxes and no viewer highlighting. Everything
    happens in the browser; nothing is uploaded. pdf-lib + fontkit are bundled in
    assets/vendor and load only the first time a pack is made. */
-const WP_FIELDS = ["client_first_name","business_name","trade","town","call_when","ads_live","why_excited","account_manager","phone","email"];
+const WP_FIELDS = ["client_first_name","business_name","call_when","ads_live","why_excited","account_manager","phone","email"];
 const WP_LIBS = [
   "assets/vendor/pdf-lib-1.17.1.min.js",
   "assets/vendor/fontkit-1.1.1.umd.min.js",
@@ -3844,14 +3844,10 @@ function wpPrefill(c){
     || null;
   const contact = deal?.contact_id ? state.contacts.find(x => x.id === deal.contact_id) : null;
   const personName = (contact?.name || (deal?.contact_name || "").split(" - ")[0] || "").trim();
-  const nameKey = (c.name || "").trim().toLowerCase();
-  const prospect = state.prospects.find(p => (p.company || "").trim().toLowerCase() === nameKey);
   const ads = c.ad_start_date ? new Date(c.ad_start_date + "T00:00:00").toLocaleDateString("en-NZ", { day:"numeric", month:"long" }) : "";
   return {
     client_first_name: personName.split(/\s+/)[0] || "",
     business_name: c.name || "",
-    trade: prospect?.industry || "",
-    town: prospect?.region || "",
     call_when: "",
     ads_live: ads,
     why_excited: "",
@@ -3893,8 +3889,8 @@ async function buildWelcomePackPdf(values){
   // answer goes and in what size, weight and colour, so answers read as part
   // of the page rather than as filled-in boxes.
   const [tpl, layout, f400, f600, f700, e400, e600, e700] = await Promise.all([
-    get("assets/welcome-pack-template.pdf?v=5", "welcome pack template"),
-    get("assets/welcome-pack-layout.json?v=5", "welcome pack layout", "json"),
+    get("assets/welcome-pack-template.pdf?v=6", "welcome pack template"),
+    get("assets/welcome-pack-layout.json?v=6", "welcome pack layout", "json"),
     get("assets/fonts/figtree-400.ttf?v=1", "brand font"),
     get("assets/fonts/figtree-600.ttf?v=1", "brand font"),
     get("assets/fonts/figtree-700.ttf?v=1", "brand font"),
