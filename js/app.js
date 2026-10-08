@@ -3716,7 +3716,7 @@ function renderClientDetail(c){
   const quoteButtons = $("#client-detail-quote-buttons");
   if (quoteButtons) quoteButtons.style.display = isQuoteGuarantee ? "none" : "";
   // On the guarantee, the progress bar in the header already tracks quotes.
-  quoteButtons?.closest(".cl-kpi")?.classList.toggle("hidden", !!isQuoteGuarantee);
+  quoteButtons?.closest(".cp-stat")?.classList.toggle("hidden", !!isQuoteGuarantee);
 
   renderClientInfoGrid(c);
 
@@ -3749,22 +3749,110 @@ function renderClientDetail(c){
 
 
   const creatives = state.adCreatives.filter(x => x.client_id === c.id).sort((a,b) => new Date(b.created_at)-new Date(a.created_at));
-  const tbody = $("#ad-creatives-tbody");
-  if (!creatives.length){ tbody.innerHTML = `<tr><td colspan="5">${emptyState("No ad creatives tried yet.")}</td></tr>`; }
-  else {
-    tbody.innerHTML = creatives.map(a => `
-      <tr data-id="${a.id}">
-        <td>${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="ad-creative-thumb" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="ad-creative-thumb ad-creative-thumb-empty"></div>`}</td>
-        <td><div class="row-name">${escapeHtml(a.name)}</div>${a.campaign_id?`<div class="row-sub">${escapeHtml(campaignName(a.campaign_id))}</div>`:""}${a.notes?`<div class="row-sub">${escapeHtml(a.notes)}</div>`:""}${creativeInsightsSummary(a)}</td>
-        <td><span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span></td>
-        <td>${fmtDate(a.created_at)}</td>
-        <td style="text-align:right;white-space:nowrap;">
-          ${a.meta_ad_id ? `<button class="icon-btn" data-action="refresh-creative-insights" data-id="${a.id}" title="Refresh live stats">${ICONS.refresh}</button>` : ""}
-          <button class="icon-btn" data-action="edit-ad-creative" data-id="${a.id}" title="Edit">${ICONS.edit}</button>
-          <button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button>
-        </td>
-      </tr>
-    `).join("");
+  const grid = $("#ad-creatives-grid");
+  if (grid){
+    grid.innerHTML = !creatives.length ? emptyState("No ad creatives tried yet.") : creatives.map(a => {
+      const stats = [a.results != null ? `${Number(a.results).toLocaleString()} leads` : "", a.cost_per_result != null ? `${fmtMoney(a.cost_per_result)}/lead` : "", a.spend != null ? `${fmtMoney(a.spend)} spent` : ""].filter(Boolean);
+      return `
+      <article class="cp-creative" data-id="${a.id}">
+        <div class="cp-creative-media">
+          ${a.image_url ? `<img src="${escapeHtml(a.image_url)}" alt="" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<span class="cp-creative-empty">${escapeHtml((a.name || "?").trim().charAt(0).toUpperCase())}</span>`}
+          <span class="badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span>
+        </div>
+        <div class="cp-creative-body">
+          <div class="cp-creative-name">${escapeHtml(a.name)}</div>
+          <div class="cp-creative-sub">${a.campaign_id ? escapeHtml(campaignName(a.campaign_id)) + " · " : ""}${fmtDate(a.created_at)}</div>
+          ${stats.length ? `<div class="cp-creative-stats">${stats.map(x => `<span>${escapeHtml(x)}</span>`).join("")}</div>` : ""}
+          <div class="cp-creative-actions">
+            ${a.meta_ad_id ? `<button class="icon-btn" data-action="refresh-creative-insights" data-id="${a.id}" title="Refresh live stats">${ICONS.refresh}</button>` : ""}
+            <button class="icon-btn" data-action="edit-ad-creative" data-id="${a.id}" title="Edit">${ICONS.edit}</button>
+            <button class="icon-btn" data-action="delete-ad-creative" data-id="${a.id}" title="Delete">${ICONS.trash}</button>
+          </div>
+        </div>
+      </article>`;
+    }).join("");
+  }
+  renderClientProfileExtras(c);
+}
+
+// The parts of the client profile that pull from other areas: their results
+// from the reports, their workshops, and their reports and 90-day plan.
+function renderClientProfileExtras(c){
+  const since = c.signed_at || (c.onboarding_progress || {}).signed_at || c.created_at;
+  const sinceEl = $("#cp-since");
+  if (sinceEl && since){
+    const months = Math.max(0, Math.round(daysSince(since) / 30.4));
+    sinceEl.textContent = `Client since ${localDateOnly(String(since).slice(0, 10)).toLocaleDateString("en-NZ", { month: "short", year: "numeric" })}${months ? ` · ${months} month${months === 1 ? "" : "s"}` : ""}`;
+  }
+  const logBtn = $("#cp-log-workshop");
+  if (logBtn){ logBtn.dataset.id = c.id; logBtn.hidden = !isWorkshopClient(c); }
+  // Results to date, from their latest report.
+  const reps = monthReportsFor(c.id), last = reps[reps.length - 1], m = last?.metrics || {};
+  const setStat = (id, v, sub) => { const el = $(id); if (el) el.innerHTML = v; const s = $(id + "-sub"); if (s) s.textContent = sub || ""; };
+  setStat("#cp-revenue", toNum(m.revenueToDate) != null ? fmtMoney(m.revenueToDate) : `<span class="cl-muted">No reports yet</span>`, toNum(m.revenueMonth) != null ? `${fmtMoney(m.revenueMonth)} in ${monthNameOf(last.period_end)}` : "");
+  setStat("#cp-roi", toNum(m.roiToDate) != null ? fmtTimes(toNum(m.roiToDate)) : "-", toNum(m.investedToDate) != null ? `on ${fmtMoney(m.investedToDate)} invested` : "");
+
+  // Workshops
+  const wsEl = $("#cp-workshops");
+  if (wsEl){
+    if (!isWorkshopClient(c)){ wsEl.hidden = true; }
+    else {
+      wsEl.hidden = false;
+      const logs = workshopsOf(c), next = (c.onboarding_progress || {}).workshop_next, sug = workshopSuggestion(c);
+      const thisMonth = doneThisMonth(c);
+      const acts = logs.flatMap(w => (w.actions || []).map((a, i) => ({ a, i, w }))).filter(x => !x.a.done);
+      const pill = (key) => `<span class="ws-pill ws-pill-${escapeHtml(key)}">${escapeHtml(WORKSHOP_MAP[key]?.label || "Workshop")}</span>`;
+      wsEl.innerHTML = `
+        <div class="cl-panel-head cp-panel-head">
+          <div><h3>Workshops</h3><p>Monthly sessions on their business, with the actions that came out of them.</p></div>
+          <div class="cl-panel-actions"><button class="btn ghost sm" data-action="open-workshops-page">Workshop board</button><button class="btn gold sm" data-action="ws-open" data-id="${c.id}">Log workshop</button></div>
+        </div>
+        <div class="cp-ws-top">
+          <div class="cp-ws-next ${WORKSHOP_MAP[next] ? "ws-lib-" + next : "ws-lib-" + sug.cat}">
+            <span class="ws-lib-icon">${WORKSHOP_ICONS[WORKSHOP_MAP[next] ? next : sug.cat] || ""}</span>
+            <div><span class="cp-k">${WORKSHOP_MAP[next] ? "Lined up next" : "Suggested next"}</span>
+              <b>${escapeHtml(WORKSHOP_MAP[WORKSHOP_MAP[next] ? next : sug.cat].label)}</b>
+              <small>${WORKSHOP_MAP[next] ? escapeHtml(WORKSHOP_MAP[next].blurb) : escapeHtml(sug.why)}</small></div>
+            ${WORKSHOP_MAP[next] ? "" : `<button type="button" class="ws-sug-use" data-action="ws-use-suggestion" data-id="${c.id}" data-cat="${sug.cat}">Line it up</button>`}
+          </div>
+          <div class="cp-ws-month ${thisMonth ? "done" : ""}"><span class="cp-k">${escapeHtml(monthNameOf(localDayStr()))}</span><b>${thisMonth ? "Done" : "Due"}</b><small>${thisMonth ? `${escapeHtml(WORKSHOP_MAP[thisMonth.category]?.label || "")} · ${escapeHtml(fmtShortDate(thisMonth.date))}` : "No workshop yet this month"}</small></div>
+        </div>
+        ${acts.length ? `<div class="cp-ws-acts"><h4>Open actions</h4><ul class="ws-actions">${acts.slice(0, 8).map(({ a, i, w }) => `
+          <li><button type="button" class="ws-action-hit" data-action="ws-toggle-action" data-id="${c.id}" data-ws="${escapeHtml(w.id)}" data-i="${i}" aria-pressed="false"><span class="task-check">${TASK_CHECK_SVG}</span><span>${escapeHtml(a.text)}</span></button><em>${a.owner === "them" ? "Them" : "Us"}</em></li>`).join("")}</ul></div>` : ""}
+        <div class="cp-ws-log">
+          ${logs.length ? logs.slice(0, 5).map(w => `
+            <div class="cp-ws-item">
+              <span class="cp-ws-dot ws-lib-${escapeHtml(w.category)}"></span>
+              <div class="cp-ws-item-body">
+                <div class="cp-ws-item-head">${pill(w.category)}<b>${escapeHtml(fmtShortDate(w.date))}</b>${ASSIGNEES[w.by] ? `<span class="ws-by">with ${escapeHtml(ASSIGNEES[w.by].label)}</span>` : ""}${(w.actions || []).length ? `<span class="ws-by">· ${(w.actions || []).filter(a => a.done).length}/${w.actions.length} actions done</span>` : ""}</div>
+                ${w.notes ? `<p>${escapeHtml(w.notes)}</p>` : ""}
+              </div>
+            </div>`).join("") + (logs.length > 5 ? `<button type="button" class="cp-link" data-action="ws-open" data-id="${c.id}">See all ${logs.length} workshops</button>` : "")
+          : `<p class="ws-none">No workshops yet. Log their first one after the session.</p>`}
+        </div>`;
+    }
+  }
+
+  // Reports and 90-day plan
+  const repEl = $("#cp-reports");
+  if (repEl){
+    const due = reportDueInfo(c), plan = planInfo(c);
+    repEl.innerHTML = `
+      <div class="cl-panel-head cp-panel-head"><div><h3>Reports & plans</h3><p>What they've been sent.</p></div></div>
+      <div class="cp-docs">
+        <div class="cp-doc">
+          <span class="cp-doc-ico">PDF</span>
+          <div><b>Performance report</b><small>${last ? `Report ${escapeHtml(String(m.report_number || reps.length))} · ${escapeHtml(fmtReportPeriod(last.period_start, last.period_end))}` : "None sent yet"}</small>
+            <span class="onb-status ${due.due ? "client" : "track"}">${escapeHtml(due.label)}</span></div>
+          <button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make</button>
+        </div>
+        <div class="cp-doc">
+          <span class="cp-doc-ico">90</span>
+          <div><b>90-day plan</b><small>${plan.cur ? `Plan ${plan.cur.number || 1} · ${escapeHtml(planRange(plan.cur.start))}` : "Make their first one"}</small>
+            <span class="onb-status ${plan.cls}">${escapeHtml(plan.label)}</span></div>
+          <button type="button" class="btn ${plan.due ? "gold" : "ghost"} sm" data-action="make-plan" data-id="${c.id}">Make</button>
+        </div>
+      </div>`;
   }
 }
 function setupContentDragDrop(){
@@ -5627,8 +5715,22 @@ function setupPlans(){
      run sheet. Starter content lives here; edits are saved as rows in the
      rules table titled "workshop:<category>" (kept off the Rules page). */
 const WORKSHOP_CATS = [
-  { key: "financial", label: "Financial", blurb: "Pricing, margins and cash flow",
+  { key: "financial", label: "Financial", blurb: "Pricing, margins and cash flow", duration: "45 min",
+    when: "Return is under 3x, or jobs are coming in but the money isn't showing up",
+    outcome: "A monthly revenue target they believe in, prices they're confident in, and a clear picture of which jobs actually make them money.",
     covers: "Making sure the jobs they're winning are actually making them money. We look at what they charge, what each job really costs them, how cash comes in and out, and set a revenue target they can plan around.",
+    prep: [
+      "Pull their revenue, jobs won and return to date from their reports",
+      "Note their average job value and their biggest and smallest wins",
+      "Ask them to bring a rough idea of their monthly running costs",
+    ],
+    agenda: [
+      ["5 min", "Their numbers so far: what our ads have brought in, and the return"],
+      ["10 min", "Work out average job value and real margin together"],
+      ["10 min", "Most and least profitable job types: what to chase, what to drop"],
+      ["10 min", "Pricing, deposits and payment terms"],
+      ["10 min", "Set a monthly revenue target and what it means in jobs"],
+    ],
     questions: [
       "What was your revenue last month, and what do you want it to be in 12 months?",
       "On a typical job, what's left after materials, labour and travel?",
@@ -5638,35 +5740,27 @@ const WORKSHOP_CATS = [
       "Do you know what it costs to run the business each month before you earn a cent?",
       "Are there jobs you keep taking that don't really pay?",
     ],
-    checklist: [
-      "Pull their revenue, jobs won and return to date from the CRM before the call",
-      "Work out their average job value and margin together",
-      "Spot their most and least profitable job types",
-      "Agree a monthly revenue target and what it means in jobs",
-      "Check deposits, invoicing and payment terms",
-      "Leave them with 2 or 3 actions, and note ours",
+    leave: [
+      "A monthly revenue target, and the number of jobs it takes to hit it",
+      "Their top 2 job types to push in the ads",
+      "2 or 3 actions for them, and ours noted in the CRM",
     ] },
-  { key: "leads", label: "Lead response", blurb: "Calling back and booking quotes",
-    covers: "Turning more enquiries into booked quote visits. We look at how fast leads get a call back, who answers when they're on the tools, and how quote visits get booked.",
-    questions: [
-      "How quickly do you call a new lead back, and who does it?",
-      "What happens to the calls you miss while you're on a job?",
-      "How soon after the enquiry do you get out to quote?",
-      "What do you ask on that first call before booking a visit?",
-      "Have leads booked with someone else before you got back to them?",
-      "How many enquiries last month never got a quote visit, and why?",
-      "Would a missed-call text or someone answering for you help?",
-    ],
-    checklist: [
-      "Check their quote-ready to quoted rate in the CRM before the call",
-      "Go through a few recent leads that never got a visit",
-      "Agree a call-back-within-the-hour rule, and who covers it",
-      "Write a simple first-call script: three questions, then book the visit",
-      "Set up a text back for missed calls",
-      "Leave them with 2 or 3 actions, and note ours",
-    ] },
-  { key: "sales", label: "Sales & closing", blurb: "Closing more quotes",
+  { key: "sales", label: "Sales & closing", blurb: "Winning the quotes they go out to", duration: "45 min",
+    when: "Fewer than 1 in 4 quotes are turning into jobs",
+    outcome: "A sharper quote visit, a quote that's easy to say yes to, and confident answers to their two most common objections.",
     covers: "Winning more of the quotes they go out to. We look at what happens at the visit, how the quote is presented and priced, and what's stopping people from saying yes.",
+    prep: [
+      "Check their close rate in the CRM",
+      "Pick 3 recent quotes that didn't land to talk through",
+      "Ask them to bring a copy of a quote they've sent",
+    ],
+    agenda: [
+      ["5 min", "Their close rate, and what good looks like for their trade"],
+      ["10 min", "Walk through a quote visit, start to finish"],
+      ["10 min", "Go through the quotes that didn't land, and why"],
+      ["10 min", "Tighten the quote: same day, clear options, easy yes"],
+      ["10 min", "Practise the two hardest objections, and asking for the job"],
+    ],
     questions: [
       "Walk me through a quote visit, from arriving to leaving.",
       "Are you pricing on the spot, or going away to think about it?",
@@ -5676,16 +5770,25 @@ const WORKSHOP_CATS = [
       "Which jobs do you close easily, and which ones slip away?",
       "Do you ask for the job before you leave?",
     ],
-    checklist: [
-      "Check their close rate in the CRM before the call",
-      "Go through the last few quotes that didn't land, and why",
-      "Tighten how quotes are sent: same day, clear options, easy yes",
-      "Handle their top 2 objections together",
-      "Practise asking for the job at the end of the visit",
-      "Leave them with 2 or 3 actions, and note ours",
+    leave: [
+      "A same-day quote habit, with good, better and best options",
+      "Their answers to the top 2 objections, written down",
+      "2 or 3 actions for them, and ours noted in the CRM",
     ] },
-  { key: "followup", label: "Quote follow-up", blurb: "Turning open quotes into jobs",
+  { key: "followup", label: "Quote follow-up", blurb: "Turning open quotes into jobs", duration: "30 min",
+    when: "3 or more quotes are sitting open",
+    outcome: "A follow-up routine they'll actually stick to, with the messages already written, so no quote goes quiet without a chase.",
     covers: "Chasing the quotes that are already out. Most jobs are won in the follow-up, so we set a simple routine that turns open quotes into signed work without being pushy.",
+    prep: [
+      "Pull their open quotes and what they're worth",
+      "Note how old each one is",
+    ],
+    agenda: [
+      ["5 min", "The open quotes, and what they're worth if half land"],
+      ["10 min", "Agree the routine: call on day 2, text on day 5, check in on day 10"],
+      ["10 min", "Write the follow-up texts together, ready to send"],
+      ["5 min", "Who owns follow-up, and when in the week it happens"],
+    ],
     questions: [
       "How many quotes are open right now, and what are they worth?",
       "What do you do after the quote's been sent?",
@@ -5695,35 +5798,142 @@ const WORKSHOP_CATS = [
       "Do you know why quotes go quiet?",
       "Have you ever won a job on the third or fourth follow-up?",
     ],
-    checklist: [
-      "Pull their open quotes and what they're worth before the call",
-      "Agree a routine: call on day 2, text on day 5, check in on day 10",
-      "Write the follow-up texts together so they're ready to send",
-      "Decide who owns follow-up, and when in the week it happens",
-      "Set up reminders so no quote goes quiet without a chase",
-      "Leave them with 2 or 3 actions, and note ours",
+    leave: [
+      "The 2, 5, 10 day routine, with the texts saved on their phone",
+      "Today's list of quotes to chase",
+      "2 or 3 actions for them, and ours noted in the CRM",
     ] },
-  { key: "marketing", label: "Marketing", blurb: "Leads, offer and reputation",
-    covers: "Getting more of the right enquiries in. We look at the work they want more of, what makes them the obvious choice, their reviews and photos, and what's working in the ads.",
-    questions: [
-      "What kind of job do you want more of in the next 3 months?",
-      "Why should someone pick you over the next business on Google?",
-      "How many Google reviews do you have, and do you ask every happy customer?",
-      "Have you got fresh before and after photos from recent jobs?",
-      "Where else do your best jobs come from, like referrals or repeat work?",
-      "Is there a season or slow patch coming we should plan for?",
-      "Anything in the leads lately that hasn't been a good fit?",
+  { key: "marketing", label: "Content creation", blurb: "Getting them filming videos and photos", duration: "45 min",
+    when: "Ads are fatiguing, or we're running low on their own footage",
+    outcome: "A shot list for the next two weeks, the confidence to film on their phone, and a simple routine for getting it to us.",
+    covers: "Getting them making content. Fresh videos and photos of their own work are what keep the ads performing, so we plan what to film, show them how to film it on their phone, and set a simple routine for sending it through.",
+    prep: [
+      "Check which of their creatives are working, and which are fatiguing",
+      "Pick 3 example videos from other clients that have done well",
+      "Look at what jobs they've got coming up",
     ],
-    checklist: [
-      "Check their lead flow, cost per lead and top ads before the call",
-      "Agree the job type to push for the next month",
-      "Sharpen their offer and why-us in one sentence",
-      "Set up a review request after every finished job",
-      "Line up new photos and video for the next ads",
-      "Leave them with 2 or 3 actions, and note ours",
+    agenda: [
+      ["5 min", "What's working in their ads right now, and why their own footage wins"],
+      ["10 min", "Show the 3 example videos and what made them work"],
+      ["15 min", "Build a shot list from the jobs they've got coming up"],
+      ["10 min", "Phone filming basics: vertical, good light, before and after, talk to camera"],
+      ["5 min", "Set the routine: film on the job, send it to us by Friday"],
+    ],
+    questions: [
+      "What jobs have you got coming up that we could film?",
+      "Who on the team is happy to be on camera?",
+      "Do you take a photo at the start and end of every job?",
+      "What do customers always ask you that we could answer in a video?",
+      "What's a job you're really proud of?",
+      "What stops you from filming at the moment?",
+      "Would a quick video of you introducing the business feel okay?",
+    ],
+    leave: [
+      "A shot list for the next two weeks",
+      "A Friday routine for sending us photos and videos",
+      "2 or 3 actions for them, and ours noted in the CRM",
     ] },
-  { key: "recruitment", label: "Recruitment & team", blurb: "Hiring and keeping good people", manual: true,
+  { key: "reviews", label: "Google reviews", blurb: "Getting more 5-star reviews", duration: "30 min",
+    when: "They've got fewer than 30 Google reviews, or haven't had a new one lately",
+    outcome: "A review request that goes out after every finished job, so their Google rating keeps climbing without them thinking about it.",
+    covers: "Building their Google reviews. Reviews win the job before they've even quoted, and they make every ad work harder. We set up a simple way to ask every happy customer, at the right moment, every time.",
+    prep: [
+      "Check their Google Business Profile: number of reviews, rating, latest one",
+      "Get their review link ready",
+      "Look at a competitor or two for comparison",
+    ],
+    agenda: [
+      ["5 min", "Where they stand on Google against the competition"],
+      ["10 min", "When and how to ask: at handover, while they're happy"],
+      ["10 min", "Write the review request text together, with their link"],
+      ["5 min", "Replying to reviews, good and bad"],
+    ],
+    questions: [
+      "How many Google reviews have you got, and when did you last get one?",
+      "Do you ask for a review after every job?",
+      "Who could you ask today: your last 10 happy customers?",
+      "When's the moment a customer is happiest with you?",
+      "Do you reply to your reviews?",
+      "Have you had a bad review, and how did you handle it?",
+      "Who on the team could send the review request?",
+    ],
+    leave: [
+      "A review request text saved on their phone, with their link",
+      "A list of 10 recent happy customers to ask this week",
+      "2 or 3 actions for them, and ours noted in the CRM",
+    ] },
+  { key: "googleads", label: "Google Ads", blurb: "Adding search ads on top of Meta", duration: "30 min", upsell: true, manual: true,
+    when: "Meta is working well and they want more of the same, or the guarantee is met",
+    outcome: "They understand how Google search ads add to what Meta's doing, and they've had a clear offer to add it.",
+    covers: "Showing them what Google Ads would add. Meta finds people before they know they need the job done; Google catches the people searching for it right now. We show them the search demand in their area, what it would cost, and offer to run it.",
+    prep: [
+      "Look up search volume for their main services in their area",
+      "Check what competitors are showing up on Google",
+      "Prepare the Google Ads offer and pricing",
+    ],
+    agenda: [
+      ["5 min", "What Meta's done for them so far"],
+      ["10 min", "Search demand: how many people are searching for their services nearby"],
+      ["5 min", "Who's showing up on Google right now, and who's getting those jobs"],
+      ["10 min", "The offer: what we'd run, what it costs, what to expect"],
+    ],
+    questions: [
+      "Do people find you on Google at the moment?",
+      "What do you think customers type in when they need you?",
+      "Which jobs would you most want people searching to find you for?",
+      "Have you tried Google Ads before? How did it go?",
+      "How much more work could you take on each month?",
+      "Is there a season when people search for you most?",
+      "What would make adding Google a no-brainer for you?",
+    ],
+    leave: [
+      "The search demand numbers for their area",
+      "A clear Google Ads proposal, with a decision date",
+      "2 or 3 actions for them, and ours noted in the CRM",
+    ] },
+  { key: "inbound", label: "Inbound lead takeover", blurb: "We answer every lead within 3 minutes", duration: "30 min", upsell: true, manual: true,
+    when: "Leads are coming in but aren't getting booked fast enough",
+    outcome: "They hand over first contact on every inbound lead to us, so each one gets a reply within 3 minutes and lands in their calendar as a booked quote.",
+    covers: "Taking control of all their inbound leads. The first business to respond usually wins the job, and they can't answer within 3 minutes from the tools. We show them how many leads are slipping through, how we'd handle every enquiry, and agree the handover.",
+    prep: [
+      "Check their quote-ready to quoted rate, and how fast leads get a reply now",
+      "List every place their leads come from: ads, website, Google, phone",
+      "Prepare how the takeover works and what it costs",
+    ],
+    agenda: [
+      ["5 min", "How fast leads get a reply now, and what that's costing them"],
+      ["10 min", "Map every lead source and where those leads land"],
+      ["10 min", "How we'd handle it: reply within 3 minutes, qualify, book into their calendar"],
+      ["5 min", "The handover: access we need, and when we start"],
+    ],
+    questions: [
+      "When a lead comes in while you're on a job, what happens?",
+      "How long does it usually take someone to get back to them?",
+      "Where else do your leads come from apart from our ads?",
+      "Have you lost jobs to someone who got back to them first?",
+      "Who books your quote visits now, and how?",
+      "What do we need to know to qualify a lead properly for you?",
+      "How would it feel to only see leads once they're booked?",
+    ],
+    leave: [
+      "A map of every lead source and who handles it",
+      "A clear takeover offer, with a start date",
+      "2 or 3 actions for them, and ours noted in the CRM",
+    ] },
+  { key: "recruitment", label: "Recruitment & team", blurb: "Hiring and keeping good people", duration: "45 min", manual: true,
+    when: "They're winning more work than the team can deliver",
+    outcome: "A clear next hire, a job ad ready to go, and a plan for the new starter's first week.",
     covers: "Making sure there's a team to deliver the work coming in. We look at when to hire, who to hire, how to find good people, and how to keep them.",
+    prep: [
+      "Compare the jobs they're winning with what the team can deliver",
+      "Look at what they're turning away or pushing back",
+    ],
+    agenda: [
+      ["10 min", "Capacity: what's being turned away or delayed"],
+      ["10 min", "The first role to fill, and why that one"],
+      ["15 min", "Write the job ad together (we can run it as an ad)"],
+      ["10 min", "Where to find candidates, and a first-week plan"],
+    ],
     questions: [
       "Are you turning work away or pushing jobs back because you're stretched?",
       "If you had one more person, what would you hand over first?",
@@ -5733,16 +5943,25 @@ const WORKSHOP_CATS = [
       "What would a hire cost you, and what would it free up?",
       "Is anyone on the team at risk of leaving?",
     ],
-    checklist: [
-      "Compare the jobs they're winning with what the team can deliver",
-      "Agree the first role to fill, and why that one",
-      "Write the job ad together (we can run it as an ad)",
-      "Plan where to find candidates: ads, referrals, trade schools",
-      "Sketch a simple first-week plan for the new starter",
-      "Leave them with 2 or 3 actions, and note ours",
+    leave: [
+      "The role to hire for, and a job ad ready to run",
+      "A simple first-week plan for the new starter",
+      "2 or 3 actions for them, and ours noted in the CRM",
     ] },
-  { key: "operations", label: "Systems & operations", blurb: "Scheduling and admin", manual: true,
+  { key: "operations", label: "Systems & operations", blurb: "Scheduling and admin", duration: "45 min", manual: true,
+    when: "The owner is doing everything and things are falling through the cracks",
+    outcome: "Their top time drains named, one thing templated or automated, and clear owners for the admin.",
     covers: "Freeing up their time so the business doesn't rely on them for everything. We look at scheduling, admin, what happens once a job is won, and the tools they use.",
+    prep: [
+      "Check their CRM stages match how they actually work",
+      "Ask them to list the tools and apps they use",
+    ],
+    agenda: [
+      ["10 min", "Map the steps from signed quote to job done and paid"],
+      ["10 min", "Their top 3 time drains"],
+      ["15 min", "Pick one thing to template or automate this month"],
+      ["10 min", "Who owns each admin task"],
+    ],
     questions: [
       "What eats most of your time that isn't on the tools?",
       "How do jobs get scheduled, and who does it?",
@@ -5752,13 +5971,10 @@ const WORKSHOP_CATS = [
       "What do you do over and over that could be a template?",
       "If you took two weeks off, what would stop?",
     ],
-    checklist: [
-      "Map the steps from signed quote to job done and paid",
-      "Spot their top 3 time drains",
-      "Pick one thing to template or automate this month",
-      "Agree who owns each admin task",
-      "Check their CRM stages match how they actually work",
-      "Leave them with 2 or 3 actions, and note ours",
+    leave: [
+      "One template or automation to set up this month",
+      "A clear owner for each admin task",
+      "2 or 3 actions for them, and ours noted in the CRM",
     ] },
 ];
 const WORKSHOP_MAP = Object.fromEntries(WORKSHOP_CATS.map(c => [c.key, c]));
@@ -5785,20 +6001,20 @@ function workshopSuggestion(c){
   const openQuotes = n("openQuotesCount");
   if (openQuotes >= 3) ideas.push({ cat: "followup", why: `${openQuotes} quotes still open${n("openQuotesValue") ? `, worth ${fmtMoney(n("openQuotesValue"))}` : ""}`, weight: openQuotes >= 6 ? 3.2 : 2.2 });
   if (quoted >= 4 && jobs != null && jobs / quoted < 0.25) ideas.push({ cat: "sales", why: `Only ${Math.round(jobs / quoted * 100)}% of quotes are closing`, weight: 3 });
-  if (ready >= 4 && quoted != null && quoted / ready < 0.5) ideas.push({ cat: "leads", why: `Only ${Math.round(quoted / ready * 100)}% of quote-ready leads got a quote`, weight: 2.5 });
+  if (ready >= 4 && quoted != null && quoted / ready < 0.5) ideas.push({ cat: "inbound", why: `Only ${Math.round(quoted / ready * 100)}% of quote-ready leads got booked: offer to take over inbound`, weight: 2.5 });
   if (jobs >= 6) ideas.push({ cat: "recruitment", why: `${jobs} jobs won this month: check the team can keep up`, weight: 1.2 });
   const fatiguing = clientFatiguingCount(c);
-  if (fatiguing >= 2) ideas.push({ cat: "marketing", why: `${fatiguing} ads are fatiguing`, weight: 2 });
-  if (enq != null && enq < 10) ideas.push({ cat: "marketing", why: `${enq} enquiries so far this month`, weight: 2 });
+  if (fatiguing >= 2) ideas.push({ cat: "marketing", why: `${fatiguing} ads are fatiguing: they need fresh videos`, weight: 2 });
   const target = n("quoteTarget") || c.quote_target, got = n("quotesBooked");
-  if (target && got != null && got < target / 2) ideas.push({ cat: "marketing", why: `${got} of ${target} guarantee quotes so far`, weight: 1.5 });
+  const everHad = (cat) => workshopsOf(c).some(w => w.category === cat);
+  if (!everHad("googleads") && ((roi != null && roi >= 5) || (target && got >= target))) ideas.push({ cat: "googleads", why: roi != null && roi >= 5 ? `Meta's returning ${fmtTimes(roi)}: offer Google Ads` : "Guarantee met: offer Google Ads", weight: 1.6 });
   if (roi != null && roi < 3) ideas.push({ cat: "financial", why: `Return to date is ${fmtTimes(roi)}`, weight: 2.5 });
   if (n("revenueMonth") > 0 && !recent.has("financial")) ideas.push({ cat: "financial", why: "Jobs are coming in: check pricing and margins", weight: 1 });
   const pick = ideas.filter(i => !recent.has(i.cat)).sort((a, b) => b.weight - a.weight)[0];
   if (pick) return pick;
   // Nothing stands out: whichever they haven't had for longest.
   const lastBy = (cat) => workshopsOf(c).find(w => w.category === cat)?.date || "";
-  // Recruitment and operations are picked by hand, so they stay out of the rotation.
+  // Upsells, recruitment and operations come from the numbers or a manual pick, never the rotation.
   const rotation = WORKSHOP_CATS.filter(w => !w.manual).sort((a, b) => lastBy(a.key).localeCompare(lastBy(b.key)))[0];
   return { cat: rotation.key, why: lastBy(rotation.key) ? `Longest since their last ${rotation.label.toLowerCase()} workshop` : `Haven't had a ${rotation.label.toLowerCase()} workshop yet`, weight: 0 };
 }
@@ -5832,14 +6048,14 @@ function renderWorkshops(){
     <div class="onb-kpi"><span class="onb-kpi-label">Their open actions</span><span class="onb-kpi-value">${theirs}</span><span class="onb-kpi-sub">to check in on next time</span></div>`;
   if (tab === "library"){ renderWorkshopLibrary(); return; }
   const cols = [{ key: "", label: "Not picked yet", blurb: "Suggested from their numbers" }, ...WORKSHOP_CATS];
-  const nextOf = (c) => (c.onboarding_progress || {}).workshop_next || "";
+  const nextOf = (c) => { const k = (c.onboarding_progress || {}).workshop_next || ""; return WORKSHOP_MAP[k] ? k : ""; };
   board.innerHTML = cols.map((col, i) => {
     const list = clients.filter(c => nextOf(c) === col.key).sort((a, b) => Boolean(doneThisMonth(a)) - Boolean(doneThisMonth(b)) || (a.name || "").localeCompare(b.name || ""));
     return `
       <section class="onb-col ws-col" data-stage="${col.key || "none"}" data-ws-cat="${col.key}" aria-label="${escapeHtml(col.label)}">
         <header class="onb-col-head">
           <span class="onb-col-num">${i ? WORKSHOP_ICONS[col.key] : "?"}</span>
-          <div><div class="onb-col-title">${escapeHtml(col.label)}</div><div class="onb-col-blurb">${escapeHtml(col.blurb)}</div></div>
+          <div><div class="onb-col-title">${escapeHtml(col.label)}${col.upsell ? `<span class="ws-upsell">Upsell</span>` : ""}</div><div class="onb-col-blurb">${escapeHtml(col.blurb)}</div></div>
           <span class="onb-col-count">${list.length}</span>
         </header>
         <div class="onb-col-body">
@@ -5853,11 +6069,13 @@ function renderWorkshops(){
 const WORKSHOP_ICONS = {
   financial: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>`,
   sales: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>`,
-  marketing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 11l18-8v18L3 13z"/><path d="M11.6 16.8a3 3 0 11-5.8-1.6"/></svg>`,
-  leads: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z"/></svg>`,
   followup: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>`,
+  marketing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>`,
+  reviews: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg>`,
+  googleads: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>`,
+  inbound: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M13 2L3 14h9l-1 8 10-12h-9z"/></svg>`,
   recruitment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0112 0v1"/><path d="M19 8v6M16 11h6"/></svg>`,
-  operations: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>`,
+  operations: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>`,
 };
 // The workshop pick-lists (logging a session, the 90-day plan) follow the library.
 function fillWorkshopSelects(){
@@ -5931,7 +6149,8 @@ function openWorkshopModal(id){
   if (!c) return;
   $("#ws-form").reset();
   $("#ws-date").value = localDayStr();
-  $("#ws-category").value = (c.onboarding_progress || {}).workshop_next || workshopSuggestion(c).cat;
+  const lined = (c.onboarding_progress || {}).workshop_next;
+  $("#ws-category").value = WORKSHOP_MAP[lined] ? lined : workshopSuggestion(c).cat;
   const person = window.getActivePerson ? window.getActivePerson() : "";
   $("#ws-by").innerHTML = Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${k === person ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("");
   $("#ws-actions-us").value = ""; $("#ws-actions-them").value = "";
@@ -5945,7 +6164,10 @@ function renderWorkshopModal(){
   const sug = workshopSuggestion(c);
   $("#ws-modal-sub").innerHTML = `Suggested next: <b>${escapeHtml(WORKSHOP_MAP[sug.cat].label)}</b> · ${escapeHtml(sug.why)}`;
   const cat = workshopContent($("#ws-category").value || sug.cat);
-  $("#ws-prompts").innerHTML = `<h4>Questions to ask · ${escapeHtml(cat.label)}</h4><ol>${(cat.questions || []).map(q => `<li>${escapeHtml(q)}</li>`).join("")}</ol>`;
+  $("#ws-prompts").innerHTML = `
+    ${cat.outcome ? `<p class="ws-prompt-goal"><b>Goal:</b> ${escapeHtml(cat.outcome)}</p>` : ""}
+    ${(cat.agenda || []).length ? `<h4>Run sheet · ${escapeHtml(cat.label)}</h4><ol class="wsl-agenda compact">${workshopAgenda(cat).map(([t, step]) => `<li><span class="wsl-time">${escapeHtml(t)}</span><span>${escapeHtml(step)}</span></li>`).join("")}</ol>` : ""}
+    <h4>Questions to ask</h4><ol>${(cat.questions || []).map(q => `<li>${escapeHtml(q)}</li>`).join("")}</ol>`;
   const past = workshopsOf(c);
   $("#ws-history").innerHTML = past.length ? past.map(w => `
     <article class="ws-past">
@@ -5973,37 +6195,85 @@ async function logWorkshop(){
   $("#ws-status").textContent = `Logged ${WORKSHOP_MAP[entry.category].label} workshop for ${fmtShortDate(entry.date)}.`;
 }
 
-/* Library */
+/* Library: pick a workshop on the left, everything about it on the right */
+// Run sheet steps are [time, step]; saved edits store them the same way.
+const workshopAgenda = (w) => (w.agenda || []).map(x => Array.isArray(x) ? x : String(x).split("|").map(t => t.trim())).map(([t, step]) => step ? [t, step] : ["", t]);
+function workshopClients(key){
+  const clients = state.clients.filter(isWorkshopClient);
+  const next = clients.filter(c => (c.onboarding_progress || {}).workshop_next === key);
+  const had = clients.map(c => ({ c, w: workshopsOf(c).find(w => w.category === key) })).filter(x => x.w).sort((a, b) => String(b.w.date).localeCompare(String(a.w.date)));
+  return { next, had };
+}
 function renderWorkshopLibrary(){
   const lib = $("#ws-library");
   if (!lib) return;
-  lib.innerHTML = WORKSHOP_CATS.map(base => {
-    const w = workshopContent(base.key);
-    return `
-      <article class="ws-lib ws-lib-${base.key}">
-        <header><span class="ws-lib-icon">${WORKSHOP_ICONS[base.key]}</span><div><h3>${escapeHtml(base.label)}</h3><p>${escapeHtml(base.blurb)}</p></div>
-          <button type="button" class="btn ghost sm" data-action="ws-edit-lib" data-cat="${base.key}">Edit</button></header>
-        <div class="ws-lib-body">
-          <section><h4>What it covers</h4><p>${escapeHtml(w.covers || "")}</p></section>
-          <section><h4>Questions to ask</h4><ol>${(w.questions || []).map(q => `<li>${escapeHtml(q)}</li>`).join("")}</ol></section>
-          <section><h4>Run it like this</h4><ul class="ws-check">${(w.checklist || []).map(q => `<li>${escapeHtml(q)}</li>`).join("")}</ul></section>
+  const key = WORKSHOP_MAP[state.wsLibKey] ? state.wsLibKey : WORKSHOP_CATS[0].key;
+  const w = workshopContent(key);
+  const { next, had } = workshopClients(key);
+  const list = (items, cls) => `<ul class="${cls}">${(items || []).map(t => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`;
+  const chip = (c, sub) => `<button type="button" class="wsl-client" data-action="ws-open" data-id="${c.id}"><span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span><span><b>${escapeHtml(c.name)}</b>${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</span></button>`;
+  lib.innerHTML = `
+    <nav class="wsl-nav" aria-label="Workshops">
+      ${WORKSHOP_CATS.map(base => {
+        const n = workshopClients(base.key).next.length;
+        return `<button type="button" class="wsl-pick ws-lib-${base.key} ${base.key === key ? "active" : ""}" data-action="ws-lib-pick" data-cat="${base.key}" aria-pressed="${base.key === key}">
+          <span class="ws-lib-icon">${WORKSHOP_ICONS[base.key] || ""}</span>
+          <span class="wsl-pick-text"><b>${escapeHtml(base.label)}</b><small>${escapeHtml(base.blurb)}</small></span>
+          ${base.upsell ? `<span class="ws-upsell">Upsell</span>` : n ? `<span class="wsl-count" title="Lined up next">${n}</span>` : ""}
+        </button>`;
+      }).join("")}
+    </nav>
+    <article class="wsl-detail ws-lib-${key}">
+      <header class="wsl-hero">
+        <span class="ws-lib-icon big">${WORKSHOP_ICONS[key] || ""}</span>
+        <div class="wsl-hero-text">
+          <div class="wsl-eyebrow">Workshop${w.duration ? ` · ${escapeHtml(w.duration)}` : ""}${w.upsell ? ` · <span class="ws-upsell">Upsell</span>` : ""}</div>
+          <h2>${escapeHtml(w.label)}</h2>
+          <p>${escapeHtml(w.covers || "")}</p>
         </div>
-      </article>`;
-  }).join("");
+        <button type="button" class="btn ghost sm" data-action="ws-edit-lib" data-cat="${key}">Edit</button>
+      </header>
+      <div class="wsl-top">
+        ${w.outcome ? `<div class="wsl-outcome"><span>They walk away with</span><p>${escapeHtml(w.outcome)}</p></div>` : ""}
+        ${w.when ? `<div class="wsl-when"><span>Run it when</span><p>${escapeHtml(w.when)}</p></div>` : ""}
+      </div>
+      <div class="wsl-cols">
+        <section class="wsl-sec"><h4>Before the session</h4>${list(w.prep, "ws-check")}</section>
+        <section class="wsl-sec"><h4>Leave them with</h4>${list(w.leave, "wsl-leave")}</section>
+      </div>
+      <section class="wsl-sec"><h4>Run sheet</h4>
+        <ol class="wsl-agenda">${workshopAgenda(w).map(([t, step]) => `<li><span class="wsl-time">${escapeHtml(t)}</span><span>${escapeHtml(step)}</span></li>`).join("")}</ol>
+      </section>
+      <section class="wsl-sec"><h4>Questions to ask</h4><ol class="wsl-q">${(w.questions || []).map(q => `<li>${escapeHtml(q)}</li>`).join("")}</ol></section>
+      <section class="wsl-sec wsl-clients">
+        <div><h4>Lined up next</h4>${next.length ? `<div class="wsl-client-list">${next.map(c => chip(c, workshopSuggestion(c).cat === key ? workshopSuggestion(c).why : "")).join("")}</div>` : `<p class="ws-none">Nobody yet. Drag a client into this column on the board.</p>`}</div>
+        <div><h4>Had it</h4>${had.length ? `<div class="wsl-client-list">${had.slice(0, 8).map(({ c, w: log }) => chip(c, fmtShortDate(log.date))).join("")}</div>` : `<p class="ws-none">No one's had this workshop yet.</p>`}</div>
+      </section>
+    </article>`;
 }
 function openWorkshopLibEditor(key){
   const w = workshopContent(key);
   $("#ws-lib-key").value = key;
   $("#ws-lib-title").textContent = `Edit ${w.label} workshop`;
-  $("#ws-lib-covers").value = w.covers || "";
-  $("#ws-lib-questions").value = (w.questions || []).join("\n");
-  $("#ws-lib-checklist").value = (w.checklist || []).join("\n");
+  const set = (id, v) => { $(id).value = v || ""; };
+  set("#ws-lib-covers", w.covers);
+  set("#ws-lib-outcome", w.outcome);
+  set("#ws-lib-when", w.when);
+  set("#ws-lib-duration", w.duration);
+  set("#ws-lib-prep", (w.prep || []).join("\n"));
+  set("#ws-lib-agenda", workshopAgenda(w).map(([t, step]) => t ? `${t} | ${step}` : step).join("\n"));
+  set("#ws-lib-questions", (w.questions || []).join("\n"));
+  set("#ws-lib-leave", (w.leave || []).join("\n"));
   openModal("ws-lib-modal");
 }
 async function saveWorkshopLib(){
   const key = $("#ws-lib-key").value;
   const lines = (id) => $(id).value.split("\n").map(s => s.trim()).filter(Boolean);
-  const content = JSON.stringify({ covers: $("#ws-lib-covers").value.trim(), questions: lines("#ws-lib-questions"), checklist: lines("#ws-lib-checklist") });
+  const content = JSON.stringify({
+    covers: $("#ws-lib-covers").value.trim(), outcome: $("#ws-lib-outcome").value.trim(), when: $("#ws-lib-when").value.trim(), duration: $("#ws-lib-duration").value.trim(),
+    prep: lines("#ws-lib-prep"), agenda: lines("#ws-lib-agenda").map(l => l.split("|").map(t => t.trim())).map(([t, step]) => step ? [t, step] : ["", t]),
+    questions: lines("#ws-lib-questions"), leave: lines("#ws-lib-leave"),
+  });
   const existing = state.rules.find(r => r.title === WORKSHOP_RULE_PREFIX + key);
   if (existing) await DataLayer.update("rules", existing.id, { content, updated_at: new Date().toISOString() });
   else await DataLayer.insert("rules", { title: WORKSHOP_RULE_PREFIX + key, content, sort_order: 9000 });
@@ -6022,6 +6292,7 @@ function setupWorkshops(){
 }
 async function handleWorkshopAction(action, id, btn){
   if (action === "ws-edit-lib"){ openWorkshopLibEditor(btn.dataset.cat); return true; }
+  if (action === "ws-lib-pick"){ state.wsLibKey = btn.dataset.cat; renderWorkshopLibrary(); return true; }
   const c = state.clients.find(x => x.id === id);
   if (!c) return false;
   if (action === "ws-open"){ openWorkshopModal(id); return true; }
@@ -8306,6 +8577,7 @@ function setupModals(){
       document.getElementById("cr-seg-" + key)?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
+    if (action === "open-workshops-page"){ $('.nav-item[data-page="workshops"]')?.click(); return; }
     if (action === "open-onboarding-board"){ $('.nav-item[data-page="onboarding"]')?.click(); }
     if (action === "creatives-done"){
       const c = state.clients.find(x => x.id === id);
