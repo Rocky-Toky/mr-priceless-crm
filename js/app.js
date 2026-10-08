@@ -3824,7 +3824,7 @@ function renderClientProfileExtras(c){
             <div class="cp-ws-item">
               <span class="cp-ws-dot ws-lib-${escapeHtml(w.category)}"></span>
               <div class="cp-ws-item-body">
-                <div class="cp-ws-item-head">${pill(w.category)}<b>${escapeHtml(fmtShortDate(w.date))}</b>${ASSIGNEES[w.by] ? `<span class="ws-by">with ${escapeHtml(ASSIGNEES[w.by].label)}</span>` : ""}${(w.actions || []).length ? `<span class="ws-by">· ${(w.actions || []).filter(a => a.done).length}/${w.actions.length} actions done</span>` : ""}</div>
+                <div class="cp-ws-item-head">${pill(w.category)}<b>${escapeHtml(fmtShortDate(w.date))}</b>${ASSIGNEES[w.by] ? `<span class="ws-by">with ${escapeHtml(ASSIGNEES[w.by].label)}</span>` : ""}${(w.actions || []).length ? `<span class="ws-by">· ${(w.actions || []).filter(a => a.done).length}/${w.actions.length} actions done</span>` : ""}<button type="button" class="btn ghost sm ws-pdf-btn" data-action="ws-pdf" data-id="${c.id}" data-ws="${escapeHtml(w.id)}">PDF</button></div>
                 ${w.notes ? `<p>${escapeHtml(w.notes)}</p>` : ""}
               </div>
             </div>`).join("") + (logs.length > 5 ? `<button type="button" class="cp-link" data-action="ws-open" data-id="${c.id}">See all ${logs.length} workshops</button>` : "")
@@ -6154,6 +6154,7 @@ function openWorkshopModal(id){
   const person = window.getActivePerson ? window.getActivePerson() : "";
   $("#ws-by").innerHTML = Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${k === person ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("");
   $("#ws-actions-us").value = ""; $("#ws-actions-them").value = "";
+  $("#ws-status").textContent = ""; if ($("#ws-file")) $("#ws-file").hidden = true;
   renderWorkshopModal();
   openModal("ws-modal");
 }
@@ -6172,7 +6173,9 @@ function renderWorkshopModal(){
   $("#ws-history").innerHTML = past.length ? past.map(w => `
     <article class="ws-past">
       <header><span class="ws-pill ws-pill-${escapeHtml(w.category)}">${escapeHtml(WORKSHOP_MAP[w.category]?.label || "Workshop")}</span><b>${escapeHtml(fmtShortDate(w.date))}</b><span class="ws-by">${escapeHtml(ASSIGNEES[w.by]?.label || "")}</span>
+        <button type="button" class="btn ghost sm ws-pdf-btn" data-action="ws-pdf" data-id="${c.id}" data-ws="${escapeHtml(w.id)}" title="Make the summary PDF">PDF</button>
         <button type="button" class="icon-btn ws-del" data-action="ws-delete" data-id="${c.id}" data-ws="${escapeHtml(w.id)}" title="Delete this workshop">${ICONS.trash}</button></header>
+      ${(w.plan || []).length ? `<div class="ws-past-plan"><b>Plan:</b> ${w.plan.map(escapeHtml).join(" · ")}</div>` : ""}
       ${w.notes ? `<p>${escapeHtml(w.notes)}</p>` : ""}
       ${(w.actions || []).length ? `<ul class="ws-actions">${w.actions.map((a, i) => `
         <li class="${a.done ? "done" : ""}"><button type="button" class="ws-action-hit" data-action="ws-toggle-action" data-id="${c.id}" data-ws="${escapeHtml(w.id)}" data-i="${i}" aria-pressed="${!!a.done}"><span class="task-check ${a.done ? "done" : ""}">${TASK_CHECK_SVG}</span><span>${escapeHtml(a.text)}</span></button><em>${a.owner === "them" ? "Them" : "Us"}</em></li>`).join("")}</ul>` : ""}
@@ -6184,15 +6187,70 @@ async function logWorkshop(){
   const lines = (id, owner) => $(id).value.split("\n").map(s => s.trim()).filter(Boolean).map(text => ({ text, owner, done: false }));
   const entry = {
     id: uid(), date: $("#ws-date").value || localDayStr(), category: $("#ws-category").value, by: $("#ws-by").value,
-    notes: $("#ws-notes").value.trim(), actions: [...lines("#ws-actions-us", "us"), ...lines("#ws-actions-them", "them")],
+    notes: $("#ws-notes").value.trim(), plan: $("#ws-plan").value.split("\n").map(x => x.trim()).filter(Boolean),
+    actions: [...lines("#ws-actions-us", "us"), ...lines("#ws-actions-them", "them")],
   };
+  const makePdf = $("#ws-make-pdf")?.checked;
+  const btn = $("#ws-log-btn"); if (btn){ btn.disabled = true; btn.textContent = makePdf ? "Logging and making the PDF…" : "Logging…"; }
   const progress = c.onboarding_progress || {};
   // Logging the workshop they were lined up for clears the pick for next month.
   await saveWorkshopProgress(c, { workshops: [...(progress.workshops || []), entry], workshop_next: progress.workshop_next === entry.category ? null : (progress.workshop_next || null) });
   $("#ws-form").reset(); $("#ws-date").value = localDayStr();
   $("#ws-category").value = (c.onboarding_progress || {}).workshop_next || workshopSuggestion(c).cat;
+  $("#ws-make-pdf").checked = makePdf;
   renderWorkshopModal();
-  $("#ws-status").textContent = `Logged ${WORKSHOP_MAP[entry.category].label} workshop for ${fmtShortDate(entry.date)}.`;
+  $("#ws-status").textContent = `Logged ${WORKSHOP_MAP[entry.category]?.label || "the"} workshop for ${fmtShortDate(entry.date)}.`;
+  if (makePdf) await makeWorkshopPdf(c, entry);
+  if (btn){ btn.disabled = false; btn.textContent = "Log workshop"; }
+}
+
+/* The workshop summary PDF the client gets after each session */
+let wsLastUrl = null, wsLastName = "";
+function workshopPdfData(c, w){
+  const cat = workshopContent(w.category) || {};
+  const reps = monthReportsFor(c.id).filter(r => r.period_end <= w.date);
+  const last = reps[reps.length - 1] || monthReportsFor(c.id).slice(-1)[0], m = last?.metrics || {};
+  const target = toNum(m.quoteTarget) || c.quote_target || 10, got = toNum(m.quotesBooked);
+  const stats = last ? [
+    { label: "Revenue won to date", value: toNum(m.revenueToDate) != null ? fmtMoney(m.revenueToDate) : "", sub: toNum(m.revenueMonth) != null ? `${fmtMoney(m.revenueMonth)} in ${monthNameOf(last.period_end)}` : "", gold: true },
+    { label: "Return on investment", value: toNum(m.roiToDate) != null ? fmtTimes(toNum(m.roiToDate)) : "", sub: toNum(m.investedToDate) != null ? `on ${fmtMoney(m.investedToDate)} invested` : "" },
+    { label: "Quotes booked", value: got != null ? `${got} of ${target}` : "", sub: `${monthNameOf(last.period_end)} guarantee` },
+    { label: "Enquiries", value: toNum(m.enquiries) != null ? String(m.enquiries) : "", sub: `in ${monthNameOf(last.period_end)}` },
+  ] : [];
+  const lined = (c.onboarding_progress || {}).workshop_next;
+  const nextKey = WORKSHOP_MAP[lined] && lined !== w.category ? lined : null;
+  const person = window.getActivePerson ? window.getActivePerson() : null;
+  let am = {}; try { am = JSON.parse(localStorage.getItem(wpAmKey(person)) || "{}"); } catch(e){}
+  return {
+    clientName: c.name, workshopLabel: cat.label || "Workshop", workshopTitle: `${cat.label || "Business"} workshop`,
+    dateLabel: localDateOnly(w.date).toLocaleDateString("en-NZ", { day: "numeric", month: "long", year: "numeric" }),
+    runBy: ASSIGNEES[w.by]?.label || "", outcome: cat.outcome || cat.covers || "",
+    stats, statsAsOf: last ? monthNameOf(last.period_end) : "",
+    learnings: String(w.notes || "").split("\n").map(x => x.trim()).filter(Boolean),
+    plan: w.plan || [],
+    usActions: (w.actions || []).filter(a => a.owner !== "them").map(a => a.text),
+    themActions: (w.actions || []).filter(a => a.owner === "them").map(a => a.text),
+    nextWorkshop: nextKey ? WORKSHOP_MAP[nextKey].label + " workshop" : "",
+    nextLabel: `Around ${localDateOnly(addDays(w.date, 30)).toLocaleDateString("en-NZ", { day: "numeric", month: "long" })}`,
+    contactName: am.account_manager || ASSIGNEES[w.by]?.label || "", contactPhone: am.phone || "",
+  };
+}
+async function makeWorkshopPdf(c, w){
+  const status = $("#ws-status");
+  try {
+    await wpLoadLibs();
+    const bytes = await window.MPWorkshopPDF.build(workshopPdfData(c, w));
+    if (wsLastUrl) URL.revokeObjectURL(wsLastUrl);
+    wsLastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    wsLastName = `Mr Priceless Workshop - ${(c.name || "Client").replace(/[\\/:*?"<>|]+/g, "")} - ${WORKSHOP_MAP[w.category]?.label || "Workshop"} - ${w.date}.pdf`;
+    const link = $("#ws-file");
+    if (link){ link.href = wsLastUrl; link.download = wsLastName; link.hidden = false; $("#ws-file-name").textContent = wsLastName; }
+    const a = document.createElement("a"); a.href = wsLastUrl; a.download = wsLastName; document.body.appendChild(a); a.click(); a.remove();
+    if (status) status.textContent += " Summary PDF saved to your Downloads.";
+  } catch(err){
+    console.error(err);
+    if (status) status.textContent = "Couldn't make the PDF: " + (err.message || err);
+  }
 }
 
 /* Library: pick a workshop on the left, everything about it on the right */
@@ -6286,6 +6344,7 @@ function setupWorkshops(){
   setupWorkshopDrag();
   $$("[data-ws-tab]").forEach(b => b.addEventListener("click", () => { state.wsTab = b.dataset.wsTab; renderWorkshops(); }));
   $("#ws-category")?.addEventListener("change", renderWorkshopModal);
+  $("#ws-file")?.addEventListener("dragstart", (e) => { if (!wsLastUrl) return; e.dataTransfer.effectAllowed = "copy"; e.dataTransfer.setData("DownloadURL", `application/pdf:${wsLastName}:${wsLastUrl}`); });
   $("#ws-form")?.addEventListener("submit", (e) => { e.preventDefault(); logWorkshop(); });
   $("#ws-lib-form")?.addEventListener("submit", (e) => { e.preventDefault(); saveWorkshopLib(); });
   $("#ws-modal")?.addEventListener("click", (e) => { if (e.target.closest("[data-close='ws-modal']") || e.target.id === "ws-modal") state.wsOpenId = null; });
@@ -6296,6 +6355,11 @@ async function handleWorkshopAction(action, id, btn){
   const c = state.clients.find(x => x.id === id);
   if (!c) return false;
   if (action === "ws-open"){ openWorkshopModal(id); return true; }
+  if (action === "ws-pdf"){
+    const w = workshopsOf(c).find(x => x.id === btn.dataset.ws);
+    if (w){ if (!$("#ws-modal").classList.contains("visible")) openWorkshopModal(id); $("#ws-status").textContent = "Making the PDF…"; await makeWorkshopPdf(c, w); }
+    return true;
+  }
   if (action === "ws-use-suggestion"){ await saveWorkshopProgress(c, { workshop_next: btn.dataset.cat }); return true; }
   if (action === "ws-toggle-action" || action === "ws-delete"){
     const list = [...((c.onboarding_progress || {}).workshops || [])].map(w => ({ ...w, actions: [...(w.actions || [])] }));
