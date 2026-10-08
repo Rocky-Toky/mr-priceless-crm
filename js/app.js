@@ -5340,35 +5340,55 @@ async function ghlCall(body){
   return data || {};
 }
 async function rpRenderGhl(c){
-  const box = $("#rp-ghl");
+  const box = $("#rp-ghl"), stagesBox = $("#rp-ghl-stages");
   if (!box) return;
+  if (stagesBox) stagesBox.hidden = true;
   if (!IS_CONFIGURED){ box.innerHTML = `<span class="rp-ghl-note">GHL pulls work on the live CRM. In demo mode, type the numbers in.</span>`; return; }
   box.innerHTML = `<span class="rp-ghl-note">Checking GHL…</span>`;
   const s = await ghlCall({ action: "status", client_id: c.id });
   if (rpClientId !== c.id) return;
   if (s.error){
-    box.innerHTML = `<span class="rp-ghl-note warn">GHL isn't set up on the server yet (${escapeHtml(s.error)}). Type the numbers in for now.</span>`;
+    box.innerHTML = `<span class="rp-ghl-note warn">GHL isn't switched on yet (${escapeHtml(s.error)}). Type the numbers in for now.</span>`;
     return;
   }
-  box.innerHTML = s.connected
-    ? `<span class="rp-ghl-ok">GHL connected</span><button type="button" class="btn gold sm" data-action="rp-ghl-pull">Pull from GHL</button><button type="button" class="btn ghost sm" data-action="rp-ghl-connect-show">Change</button>`
-    : `<span class="rp-ghl-note">Connect ${escapeHtml(c.name)}'s GHL to fill revenue, jobs and quotes automatically.</span><button type="button" class="btn ghost sm" data-action="rp-ghl-connect-show">Connect GHL</button>`;
+  if (!s.connected){
+    box.innerHTML = `<span class="rp-ghl-note">Connect ${escapeHtml(c.name)}'s GHL to fill revenue, jobs, enquiries and quotes automatically.</span><button type="button" class="btn ghost sm" data-action="rp-ghl-connect-show">Connect GHL</button>`;
+    return;
+  }
+  box.innerHTML = `<span class="rp-ghl-ok">GHL connected${s.location_name ? ` · ${escapeHtml(s.location_name)}` : ""}</span><button type="button" class="btn gold sm" data-action="rp-ghl-pull">Pull from GHL</button><button type="button" class="btn ghost sm" data-action="rp-ghl-connect-show">Change</button>`;
+  // Which stages count as "quote booked" and "quote sent" in their pipeline.
+  const stages = (s.pipelines || []).flatMap(p => (p.stages || []).map(st => ({ id: st.id, name: (s.pipelines.length > 1 ? p.name + " · " : "") + st.name })));
+  const pick = (c.onboarding_progress || {}).ghl_stages || {};
+  if (stagesBox && stages.length){
+    const opts = (sel) => `<option value="">Work it out from the names</option>` + stages.map(st => `<option value="${escapeHtml(st.id)}" ${st.id === sel ? "selected" : ""}>${escapeHtml(st.name)}</option>`).join("");
+    stagesBox.innerHTML = `
+      <div class="field"><label for="rp-ghl-booked">"Quote booked" is their stage</label><select id="rp-ghl-booked">${opts(pick.booked)}</select></div>
+      <div class="field"><label for="rp-ghl-sent">"Quote sent" is their stage</label><select id="rp-ghl-sent">${opts(pick.sent)}</select></div>`;
+    stagesBox.hidden = false;
+  }
+  // A new report fills itself straight away.
+  if (!rpExisting) rpGhlPull();
 }
 async function rpGhlPull(){
   const c = state.clients.find(x => x.id === rpClientId);
   if (!c) return;
   rpStatus("Pulling from GHL…");
-  const r = await ghlCall({ action: "pull", client_id: c.id, from: rpVal("from"), to: rpVal("to") });
+  // Ask GHL for the whole month so far, then take off what earlier reports this
+  // month already counted. Leads that moved along since the last report are caught.
+  const to = rpVal("to") || localDayStr();
+  const pick = (c.onboarding_progress || {}).ghl_stages || {};
+  const r = await ghlCall({ action: "pull", client_id: c.id, from: monthStart(to), to, stages: pick });
+  if (rpClientId !== c.id) return;
   if (r.error){ rpStatus(`Couldn't pull from GHL: ${r.error}`, true); return; }
   const m = r.metrics || {};
+  const base = monthBase(c.id, to, rpExisting?.id);
+  const since = (metric, month) => metric == null ? null : Math.max(0, Math.round(metric - (toNum(base[month]) || 0)));
   const set = (k, v) => { if (v != null) rpSet(k, v); };
-  // The pull covers the period since the last report, so these are the changes.
-  set("dRevenue", m.revenue_won); set("dJobs", m.jobs_won);
-  set("revenueToDateOverride", m.revenue_won_to_date);
-  set("dEnquiries", m.enquiries); set("dQuoted", m.quoted);
-  if (m.quote_ready != null) set("dBooked", m.quote_ready);
+  set("dRevenue", since(m.revenue_won, "revenueMonth")); set("dJobs", since(m.jobs_won, "jobsMonth"));
+  set("dEnquiries", since(m.enquiries, "enquiries")); set("dBooked", since(m.quote_ready, "quoteReady")); set("dQuoted", since(m.quoted, "quoted"));
   rpRenderTotals();
-  rpStatus(`Pulled from GHL: ${m.opportunities_checked ?? 0} opportunities checked${m.quote_stage_names?.length ? `, quote stages: ${m.quote_stage_names.join(", ")}` : ""}. Check the numbers, then make the report.`);
+  const warn = m.won_missing_value ? ` ${m.won_missing_value} won job${m.won_missing_value === 1 ? " has" : "s have"} no $ value in GHL, so revenue may be low.` : "";
+  rpStatus(`Filled from GHL (${m.opportunities_checked ?? 0} opportunities). Quotes booked = "${m.booked_stage || "?"}" or later, quotes sent = "${m.sent_stage || "?"}" or later. Ad spend comes from Meta.${warn} Check the numbers, then make the report.`, Boolean(warn));
 }
 async function rpGhlConnect(){
   const c = state.clients.find(x => x.id === rpClientId);
@@ -5519,6 +5539,15 @@ function setupReporting(){
     }
   });
   $("#report-form")?.addEventListener("submit", (e) => { e.preventDefault(); makeReport(); });
+  // Stage picks for GHL are remembered per client, then the numbers are pulled again.
+  $("#rp-ghl-stages")?.addEventListener("change", async (e) => {
+    const c = state.clients.find(x => x.id === rpClientId);
+    if (!c || !e.target.matches("select")) return;
+    const ghl_stages = { booked: $("#rp-ghl-booked")?.value || "", sent: $("#rp-ghl-sent")?.value || "" };
+    c.onboarding_progress = { ...(c.onboarding_progress || {}), ghl_stages };
+    await DataLayer.update("clients", c.id, { onboarding_progress: c.onboarding_progress });
+    rpGhlPull();
+  });
   $("#rp-client-list")?.addEventListener("change", (e) => {
     const sel = e.target.closest(".rp-past");
     if (!sel || !sel.value) return;

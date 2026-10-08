@@ -7,6 +7,8 @@
 # https://supabase.com/dashboard/account/tokens. Until it's added this
 # workflow just reports that it was skipped.
 #
+# It also creates the tables those functions use (see "Set up the tables").
+#
 # Only the functions listed below are deployed. Both check the caller
 # themselves (signed-in allowlisted user, or the cron secret), so they're
 # deployed with --no-verify-jwt; the scheduled sync calls in with the
@@ -20,6 +22,8 @@ on:
       - "supabase/functions/sync-client-ads/**"
       - "supabase/functions/ghl-report-data/**"
       - "supabase/functions/_shared/**"
+      - "sql/056_ghl_connections.sql"
+      - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
 
 jobs:
@@ -44,6 +48,18 @@ jobs:
         if: steps.token.outputs.ok == 'true'
         with:
           version: latest
+      # Tables the functions need, created through the Supabase API with the same
+      # token, so nobody has to paste SQL into the dashboard. Safe to re-run.
+      - name: Set up the tables the functions use
+        if: steps.token.outputs.ok == 'true'
+        run: |
+          for f in sql/056_ghl_connections.sql; do
+            jq -Rs '{query: .}' "$f" > /tmp/q.json
+            curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+              --data @/tmp/q.json
+            echo " <- $f"
+          done
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
