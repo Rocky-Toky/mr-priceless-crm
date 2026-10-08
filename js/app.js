@@ -5166,8 +5166,9 @@ const monthNameOf = (dateStr, withYear) => localDateOnly(monthStart(dateStr)).to
 function fmtReportPeriod(from, to){
   if (!from || !to) return "";
   const full = from === monthStart(to) && to === monthEnd(to);
-  const d = (s) => localDateOnly(s).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
-  return `${monthNameOf(to, true)} · ${full ? "full month" : `${localDateOnly(from).getDate()}–${d(to)}`}`;
+  const d = (x) => localDateOnly(x).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+  if (full) return `${monthNameOf(to, true)} · full month`;
+  return `${monthNameOf(to, true)} · ${ymOf(from) === ymOf(to) ? `${localDateOnly(from).getDate()}–${d(to)}` : `${d(from)} – ${d(to)}`}`;
 }
 // When the next report is due: a fortnight after the last one.
 function reportDueInfo(c){
@@ -5192,35 +5193,70 @@ function defaultReportPeriod(){
   if (localDateOnly(today).getDate() <= 3){ const lastMonthEnd = addDays(monthStart(today), -1); return { from: monthStart(lastMonthEnd), to: lastMonthEnd }; }
   return { from: monthStart(today), to: today };
 }
-// The numbers for a report, from what the CRM already knows.
+/* Each report only asks what's happened since the last one. Those numbers
+   stack: onto the month so far (the last report in the same month), and
+   from there onto the totals to date. A new month starts the month
+   totals fresh. Old reports that stored month totals still work as the base. */
+const REPORT_DELTAS = [
+  { key: "dRevenue", month: "revenueMonth", label: "Revenue won", money: true },
+  { key: "dJobs", month: "jobsMonth", label: "Jobs signed" },
+  { key: "dAdSpend", month: "adSpendMonth", label: "Ad spend", money: true },
+  { key: "dEnquiries", month: "enquiries", label: "Enquiries" },
+  { key: "dBooked", month: "quoteReady", label: "Quotes booked" },
+  { key: "dQuoted", month: "quoted", label: "Quotes sent" },
+];
+// The report this one builds on: the latest one before it.
+function previousReport(clientId, to, excludeId){
+  return monthReportsFor(clientId).filter(r => r.id !== excludeId && r.period_end < to).pop() || null;
+}
+// The month-so-far base: the previous report, if it's in the same month.
+function monthBase(clientId, to, excludeId){
+  const prev = previousReport(clientId, to, excludeId);
+  return prev && ymOf(prev.period_end) === ymOf(to) ? prev.metrics || {} : {};
+}
+// Where the period starts: the day after the last report, or the start of the month.
+function reportFrom(clientId, to, excludeId){
+  const prev = previousReport(clientId, to, excludeId);
+  if (prev) return addDays(prev.period_end, 1);
+  const c = state.clients.find(x => x.id === clientId);
+  const start = monthStart(to);
+  return c?.ad_start_date && c.ad_start_date > start && c.ad_start_date <= to ? c.ad_start_date : start;
+}
+// The numbers for a report, from what the CRM already knows (since the last report).
 function reportPrefill(c, from, to, excludeId){
-  const reps = monthReportsFor(c.id).filter(r => r.id !== excludeId && r.period_end < to);
-  const sameMonth = reps.filter(r => ymOf(r.period_end) === ymOf(to)).pop();
-  const lastEarlier = reps.filter(r => ymOf(r.period_end) < ymOf(to)).pop();
+  const prev = previousReport(c.id, to, excludeId);
+  const base = monthBase(c.id, to, excludeId);
   const creatives = state.adCreatives.filter(a => a.client_id === c.id);
   const lifetimeSpend = creatives.reduce((s, a) => s + (Number(a.spend) || 0), 0);
-  let adSpend = "";
-  if (sameMonth?.metrics?.ad_lifetime_spend != null) adSpend = Math.round((Number(sameMonth.metrics.adSpendMonth) || 0) + Math.max(0, lifetimeSpend - sameMonth.metrics.ad_lifetime_spend));
-  else if (lastEarlier?.metrics?.ad_lifetime_spend != null && lifetimeSpend) adSpend = Math.max(0, Math.round(lifetimeSpend - lastEarlier.metrics.ad_lifetime_spend));
+  const dAdSpend = prev?.metrics?.ad_lifetime_spend != null && lifetimeSpend ? Math.max(0, Math.round(lifetimeSpend - prev.metrics.ad_lifetime_spend)) : "";
   const inPeriod = (d) => d && String(d).slice(0, 10) >= from && String(d).slice(0, 10) <= to;
   const leads = state.clientLeads.filter(l => l.client_id === c.id && inPeriod(l.lead_created_at || l.imported_at));
   const retainer = clientRetainer(c);
   const withResults = creatives.filter(a => Number(a.results) > 0 && a.cost_per_result != null);
   const best = [...withResults].sort((a, b) => a.cost_per_result - b.cost_per_result)[0];
   return {
-    adSpendMonth: adSpend,
-    mgmtMonth: retainer != null ? Math.round(retainer) : "",
-    enquiries: leads.length || "",
-    quoteReady: leads.filter(l => classifyLeadStatus(l.status) === "Qualified").length || "",
-    quotesBooked: c.quotes_sent || "",
-    quoteTarget: c.quote_target || 10,
+    dAdSpend, dEnquiries: leads.length || "",
+    dBooked: leads.filter(l => classifyLeadStatus(l.status) === "Qualified").length || "",
+    mgmtMonth: toNum(base.mgmtMonth) ?? (retainer != null ? Math.round(retainer) : ""),
+    quoteTarget: toNum(base.quoteTarget) || c.quote_target || 10,
     topAdId: best?.id || "",
   };
 }
-const REPORT_FIELDS = ["from", "to", "revenueMonth", "jobsMonth", "openQuotesValue", "openQuotesCount", "revenueToDateOverride", "quotesBooked", "quoteTarget", "adSpendMonth", "mgmtMonth", "enquiries", "quoteReady", "quoted", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"];
+const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"];
 let rpClientId = null, rpLastUrl = null, rpLastName = "", rpExisting = null;
 function rpVal(k){ return $("#rp-" + k)?.value ?? ""; }
 function rpSet(k, v){ const el = $("#rp-" + k); if (el) el.value = v ?? ""; }
+// Month-so-far values: the base plus what's been typed in since the last report.
+function rpMonthValues(c){
+  const to = rpVal("to") || localDayStr();
+  const base = monthBase(c.id, to, rpExisting?.id);
+  const out = {};
+  REPORT_DELTAS.forEach(d => { out[d.month] = (toNum(base[d.month]) || 0) + (toNum(rpVal(d.key)) || 0); });
+  out.mgmtMonth = toNum(rpVal("mgmtMonth")) || 0;
+  out.quotesBooked = out.quoteReady;
+  out.base = base;
+  return out;
+}
 
 function openReportModal(clientId, existingId){
   const c = state.clients.find(x => x.id === clientId);
@@ -5236,10 +5272,13 @@ function openReportModal(clientId, existingId){
   if (rpExisting){
     const m = rpExisting.metrics || {};
     rpSet("from", rpExisting.period_start); rpSet("to", rpExisting.period_end);
-    REPORT_FIELDS.slice(2).forEach(k => rpSet(k, m[k] ?? ""));
+    // Reports made before the stacking change only have month totals: work the change out.
+    const base = monthBase(c.id, rpExisting.period_end, rpExisting.id);
+    REPORT_DELTAS.forEach(d => rpSet(d.key, m[d.key] ?? ((toNum(m[d.month]) ?? 0) - (toNum(base[d.month]) || 0) || "")));
+    ["revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"].forEach(k => rpSet(k, m[k] ?? ""));
   } else {
-    const per = defaultReportPeriod();
-    rpSet("from", per.from); rpSet("to", per.to);
+    const to = localDayStr();
+    rpSet("to", to); rpSet("from", reportFrom(c.id, to));
     rpApplyPrefill(c);
   }
   rpStatus("");
@@ -5257,29 +5296,36 @@ function rpTotals(c){
   const to = rpVal("to") || localDayStr();
   const earlier = latestPerEarlierMonth(c.id, ymOf(to), rpExisting?.id);
   const sum = (k) => earlier.reduce((s, r) => s + (Number(r.metrics?.[k]) || 0), 0);
-  const rev = toNum(rpVal("revenueMonth")) || 0, spend = toNum(rpVal("adSpendMonth")) || 0, mgmt = toNum(rpVal("mgmtMonth")) || 0;
+  const mv = rpMonthValues(c);
+  const rev = mv.revenueMonth, spend = mv.adSpendMonth, mgmt = mv.mgmtMonth;
   const revenueToDate = toNum(rpVal("revenueToDateOverride")) ?? (sum("revenueMonth") + rev);
   const adSpendToDate = sum("adSpendMonth") + spend, mgmtToDate = sum("mgmtMonth") + mgmt;
   const investedToDate = adSpendToDate + mgmtToDate;
   const lastMonthYm = ymOf(addDays(monthStart(to), -1));
   const lastMonth = earlier.find(r => ymOf(r.period_end) === lastMonthYm);
   const reportNumber = monthReportsFor(c.id).filter(r => r.id !== rpExisting?.id && r.period_end < to).length + 1;
-  return { earlier, reportNumber, revenueToDate, adSpendToDate, mgmtToDate, investedToDate, lastMonth,
+  return { earlier, reportNumber, revenueToDate, adSpendToDate, mgmtToDate, investedToDate, lastMonth, month: mv,
     roiMonth: spend + mgmt ? rev / (spend + mgmt) : null, roiToDate: investedToDate ? revenueToDate / investedToDate : null };
 }
 function rpRenderTotals(){
   const c = state.clients.find(x => x.id === rpClientId);
   const el = $("#rp-totals");
   if (!c || !el) return;
-  const t = rpTotals(c);
-  const got = toNum(rpVal("quotesBooked")) || 0, target = toNum(rpVal("quoteTarget")) || 10;
+  const t = rpTotals(c), mv = t.month;
+  const target = toNum(rpVal("quoteTarget")) || 10;
+  const monthName = rpVal("to") ? monthNameOf(rpVal("to")) : "This month";
+  REPORT_DELTAS.forEach(d => { const cell = $("#rp-m-" + d.key); if (cell) cell.textContent = d.money ? fmtMoney(mv[d.month]) : String(mv[d.month]); });
+  $$(".rp-month-name").forEach(e => { e.textContent = monthName; });
+  const prev = previousReport(c.id, rpVal("to") || localDayStr(), rpExisting?.id);
+  const d = (x) => localDateOnly(x).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+  const note = $("#rp-since-note");
+  if (note && rpVal("from") && rpVal("to")) note.textContent = `${d(rpVal("from"))} to ${d(rpVal("to"))}${prev ? ` · since report ${prev.metrics?.report_number || ""}` : " · first report"}${Object.keys(mv.base).length ? ` · adding to ${monthName} so far` : ` · ${monthName} starts fresh`}`;
   el.innerHTML = `
     <div><span>Revenue to date</span><b>${fmtMoney(t.revenueToDate)}</b></div>
     <div><span>Invested to date</span><b>${fmtMoney(t.investedToDate)}</b></div>
     <div><span>Return to date</span><b class="gold">${fmtTimes(t.roiToDate)}</b></div>
-    <div><span>Quote guarantee</span><b>${got} / ${target}</b></div>`;
+    <div><span>Quote guarantee</span><b>${mv.quotesBooked} / ${target}</b></div>`;
   $("#rp-period-note").textContent = `Report ${t.reportNumber} · ${fmtReportPeriod(rpVal("from"), rpVal("to"))}`;
-  $$(".rp-month-name").forEach(e => { e.textContent = rpVal("to") ? monthNameOf(rpVal("to")) : "this month"; });
 }
 
 /* GHL connection (through the ghl-report-data function, so the key never reaches the browser). */
@@ -5316,11 +5362,11 @@ async function rpGhlPull(){
   if (r.error){ rpStatus(`Couldn't pull from GHL: ${r.error}`, true); return; }
   const m = r.metrics || {};
   const set = (k, v) => { if (v != null) rpSet(k, v); };
-  set("revenueMonth", m.revenue_won); set("jobsMonth", m.jobs_won);
-  set("openQuotesValue", m.open_quotes_value); set("openQuotesCount", m.open_quotes);
+  // The pull covers the period since the last report, so these are the changes.
+  set("dRevenue", m.revenue_won); set("dJobs", m.jobs_won);
   set("revenueToDateOverride", m.revenue_won_to_date);
-  set("enquiries", m.enquiries); set("quoted", m.quoted); set("quotesBooked", m.quoted);
-  if (m.quote_ready != null) set("quoteReady", m.quote_ready);
+  set("dEnquiries", m.enquiries); set("dQuoted", m.quoted);
+  if (m.quote_ready != null) set("dBooked", m.quote_ready);
   rpRenderTotals();
   rpStatus(`Pulled from GHL: ${m.opportunities_checked ?? 0} opportunities checked${m.quote_stage_names?.length ? `, quote stages: ${m.quote_stage_names.join(", ")}` : ""}. Check the numbers, then make the report.`);
 }
@@ -5367,7 +5413,8 @@ async function makeReport(){
     let am = {}; try { am = JSON.parse(localStorage.getItem(wpAmKey(person)) || "{}"); } catch(e){}
     const firstReport = monthReportsFor(c.id)[0];
     const sinceDate = [firstReport?.period_start, c.ad_start_date, from].filter(Boolean).sort()[0];
-    const spend = n("adSpendMonth"), enq = n("enquiries"), ready = n("quoteReady"), quoted = n("quoted"), jobs = n("jobsMonth"), rev = n("revenueMonth");
+    const mv = t.month;
+    const spend = mv.adSpendMonth, enq = mv.enquiries, ready = mv.quoteReady, quoted = mv.quoted, jobs = mv.jobsMonth, rev = mv.revenueMonth;
     const lm = t.lastMonth?.metrics || null;
     const data = {
       clientName: c.name, reportNumber: t.reportNumber, periodLabel: fmtReportPeriod(from, to),
@@ -5375,16 +5422,16 @@ async function makeReport(){
       revenueMonth: rev ?? 0, jobsMonth: jobs ?? 0, revenueToDate: t.revenueToDate,
       revenueLastMonth: lm ? toNum(lm.revenueMonth) : null, lastMonthName: lm ? monthNameOf(t.lastMonth.period_end) : "",
       cplLastMonth: lm && toNum(lm.adSpendMonth) != null && toNum(lm.quoteReady) ? toNum(lm.adSpendMonth) / toNum(lm.quoteReady) : null,
-      openQuotesValue: n("openQuotesValue"), openQuotesCount: n("openQuotesCount"),
+      awaitingDecision: Math.max(0, (quoted || 0) - (jobs || 0)),
       adSpendMonth: spend, adSpendToDate: t.adSpendToDate, mgmtToDate: t.mgmtToDate, investedToDate: t.investedToDate, roiToDate: t.roiToDate,
       enquiries: enq, quoteReady: ready, quoted,
-      quotesBooked: n("quotesBooked") ?? 0, quoteTarget: n("quoteTarget") || 10,
+      quotesBooked: ready || 0, quoteTarget: n("quoteTarget") || 10,
       summary: form.summary, didList: [form.did1, form.did2, form.did3], nextList: [form.next1, form.next2, form.next3],
       topAd: ad ? { name: ad.name, leads: ad.results, cpl: ad.cost_per_result, share: clientResults ? Math.round((Number(ad.results) || 0) / clientResults * 100) : null, imageBytes: img?.bytes, imageType: img?.type } : null,
       hood: [
-        ["Cost per enquiry", spend != null && enq ? fmtMoney(spend / enq) : null, "Ad spend divided by every enquiry, qualified or not"],
-        ["Quote rate", ready && quoted != null ? Math.round(quoted / ready * 100) + "%" : null, "Share of quote-ready leads that got a quote"],
-        ["Close rate", quoted && jobs != null ? Math.round(jobs / quoted * 100) + "%" : null, "Share of quotes that turned into signed jobs"],
+        ["Cost per enquiry", spend && enq ? fmtMoney(spend / enq) : null, "Ad spend divided by every enquiry, qualified or not"],
+        ["Quoted so far", ready && quoted != null ? Math.round(quoted / ready * 100) + "%" : null, "Share of quotes booked that have been quoted (the rest are still to come)"],
+        ["Close rate", quoted && jobs != null ? Math.round(jobs / quoted * 100) + "%" : null, "Share of quotes sent that turned into signed jobs"],
         ["Average job value", jobs && rev ? fmtMoney(rev / jobs) : null, "Revenue won divided by jobs signed"],
         ["Return this month", t.roiMonth != null ? fmtTimes(t.roiMonth) : null, "Revenue won this month for every $1 invested this month"],
       ],
@@ -5392,7 +5439,10 @@ async function makeReport(){
     };
     const bytes = await window.MPReportPDF.build(data);
     // Save this report's numbers so later reports' totals build on them.
+    // Both what changed since the last report and the month totals it adds up to.
     const metrics = { kind: REPORT_KIND, ...Object.fromEntries(REPORT_FIELDS.slice(2).map(k => [k, form[k]])),
+      revenueMonth: rev, jobsMonth: jobs, adSpendMonth: spend, mgmtMonth: mv.mgmtMonth, enquiries: enq, quoteReady: ready, quoted, quotesBooked: ready,
+      openQuotesCount: Math.max(0, (quoted || 0) - (jobs || 0)),
       report_number: data.reportNumber, revenueToDate: t.revenueToDate, investedToDate: t.investedToDate, roiToDate: t.roiToDate,
       ad_lifetime_spend: state.adCreatives.filter(a => a.client_id === c.id).reduce((s, a) => s + (Number(a.spend) || 0), 0) };
     const row = { client_id: c.id, period_start: from, period_end: to, metrics, status: "made" };
@@ -5461,12 +5511,10 @@ function setupReporting(){
     rpRenderTotals();
   });
   $("#report-form")?.addEventListener("change", (e) => {
-    if (e.target.id === "rp-from" || e.target.id === "rp-to"){
-      // Reports always cover the month so far: the start follows the end date's month.
-      if (e.target.id === "rp-to" && rpVal("to")) rpSet("from", monthStart(rpVal("to")));
-      if (e.target.id === "rp-from" && rpVal("from") && ymOf(rpVal("to")) !== ymOf(rpVal("from"))) rpSet("to", monthEnd(rpVal("from")));
+    if (e.target.id === "rp-to" && rpVal("to")){
+      // The period always starts the day after the last report (or the start of the month).
       const c = state.clients.find(x => x.id === rpClientId);
-      if (c && !rpExisting) rpApplyPrefill(c);
+      if (c){ rpSet("from", reportFrom(c.id, rpVal("to"), rpExisting?.id)); if (!rpExisting) rpApplyPrefill(c); }
       rpRenderTotals();
     }
   });
@@ -6002,8 +6050,8 @@ function workshopSuggestion(c){
   const recent = new Set(workshopsOf(c).filter(w => daysSince(w.date) <= 60).map(w => w.category));
   const ideas = [];
   const quoted = n("quoted"), jobs = n("jobsMonth"), ready = n("quoteReady"), enq = n("enquiries"), roi = n("roiToDate");
-  const openQuotes = n("openQuotesCount");
-  if (openQuotes >= 3) ideas.push({ cat: "followup", why: `${openQuotes} quotes still open${n("openQuotesValue") ? `, worth ${fmtMoney(n("openQuotesValue"))}` : ""}`, weight: openQuotes >= 6 ? 3.2 : 2.2 });
+  const openQuotes = n("openQuotesCount") ?? (quoted != null && jobs != null ? Math.max(0, quoted - jobs) : null);
+  if (openQuotes >= 3) ideas.push({ cat: "followup", why: `${openQuotes} quotes still waiting on a decision`, weight: openQuotes >= 6 ? 3.2 : 2.2 });
   if (quoted >= 4 && jobs != null && jobs / quoted < 0.25) ideas.push({ cat: "sales", why: `Only ${Math.round(jobs / quoted * 100)}% of quotes are closing`, weight: 3 });
   if (ready >= 4 && quoted != null && quoted / ready < 0.5) ideas.push({ cat: "inbound", why: `Only ${Math.round(quoted / ready * 100)}% of quote-ready leads got booked: offer to take over inbound`, weight: 2.5 });
   if (jobs >= 6) ideas.push({ cat: "recruitment", why: `${jobs} jobs won this month: check the team can keep up`, weight: 1.2 });

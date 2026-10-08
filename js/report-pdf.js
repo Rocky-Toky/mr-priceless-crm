@@ -198,7 +198,7 @@ async function build(data){
     else text(p1, String(i + 1), cx, cy - 3.6, { f: F.b, size: 9.5, color: C.dim, align: "center" });
   }
 
-  // Three cards: pipeline, quote-ready leads, cost per quote-ready lead.
+  // Three cards: what each enquiry and each quote cost, and what a job is worth.
   const cardH = 84, cardY = gY - 14 - cardH, cardW = (CW - 24) / 3;
   const cpl = has(data.adSpendMonth) && Number(data.quoteReady) ? Number(data.adSpendMonth) / Number(data.quoteReady) : null;
   let cplNote = "", cplColor = C.muted;
@@ -207,10 +207,12 @@ async function build(data){
     cplNote = ch === 0 ? "same as last month" : `${Math.abs(ch)}% ${ch < 0 ? "lower" : "higher"} than last month`;
     cplColor = ch <= 0 ? C.good : C.bad;
   }
+  const enqCost = has(data.adSpendMonth) && Number(data.enquiries) ? Number(data.adSpendMonth) / Number(data.enquiries) : null;
+  const jobValue = Number(data.jobsMonth) && has(data.revenueMonth) ? Number(data.revenueMonth) / Number(data.jobsMonth) : null;
   const cards = [
-    ["Pipeline quoted", money(data.openQuotesValue), has(data.openQuotesCount) ? `${num(data.openQuotesCount)} quote${Number(data.openQuotesCount) === 1 ? "" : "s"} still open${Number(data.openQuotesCount) ? ` · avg ${money(data.openQuotesValue / data.openQuotesCount)}` : ""}` : "quotes still open", C.muted],
-    ["Quote-ready leads", num(data.quoteReady), has(data.enquiries) ? `qualified from ${num(data.enquiries)} enquiries` : "this month", C.muted],
-    ["Cost per quote-ready lead", cpl != null ? money2(cpl) : "-", cplNote || "this month", cplColor],
+    ["Cost per enquiry", enqCost != null ? money2(enqCost) : "-", has(data.enquiries) ? `${num(data.enquiries)} enquiries this month` : "this month", C.muted],
+    ["Cost per quote booked", cpl != null ? money2(cpl) : "-", cplNote || (has(data.quoteReady) ? `${num(data.quoteReady)} quotes booked this month` : "this month"), cplColor],
+    ["Average job value", jobValue != null ? money(jobValue) : "-", Number(data.jobsMonth) ? `across ${num(data.jobsMonth)} job${Number(data.jobsMonth) === 1 ? "" : "s"} signed` : "no jobs signed yet", C.muted],
   ];
   cards.forEach(([l, v, sub, sc], i) => {
     const x = M + i * (cardW + 12);
@@ -225,9 +227,9 @@ async function build(data){
   text(p1, "From enquiry to signed job", M, y, { f: F.d7, size: 16 });
   text(p1, `${data.monthName} so far · conversion from previous stage`, W - M, y + 2, { size: 8, color: C.muted, align: "right" });
   y -= 14;
-  const steps = [["Enquiries", data.enquiries], ["Quote-ready", data.quoteReady], ["Quoted", data.quoted], ["Won", data.jobsMonth]];
+  const steps = [["Enquiries", data.enquiries], ["Quotes booked", data.quoteReady], ["Quoted", data.quoted], ["Won", data.jobsMonth]];
   const top = Math.max(1, ...steps.map(s => Number(s[1]) || 0));
-  const barX = M + 92, barW = CW - 92 - 80, shades = C.bars || [C.gold3, C.gold2, "#d9b55a", C.gold];
+  const barX = M + 100, barW = CW - 100 - 80, shades = C.bars || [C.gold3, C.gold2, "#d9b55a", C.gold];
   steps.forEach(([name, v], i) => {
     y -= 28;
     const isWon = i === 3;
@@ -239,10 +241,10 @@ async function build(data){
     const prev = i ? Number(steps[i-1][1]) : 0;
     text(p1, i && prev && has(v) ? pct(val, prev) : "–", W - M, y + 4, { size: 8.5, color: C.muted, align: "right" });
   });
-  if (Number(data.openQuotesCount)){
-    y -= 22;
-    text(p1, `${num(data.openQuotesCount)} quote${Number(data.openQuotesCount) === 1 ? "" : "s"} worth ${money(data.openQuotesValue)} ${Number(data.openQuotesCount) === 1 ? "is" : "are"} still open and could convert in the coming weeks.`, M, y, { size: 8.8, color: C.muted, maxWidth: CW });
-  }
+  y -= 22;
+  const waiting = Number(data.awaitingDecision) || 0;
+  const note = `Quotes booked are quote visits in the calendar, so some haven't been quoted yet.${waiting ? ` ${num(waiting)} quote${waiting === 1 ? "" : "s"} sent ${waiting === 1 ? "is" : "are"} still waiting on a decision.` : ""}`;
+  wrap(F.r, note, 8.8, CW).forEach((ln, i) => text(p1, ln, M, y - i * 12, { size: 8.8, color: C.muted }));
 
   /* ───────── Page 2: the story ───────── */
   const p2 = newPage(2);

@@ -1801,3 +1801,16 @@ button.onb-task-hit:hover .task-check:not(.done){border-color:var(--gold);}
 .ws-past-plan{font-size:12.5px;color:var(--text2);line-height:1.45;}
 .ws-past-plan b{color:var(--gold-deep);}
 .pl-head[hidden],.rp-list[hidden]{display:none;}
+
+/* Report form: what's new since the last report, and what the month adds up to */
+.rp-since{font-size:12.5px;color:var(--gold-deep);font-weight:600;margin:-4px 0 10px;}
+.rp-stack{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,.8fr);gap:8px 14px;align-items:center;}
+.rp-stack-h{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text2);}
+.rp-stack label{font-size:13.5px;font-weight:600;color:var(--text);}
+.rp-stack input{width:100%;}
+.rp-stack b{font-family:var(--font-display);font-size:16px;font-weight:700;color:var(--text);}
+.rp-hint{font-size:12px;color:var(--text2);line-height:1.5;margin-top:10px;}
+.rp-dates{margin-top:10px;}
+.rp-dates input[readonly]{background:#f3f0e8;color:var(--text2);}
+@media (max-width:640px){.rp-stack{grid-template-columns:1fr 1fr;}.rp-stack > span:first-child{display:none;}.rp-stack label{grid-column:1/-1;margin-top:4px;}}
+.rp-stack.field{margin-bottom:0;}.rp-stack.field label{margin:0;text-transform:none;letter-spacing:0;font-size:13.5px;}
