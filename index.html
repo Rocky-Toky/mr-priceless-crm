@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=168">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=168">
+<link rel="stylesheet" href="css/style.css?v=169">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=169">
 </head>
 <body>
 
@@ -1324,12 +1324,18 @@
         </div>
         <div class="field"><label for="ws-by">Run by</label><select id="ws-by"></select></div>
         <div class="ws-prompts" id="ws-prompts"></div>
-        <div class="field"><label for="ws-notes">What we found</label><textarea id="ws-notes" rows="4" placeholder="What came up, what's working, what's not..."></textarea></div>
+        <div class="field"><label for="ws-notes">What we found <small>(one per line)</small></label><textarea id="ws-notes" rows="4" placeholder="Quotes are going out 3 to 4 days after the visit&#10;Their best jobs come from decks, not fences"></textarea></div>
+        <div class="field"><label for="ws-plan">The plan from here <small>(one per line)</small></label><textarea id="ws-plan" rows="3" placeholder="Push deck jobs in the ads for the next 6 weeks&#10;Quotes out the same day as the visit"></textarea></div>
         <div class="field-row">
           <div class="field"><label for="ws-actions-us">Our actions <small>(one per line)</small></label><textarea id="ws-actions-us" rows="3" placeholder="e.g. New ad set for heat pumps"></textarea></div>
           <div class="field"><label for="ws-actions-them">Their actions <small>(one per line)</small></label><textarea id="ws-actions-them" rows="3" placeholder="e.g. Ask every finished job for a review"></textarea></div>
         </div>
-        <div class="modal-actions"><span class="ws-status" id="ws-status" role="status"></span><button type="submit" class="btn gold">Log workshop</button></div>
+        <label class="ws-make-pdf"><input type="checkbox" id="ws-make-pdf" checked> Make the workshop summary PDF for the client</label>
+        <div class="modal-actions"><span class="ws-status" id="ws-status" role="status"></span><button type="submit" class="btn gold" id="ws-log-btn">Log workshop</button></div>
+        <a class="wp-file ws-file" id="ws-file" draggable="true" href="#" download hidden>
+          <span class="wp-file-icon">PDF</span>
+          <span class="wp-file-text"><strong id="ws-file-name">Workshop summary.pdf</strong><span>Drag this straight into your email, or click to download again</span></span>
+        </a>
       </form>
       <div class="ws-history-wrap"><h4>Past workshops</h4><div id="ws-history"></div></div>
     </div>
@@ -2309,12 +2315,13 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=168"></script>
-<script src="js/supabaseClient.js?v=168"></script>
-<script src="js/report-pdf.js?v=168"></script>
-<script src="js/plan-pdf.js?v=168"></script>
-<script src="js/app.js?v=168"></script>
-<script src="js/meetings-tracker.js?v=168"></script>
-<script src="js/todo.js?v=168"></script>
+<script src="js/config.js?v=169"></script>
+<script src="js/supabaseClient.js?v=169"></script>
+<script src="js/report-pdf.js?v=169"></script>
+<script src="js/plan-pdf.js?v=169"></script>
+<script src="js/workshop-pdf.js?v=169"></script>
+<script src="js/app.js?v=169"></script>
+<script src="js/meetings-tracker.js?v=169"></script>
+<script src="js/todo.js?v=169"></script>
 </body>
 </html>
