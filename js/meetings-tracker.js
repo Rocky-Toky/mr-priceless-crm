@@ -894,7 +894,80 @@ function renderAll(){
   megaShown=state.meetings.filter(m=>m.done).length>=CLOUD9;
   insaneShown=state.meetings.filter(m=>m.done).length>=TOTAL;
   state.meetings.forEach((_,i)=>renderItem(i));
-  updateStats(); renderLog();
+  updateStats(); renderLog(); renderCounters();
+}
+
+/* ══════════════════════════════════════════
+   CALLS + CONVERSATIONS (tap counters)
+══════════════════════════════════════════ */
+function renderCounters(){
+  ['calls','convos'].forEach(k => {
+    const num = document.getElementById('cnt-' + k), card = document.getElementById('cc-' + k);
+    if (!num || !card) return;
+    num.textContent = state[k];
+    card.classList.toggle('has-count', state[k] > 0);
+  });
+  // How many calls turned into a real conversation.
+  const sub = document.getElementById('cnt-convos-sub');
+  if (sub) sub.textContent = state.calls > 0 && state.convos > 0 ? `${Math.round(Math.min(state.convos, state.calls) / state.calls * 100)}% of calls` : 'today';
+}
+
+// Adds each tap to the shared call_activity counts that Statistics reads.
+// Only ever +1 / -1: the Dialer adds to the same row, so sending this page's
+// own totals would wipe out every call logged from the Dialer.
+const COUNTER_FIELD = { calls: 'calls', convos: 'conversations' };
+function syncCallActivity(key, delta){
+  if (!window.CRM_CALL_ACTIVITY || !COUNTER_FIELD[key]) return;
+  window.CRM_CALL_ACTIVITY.bump(getActivePerson(), { [COUNTER_FIELD[key]]: delta });
+}
+
+function playCounterTick(isConvo){
+  const ac = getAudio();
+  if(ac.state==='suspended') ac.resume();
+  const t = ac.currentTime;
+  const freq = isConvo ? 440 : 330;
+  const osc = ac.createOscillator(), g = ac.createGain();
+  osc.connect(g); g.connect(ac.destination);
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(freq, t);
+  osc.frequency.exponentialRampToValueAtTime(freq * 1.35, t + 0.08);
+  g.gain.setValueAtTime(0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+  osc.start(t); osc.stop(t + 0.2);
+  const osc2 = ac.createOscillator(), g2 = ac.createGain();
+  osc2.connect(g2); g2.connect(ac.destination);
+  osc2.type = 'sine';
+  osc2.frequency.setValueAtTime(freq * 2, t + 0.04);
+  g2.gain.setValueAtTime(0.07, t + 0.04);
+  g2.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+  osc2.start(t + 0.04); osc2.stop(t + 0.18);
+}
+
+function incCounter(key, e){
+  state[key]++;
+  save();
+  syncCallActivity(key, 1);
+  renderCounters();
+  const numEl = document.getElementById('cnt-' + key), cardEl = document.getElementById('cc-' + key);
+  numEl.classList.remove('pop'); void numEl.offsetWidth; numEl.classList.add('pop');
+  cardEl.classList.remove('bump'); void cardEl.offsetWidth; cardEl.classList.add('bump');
+  const rect = cardEl.getBoundingClientRect();
+  const x = e && e.clientX ? e.clientX : rect.left + rect.width / 2, y = e && e.clientY ? e.clientY : rect.top + rect.height / 2;
+  spawnRipple(cardEl, { clientX: x, clientY: y }, true);
+  playCounterTick(key === 'convos');
+  const pop = document.createElement('div'); pop.className = 'mtr-score-pop mb-plus-pop';
+  pop.textContent = '+1';
+  pop.style.cssText = `left:${x - 14}px;top:${y - 34}px;`;
+  document.body.appendChild(pop); setTimeout(() => pop.remove(), 1000);
+  if(navigator.vibrate) navigator.vibrate(18);
+}
+
+function decCounter(key){
+  if(state[key] <= 0) return;
+  state[key]--;
+  save();
+  syncCallActivity(key, -1);
+  renderCounters();
 }
 
 function addMeeting(){
