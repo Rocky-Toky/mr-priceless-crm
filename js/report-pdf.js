@@ -16,6 +16,14 @@ const C = {
   gold: "#e8c468", gold2: "#c9a13e", gold3: "#8a6a1a", text: "#f4f0e6", soft: "#d9d4c8",
   muted: "#9d9a93", dim: "#6f6b63", good: "#7fc79a", bad: "#e08a76",
 };
+// Light version for the performance report: paper white, dark text, gold accents.
+const LIGHT = {
+  bg: "#fbf8f1", panel: "#ffffff", panel2: "#f3eee2", line: "#e7dfcd",
+  gold: "#b8912c", gold2: "#c9a13e", gold3: "#e3d3a4", text: "#1a1813", soft: "#3f3b33",
+  muted: "#7a7466", dim: "#a59f90", good: "#3f7d55", bad: "#b4532a", onGold: "#ffffff", tint: "#fdf6e3",
+  bars: ["#ece0bb", "#dfc988", "#cdae5c", "#b8912c"],
+};
+C.onGold = C.bg; C.tint = C.panel2;
 const FONT_FILES = {
   r: "assets/fonts/figtree-400.ttf", rX: "assets/fonts/figtree-ext-400.ttf",
   sb: "assets/fonts/figtree-600.ttf", sbX: "assets/fonts/figtree-ext-600.ttf",
@@ -33,7 +41,8 @@ const times = (v) => v == null || !isFinite(v) ? "-" : (v >= 10 ? Math.round(v) 
 const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
 
 // Shared drawing kit: fonts and helpers, also used by the 90-day plan PDF.
-async function makeKit(){
+async function makeKit(opts = {}){
+  const P = opts.palette || C;
   const { PDFDocument } = window.PDFLib;
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(window.fontkit);
@@ -48,8 +57,8 @@ async function makeKit(){
     return { m, x, mSet: new Set(m.getCharacterSet()), xSet: new Set(x.getCharacterSet()) };
   };
   const F = { r: await pair("r", "rX"), sb: await pair("sb", "sbX"), b: await pair("b", "bX"), d7: await pair("d7", "d7X"), d8: await pair("d8", "d8X") };
-  // The real logo (light version for the dark pages).
-  const logoRes = await fetch("assets/logo-light.png?v=1"); if (!logoRes.ok) throw new Error("Couldn't load the logo.");
+  // The real logo: the light version for dark pages, the original for light ones.
+  const logoRes = await fetch(P === C ? "assets/logo-light.png?v=1" : "assets/logo-dark.png?v=1"); if (!logoRes.ok) throw new Error("Couldn't load the logo.");
   const logo = await pdf.embedPng(await logoRes.arrayBuffer());
   const drawLogo = (page, x, y, h) => page.drawImage(logo, { x, y, width: h * logo.width / logo.height, height: h });
 
@@ -65,7 +74,7 @@ async function makeKit(){
   };
   const width = (f, s, size, ls = 0) => runs(f, s).reduce((w, r) => w + r.font.widthOfTextAtSize(r.s, size), 0) + ls * Math.max(0, [...String(s)].length - 1);
   const text = (page, str, x, y, o = {}) => {
-    const f = o.f || F.r, size = o.size || 10, ls = o.ls || 0, color = hex(o.color || C.text);
+    const f = o.f || F.r, size = o.size || 10, ls = o.ls || 0, color = hex(o.color || P.text);
     let s = o.caps ? String(str).toUpperCase() : String(str);
     if (o.maxWidth) while (s.length > 1 && width(f, s, size, ls) > o.maxWidth) s = s.slice(0, -2) + "…";
     const w = width(f, s, size, ls);
@@ -76,7 +85,7 @@ async function makeKit(){
     }
     return w;
   };
-  const label = (page, s, x, y, o = {}) => text(page, s, x, y, { f: F.b, size: 6.8, ls: 1.3, caps: true, color: C.muted, ...o });
+  const label = (page, s, x, y, o = {}) => text(page, s, x, y, { f: F.b, size: 6.8, ls: 1.3, caps: true, color: P.muted, ...o });
   const wrap = (f, str, size, maxW) => {
     const lines = [];
     for (const para of String(str || "").split(/\n+/)){
@@ -94,14 +103,15 @@ async function makeKit(){
     const path = `M ${r} 0 H ${w - r} Q ${w} 0 ${w} ${r} V ${h - r} Q ${w} ${h} ${w - r} ${h} H ${r} Q 0 ${h} 0 ${h - r} V ${r} Q 0 0 ${r} 0 Z`;
     page.drawSvgPath(path, { x, y: y + h, color: o.fill ? hex(o.fill) : undefined, borderColor: o.stroke ? hex(o.stroke) : undefined, borderWidth: o.stroke ? (o.bw || 0.8) : 0 });
   };
-  const hr = (page, x1, x2, y, color = C.line, t = 0.7) => page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness: t, color: hex(color) });
-  const vr = (page, x, y1, y2, color = C.line) => page.drawLine({ start: { x, y: y1 }, end: { x, y: y2 }, thickness: 0.7, color: hex(color) });
+  const hr = (page, x1, x2, y, color = P.line, t = 0.7) => page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness: t, color: hex(color) });
+  const vr = (page, x, y1, y2, color = P.line) => page.drawLine({ start: { x, y: y1 }, end: { x, y: y2 }, thickness: 0.7, color: hex(color) });
   const tick = (page, cx, cy, s, color) => page.drawSvgPath(`M ${-s*0.45} ${s*0.02} L ${-s*0.12} ${s*0.32} L ${s*0.48} ${-s*0.3}`, { x: cx, y: cy, borderColor: hex(color), borderWidth: s * 0.22, borderLineCap: 1 });
   return { pdf, F, runs, width, text, label, wrap, box, hr, vr, tick, drawLogo };
 }
 
 async function build(data){
-  const { pdf, F, width, text, label, wrap, box, hr, vr, tick, drawLogo } = await makeKit();
+  const C = LIGHT;
+  const { pdf, F, width, text, label, wrap, box, hr, vr, tick, drawLogo } = await makeKit({ palette: LIGHT });
 
   const newPage = (n) => {
     const page = pdf.addPage([W, H]);
@@ -126,7 +136,7 @@ async function build(data){
   // The month so far sits beside it.
   const heroH = 196, heroY = H - 150 - heroH, gapX = 12;
   const mainW = CW * 0.64, sideX = M + mainW + gapX, sideW = CW - mainW - gapX;
-  box(p1, M, heroY, mainW, heroH, { fill: C.panel, stroke: C.gold3, bw: 1 });
+  box(p1, M, heroY, mainW, heroH, { fill: C.tint, stroke: C.gold3, bw: 1 });
   label(p1, `Your return to date${data.since ? ` · since ${data.since}` : ""}`, M + 22, heroY + heroH - 28, { color: C.gold });
   const roiW = text(p1, times(data.roiToDate), M + 20, heroY + heroH - 86, { f: F.d8, size: 54, color: C.gold });
   text(p1, "return on everything", M + 34 + roiW, heroY + heroH - 62, { size: 10, color: C.soft });
@@ -175,7 +185,7 @@ async function build(data){
   const pill = got >= target ? (got > target ? `Guarantee met · +${got - target} extra` : "Guarantee met") : `${target - got} to go`;
   const pw = width(F.b, pill, 9) + 24;
   box(p1, W - M - 22 - pw, gY + gH - 64, pw, 22, { fill: got >= target ? C.gold : C.panel2, stroke: got >= target ? undefined : C.gold3, r: 11 });
-  text(p1, pill, W - M - 22 - pw / 2, gY + gH - 56.5, { f: F.b, size: 9, color: got >= target ? C.bg : C.gold, align: "center" });
+  text(p1, pill, W - M - 22 - pw / 2, gY + gH - 56.5, { f: F.b, size: 9, color: got >= target ? C.onGold : C.gold, align: "center" });
   // One circle per quote.
   const slots = Math.min(target, 20), gap = 8, rowW = CW - 44;
   const d = Math.min(36, (rowW - gap * (slots - 1)) / slots);
@@ -184,7 +194,7 @@ async function build(data){
     const cx = startX + d / 2 + i * (d + gap);
     const done = i < got;
     p1.drawCircle({ x: cx, y: cy, size: d / 2, color: done ? hex(C.gold) : hex(C.panel2), borderColor: done ? undefined : hex(C.gold3), borderWidth: done ? 0 : 0.9 });
-    if (done) tick(p1, cx, cy, d * 0.42, C.bg);
+    if (done) tick(p1, cx, cy, d * 0.42, C.onGold);
     else text(p1, String(i + 1), cx, cy - 3.6, { f: F.b, size: 9.5, color: C.dim, align: "center" });
   }
 
@@ -217,7 +227,7 @@ async function build(data){
   y -= 14;
   const steps = [["Enquiries", data.enquiries], ["Quote-ready", data.quoteReady], ["Quoted", data.quoted], ["Won", data.jobsMonth]];
   const top = Math.max(1, ...steps.map(s => Number(s[1]) || 0));
-  const barX = M + 92, barW = CW - 92 - 80, shades = [C.gold3, C.gold2, "#d9b55a", C.gold];
+  const barX = M + 92, barW = CW - 92 - 80, shades = C.bars || [C.gold3, C.gold2, "#d9b55a", C.gold];
   steps.forEach(([name, v], i) => {
     y -= 28;
     const isWon = i === 3;
@@ -313,5 +323,5 @@ async function build(data){
   return pdf.save();
 }
 
-window.MPReportPDF = { build, makeKit, C, W, H, M, hex, has, money, num };
+window.MPReportPDF = { build, makeKit, C, LIGHT, W, H, M, hex, has, money, num };
 })();
