@@ -1620,3 +1620,20 @@ button.onb-task-hit:hover .task-check:not(.done){border-color:var(--gold);}
 @media (max-width:900px){.pl-row{grid-template-columns:auto minmax(0,1fr) auto;}.pl-progress{grid-column:2/-1;}}
 @media (max-width:640px){.pl-targets{grid-template-columns:repeat(2,minmax(0,1fr));}}
 .rp-row .onb-card-avatar{width:32px;}
+
+/* Workshops: more types, so the board wraps onto rows instead of scrolling */
+.onb-board.ws-board{grid-template-columns:repeat(auto-fill,minmax(240px,1fr));overflow:visible;}
+.ws-board .onb-col{min-height:200px;}
+@media (max-width:900px){.onb-board.ws-board{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(240px,82vw);overflow-x:auto;scroll-snap-type:x mandatory;}}
+.onb-col[data-stage="leads"]{--stage:#2f7f8f;}
+.onb-col[data-stage="followup"]{--stage:#b4532a;}
+.onb-col[data-stage="recruitment"]{--stage:#3d5a99;}
+.onb-col[data-stage="operations"]{--stage:#6f6b63;}
+.ws-col[data-stage="leads"] .onb-col-num{background:#2f7f8f;color:#fff;}
+.ws-col[data-stage="followup"] .onb-col-num{background:#b4532a;color:#fff;}
+.ws-col[data-stage="recruitment"] .onb-col-num{background:#3d5a99;color:#fff;}
+.ws-col[data-stage="operations"] .onb-col-num{background:#6f6b63;color:#fff;}
+.ws-sug-leads{border-left:3px solid #2f7f8f;}.ws-sug-followup{border-left:3px solid #b4532a;}.ws-sug-recruitment{border-left:3px solid #3d5a99;}.ws-sug-operations{border-left:3px solid #6f6b63;}
+.ws-lib-leads{--ws:#2f7f8f;}.ws-lib-followup{--ws:#b4532a;}.ws-lib-recruitment{--ws:#3d5a99;}.ws-lib-operations{--ws:#6f6b63;}
+.ws-pill-leads{background:#2f7f8f;}.ws-pill-followup{background:#b4532a;}.ws-pill-recruitment{background:#3d5a99;}.ws-pill-operations{background:#6f6b63;}
+.ws-lib-sales .ws-lib-icon{color:var(--black);}
