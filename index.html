@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=167">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=167">
+<link rel="stylesheet" href="css/style.css?v=168">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=168">
 </head>
 <body>
 
@@ -838,32 +838,31 @@
         <div class="cl-list" id="clients-gallery"></div>
       </div>
 
-      <div id="clients-detail-view" class="cl-detail" style="display:none;">
+      <div id="clients-detail-view" class="cl-detail cp" style="display:none;">
         <button class="cl-back" data-action="back-to-clients">← All Clients</button>
 
-        <div class="card cl-hero">
-          <div class="cl-hero-top">
-            <span class="cl-hero-avatar" id="client-detail-avatar">?</span>
-            <div class="cl-hero-text">
-              <div class="cl-hero-title">
-                <h2 id="client-detail-name">Client</h2>
-                <span class="badge" id="client-detail-stage-badge"></span>
-              </div>
-              <div class="cl-hero-meta">
+        <section class="cp-hero">
+          <div class="cp-hero-glow" aria-hidden="true"></div>
+          <div class="cp-hero-top">
+            <span class="cp-avatar" id="client-detail-avatar">?</span>
+            <div class="cp-hero-text">
+              <div class="cp-eyebrow"><span class="badge" id="client-detail-stage-badge"></span><span id="cp-since"></span></div>
+              <h2 id="client-detail-name">Client</h2>
+              <div class="cp-contact" id="client-detail-contact"></div>
+              <div class="cp-meta">
                 <span id="client-detail-churn-risk"></span>
-                <span class="cl-hero-contact" id="client-detail-contact"></span>
+                <span class="cp-meta-item"><span class="cp-meta-k">Ads live since</span><span id="client-detail-ad-start-date">-</span></span>
               </div>
             </div>
-            <div class="cl-hero-actions">
-              <button class="btn gold sm" data-action="open-welcome-pack">Welcome pack</button>
-              <button class="btn ghost sm" data-action="edit-client-header">Edit Client</button>
-              <button class="icon-btn" data-action="delete-client" title="Delete Client">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg>
-              </button>
+            <div class="cp-hero-actions">
+              <button class="btn gold sm" data-action="ws-open" id="cp-log-workshop">Log workshop</button>
+              <button class="btn cp-ghost sm" data-action="open-welcome-pack">Welcome pack</button>
+              <button class="btn cp-ghost sm" data-action="edit-client-header">Edit</button>
+              <button class="icon-btn cp-icon" data-action="delete-client" title="Delete Client"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6"/></svg></button>
             </div>
           </div>
 
-          <div class="cl-qg" id="quote-guarantee-banner" style="display:none;">
+          <div class="cl-qg cp-qg" id="quote-guarantee-banner" style="display:none;">
             <div class="cl-qg-text">
               <span class="cl-qg-label">Quote Guarantee</span>
               <span class="cl-qg-count"><span id="quote-guarantee-sent">0</span> of <span id="quote-guarantee-target">10</span> quotes delivered</span>
@@ -876,65 +875,59 @@
             </div>
           </div>
 
-          <div class="cl-kpis">
-            <div class="cl-kpi"><div class="cl-kpi-label">Cost Per Lead</div><div class="cl-kpi-value" id="client-detail-cpl">-</div></div>
-            <div class="cl-kpi"><div class="cl-kpi-label">Monthly Ad Spend</div><div class="cl-kpi-value" id="client-detail-monthly-spend">-</div></div>
-            <div class="cl-kpi"><div class="cl-kpi-label">Campaigns Live</div><div class="cl-kpi-value"><span id="client-detail-campaigns-running">0</span><span class="cl-kpi-of"> of <span id="client-detail-campaigns-total">0</span></span></div></div>
-            <div class="cl-kpi">
-              <div class="cl-kpi-label">Quotes Sent</div>
-              <div class="cl-kpi-value cl-kpi-quotes">
-                <span id="client-detail-quotes">0</span>
-                <span class="cl-kpi-steppers" id="client-detail-quote-buttons">
-                  <button type="button" class="icon-btn" data-action="quote-decrement" title="Remove one">−</button>
-                  <button type="button" class="icon-btn" data-action="quote-increment" title="Add one">+</button>
-                </span>
-              </div>
-            </div>
-            <div class="cl-kpi"><div class="cl-kpi-label">Ads Started</div><div class="cl-kpi-value cl-kpi-small" id="client-detail-ad-start-date">-</div></div>
+          <div class="cp-stats">
+            <div class="cp-stat cp-stat-big"><span class="cp-stat-k">Revenue won to date</span><span class="cp-stat-v" id="cp-revenue">-</span><span class="cp-stat-sub" id="cp-revenue-sub"></span></div>
+            <div class="cp-stat cp-stat-big"><span class="cp-stat-k">Return on investment</span><span class="cp-stat-v" id="cp-roi">-</span><span class="cp-stat-sub" id="cp-roi-sub"></span></div>
+            <div class="cp-stat"><span class="cp-stat-k">Cost per lead</span><span class="cp-stat-v" id="client-detail-cpl">-</span></div>
+            <div class="cp-stat"><span class="cp-stat-k">Monthly ad spend</span><span class="cp-stat-v" id="client-detail-monthly-spend">-</span></div>
+            <div class="cp-stat"><span class="cp-stat-k">Campaigns live</span><span class="cp-stat-v"><span id="client-detail-campaigns-running">0</span><small> of <span id="client-detail-campaigns-total">0</span></small></span></div>
+            <div class="cp-stat cl-kpi"><span class="cp-stat-k">Quotes sent</span><span class="cp-stat-v cp-quotes"><span id="client-detail-quotes">0</span>
+              <span class="cl-kpi-steppers" id="client-detail-quote-buttons">
+                <button type="button" class="icon-btn" data-action="quote-decrement" title="Remove one">−</button>
+                <button type="button" class="icon-btn" data-action="quote-increment" title="Add one">+</button>
+              </span></span></div>
           </div>
-        </div>
+        </section>
 
-        <div class="cl-detail-grid">
+        <div class="cl-detail-grid cp-grid">
           <div class="cl-detail-main" id="client-detail-main">
             <div class="card cl-launch" id="client-launch-card" hidden></div>
 
-            <div class="card cl-panel">
-              <div class="cl-panel-head">
-                <div><h3>Campaigns</h3><p>Every campaign running for this client and its cost per lead.</p></div>
+            <div class="card cl-panel cp-panel" id="cp-workshops"></div>
+
+            <div class="card cl-panel cp-panel">
+              <div class="cl-panel-head cp-panel-head">
+                <div><h3>Campaigns</h3><p>Every campaign running for this client, and its cost per lead.</p></div>
                 <div class="cl-panel-actions">
                   <button class="btn ghost sm" id="sync-client-ads-btn">Sync Ad Account</button>
                   <button class="btn gold sm" id="add-campaign-btn">+ Add Campaign</button>
                 </div>
               </div>
               <div class="table-wrap">
-                <table>
+                <table class="cp-table">
                   <thead><tr><th>Campaign</th><th>Platform</th><th>Status</th><th>Ad Spend</th><th>CPL</th><th></th></tr></thead>
                   <tbody id="campaigns-tbody"></tbody>
                 </table>
               </div>
             </div>
 
-            <div class="card cl-panel">
-              <div class="cl-panel-head">
-                <div><h3>Ad Creatives Tried</h3><p>What's been tested and how it performed.</p></div>
+            <div class="card cl-panel cp-panel">
+              <div class="cl-panel-head cp-panel-head">
+                <div><h3>Ad creatives</h3><p>What's been tested and how it performed.</p></div>
                 <div class="cl-panel-actions">
                   <button class="btn gold sm" id="add-ad-creative-btn">+ Add Ad Creative</button>
                 </div>
               </div>
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>Image</th><th>Creative</th><th>Result</th><th>Added</th><th></th></tr></thead>
-                  <tbody id="ad-creatives-tbody"></tbody>
-                </table>
-              </div>
+              <div class="cp-creatives" id="ad-creatives-grid"></div>
             </div>
           </div>
 
           <aside class="cl-detail-side">
-            <div class="card cl-panel client-info-card">
-              <div class="cl-panel-head">
+            <div class="card cl-panel cp-panel" id="cp-reports"></div>
+            <div class="card cl-panel cp-panel client-info-card">
+              <div class="cl-panel-head cp-panel-head">
                 <div>
-                  <h3>Client Info</h3>
+                  <h3>Client info</h3>
                   <div class="client-info-progress" id="client-info-progress">
                     <div class="client-info-progress-bar"><div class="client-info-progress-fill" id="client-info-progress-fill" style="width:0%;"></div></div>
                     <span id="client-info-progress-label">0 of 7 filled in</span>
@@ -944,8 +937,8 @@
               </div>
               <div class="client-info-grid cl-info-stack" id="client-info-grid"></div>
             </div>
-            <div class="card cl-panel">
-              <div class="cl-panel-head">
+            <div class="card cl-panel cp-panel">
+              <div class="cl-panel-head cp-panel-head">
                 <div><h3>Notes</h3></div>
                 <button class="btn ghost sm" data-action="edit-client-header">Edit</button>
               </div>
@@ -1345,13 +1338,20 @@
 
 <!-- ───────── Modal: Edit a workshop in the library ───────── -->
 <div class="overlay" id="ws-lib-modal">
-  <div class="modal" style="max-width:640px;">
+  <div class="modal" style="max-width:720px;">
     <div class="modal-header"><h3 id="ws-lib-title">Edit workshop</h3><button class="modal-close" data-close="ws-lib-modal">&times;</button></div>
     <form id="ws-lib-form" class="modal-body">
       <input type="hidden" id="ws-lib-key">
       <div class="field"><label for="ws-lib-covers">What it covers</label><textarea id="ws-lib-covers" rows="3"></textarea></div>
-      <div class="field"><label for="ws-lib-questions">Questions to ask <small>(one per line)</small></label><textarea id="ws-lib-questions" rows="7"></textarea></div>
-      <div class="field"><label for="ws-lib-checklist">Run it like this <small>(one step per line)</small></label><textarea id="ws-lib-checklist" rows="6"></textarea></div>
+      <div class="field"><label for="ws-lib-outcome">They walk away with</label><textarea id="ws-lib-outcome" rows="2"></textarea></div>
+      <div class="field-row">
+        <div class="field"><label for="ws-lib-when">Run it when</label><input type="text" id="ws-lib-when"></div>
+        <div class="field"><label for="ws-lib-duration">How long</label><input type="text" id="ws-lib-duration" placeholder="45 min"></div>
+      </div>
+      <div class="field"><label for="ws-lib-prep">Before the session <small>(one per line)</small></label><textarea id="ws-lib-prep" rows="3"></textarea></div>
+      <div class="field"><label for="ws-lib-agenda">Run sheet <small>(one step per line, e.g. "10 min | Walk through a quote visit")</small></label><textarea id="ws-lib-agenda" rows="5"></textarea></div>
+      <div class="field"><label for="ws-lib-questions">Questions to ask <small>(one per line)</small></label><textarea id="ws-lib-questions" rows="6"></textarea></div>
+      <div class="field"><label for="ws-lib-leave">Leave them with <small>(one per line)</small></label><textarea id="ws-lib-leave" rows="3"></textarea></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="ws-lib-modal">Cancel</button>
         <button type="submit" class="btn gold">Save</button>
@@ -2309,12 +2309,12 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=167"></script>
-<script src="js/supabaseClient.js?v=167"></script>
-<script src="js/report-pdf.js?v=167"></script>
-<script src="js/plan-pdf.js?v=167"></script>
-<script src="js/app.js?v=167"></script>
-<script src="js/meetings-tracker.js?v=167"></script>
-<script src="js/todo.js?v=167"></script>
+<script src="js/config.js?v=168"></script>
+<script src="js/supabaseClient.js?v=168"></script>
+<script src="js/report-pdf.js?v=168"></script>
+<script src="js/plan-pdf.js?v=168"></script>
+<script src="js/app.js?v=168"></script>
+<script src="js/meetings-tracker.js?v=168"></script>
+<script src="js/todo.js?v=168"></script>
 </body>
 </html>
