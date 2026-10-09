@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=174">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=174">
+<link rel="stylesheet" href="css/style.css?v=175">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=175">
 </head>
 <body>
 
@@ -13,6 +13,52 @@
 <div id="amb"><div id="amb-g"></div></div>
 <div id="clouds"></div>
 <canvas id="cc"></canvas>
+
+<!-- Reward modals sit out here, not inside the Meetings Booked page, so
+     they still show when a meeting is booked from the Dialler. -->
+<!-- MODAL: goal hit (2/2) -->
+<div id="modal-goal" class="overlay mtr-reward">
+  <div class="modal">
+    <span class="mtr-reward-icon">🏆</span>
+    <div class="mtr-reward-title">Goal Crushed.</div>
+    <div class="mtr-reward-sub">2/2 booked. You are an absolute machine.<br>One more and you're on Cloud 9. Go get it.</div>
+    <div class="mtr-reward-ring">
+      <svg width="88" height="88" viewBox="0 0 88 88">
+        <circle class="mtr-rr-track" cx="44" cy="44" r="37"/>
+        <circle class="mtr-rr-fill" id="mg-ring-fill" cx="44" cy="44" r="37"/>
+      </svg>
+      <div class="mtr-rr-label" id="mg-pct">0%</div>
+    </div>
+    <div class="mtr-reward-pills">
+      <span class="badge gold">On fire</span>
+      <span class="badge gold">Overachiever</span>
+      <span class="badge gold">Legendary</span>
+    </div>
+    <button class="btn gold mtr-reward-btn" onclick="closeModal('modal-goal')">Chase Cloud 9 →</button>
+  </div>
+</div>
+
+<!-- MODAL: Cloud 9 (3+) -->
+<div id="modal-god" class="overlay mtr-reward">
+  <div class="modal">
+    <span class="mtr-reward-icon">☁️</span>
+    <div class="mtr-reward-title">Cloud 9.</div>
+    <div class="mtr-reward-sub">3 meetings booked. You're floating.<br>This is what winning feels like.</div>
+    <div class="mtr-reward-ring">
+      <svg width="88" height="88" viewBox="0 0 88 88">
+        <circle class="mtr-rr-track" cx="44" cy="44" r="37"/>
+        <circle class="mtr-rr-fill" id="mnuc-ring-fill" cx="44" cy="44" r="37"/>
+      </svg>
+      <div class="mtr-rr-label" id="mnuc-pct">0%</div>
+    </div>
+    <div class="mtr-reward-pills">
+      <span class="badge gold">☁️ Cloud 9</span>
+      <span class="badge gold">Unstoppable</span>
+      <span class="badge gold">Built different</span>
+    </div>
+    <button class="btn gold mtr-reward-btn" onclick="closeModal('modal-god')">I'm on Cloud 9 ☁️</button>
+  </div>
+</div>
 
 <!-- MEGA CLOUD 9 OVERLAY (3 meetings) -->
 <div id="mega-c9" onclick="closeMegaC9()">
@@ -330,50 +376,6 @@
 
     <!-- Meetings Booked (gamified daily tracker) -->
     <section class="page" id="page-cold-calls">
-      <!-- MODAL: goal hit (2/2) -->
-      <div id="modal-goal" class="overlay mtr-reward">
-        <div class="modal">
-          <span class="mtr-reward-icon">🏆</span>
-          <div class="mtr-reward-title">Goal Crushed.</div>
-          <div class="mtr-reward-sub">2/2 booked. You are an absolute machine.<br>One more and you're on Cloud 9. Go get it.</div>
-          <div class="mtr-reward-ring">
-            <svg width="88" height="88" viewBox="0 0 88 88">
-              <circle class="mtr-rr-track" cx="44" cy="44" r="37"/>
-              <circle class="mtr-rr-fill" id="mg-ring-fill" cx="44" cy="44" r="37"/>
-            </svg>
-            <div class="mtr-rr-label" id="mg-pct">0%</div>
-          </div>
-          <div class="mtr-reward-pills">
-            <span class="badge gold">On fire</span>
-            <span class="badge gold">Overachiever</span>
-            <span class="badge gold">Legendary</span>
-          </div>
-          <button class="btn gold mtr-reward-btn" onclick="closeModal('modal-goal')">Chase Cloud 9 →</button>
-        </div>
-      </div>
-
-      <!-- MODAL: Cloud 9 (3+) -->
-      <div id="modal-god" class="overlay mtr-reward">
-        <div class="modal">
-          <span class="mtr-reward-icon">☁️</span>
-          <div class="mtr-reward-title">Cloud 9.</div>
-          <div class="mtr-reward-sub">3 meetings booked. You're floating.<br>This is what winning feels like.</div>
-          <div class="mtr-reward-ring">
-            <svg width="88" height="88" viewBox="0 0 88 88">
-              <circle class="mtr-rr-track" cx="44" cy="44" r="37"/>
-              <circle class="mtr-rr-fill" id="mnuc-ring-fill" cx="44" cy="44" r="37"/>
-            </svg>
-            <div class="mtr-rr-label" id="mnuc-pct">0%</div>
-          </div>
-          <div class="mtr-reward-pills">
-            <span class="badge gold">☁️ Cloud 9</span>
-            <span class="badge gold">Unstoppable</span>
-            <span class="badge gold">Built different</span>
-          </div>
-          <button class="btn gold mtr-reward-btn" onclick="closeModal('modal-god')">I'm on Cloud 9 ☁️</button>
-        </div>
-      </div>
-
       <div class="page-header mb-header">
         <div><h2>Meetings Booked</h2><p id="date-chip"></p></div>
         <div class="mtr-header-actions">
@@ -2304,13 +2306,13 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=174"></script>
-<script src="js/supabaseClient.js?v=174"></script>
-<script src="js/report-pdf.js?v=174"></script>
-<script src="js/plan-pdf.js?v=174"></script>
-<script src="js/workshop-pdf.js?v=174"></script>
-<script src="js/app.js?v=174"></script>
-<script src="js/meetings-tracker.js?v=174"></script>
-<script src="js/todo.js?v=174"></script>
+<script src="js/config.js?v=175"></script>
+<script src="js/supabaseClient.js?v=175"></script>
+<script src="js/report-pdf.js?v=175"></script>
+<script src="js/plan-pdf.js?v=175"></script>
+<script src="js/workshop-pdf.js?v=175"></script>
+<script src="js/app.js?v=175"></script>
+<script src="js/meetings-tracker.js?v=175"></script>
+<script src="js/todo.js?v=175"></script>
 </body>
 </html>

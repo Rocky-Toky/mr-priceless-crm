@@ -136,6 +136,7 @@
 @keyframes mtr-cloud-bob{0%,100%{transform:translateY(0);}50%{transform:translateY(-10px);}}
 
 /* ─── Reward modals (Goal Crushed / Cloud 9) - use the CRM's own modal shell ─── */
+.overlay.mtr-reward{z-index:9000;}
 .mtr-reward .modal{max-width:360px;text-align:center;padding:8px;}
 .mtr-reward-icon{font-size:56px;display:block;margin:20px 0 6px;animation:mtr-icon-bounce .9s .3s cubic-bezier(.34,1.56,.64,1) both;}
 @keyframes mtr-icon-bounce{from{transform:scale(0) translateY(30px) rotate(-15deg);}60%{transform:scale(1.25) translateY(-10px) rotate(6deg);}to{transform:scale(1) translateY(0) rotate(0);}}
