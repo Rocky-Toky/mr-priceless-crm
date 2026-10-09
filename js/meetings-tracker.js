@@ -2,7 +2,7 @@
    Only tracks meetings booked: five big tick slots (2 for the goal, Cloud 9
    at 3, bonus to 5), each one booked through the Book Meeting form so it
    lands in the Deals pipeline. Not wrapped in an IIFE: the markup's inline
-   onclick handlers (resetDay, closeModal, closeMegaC9, closeInsane) call
+   onclick handlers (resetDay, closeModal, closeMegaC9, closeMachine, closeInsane) call
    these as globals, exactly like the original standalone file. */
 
 /* ══════════════════════════════════════════
@@ -421,6 +421,86 @@ function closeInsane(){
   setTimeout(()=>{ el.querySelectorAll('.insane-pt').forEach(p=>p.remove()); }, 600);
 }
 
+/* ══════════════════════════════════════════
+   THE MACHINE (4 meetings) - gears grind up, the bar charges, the title
+   stamps down with a metal slam and a shower of sparks.
+══════════════════════════════════════════ */
+function playMachineSound(){
+  const ac = getAudio();
+  if(ac.state==='suspended') ac.resume();
+  const t = ac.currentTime;
+  const noiseBuf = (secs) => {
+    const b = ac.createBuffer(1, ac.sampleRate*secs, ac.sampleRate), d = b.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+    return b;
+  };
+  // Ratchet: quick clicks speeding up as the gears wind
+  for(let i=0;i<14;i++){
+    const st = t + 0.05 + i*0.055 - i*i*0.0012;
+    const n = ac.createBufferSource(); n.buffer = noiseBuf(0.03);
+    const f = ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value = 2400 + i*120; f.Q.value = 6;
+    const g = ac.createGain(); g.gain.setValueAtTime(0.5, st); g.gain.exponentialRampToValueAtTime(0.001, st+0.03);
+    n.connect(f); f.connect(g); g.connect(ac.destination); n.start(st); n.stop(st+0.04);
+  }
+  // Power-up hum rising under the charge bar
+  const hum = ac.createOscillator(), humG = ac.createGain(), humF = ac.createBiquadFilter();
+  hum.type='sawtooth'; hum.frequency.setValueAtTime(70, t+0.1); hum.frequency.exponentialRampToValueAtTime(420, t+0.85);
+  humF.type='lowpass'; humF.frequency.setValueAtTime(400, t+0.1); humF.frequency.exponentialRampToValueAtTime(2200, t+0.85);
+  humG.gain.setValueAtTime(0, t+0.1); humG.gain.linearRampToValueAtTime(0.22, t+0.75); humG.gain.exponentialRampToValueAtTime(0.001, t+0.95);
+  hum.connect(humF); humF.connect(humG); humG.connect(ac.destination); hum.start(t+0.1); hum.stop(t+1.0);
+  // The SLAM: low thud + metallic clang partials + hiss
+  const slam = t + 1.2;
+  const thud = ac.createOscillator(), thudG = ac.createGain();
+  thud.type='sine'; thud.frequency.setValueAtTime(90, slam); thud.frequency.exponentialRampToValueAtTime(32, slam+0.4);
+  thudG.gain.setValueAtTime(1.3, slam); thudG.gain.exponentialRampToValueAtTime(0.001, slam+0.6);
+  thud.connect(thudG); thudG.connect(ac.destination); thud.start(slam); thud.stop(slam+0.65);
+  [[523,0.22],[1187,0.14],[1744,0.1],[2563,0.07],[3391,0.05]].forEach(([fq,vol])=>{
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type='triangle'; o.frequency.value = fq;
+    g.gain.setValueAtTime(vol, slam); g.gain.exponentialRampToValueAtTime(0.001, slam+1.4);
+    o.connect(g); g.connect(ac.destination); o.start(slam); o.stop(slam+1.5);
+  });
+  const hiss = ac.createBufferSource(); hiss.buffer = noiseBuf(0.9);
+  const hf = ac.createBiquadFilter(); hf.type='highpass'; hf.frequency.value = 3000;
+  const hg = ac.createGain(); hg.gain.setValueAtTime(0.35, slam); hg.gain.exponentialRampToValueAtTime(0.001, slam+0.8);
+  hiss.connect(hf); hf.connect(hg); hg.connect(ac.destination); hiss.start(slam); hiss.stop(slam+0.9);
+}
+
+let machineTimers = [];
+function showMachine(){
+  const el = document.getElementById('machine');
+  if (!el) return;
+  machineTimers.forEach(clearTimeout); machineTimers = [];
+  el.classList.remove('active','slam'); void el.offsetWidth;
+  el.classList.add('active');
+  machineTimers.push(setTimeout(()=>{
+    el.classList.add('slam');
+    document.body.classList.remove('mtr-body-shake'); void document.body.offsetWidth;
+    document.body.style.setProperty('--sd','0.4s');
+    document.body.classList.add('mtr-body-shake');
+    machineTimers.push(setTimeout(()=>document.body.classList.remove('mtr-body-shake'), 400));
+    // Sparks burst out from the stamp
+    for(let i=0;i<44;i++){
+      const sp = document.createElement('div');
+      sp.className = 'mach-spark';
+      const ang = Math.random()*Math.PI*2, dist = 140 + Math.random()*360;
+      const dx = Math.cos(ang)*dist, dy = Math.sin(ang)*dist*0.7 + 60;
+      sp.style.cssText = `--dx:${dx}px;--dy:${dy}px;--r:${ang*180/Math.PI+90}deg;--h:${8+Math.random()*16}px;--dur:${0.5+Math.random()*0.6}s;animation-delay:${Math.random()*0.12}s;`;
+      el.appendChild(sp);
+    }
+    startConfetti(['#e8c468','#b8912c','#d4d4d8','#9b9ba3','#ffffff'],false,false);
+    if(navigator.vibrate) navigator.vibrate([60,30,60,30,60,40,400]);
+  }, 1250));
+  machineTimers.push(setTimeout(closeMachine, 4600));
+}
+function closeMachine(){
+  const el = document.getElementById('machine');
+  if (!el) return;
+  el.classList.remove('active','slam');
+  machineTimers.forEach(clearTimeout); machineTimers = [];
+  setTimeout(()=>{ el.querySelectorAll('.mach-spark').forEach(p=>p.remove()); }, 500);
+}
+
 function playUncheck(){
   const ac = getAudio();
   if(ac.state==='suspended') ac.resume();
@@ -469,7 +549,7 @@ function stopClouds(){
 /* ══════════════════════════════════════════
    STATE
 ══════════════════════════════════════════ */
-const GOAL=2, CLOUD9=3, TOTAL=5;
+const GOAL=2, CLOUD9=3, MACHINE=4, TOTAL=5;
 const STORAGE_KEY='mb_v7';
 const PERSON_KEY='mb_active_person';
 const { supabase: mtrSupabase, IS_CONFIGURED: mtrIsConfigured } = window.CRM_DB;
@@ -669,7 +749,7 @@ function updateAmbient(done){
 /* ══════════════════════════════════════════
    MODALS
 ══════════════════════════════════════════ */
-let goalShown=false, godShown=false, megaShown=false, insaneShown=false;
+let goalShown=false, godShown=false, megaShown=false, machineShown=false, insaneShown=false;
 function openModal(id){
   document.getElementById(id).classList.add('visible');
   if(id==='modal-goal'){
@@ -839,6 +919,10 @@ function toggle(idx, el, e){
       megaShown=true;
       setTimeout(()=>{ playSwoosh(); showMegaC9(); }, 1200);
     }
+    if(done===MACHINE && !machineShown){
+      machineShown=true;
+      setTimeout(()=>{ playMachineSound(); showMachine(); }, 400);
+    }
     if(done===TOTAL && !insaneShown){
       insaneShown=true;
       setTimeout(()=>{ playInsaneSound(); showInsane(); }, 400);
@@ -892,6 +976,7 @@ function renderAll(){
   goalShown=state.meetings.slice(0,GOAL).every(m=>m.done);
   godShown=state.meetings.filter((m,i)=>m.done&&i<CLOUD9).length>=CLOUD9;
   megaShown=state.meetings.filter(m=>m.done).length>=CLOUD9;
+  machineShown=state.meetings.filter(m=>m.done).length>=MACHINE;
   insaneShown=state.meetings.filter(m=>m.done).length>=TOTAL;
   state.meetings.forEach((_,i)=>renderItem(i));
   updateStats(); renderLog(); renderCounters();
@@ -983,11 +1068,11 @@ function resetDay(){
   // over whatever was actually booked today.
   const done=state.meetings.filter(m=>m.done).length;
   if(done>0) state.history[getToday()]=done;
-  state.meetings.forEach(m=>{m.done=false;m.time=null;}); state.log=[]; state.calls=0; state.convos=0; goalShown=false; godShown=false; megaShown=false; insaneShown=false;
+  state.meetings.forEach(m=>{m.done=false;m.time=null;}); state.log=[]; state.calls=0; state.convos=0; goalShown=false; godShown=false; megaShown=false; machineShown=false; insaneShown=false;
   document.getElementById('mg-ring-fill').classList.remove('animate'); document.getElementById('mg-pct').textContent='0%';
   document.getElementById('mnuc-ring-fill').classList.remove('animate'); document.getElementById('mnuc-pct').textContent='0%';
   closeModal('modal-goal'); closeModal('modal-god');
-  closeMegaC9(); closeInsane(); stopClouds();
+  closeMegaC9(); closeMachine(); closeInsane(); stopClouds();
   cfRunning=false; ctx.clearRect(0,0,canvas.width,canvas.height);
   save(); renderAll(); addLog('Day reset - fresh slate','reset');
 }
@@ -1030,6 +1115,7 @@ window.bookMeetingInTracker = function(name, x, y, explicitIdx){
 
   if (goalDone===GOAL && !goalShown){ goalShown=true; setTimeout(()=>openModal('modal-goal'),350); }
   if (done===CLOUD9 && !megaShown){ megaShown=true; setTimeout(()=>{ playSwoosh(); showMegaC9(); }, 1200); }
+  if (done===MACHINE && !machineShown){ machineShown=true; setTimeout(()=>{ playMachineSound(); showMachine(); }, 400); }
   if (done===TOTAL && !insaneShown){ insaneShown=true; setTimeout(()=>{ playInsaneSound(); showInsane(); }, 400); }
 
   updateStats();
