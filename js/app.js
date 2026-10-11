@@ -923,6 +923,7 @@ Never argue. Agree with the feeling first, then reframe - arguing makes people d
 - Energy first, script second - a flat voice with perfect words still loses.
 - You're not selling, you're finding out if it's a fit - and if it's not, that's fine too.
 - Every "no" gets you closer to a "yes" - don't take a knockback personally, it's not about you.` },
+    ...(window.MP_BUILTIN_PLAYBOOKS || []).map(p => ({ id:uid(), ...p, created_at:new Date().toISOString(), updated_at:new Date().toISOString() })),
   ];
   state.rules = [
     { id:uid(), title:"Meta Ads", sort_order:0, content:"", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
@@ -1080,6 +1081,7 @@ const DataLayer = {
     state.clientReports = crep.data || [];
     state.notes = nt.data || [];
     state.playbooks = pb.data || [];
+    state.playbooksLoaded = !pb.error;
     state.rules = ru.data || [];
     state.emailTemplates = et.data || [];
     state.expenses = ex.data || [];
@@ -7708,6 +7710,9 @@ function renderPlaybookMarkdown(raw, checked){
       </li>`;
       continue;
     }
+    // "> " is a script line: the words to actually say on the call.
+    const say = line.match(/^>\s*(.*)$/);
+    if (say){ closeList(); html += `<blockquote class="pb-say">${inline(say[1])}</blockquote>`; continue; }
     const ol = line.match(/^\d+\.\s+(.*)$/);
     if (ol){ if (listType !== "ol"){ closeList(); html += "<ol>"; listType = "ol"; } html += `<li>${inline(ol[1])}</li>`; continue; }
     const ul = line.match(/^[-*•]\s+(.*)$/);
@@ -7747,7 +7752,25 @@ function playbookIcon(title){
   if (t.includes("ad") || t.includes("campaign") || t.includes("delivery")) return ICONS.megaphone;
   return ICONS.book;
 }
+// Playbooks that ship with the app (js/builtin-playbooks.js) get added to the
+// shared table once, the first time someone signed in loads the CRM without
+// them. Remembered per browser so a deleted one doesn't keep coming back.
+let builtinPlaybooksChecked = false;
+async function ensureBuiltinPlaybooks(){
+  if (builtinPlaybooksChecked || !IS_CONFIGURED || !state.user || !state.playbooksLoaded) return;
+  builtinPlaybooksChecked = true;
+  for (const pb of window.MP_BUILTIN_PLAYBOOKS || []){
+    const key = "mp_builtin_pb_" + pb.title;
+    let seen = false; try { seen = !!localStorage.getItem(key); } catch(e){}
+    if (!seen && !state.playbooks.some(p => (p.title || "").trim().toLowerCase() === pb.title.toLowerCase())){
+      const row = await DataLayer.insert("playbooks", { title: pb.title, content: pb.content, sort_order: pb.sort_order });
+      if (!row) continue;
+    }
+    try { localStorage.setItem(key, "1"); } catch(e){}
+  }
+}
 function renderPlaybooks(){
+  ensureBuiltinPlaybooks();
   const listEl = $("#playbooks-list");
   const viewer = $("#playbook-viewer");
   if (!listEl || !viewer) return;
