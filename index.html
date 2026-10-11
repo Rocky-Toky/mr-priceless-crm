@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=176">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=176">
+<link rel="stylesheet" href="css/style.css?v=177">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=177">
 </head>
 <body>
 
@@ -266,6 +266,10 @@
       <button class="nav-item" data-page="reporting" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
         <span>Reporting</span>
+      </button>
+      <button class="nav-item" data-page="invoices" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>
+        <span>Invoices</span><span class="nav-count" id="nav-inv-count" hidden></span>
       </button>
       <div class="nav-group" data-workspace="delivery">
         <button type="button" class="nav-item nav-group-toggle">
@@ -1097,6 +1101,53 @@
     </section>
 
     <!-- Reporting (Meta Ads client reports) -->
+    <!-- Invoices & receipts: every client's monthly invoice, what's been paid, and the receipts. -->
+    <section class="page" id="page-invoices">
+      <div class="page-header">
+        <div><h2>Invoices &amp; Receipts</h2><p>Each client's first invoice goes out a month after they start, then every 30 days. Make it, send it, and once it's paid, send the receipt.</p></div>
+        <div class="inv-head-actions">
+          <button type="button" class="btn ghost" data-action="inv-settings">Business details</button>
+          <button type="button" class="btn gold" data-action="inv-new">+ New invoice</button>
+        </div>
+      </div>
+      <div class="inv-setup" id="inv-setup" hidden></div>
+      <div class="onb-kpis inv-kpis" id="inv-kpis"></div>
+      <div class="inv-block">
+        <div class="inv-block-head"><h3>To send</h3><p>Invoices due now or in the next week.</p></div>
+        <div class="rp-list" id="inv-due-list"></div>
+      </div>
+      <div class="inv-block">
+        <div class="inv-block-head"><h3>Waiting on payment</h3><p>Sent and not yet paid. Mark one paid to send the receipt.</p></div>
+        <div class="rp-list" id="inv-unpaid-list"></div>
+      </div>
+      <div class="inv-block">
+        <div class="inv-block-head">
+          <h3>All invoices</h3>
+          <div class="inv-filters">
+            <select class="filter-select" id="inv-filter-client" aria-label="Filter by client"><option value="">All clients</option></select>
+            <select class="filter-select" id="inv-filter-status" aria-label="Filter by status">
+              <option value="">Any status</option><option value="draft">Draft</option><option value="sent">Sent</option><option value="paid">Paid</option><option value="void">Void</option>
+            </select>
+          </div>
+        </div>
+        <div class="card"><div class="table-wrap">
+          <table class="inv-table">
+            <thead><tr><th>Invoice</th><th>Client</th><th>Date</th><th>Total</th><th>Status</th><th>Receipt</th><th></th></tr></thead>
+            <tbody id="inv-tbody"></tbody>
+          </table>
+        </div></div>
+      </div>
+      <div class="inv-block">
+        <div class="inv-block-head"><h3>Billing schedule</h3><p>Every client's fee, start date and next invoice. Set their card payment link here once and it goes on every invoice.</p></div>
+        <div class="card"><div class="table-wrap">
+          <table class="inv-table">
+            <thead><tr><th>Client</th><th>Monthly fee</th><th>Billing started</th><th>Next invoice</th><th>Card link</th><th></th></tr></thead>
+            <tbody id="inv-schedule-tbody"></tbody>
+          </table>
+        </div></div>
+      </div>
+    </section>
+
     <section class="page" id="page-reporting">
       <div class="page-header">
         <div><h2>Reporting</h2><p>A report for every client each fortnight, showing how their month is going: revenue won, the 10-quote guarantee, and the return. Make one, then drag the PDF into your email.</p></div>
@@ -1496,6 +1547,142 @@
 </div>
 
 <!-- ───────── Modal: Expense ───────── -->
+<!-- Invoice editor -->
+<div class="overlay" id="inv-modal">
+  <div class="modal inv-modal">
+    <div class="modal-header"><h3 id="inv-modal-title">New invoice</h3><button class="modal-close" data-close="inv-modal">&times;</button></div>
+    <form class="modal-body inv-form" id="inv-form">
+      <input type="hidden" id="inv-id">
+      <div class="rp-grid rp-grid-2">
+        <div class="field"><label for="inv-client">Client</label><select id="inv-client" required></select></div>
+        <div class="field"><label for="inv-number">Invoice number</label><input type="text" id="inv-number" required></div>
+      </div>
+      <div class="rp-grid rp-grid-3">
+        <div class="field"><label for="inv-date">Invoice date</label><input type="date" id="inv-date" required></div>
+        <div class="field"><label for="inv-from">Service period from</label><input type="date" id="inv-from"></div>
+        <div class="field"><label for="inv-to">to</label><input type="date" id="inv-to"></div>
+      </div>
+      <div class="rp-grid rp-grid-2">
+        <div class="field"><label for="inv-contact">Attention (contact name)</label><input type="text" id="inv-contact" placeholder="e.g. Sam Reeve"></div>
+        <div class="field"><label for="inv-email">Send to (email)</label><input type="email" id="inv-email" placeholder="accounts@theirbusiness.co.nz"></div>
+      </div>
+      <div class="inv-items-head"><h4>Line items</h4><span>Prices excl. GST</span></div>
+      <div class="inv-items" id="inv-items"></div>
+      <div class="inv-items-add">
+        <button type="button" class="btn ghost sm" data-action="inv-add-fee">+ Monthly management fee</button>
+        <button type="button" class="btn ghost sm" data-action="inv-add-line">+ Other line</button>
+      </div>
+      <div class="inv-totals" id="inv-totals"></div>
+      <div class="field"><label for="inv-paylink">Card payment link (Stripe)</label><input type="url" id="inv-paylink" placeholder="https://buy.stripe.com/..."><span class="field-hint">Saved to this client, so it fills in on their next invoice too.</span></div>
+      <div class="field"><label for="inv-notes">Note on the invoice (optional)</label><textarea id="inv-notes" rows="2" placeholder="e.g. Thanks for a great first month!"></textarea></div>
+      <div class="wp-status" id="inv-status" role="status"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost danger-text" id="inv-void" hidden>Void</button>
+        <button type="button" class="btn ghost" id="inv-save-draft">Save draft</button>
+        <button type="button" class="btn ghost" id="inv-preview">Preview PDF</button>
+        <button type="submit" class="btn gold" id="inv-send">Make &amp; send</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Mark paid -->
+<div class="overlay" id="inv-paid-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="inv-paid-title">Mark paid</h3><button class="modal-close" data-close="inv-paid-modal">&times;</button></div>
+    <form class="modal-body" id="inv-paid-form">
+      <input type="hidden" id="inv-paid-id">
+      <p class="inv-paid-sub" id="inv-paid-sub"></p>
+      <div class="rp-grid rp-grid-2">
+        <div class="field"><label for="inv-paid-date">Paid on</label><input type="date" id="inv-paid-date" required></div>
+        <div class="field"><label for="inv-paid-method">Paid by</label>
+          <select id="inv-paid-method"><option>Card (Stripe)</option><option>Bank transfer</option><option>Cash</option><option>Other</option></select>
+        </div>
+      </div>
+      <div class="field"><label for="inv-receipt-number">Receipt number</label><input type="text" id="inv-receipt-number" required></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="inv-paid-only">Just mark paid</button>
+        <button type="submit" class="btn gold">Mark paid &amp; send receipt</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Send: the PDF to drag in, and the email ready to go -->
+<div class="overlay" id="inv-send-modal">
+  <div class="modal inv-modal">
+    <div class="modal-header"><h3 id="inv-send-title">Send invoice</h3><button class="modal-close" data-close="inv-send-modal">&times;</button></div>
+    <div class="modal-body">
+      <a class="wp-file" id="inv-file" draggable="true" href="#" download>
+        <span class="wp-file-icon">PDF</span>
+        <span class="wp-file-text"><strong id="inv-file-name">Invoice.pdf</strong><span>Saved to your Downloads. Drag this straight into the email, or click to download again</span></span>
+      </a>
+      <div class="field"><label for="inv-mail-to">To</label><input type="email" id="inv-mail-to"></div>
+      <div class="field"><label for="inv-mail-subject">Subject</label><input type="text" id="inv-mail-subject"></div>
+      <div class="field"><label for="inv-mail-body">Email</label><textarea id="inv-mail-body" rows="10"></textarea></div>
+      <div class="modal-actions inv-send-actions">
+        <button type="button" class="btn ghost" id="inv-mail-copy">Copy email</button>
+        <button type="button" class="btn ghost" id="inv-mail-app">Open in mail app</button>
+        <button type="button" class="btn gold" id="inv-mail-gmail">Open in Gmail</button>
+      </div>
+      <p class="wp-done-note" id="inv-send-note"></p>
+    </div>
+  </div>
+</div>
+
+<!-- Our business details, printed on every invoice -->
+<div class="overlay" id="inv-settings-modal">
+  <div class="modal">
+    <div class="modal-header"><h3>Business details</h3><button class="modal-close" data-close="inv-settings-modal">&times;</button></div>
+    <form class="modal-body" id="inv-settings-form">
+      <p class="inv-paid-sub">These print at the top of every invoice and receipt. A tax invoice needs your legal name and GST number.</p>
+      <div class="field"><label for="inv-set-name">Legal business name</label><input type="text" id="inv-set-name" placeholder="Mr Priceless Limited" required></div>
+      <div class="rp-grid rp-grid-2">
+        <div class="field"><label for="inv-set-gst">GST number</label><input type="text" id="inv-set-gst" placeholder="123-456-789" required></div>
+        <div class="field"><label for="inv-set-phone">Phone</label><input type="text" id="inv-set-phone"></div>
+      </div>
+      <div class="rp-grid rp-grid-2">
+        <div class="field"><label for="inv-set-email">Accounts email</label><input type="email" id="inv-set-email"></div>
+        <div class="field"><label for="inv-set-website">Website</label><input type="text" id="inv-set-website" placeholder="mrpriceless.com"></div>
+      </div>
+      <div class="field"><label for="inv-set-address">Address</label><textarea id="inv-set-address" rows="2"></textarea></div>
+      <div class="field"><label for="inv-set-paylink">Default card payment link</label><input type="url" id="inv-set-paylink" placeholder="https://buy.stripe.com/..."><span class="field-hint">Used when a client doesn't have their own link.</span></div>
+      <div class="rp-grid rp-grid-2">
+        <div class="field"><label for="inv-set-sender">Sign emails off as</label><input type="text" id="inv-set-sender" placeholder="Rocky"></div>
+        <div class="field"><label for="inv-set-next">Next invoice number</label><input type="number" id="inv-set-next" min="1" step="1"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="inv-settings-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- A client's billing setup -->
+<div class="overlay" id="inv-billing-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="inv-billing-title">Billing</h3><button class="modal-close" data-close="inv-billing-modal">&times;</button></div>
+    <form class="modal-body" id="inv-billing-form">
+      <input type="hidden" id="inv-bill-id">
+      <div class="rp-grid rp-grid-2">
+        <div class="field"><label for="inv-bill-start">Started with us</label><input type="date" id="inv-bill-start" required><span class="field-hint">First invoice is a month after this, then every 30 days.</span></div>
+        <div class="field"><label for="inv-bill-fee">Monthly fee (excl. GST)</label><input type="number" id="inv-bill-fee" min="0" step="0.01"><span class="field-hint" id="inv-bill-fee-hint"></span></div>
+      </div>
+      <div class="rp-grid rp-grid-2">
+        <div class="field"><label for="inv-bill-contact">Attention (contact name)</label><input type="text" id="inv-bill-contact"></div>
+        <div class="field"><label for="inv-bill-email">Invoices go to</label><input type="email" id="inv-bill-email"></div>
+      </div>
+      <div class="field"><label for="inv-bill-paylink">Card payment link (Stripe)</label><input type="url" id="inv-bill-paylink" placeholder="https://buy.stripe.com/..."></div>
+      <label class="inv-check"><input type="checkbox" id="inv-bill-paused"> Pause invoicing for this client</label>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="inv-billing-modal">Cancel</button>
+        <button type="submit" class="btn gold">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="overlay" id="expense-modal">
   <div class="modal">
     <div class="modal-header"><h3 id="expense-modal-title">Add Expense</h3><button class="modal-close" data-close="expense-modal">&times;</button></div>
@@ -2320,13 +2507,14 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=176"></script>
-<script src="js/supabaseClient.js?v=176"></script>
-<script src="js/report-pdf.js?v=176"></script>
-<script src="js/plan-pdf.js?v=176"></script>
-<script src="js/workshop-pdf.js?v=176"></script>
-<script src="js/app.js?v=176"></script>
-<script src="js/meetings-tracker.js?v=176"></script>
-<script src="js/todo.js?v=176"></script>
+<script src="js/config.js?v=177"></script>
+<script src="js/supabaseClient.js?v=177"></script>
+<script src="js/report-pdf.js?v=177"></script>
+<script src="js/plan-pdf.js?v=177"></script>
+<script src="js/workshop-pdf.js?v=177"></script>
+<script src="js/invoice-pdf.js?v=177"></script>
+<script src="js/app.js?v=177"></script>
+<script src="js/meetings-tracker.js?v=177"></script>
+<script src="js/todo.js?v=177"></script>
 </body>
 </html>

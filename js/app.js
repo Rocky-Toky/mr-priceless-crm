@@ -5484,6 +5484,580 @@ async function makeReport(){
   } finally { btn.disabled = false; }
 }
 
+/* ───────── Invoices & receipts ─────────
+   Each client's billing setup and invoices live on the client
+   (onboarding_progress.billing and .invoices), so there are no new tables.
+   The first invoice goes out a month after the client starts, then every 30
+   days; each covers the period just gone. Amounts are excl. GST with 15% on
+   top, due on receipt, paid by card through the client's Stripe link. Our
+   business details (legal name, GST number...) are saved per login in
+   user_widget_state, and every invoice keeps a copy of the details it was
+   made with, so a teammate who hasn't filled them in still gets them. */
+const INV_GST = 0.15, INV_CYCLE_DAYS = 30, INV_SOON_DAYS = 7;
+const invMoney = (n) => "$" + (Number(n) || 0).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const invBilling = (c) => (c.onboarding_progress || {}).billing || {};
+const invoicesOf = (c) => (c.onboarding_progress || {}).invoices || [];
+const invAll = () => state.clients.flatMap(c => invoicesOf(c).map(inv => ({ inv, c })));
+const invNum = (seq) => "MP-" + String(seq).padStart(4, "0");
+const invReceiptNum = (inv) => "RC-" + String(inv.seq || "").padStart(4, "0");
+function invAddDays(day, n){ const d = new Date(day + "T00:00:00"); d.setDate(d.getDate() + n); return localDayStr(d); }
+function invAddMonths(day, n){
+  const d = new Date(day + "T00:00:00"), dd = d.getDate();
+  d.setDate(1); d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(dd, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return localDayStr(d);
+}
+const invDaysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
+const invLong = (day) => day ? new Date(day + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "long", year: "numeric" }) : "";
+const invShort = (day) => day ? new Date(day + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "";
+function invPeriodLabel(from, to){
+  if (!from || !to) return "";
+  const short = (d, y) => new Date(d + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", ...(y ? { year: "numeric" } : {}) });
+  return `${short(from, from.slice(0, 4) !== to.slice(0, 4))} – ${short(to, true)}`;
+}
+const invTotal = (inv) => window.MPInvoicePDF ? window.MPInvoicePDF.totals(inv.items, inv.gst_rate ?? INV_GST).total : 0;
+const invIsBillable = (c) => !["churned", ARCHIVED_STAGE].includes(c.stage || "onboarding");
+
+// When they started with us: set on their billing, else when they signed.
+function invStart(c){
+  const b = invBilling(c), p = c.onboarding_progress || {};
+  if (b.start) return b.start;
+  const at = p.signed_at || c.created_at;
+  return at ? localDayStr(new Date(at)) : null;
+}
+function invFee(c){
+  const b = invBilling(c);
+  if (b.fee !== undefined && b.fee !== null && b.fee !== "") return Number(b.fee);
+  return clientRetainer(c);
+}
+// Invoice n's date: a month after the start, then every 30 days.
+function invCycleDate(c, n){
+  const start = invStart(c);
+  if (!start) return null;
+  const first = invAddMonths(start, 1);
+  return n ? invAddDays(first, n * INV_CYCLE_DAYS) : first;
+}
+const invCyclePeriod = (c, n) => ({ from: n ? invCycleDate(c, n - 1) : invStart(c), to: invAddDays(invCycleDate(c, n), -1) });
+// The next invoice this client needs. A client who was with us before
+// invoices moved into the CRM starts from the one that's due now.
+function invNextCycle(c){
+  if (!invStart(c)) return null;
+  const done = invoicesOf(c).filter(i => ["sent", "paid"].includes(i.status) && Number.isInteger(i.cycle)).map(i => i.cycle);
+  if (done.length) return Math.max(...done) + 1;
+  const cutoff = invAddDays(localDayStr(), -3);
+  let n = 0;
+  while (invCycleDate(c, n) < cutoff && n < 500) n++;
+  return n;
+}
+function invNextDue(c){
+  const n = invNextCycle(c);
+  return n == null ? null : { cycle: n, date: invCycleDate(c, n), ...invCyclePeriod(c, n) };
+}
+function invContact(c){
+  const b = invBilling(c);
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  const contact = deal?.contact_id ? state.contacts.find(x => x.id === deal.contact_id) : null;
+  return {
+    name: b.contact || (contact?.name || (deal?.contact_name || "").split(" - ")[0] || "").trim(),
+    email: b.email || c.email || c.report_email || contact?.email || "",
+  };
+}
+function invNextSeq(){
+  const used = invAll().map(({ inv }) => Number(inv.seq) || 0);
+  return Math.max(Number(invSettings.next) || 1, used.length ? Math.max(...used) + 1 : 1);
+}
+
+/* Our business details */
+const INV_SETTINGS_KEY = "billing_settings";
+let invSettings = {}, invSettingsLoaded = false;
+function invBusiness(){
+  // Fill any gaps from the most recent invoice anyone made.
+  const latest = invAll().map(x => x.inv).filter(i => i.business).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+  const from = latest?.business || {};
+  const pick = (k) => invSettings[k] || from[k] || "";
+  return { name: pick("name"), gst: pick("gst"), address: pick("address"), email: pick("email"), phone: pick("phone"), website: pick("website") || "mrpriceless.com", pay_link: pick("pay_link") };
+}
+async function invLoadSettings(){
+  if (IS_CONFIGURED && !state.user) return;
+  invSettingsLoaded = true;
+  try {
+    if (IS_CONFIGURED){
+      const { data } = await supabase.from("user_widget_state").select("data").eq("user_id", state.user.id).eq("widget", INV_SETTINGS_KEY).maybeSingle();
+      invSettings = data?.data || {};
+    } else invSettings = JSON.parse(localStorage.getItem("mp_" + INV_SETTINGS_KEY) || "{}");
+  } catch(e){ invSettings = {}; }
+  renderInvoices();
+}
+async function invSaveSettings(next){
+  invSettings = next;
+  try {
+    if (IS_CONFIGURED) await supabase.from("user_widget_state").upsert({ user_id: state.user.id, widget: INV_SETTINGS_KEY, data: next, updated_at: new Date().toISOString() });
+    else localStorage.setItem("mp_" + INV_SETTINGS_KEY, JSON.stringify(next));
+  } catch(e){ console.error(e); }
+  renderInvoices();
+}
+
+async function invSaveClient(clientId, patch){
+  const c = state.clients.find(x => x.id === clientId);
+  if (!c) return;
+  const progress = { ...(c.onboarding_progress || {}), ...patch };
+  c.onboarding_progress = progress;
+  await DataLayer.update("clients", c.id, { onboarding_progress: progress });
+}
+async function invPut(clientId, inv){
+  const c = state.clients.find(x => x.id === clientId);
+  const list = invoicesOf(c).filter(i => i.id !== inv.id);
+  list.push(inv);
+  list.sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+  await invSaveClient(clientId, { invoices: list });
+}
+function invFind(id){ return invAll().find(x => x.inv.id === id) || null; }
+
+/* The page */
+function invStatus(inv){
+  if (inv.status === "paid") return { cls: "track", label: "Paid" };
+  if (inv.status === "void") return { cls: "void", label: "Void" };
+  if (inv.status === "sent"){
+    const days = invDaysBetween(inv.date, localDayStr());
+    return days > 7 ? { cls: "late", label: `Unpaid · ${days} days` } : { cls: "client", label: "Sent" };
+  }
+  return { cls: "draft", label: "Draft" };
+}
+function renderInvoices(){
+  const kpis = $("#inv-kpis");
+  if (!kpis) return;
+  if (!invSettingsLoaded) invLoadSettings();
+  const today = localDayStr(), soon = invAddDays(today, INV_SOON_DAYS);
+  const clients = state.clients.filter(invIsBillable).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const all = invAll();
+
+  // Who needs an invoice now or this week (a draft for that cycle counts as started).
+  const due = clients.filter(c => !invBilling(c).paused && invFee(c) > 0).map(c => ({ c, next: invNextDue(c) }))
+    .filter(x => x.next && x.next.date <= soon).sort((a, b) => a.next.date.localeCompare(b.next.date));
+  const unpaid = all.filter(x => x.inv.status === "sent").sort((a, b) => a.inv.date.localeCompare(b.inv.date));
+  const ym = today.slice(0, 7);
+  const paidMonth = all.filter(x => x.inv.status === "paid" && (x.inv.paid_at || "").slice(0, 7) === ym);
+  const monthly = clients.filter(c => !invBilling(c).paused).reduce((s, c) => s + (invFee(c) || 0), 0) * (1 + INV_GST);
+  const dueNow = due.filter(x => x.next.date <= today).length;
+  const dueSum = due.reduce((s, x) => s + invFee(x.c) * (1 + INV_GST), 0);
+  const unpaidSum = unpaid.reduce((s, x) => s + invTotal(x.inv), 0);
+  const oldest = unpaid.length ? invDaysBetween(unpaid[0].inv.date, today) : 0;
+  const month = new Date().toLocaleDateString("en-NZ", { month: "long" });
+  kpis.innerHTML = `
+    <div class="onb-kpi ${dueNow ? "warn" : ""}"><span class="onb-kpi-label">To send</span><span class="onb-kpi-value">${due.length}</span><span class="onb-kpi-sub">${due.length ? `${invMoney(dueSum)} incl. GST${dueNow ? ` · ${dueNow} due now` : ""}` : "nothing due this week"}</span></div>
+    <div class="onb-kpi ${oldest > 7 ? "warn" : ""}"><span class="onb-kpi-label">Waiting on payment</span><span class="onb-kpi-value">${invMoney(unpaidSum)}</span><span class="onb-kpi-sub">${unpaid.length ? `${unpaid.length} invoice${unpaid.length === 1 ? "" : "s"} · oldest ${oldest} day${oldest === 1 ? "" : "s"}` : "all paid up"}</span></div>
+    <div class="onb-kpi"><span class="onb-kpi-label">Paid in ${escapeHtml(month)}</span><span class="onb-kpi-value">${invMoney(paidMonth.reduce((s, x) => s + invTotal(x.inv), 0))}</span><span class="onb-kpi-sub">${paidMonth.length} receipt${paidMonth.length === 1 ? "" : "s"}</span></div>
+    <div class="onb-kpi"><span class="onb-kpi-label">Monthly billing</span><span class="onb-kpi-value">${invMoney(monthly)}</span><span class="onb-kpi-sub">incl. GST, across ${(n => `${n} client${n === 1 ? "" : "s"}`)(clients.filter(c => !invBilling(c).paused && invFee(c) > 0).length)}</span></div>`;
+  const navCount = $("#nav-inv-count");
+  if (navCount){ navCount.hidden = !dueNow; navCount.textContent = dueNow; }
+
+  const biz = invBusiness(), setup = $("#inv-setup");
+  if (setup){
+    setup.hidden = !!(biz.name && biz.gst);
+    setup.innerHTML = `<div><b>Add your business details first.</b> A tax invoice needs your legal name and GST number, and these print on every invoice.</div><button type="button" class="btn gold sm" data-action="inv-settings">Add details</button>`;
+  }
+
+  const avatar = (c) => `<span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>`;
+  $("#inv-due-list").innerHTML = due.length ? due.map(({ c, next }) => {
+    const days = invDaysBetween(today, next.date);
+    const draft = invoicesOf(c).find(i => i.status === "draft" && i.cycle === next.cycle);
+    const when = days < 0 ? `${-days} day${days === -1 ? "" : "s"} overdue` : days === 0 ? "Due today" : `Due in ${days} day${days === 1 ? "" : "s"}`;
+    return `<article class="rp-row inv-row ${days <= 0 ? "is-due" : ""}">
+      ${avatar(c)}
+      <div class="rp-row-id"><div class="rp-row-name">${escapeHtml(c.name)}</div><div class="rp-row-sub">Invoice ${next.cycle + 1} · ${escapeHtml(invPeriodLabel(next.from, next.to))}</div></div>
+      <div class="rp-row-stat"><span>Amount</span><b>${invMoney(invFee(c) * (1 + INV_GST))}</b></div>
+      <div class="rp-row-stat"><span>Invoice date</span><b>${escapeHtml(invShort(next.date))}</b></div>
+      <span class="onb-status ${days < 0 ? "late" : days === 0 ? "client" : "soon"}">${when}</span>
+      <div class="rp-row-actions"><button type="button" class="btn gold sm" data-action="${draft ? "inv-edit" : "inv-create"}" data-id="${draft ? draft.id : c.id}">${draft ? "Finish draft" : "Make invoice"}</button></div>
+    </article>`;
+  }).join("") : `<div class="inv-empty">Nothing due this week. Next up: ${(() => {
+      const nxt = clients.filter(c => !invBilling(c).paused && invFee(c) > 0).map(c => ({ c, n: invNextDue(c) })).filter(x => x.n).sort((a, b) => a.n.date.localeCompare(b.n.date))[0];
+      return nxt ? `${escapeHtml(nxt.c.name)} on ${escapeHtml(invShort(nxt.n.date))}` : "set up a client's billing below";
+    })()}.</div>`;
+
+  $("#inv-unpaid-list").innerHTML = unpaid.length ? unpaid.map(({ inv, c }) => {
+    const st = invStatus(inv);
+    return `<article class="rp-row inv-row">
+      ${avatar(c)}
+      <div class="rp-row-id"><div class="rp-row-name">${escapeHtml(c.name)}</div><div class="rp-row-sub">${escapeHtml(inv.number)} · sent ${escapeHtml(invShort((inv.sent_at || inv.date).slice(0, 10)))}</div></div>
+      <div class="rp-row-stat"><span>Total</span><b>${invMoney(invTotal(inv))}</b></div>
+      <div class="rp-row-stat"><span>Invoice date</span><b>${escapeHtml(invShort(inv.date))}</b></div>
+      <span class="onb-status ${st.cls}">${escapeHtml(st.label)}</span>
+      <div class="rp-row-actions">
+        <button type="button" class="btn ghost sm" data-action="inv-email" data-id="${inv.id}">${st.cls === "late" ? "Send reminder" : "Email again"}</button>
+        <button type="button" class="btn gold sm" data-action="inv-paid" data-id="${inv.id}">Mark paid</button>
+      </div>
+    </article>`;
+  }).join("") : `<div class="inv-empty">No unpaid invoices.</div>`;
+
+  // All invoices, newest first.
+  const fc = $("#inv-filter-client"), fs = $("#inv-filter-status");
+  if (fc){
+    const keep = fc.value;
+    fc.innerHTML = `<option value="">All clients</option>` + state.clients.filter(c => invoicesOf(c).length).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    fc.value = keep;
+  }
+  const rows = all.filter(x => (!fc?.value || x.c.id === fc.value) && (!fs?.value || x.inv.status === fs.value))
+    .sort((a, b) => (Number(b.inv.seq) || 0) - (Number(a.inv.seq) || 0));
+  $("#inv-tbody").innerHTML = rows.length ? rows.map(({ inv, c }) => {
+    const st = invStatus(inv), paid = inv.status === "paid";
+    return `<tr>
+      <td><div class="row-name">${escapeHtml(inv.number)}</div><div class="row-sub">${escapeHtml(invPeriodLabel(inv.from, inv.to))}</div></td>
+      <td>${escapeHtml(c.name)}</td>
+      <td>${escapeHtml(invShort(inv.date))}</td>
+      <td style="font-weight:700;">${invMoney(invTotal(inv))}</td>
+      <td><span class="onb-status ${st.cls}">${escapeHtml(st.label)}</span></td>
+      <td>${paid ? `<button type="button" class="link-btn" data-action="inv-receipt-pdf" data-id="${inv.id}">${escapeHtml(inv.receipt_number || invReceiptNum(inv))}</button>` : "-"}</td>
+      <td class="inv-actions">
+        <button type="button" class="btn ghost sm" data-action="inv-pdf" data-id="${inv.id}">PDF</button>
+        ${paid ? `<button type="button" class="btn ghost sm" data-action="inv-receipt-email" data-id="${inv.id}">Email receipt</button>`
+          : inv.status === "void" ? "" : `<button type="button" class="btn ghost sm" data-action="inv-edit" data-id="${inv.id}">Edit</button>
+            ${inv.status === "sent" ? `<button type="button" class="btn ghost sm" data-action="inv-paid" data-id="${inv.id}">Mark paid</button>` : ""}`}
+        ${inv.status === "draft" ? `<button type="button" class="icon-btn" data-action="inv-delete" data-id="${inv.id}" title="Delete draft">${ICONS.trash}</button>` : ""}
+      </td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="7">${emptyState(all.length ? "No invoices match those filters." : "No invoices yet. They'll show here once you make the first one.")}</td></tr>`;
+
+  // Billing schedule for every client.
+  $("#inv-schedule-tbody").innerHTML = clients.length ? clients.map(c => {
+    const b = invBilling(c), fee = invFee(c), next = invNextDue(c);
+    return `<tr class="${b.paused ? "inv-paused" : ""}">
+      <td><div class="row-name">${escapeHtml(c.name)}</div><div class="row-sub">${escapeHtml(invContact(c).email || "No email yet")}</div></td>
+      <td>${fee > 0 ? `${invMoney(fee)} <span class="row-sub">+ GST</span>` : `<span class="row-sub">Not set</span>`}</td>
+      <td>${escapeHtml(invShort(invStart(c)) || "-")}</td>
+      <td>${b.paused ? `<span class="onb-status void">Paused</span>` : next ? escapeHtml(invShort(next.date)) : "-"}</td>
+      <td>${(b.pay_link || biz.pay_link) ? `<span class="onb-status track">${b.pay_link ? "Set" : "Default"}</span>` : `<span class="onb-status late">Missing</span>`}</td>
+      <td class="inv-actions"><button type="button" class="btn ghost sm" data-action="inv-billing" data-id="${c.id}">Edit billing</button></td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="6">${emptyState("No clients yet.")}</td></tr>`;
+}
+
+/* The invoice editor */
+let invEditing = null; // { clientId, inv }
+function invLineRow(it = {}){
+  return `<div class="inv-line" ${it.auto ? 'data-auto="1"' : ""}>
+    <input type="text" class="inv-l-desc" placeholder="Description" value="${escapeHtml(it.desc || "")}" aria-label="Description">
+    <input type="text" class="inv-l-sub" placeholder="Detail, e.g. the service period" value="${escapeHtml(it.sub || "")}" aria-label="Detail">
+    <input type="number" class="inv-l-qty" min="0" step="1" value="${it.qty ?? 1}" aria-label="Quantity">
+    <input type="number" class="inv-l-unit" min="0" step="0.01" placeholder="0.00" value="${it.unit ?? ""}" aria-label="Unit price excl. GST">
+    <span class="inv-l-amt"></span>
+    <button type="button" class="icon-btn" data-action="inv-remove-line" title="Remove line">${ICONS.trash}</button>
+  </div>`;
+}
+const invPeriodSub = () => { const l = invPeriodLabel($("#inv-from").value, $("#inv-to").value); return l ? `Service period ${l}` : ""; };
+function invReadForm(){
+  const items = $$("#inv-items .inv-line").map(row => ({
+    desc: row.querySelector(".inv-l-desc").value.trim(), sub: row.querySelector(".inv-l-sub").value.trim(),
+    qty: Number(row.querySelector(".inv-l-qty").value) || 0, unit: Number(row.querySelector(".inv-l-unit").value) || 0,
+    ...(row.dataset.auto ? { auto: true } : {}),
+  })).filter(it => it.desc || it.unit);
+  return {
+    clientId: $("#inv-client").value, number: $("#inv-number").value.trim(), date: $("#inv-date").value,
+    from: $("#inv-from").value || null, to: $("#inv-to").value || null,
+    contact: $("#inv-contact").value.trim(), email: $("#inv-email").value.trim(),
+    items, pay_link: $("#inv-paylink").value.trim(), notes: $("#inv-notes").value.trim(),
+  };
+}
+function invRenderTotals(){
+  $$("#inv-items .inv-line").forEach(row => {
+    row.querySelector(".inv-l-amt").textContent = invMoney((Number(row.querySelector(".inv-l-qty").value) || 0) * (Number(row.querySelector(".inv-l-unit").value) || 0));
+  });
+  const t = window.MPInvoicePDF.totals(invReadForm().items, INV_GST);
+  $("#inv-totals").innerHTML = `<div><span>Subtotal</span><b>${invMoney(t.subtotal)}</b></div><div><span>GST 15%</span><b>${invMoney(t.gst)}</b></div><div class="inv-total"><span>Total NZD</span><b>${invMoney(t.total)}</b></div>`;
+}
+function invFeeLine(c){
+  return { desc: "Monthly management fee", sub: invPeriodSub(), qty: 1, unit: invFee(c) || "", auto: true };
+}
+function invFillClient(c, inv){
+  const ct = invContact(c);
+  $("#inv-contact").value = inv?.contact ?? ct.name;
+  $("#inv-email").value = inv?.email ?? ct.email;
+  $("#inv-paylink").value = inv?.pay_link ?? (invBilling(c).pay_link || invBusiness().pay_link || "");
+}
+function openInvoiceEditor(clientId, invId){
+  const found = invId ? invFind(invId) : null;
+  const inv = found?.inv || null;
+  const c = found?.c || state.clients.find(x => x.id === clientId) || null;
+  invEditing = { inv };
+  const sel = $("#inv-client");
+  sel.innerHTML = `<option value="">Pick a client</option>` + state.clients.filter(x => invIsBillable(x) || x.id === c?.id).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join("");
+  sel.value = c?.id || ""; sel.disabled = !!inv;
+  const next = c && !inv ? invNextDue(c) : null;
+  $("#inv-id").value = inv?.id || "";
+  $("#inv-number").value = inv?.number || invNum(invNextSeq());
+  $("#inv-date").value = inv?.date || (next && next.date > localDayStr() ? next.date : localDayStr());
+  $("#inv-from").value = inv?.from || next?.from || "";
+  $("#inv-to").value = inv?.to || next?.to || "";
+  if (c) invFillClient(c, inv); else ["contact", "email", "paylink"].forEach(k => { $("#inv-" + k).value = ""; });
+  $("#inv-notes").value = inv?.notes || "";
+  $("#inv-items").innerHTML = (inv?.items?.length ? inv.items : c ? [invFeeLine(c)] : [{}]).map(invLineRow).join("");
+  $("#inv-modal-title").textContent = inv ? `Edit ${inv.number}` : c ? `New invoice for ${c.name}` : "New invoice";
+  $("#inv-void").hidden = !(inv && inv.status === "sent");
+  $("#inv-status").textContent = "";
+  invEditing.cycle = inv ? inv.cycle : next ? next.cycle : null;
+  invRenderTotals();
+  openModal("inv-modal");
+}
+function invStatusMsg(msg, warn){ const el = $("#inv-status"); if (el){ el.textContent = msg; el.classList.toggle("warn", !!warn); } }
+async function invSaveForm(status){
+  const f = invReadForm();
+  if (!f.clientId) return invStatusMsg("Pick a client first.", true), null;
+  if (!f.items.length) return invStatusMsg("Add at least one line.", true), null;
+  if (!f.date) return invStatusMsg("Add the invoice date.", true), null;
+  const clash = invAll().find(x => x.inv.number === f.number && x.inv.id !== $("#inv-id").value);
+  if (clash) return invStatusMsg(`${f.number} is already used for ${clash.c.name}. Pick another number.`, true), null;
+  const old = invEditing?.inv;
+  const seq = Number((f.number.match(/(\d+)\s*$/) || [])[1]) || invNextSeq();
+  const inv = {
+    ...(old || {}), id: old?.id || (crypto.randomUUID ? crypto.randomUUID() : "inv-" + Date.now()),
+    seq, number: f.number, cycle: invEditing?.cycle ?? null, date: f.date, from: f.from, to: f.to,
+    contact: f.contact, email: f.email, items: f.items, gst_rate: INV_GST, pay_link: f.pay_link, notes: f.notes,
+    status: status === "sent" || old?.status === "sent" ? "sent" : "draft",
+    created_at: old?.created_at || new Date().toISOString(), business: invBusiness(),
+  };
+  if (status === "sent") inv.sent_at = new Date().toISOString();
+  await invPut(f.clientId, inv);
+  // Remember the client's contact details and card link for next time.
+  const c = state.clients.find(x => x.id === f.clientId), b = invBilling(c);
+  const keep = { ...b, ...(f.pay_link && f.pay_link !== invBusiness().pay_link ? { pay_link: f.pay_link } : {}), ...(f.email ? { email: f.email } : {}), ...(f.contact ? { contact: f.contact } : {}) };
+  if (JSON.stringify(keep) !== JSON.stringify(b)) await invSaveClient(f.clientId, { billing: keep });
+  if (seq >= (Number(invSettings.next) || 0) && invSettings.next) await invSaveSettings({ ...invSettings, next: seq + 1 });
+  invEditing.inv = inv;
+  return { inv, c: state.clients.find(x => x.id === f.clientId) };
+}
+// A plain data object for the PDF.
+function invPdfData(inv, c, kind){
+  return {
+    kind, number: inv.number, receiptNumber: inv.receipt_number || invReceiptNum(inv),
+    dateLabel: invLong(inv.date), dueLabel: "On receipt", periodLabel: invPeriodLabel(inv.from, inv.to),
+    paidLabel: invLong((inv.paid_at || "").slice(0, 10)), paidMethod: inv.paid_method || "Card (Stripe)",
+    business: { ...invBusiness(), ...(inv.business || {}) }, client: { name: c.name, contact: inv.contact, email: inv.email },
+    items: inv.items, gstRate: inv.gst_rate ?? INV_GST, payLink: inv.pay_link, notes: kind === "invoice" ? inv.notes : "",
+  };
+}
+let invLastUrl = null, invLastName = "";
+async function invMakePdf(inv, c, kind, opts = {}){
+  await wpLoadLibs();
+  const bytes = await window.MPInvoicePDF.build(invPdfData(inv, c, kind));
+  if (invLastUrl) URL.revokeObjectURL(invLastUrl);
+  invLastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  const safe = (c.name || "Client").replace(/[\\/:*?"<>|]+/g, "");
+  invLastName = kind === "receipt" ? `Mr Priceless Receipt ${inv.receipt_number || invReceiptNum(inv)} - ${safe}.pdf` : `Mr Priceless Invoice ${inv.number} - ${safe}.pdf`;
+  if (opts.download !== false){
+    const a = document.createElement("a"); a.href = invLastUrl; a.download = invLastName; document.body.appendChild(a); a.click(); a.remove();
+  }
+  return invLastUrl;
+}
+
+/* The ready-to-send email */
+function invEmail(inv, c, kind){
+  const first = (inv.contact || "").split(/\s+/)[0] || "there";
+  const person = window.getActivePerson ? window.getActivePerson() : null;
+  const sender = invSettings.sender || ASSIGNEES[person]?.label || "The Mr Priceless team";
+  const total = invMoney(invTotal(inv));
+  const period = invPeriodLabel(inv.from, inv.to);
+  if (kind === "receipt") return {
+    subject: `Receipt for invoice ${inv.number} - thanks!`,
+    body: `Hi ${first},\n\nThanks for your payment of ${total} on ${invLong((inv.paid_at || "").slice(0, 10))}. Your receipt for invoice ${inv.number} is attached for your records.\n\nCheers,\n${sender}\nMr Priceless`,
+  };
+  const late = inv.status === "sent" && invDaysBetween(inv.date, localDayStr()) > 7;
+  return {
+    subject: late ? `Reminder: invoice ${inv.number} from Mr Priceless` : `Invoice ${inv.number} from Mr Priceless`,
+    body: `Hi ${first},\n\n${late ? `Just a friendly reminder that invoice ${inv.number} for ${total} incl. GST is still outstanding.` : `Here's your invoice${period ? ` for ${period}` : ""}: ${total} incl. GST.`}\n\n${inv.pay_link ? `You can pay by card here:\n${inv.pay_link}\n\n` : ""}The PDF is attached for your records. Payment is due on receipt.\n\nAny questions, just reply to this email.\n\nCheers,\n${sender}\nMr Priceless`,
+  };
+}
+let invSendCtx = null;
+async function openInvoiceSend(invId, kind){
+  const found = invFind(invId);
+  if (!found) return;
+  const { inv, c } = found;
+  await invMakePdf(inv, c, kind);
+  invSendCtx = { invId, kind };
+  const mail = invEmail(inv, c, kind);
+  $("#inv-send-title").textContent = kind === "receipt" ? `Send receipt ${inv.receipt_number || invReceiptNum(inv)}` : `Send invoice ${inv.number}`;
+  const link = $("#inv-file"); link.href = invLastUrl; link.download = invLastName;
+  $("#inv-file-name").textContent = invLastName;
+  $("#inv-mail-to").value = inv.email || "";
+  $("#inv-mail-subject").value = mail.subject;
+  $("#inv-mail-body").value = mail.body;
+  $("#inv-send-note").textContent = kind === "receipt" ? "Marked paid. Open the email, drag the receipt in and send." : "Open the email, drag the PDF in and hit send.";
+  openModal("inv-send-modal");
+}
+async function invMarkSentAfterEmail(){
+  // Opening the email for a receipt notes when it went out.
+  if (!invSendCtx) return;
+  const found = invFind(invSendCtx.invId);
+  if (!found) return;
+  if (invSendCtx.kind === "receipt" && !found.inv.receipt_sent_at) await invPut(found.c.id, { ...found.inv, receipt_sent_at: new Date().toISOString() });
+}
+
+function openInvoicePaid(invId){
+  const found = invFind(invId);
+  if (!found) return;
+  const { inv, c } = found;
+  $("#inv-paid-id").value = inv.id;
+  $("#inv-paid-title").textContent = `${inv.number} paid`;
+  $("#inv-paid-sub").textContent = `${c.name} · ${invMoney(invTotal(inv))} incl. GST`;
+  $("#inv-paid-date").value = localDayStr();
+  $("#inv-paid-method").value = "Card (Stripe)";
+  $("#inv-receipt-number").value = inv.receipt_number || invReceiptNum(inv);
+  openModal("inv-paid-modal");
+}
+async function invSavePaid(sendReceipt){
+  const found = invFind($("#inv-paid-id").value);
+  if (!found) return;
+  const day = $("#inv-paid-date").value || localDayStr();
+  const inv = { ...found.inv, status: "paid", paid_at: day, paid_method: $("#inv-paid-method").value, receipt_number: $("#inv-receipt-number").value.trim() || invReceiptNum(found.inv) };
+  await invPut(found.c.id, inv);
+  closeModal("inv-paid-modal");
+  if (sendReceipt) await openInvoiceSend(inv.id, "receipt");
+}
+
+function openInvoiceBilling(clientId){
+  const c = state.clients.find(x => x.id === clientId);
+  if (!c) return;
+  const b = invBilling(c), ct = invContact(c), deal = clientRetainer(c);
+  $("#inv-bill-id").value = c.id;
+  $("#inv-billing-title").textContent = `Billing for ${c.name}`;
+  $("#inv-bill-start").value = invStart(c) || "";
+  $("#inv-bill-fee").value = b.fee ?? (deal ?? "");
+  $("#inv-bill-fee-hint").textContent = deal != null ? `Their deal says ${invMoney(deal)}/mo.` : "Not on their deal yet.";
+  $("#inv-bill-contact").value = ct.name;
+  $("#inv-bill-email").value = ct.email;
+  $("#inv-bill-paylink").value = b.pay_link || "";
+  $("#inv-bill-paused").checked = !!b.paused;
+  openModal("inv-billing-modal");
+}
+
+function setupInvoices(){
+  const page = $("#page-invoices");
+  if (!page) return;
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-action^='inv-']");
+    if (!btn) return;
+    const id = btn.dataset.id, action = btn.dataset.action;
+    try {
+      if (action === "inv-new") openInvoiceEditor(null, null);
+      else if (action === "inv-create") openInvoiceEditor(id, null);
+      else if (action === "inv-edit") openInvoiceEditor(null, id);
+      else if (action === "inv-billing") openInvoiceBilling(id);
+      else if (action === "inv-paid") openInvoicePaid(id);
+      else if (action === "inv-email") await openInvoiceSend(id, "invoice");
+      else if (action === "inv-receipt-email") await openInvoiceSend(id, "receipt");
+      else if (action === "inv-pdf" || action === "inv-receipt-pdf"){ const f = invFind(id); if (f) await invMakePdf(f.inv, f.c, action === "inv-pdf" ? "invoice" : "receipt"); }
+      else if (action === "inv-delete"){
+        const f = invFind(id);
+        if (f && confirm(`Delete draft ${f.inv.number}?`)) await invSaveClient(f.c.id, { invoices: invoicesOf(f.c).filter(i => i.id !== id) });
+      }
+      else if (action === "inv-settings"){
+        const b = invBusiness();
+        ["name", "gst", "phone", "email", "website", "address"].forEach(k => { $("#inv-set-" + k).value = b[k] || ""; });
+        $("#inv-set-paylink").value = b.pay_link || "";
+        $("#inv-set-sender").value = invSettings.sender || "";
+        $("#inv-set-next").value = invNextSeq();
+        openModal("inv-settings-modal");
+      }
+      else if (action === "inv-add-fee"){
+        const c = state.clients.find(x => x.id === $("#inv-client").value);
+        $("#inv-items").insertAdjacentHTML("beforeend", invLineRow(c ? invFeeLine(c) : { desc: "Monthly management fee", sub: invPeriodSub(), qty: 1, auto: true }));
+        invRenderTotals();
+      }
+      else if (action === "inv-add-line"){ $("#inv-items").insertAdjacentHTML("beforeend", invLineRow({})); $("#inv-items .inv-line:last-child .inv-l-desc")?.focus(); invRenderTotals(); }
+      else if (action === "inv-remove-line"){ btn.closest(".inv-line")?.remove(); invRenderTotals(); }
+    } catch(err){ console.error(err); alert("Something went wrong: " + (err.message || err)); }
+  });
+  $("#inv-filter-client")?.addEventListener("change", renderInvoices);
+  $("#inv-filter-status")?.addEventListener("change", renderInvoices);
+
+  const form = $("#inv-form");
+  form?.addEventListener("input", (e) => {
+    if (e.target.closest(".inv-line") && !e.target.matches(".inv-l-qty,.inv-l-unit")) e.target.closest(".inv-line").removeAttribute("data-auto");
+    invRenderTotals();
+  });
+  form?.addEventListener("change", (e) => {
+    if (e.target.id === "inv-client"){
+      const c = state.clients.find(x => x.id === e.target.value);
+      if (!c) return;
+      const next = invNextDue(c);
+      if (next){ $("#inv-from").value = next.from; $("#inv-to").value = next.to; invEditing.cycle = next.cycle; }
+      invFillClient(c, null);
+      $("#inv-items").innerHTML = invLineRow(invFeeLine(c));
+      $("#inv-modal-title").textContent = `New invoice for ${c.name}`;
+      invRenderTotals();
+    }
+    if (e.target.id === "inv-from" || e.target.id === "inv-to")
+      $$("#inv-items .inv-line[data-auto] .inv-l-sub").forEach(i => { i.value = invPeriodSub(); });
+  });
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = $("#inv-send"); btn.disabled = true;
+    try {
+      const saved = await invSaveForm("sent");
+      if (!saved) return;
+      closeModal("inv-modal");
+      await openInvoiceSend(saved.inv.id, "invoice");
+    } catch(err){ console.error(err); invStatusMsg("Couldn't make the invoice: " + (err.message || err), true); }
+    finally { btn.disabled = false; }
+  });
+  $("#inv-save-draft")?.addEventListener("click", async () => { if (await invSaveForm("draft")) closeModal("inv-modal"); });
+  $("#inv-preview")?.addEventListener("click", async () => {
+    const f = invReadForm(), c = state.clients.find(x => x.id === f.clientId);
+    if (!c) return invStatusMsg("Pick a client first.", true);
+    const w = window.open("", "_blank");
+    try {
+      const inv = { ...(invEditing?.inv || {}), ...f, gst_rate: INV_GST, seq: Number((f.number.match(/(\d+)\s*$/) || [])[1]) || 0 };
+      const url = await invMakePdf(inv, c, "invoice", { download: false });
+      if (w) w.location = url; else window.open(url, "_blank");
+    } catch(err){ if (w) w.close(); invStatusMsg("Couldn't make the preview: " + (err.message || err), true); }
+  });
+  $("#inv-void")?.addEventListener("click", async () => {
+    const inv = invEditing?.inv, f = inv && invFind(inv.id);
+    if (!f || !confirm(`Void ${inv.number}? It stays on record but won't need paying, and the next invoice will be made fresh.`)) return;
+    await invPut(f.c.id, { ...f.inv, status: "void", voided_at: new Date().toISOString(), cycle: null, voided_cycle: f.inv.cycle });
+    closeModal("inv-modal");
+  });
+
+  $("#inv-paid-form")?.addEventListener("submit", (e) => { e.preventDefault(); invSavePaid(true); });
+  $("#inv-paid-only")?.addEventListener("click", () => invSavePaid(false));
+
+  const mail = () => ({ to: $("#inv-mail-to").value.trim(), su: $("#inv-mail-subject").value, body: $("#inv-mail-body").value });
+  $("#inv-mail-gmail")?.addEventListener("click", () => {
+    const m = mail();
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(m.to)}&su=${encodeURIComponent(m.su)}&body=${encodeURIComponent(m.body)}`, "_blank");
+    invMarkSentAfterEmail();
+  });
+  $("#inv-mail-app")?.addEventListener("click", () => {
+    const m = mail();
+    window.location.href = `mailto:${encodeURIComponent(m.to)}?subject=${encodeURIComponent(m.su)}&body=${encodeURIComponent(m.body)}`;
+    invMarkSentAfterEmail();
+  });
+  $("#inv-mail-copy")?.addEventListener("click", async (e) => {
+    try { await navigator.clipboard.writeText(mail().body); e.target.textContent = "Copied"; setTimeout(() => { e.target.textContent = "Copy email"; }, 1600); } catch(err){}
+    invMarkSentAfterEmail();
+  });
+  $("#inv-file")?.addEventListener("dragstart", (e) => {
+    if (!invLastUrl) return;
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("DownloadURL", `application/pdf:${invLastName}:${invLastUrl}`);
+  });
+
+  $("#inv-settings-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = (k) => $("#inv-set-" + k).value.trim();
+    await invSaveSettings({ ...invSettings, name: v("name"), gst: v("gst"), phone: v("phone"), email: v("email"), website: v("website"), address: $("#inv-set-address").value.trim(), pay_link: v("paylink"), sender: v("sender"), next: Number(v("next")) || undefined });
+    closeModal("inv-settings-modal");
+  });
+  $("#inv-billing-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const c = state.clients.find(x => x.id === $("#inv-bill-id").value);
+    if (!c) return;
+    const fee = $("#inv-bill-fee").value;
+    await invSaveClient(c.id, { billing: { ...invBilling(c), start: $("#inv-bill-start").value || null, fee: fee === "" ? null : Number(fee),
+      contact: $("#inv-bill-contact").value.trim(), email: $("#inv-bill-email").value.trim(), pay_link: $("#inv-bill-paylink").value.trim(), paused: $("#inv-bill-paused").checked } });
+    closeModal("inv-billing-modal");
+  });
+}
+
 /* The Reporting page */
 function renderReporting(){
   const list = $("#rp-client-list");
@@ -6953,6 +7527,7 @@ function renderAll(){
   renderContentProduction();
   renderTasks();
   renderReporting();
+  renderInvoices();
   renderPlans();
   renderWorkshops();
   renderWeeklyReport();
@@ -8965,6 +9540,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupWelcomePack();
   setupOnboarding();
   setupReporting();
+  setupInvoices();
   setupPlans();
   setupWorkshops();
   populateRegionIndustrySelects();
