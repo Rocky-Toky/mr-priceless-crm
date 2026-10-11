@@ -5486,577 +5486,527 @@ async function makeReport(){
   } finally { btn.disabled = false; }
 }
 
-/* ───────── Invoices & receipts ─────────
-   Each client's billing setup and invoices live on the client
-   (onboarding_progress.billing and .invoices), so there are no new tables.
-   The first invoice goes out a month after the client starts, then every 30
-   days; each covers the period just gone. Amounts are excl. GST with 15% on
-   top, due on receipt, paid by card through the client's Stripe link. Our
-   business details (legal name, GST number...) are saved per login in
-   user_widget_state, and every invoice keeps a copy of the details it was
-   made with, so a teammate who hasn't filled them in still gets them. */
-const INV_GST = 0.15, INV_CYCLE_DAYS = 30, INV_SOON_DAYS = 7;
-const invMoney = (n) => "$" + (Number(n) || 0).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const invBilling = (c) => (c.onboarding_progress || {}).billing || {};
-const invoicesOf = (c) => (c.onboarding_progress || {}).invoices || [];
-const invAll = () => state.clients.flatMap(c => invoicesOf(c).map(inv => ({ inv, c })));
-const invNum = (seq) => "MP-" + String(seq).padStart(4, "0");
-const invReceiptNum = (inv) => "RC-" + String(inv.seq || "").padStart(4, "0");
-function invAddDays(day, n){ const d = new Date(day + "T00:00:00"); d.setDate(d.getDate() + n); return localDayStr(d); }
-function invAddMonths(day, n){
+/* ───────── Receipts ─────────
+   Clients pay each month by card; we send them a receipt that doubles as
+   their tax invoice. The first payment is a month after they start, then
+   every 30 days; each receipt covers the 30 days just gone, with 15% GST on
+   top of the fee. Each client's billing and receipts live on the client
+   (onboarding_progress.billing and .invoices - the key from when this page
+   was Invoices), so there are no new tables. Our business details are saved
+   per login in user_widget_state, and every receipt keeps a copy of them. */
+const RC_GST = 0.15, RC_CYCLE_DAYS = 30, RC_SOON_DAYS = 14;
+const RC_INCLUDED = [
+  "Content creation for your Meta ads, filmed and edited for you",
+  "Meta ads run and optimised by a senior media buyer",
+  "A sales call to every lead that comes through",
+  "One consulting workshop on your business each month",
+];
+const rcMoney = (n) => "$" + (Number(n) || 0).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const rcBilling = (c) => (c.onboarding_progress || {}).billing || {};
+const rcRecordsOf = (c) => (c.onboarding_progress || {}).invoices || [];
+const rcAll = () => state.clients.flatMap(c => rcRecordsOf(c).map(r => ({ r, c })));
+const rcNum = (seq) => "RC-" + String(seq).padStart(4, "0");
+const rcNumberOf = (r) => r.receipt_number || r.number || rcNum(r.seq || 0);
+function rcAddDays(day, n){ const d = new Date(day + "T00:00:00"); d.setDate(d.getDate() + n); return localDayStr(d); }
+function rcAddMonths(day, n){
   const d = new Date(day + "T00:00:00"), dd = d.getDate();
   d.setDate(1); d.setMonth(d.getMonth() + n);
   d.setDate(Math.min(dd, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
   return localDayStr(d);
 }
-const invDaysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
-const invLong = (day) => day ? new Date(day + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "long", year: "numeric" }) : "";
-const invShort = (day) => day ? new Date(day + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "";
-function invPeriodLabel(from, to){
+const rcDaysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
+const rcLong = (day) => day ? new Date(day + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "long", year: "numeric" }) : "";
+const rcShort = (day) => day ? new Date(day + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "";
+function rcPeriodLabel(from, to){
   if (!from || !to) return "";
-  const short = (d, y) => new Date(d + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", ...(y ? { year: "numeric" } : {}) });
-  return `${short(from, from.slice(0, 4) !== to.slice(0, 4))} – ${short(to, true)}`;
+  const f = (d, y) => new Date(d + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", ...(y ? { year: "numeric" } : {}) });
+  return `${f(from, from.slice(0, 4) !== to.slice(0, 4))} – ${f(to, true)}`;
 }
-const invTotal = (inv) => window.MPInvoicePDF ? window.MPInvoicePDF.totals(inv.items, inv.gst_rate ?? INV_GST).total : 0;
-const invIsBillable = (c) => !["churned", ARCHIVED_STAGE].includes(c.stage || "onboarding");
+const rcTotal = (r) => window.MPReceiptPDF ? window.MPReceiptPDF.totals(r.items, r.gst_rate ?? RC_GST).total : 0;
+const rcIsBillable = (c) => !["churned", ARCHIVED_STAGE].includes(c.stage || "onboarding");
+const rcIsPaid = (r) => r.status === "paid";
+const rcPaidDay = (r) => (r.paid_at || r.date || "").slice(0, 10);
 
-// When they started with us: set on their billing, else when they signed.
-function invStart(c){
-  const b = invBilling(c), p = c.onboarding_progress || {};
+function rcStart(c){
+  const b = rcBilling(c), p = c.onboarding_progress || {};
   if (b.start) return b.start;
+  // Ads going live is when billing starts (see the onboarding step for it).
+  if (c.ad_start_date) return c.ad_start_date.slice(0, 10);
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  if (deal?.commission_invoice_date) return deal.commission_invoice_date.slice(0, 10);
   const at = p.signed_at || c.created_at;
   return at ? localDayStr(new Date(at)) : null;
 }
-function invFee(c){
-  const b = invBilling(c);
+function rcFee(c){
+  const b = rcBilling(c);
   if (b.fee !== undefined && b.fee !== null && b.fee !== "") return Number(b.fee);
   return clientRetainer(c);
 }
-// Invoice n's date: a month after the start, then every 30 days.
-function invCycleDate(c, n){
-  const start = invStart(c);
+const rcActive = (c) => rcIsBillable(c) && !rcBilling(c).paused && rcFee(c) > 0;
+// Payment n: a month after the start, then every 30 days.
+function rcCycleDate(c, n){
+  const start = rcStart(c);
   if (!start) return null;
-  const first = invAddMonths(start, 1);
-  return n ? invAddDays(first, n * INV_CYCLE_DAYS) : first;
+  const first = rcAddMonths(start, 1);
+  return n ? rcAddDays(first, n * RC_CYCLE_DAYS) : first;
 }
-const invCyclePeriod = (c, n) => ({ from: n ? invCycleDate(c, n - 1) : invStart(c), to: invAddDays(invCycleDate(c, n), -1) });
-// The next invoice this client needs. A client who was with us before
-// invoices moved into the CRM starts from the one that's due now.
-function invNextCycle(c){
-  if (!invStart(c)) return null;
-  const done = invoicesOf(c).filter(i => ["sent", "paid"].includes(i.status) && Number.isInteger(i.cycle)).map(i => i.cycle);
+const rcCyclePeriod = (c, n) => ({ from: n ? rcCycleDate(c, n - 1) : rcStart(c), to: rcAddDays(rcCycleDate(c, n), -1) });
+// The next payment this client owes. Someone who was with us before
+// receipts moved into the CRM starts from the one that's due now.
+function rcNextCycle(c){
+  if (!rcStart(c)) return null;
+  const done = rcRecordsOf(c).filter(r => ["paid", "sent"].includes(r.status) && Number.isInteger(r.cycle)).map(r => r.cycle);
   if (done.length) return Math.max(...done) + 1;
-  const cutoff = invAddDays(localDayStr(), -3);
+  const cutoff = rcAddDays(localDayStr(), -3);
   let n = 0;
-  while (invCycleDate(c, n) < cutoff && n < 500) n++;
+  while (rcCycleDate(c, n) < cutoff && n < 500) n++;
   return n;
 }
-function invNextDue(c){
-  const n = invNextCycle(c);
-  return n == null ? null : { cycle: n, date: invCycleDate(c, n), ...invCyclePeriod(c, n) };
+function rcNextDue(c){
+  const n = rcNextCycle(c);
+  return n == null ? null : { cycle: n, date: rcCycleDate(c, n), ...rcCyclePeriod(c, n) };
 }
-function invContact(c){
-  const b = invBilling(c);
+function rcContact(c){
+  const b = rcBilling(c);
   const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
   const contact = deal?.contact_id ? state.contacts.find(x => x.id === deal.contact_id) : null;
   return {
     name: b.contact || (contact?.name || (deal?.contact_name || "").split(" - ")[0] || "").trim(),
     email: b.email || c.email || c.report_email || contact?.email || "",
+    address: b.address || "",
   };
 }
-function invNextSeq(){
-  const used = invAll().map(({ inv }) => Number(inv.seq) || 0);
-  return Math.max(Number(invSettings.next) || 1, used.length ? Math.max(...used) + 1 : 1);
+function rcNextSeq(){
+  const used = rcAll().map(({ r }) => Number(r.seq) || 0);
+  return Math.max(Number(rcSettings.next) || 1, used.length ? Math.max(...used) + 1 : 1);
 }
 
 /* Our business details */
-const INV_SETTINGS_KEY = "billing_settings";
-let invSettings = {}, invSettingsLoaded = false;
-function invBusiness(){
-  // Fill any gaps from the most recent invoice anyone made.
-  const latest = invAll().map(x => x.inv).filter(i => i.business).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+const RC_SETTINGS_KEY = "billing_settings";
+let rcSettings = {}, rcSettingsLoaded = false;
+function rcBusiness(){
+  // Gaps are filled from the most recent receipt anyone made.
+  const latest = rcAll().map(x => x.r).filter(r => r.business).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
   const from = latest?.business || {};
-  const pick = (k) => invSettings[k] || from[k] || "";
-  return { name: pick("name"), gst: pick("gst"), address: pick("address"), email: pick("email"), phone: pick("phone"), website: pick("website") || "mrpriceless.com", pay_link: pick("pay_link") };
+  const pick = (k) => rcSettings[k] || from[k] || "";
+  return { name: pick("name"), gst: pick("gst"), nzbn: pick("nzbn"), address: pick("address"), email: pick("email"), phone: pick("phone"), website: pick("website") || "mrpriceless.com" };
 }
-async function invLoadSettings(){
+const rcIncluded = () => (Array.isArray(rcSettings.included) && rcSettings.included.length) ? rcSettings.included
+  : (rcAll().map(x => x.r).filter(r => r.included?.length).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0]?.included || RC_INCLUDED);
+async function rcLoadSettings(){
   if (IS_CONFIGURED && !state.user) return;
-  invSettingsLoaded = true;
+  rcSettingsLoaded = true;
   try {
     if (IS_CONFIGURED){
-      const { data } = await supabase.from("user_widget_state").select("data").eq("user_id", state.user.id).eq("widget", INV_SETTINGS_KEY).maybeSingle();
-      invSettings = data?.data || {};
-    } else invSettings = JSON.parse(localStorage.getItem("mp_" + INV_SETTINGS_KEY) || "{}");
-  } catch(e){ invSettings = {}; }
-  renderInvoices();
+      const { data } = await supabase.from("user_widget_state").select("data").eq("user_id", state.user.id).eq("widget", RC_SETTINGS_KEY).maybeSingle();
+      rcSettings = data?.data || {};
+    } else rcSettings = JSON.parse(localStorage.getItem("mp_" + RC_SETTINGS_KEY) || "{}");
+  } catch(e){ rcSettings = {}; }
+  renderReceipts();
 }
-async function invSaveSettings(next){
-  invSettings = next;
+async function rcSaveSettings(next){
+  rcSettings = next;
   try {
-    if (IS_CONFIGURED) await supabase.from("user_widget_state").upsert({ user_id: state.user.id, widget: INV_SETTINGS_KEY, data: next, updated_at: new Date().toISOString() });
-    else localStorage.setItem("mp_" + INV_SETTINGS_KEY, JSON.stringify(next));
+    if (IS_CONFIGURED) await supabase.from("user_widget_state").upsert({ user_id: state.user.id, widget: RC_SETTINGS_KEY, data: next, updated_at: new Date().toISOString() });
+    else localStorage.setItem("mp_" + RC_SETTINGS_KEY, JSON.stringify(next));
   } catch(e){ console.error(e); }
-  renderInvoices();
+  renderReceipts();
 }
 
-async function invSaveClient(clientId, patch){
+async function rcSaveClient(clientId, patch){
   const c = state.clients.find(x => x.id === clientId);
   if (!c) return;
   const progress = { ...(c.onboarding_progress || {}), ...patch };
   c.onboarding_progress = progress;
   await DataLayer.update("clients", c.id, { onboarding_progress: progress });
 }
-async function invPut(clientId, inv){
+async function rcPut(clientId, rec){
   const c = state.clients.find(x => x.id === clientId);
-  const list = invoicesOf(c).filter(i => i.id !== inv.id);
-  list.push(inv);
+  const list = rcRecordsOf(c).filter(r => r.id !== rec.id);
+  list.push(rec);
   list.sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
-  await invSaveClient(clientId, { invoices: list });
+  await rcSaveClient(clientId, { invoices: list });
 }
-function invFind(id){ return invAll().find(x => x.inv.id === id) || null; }
+const rcFind = (id) => rcAll().find(x => x.r.id === id) || null;
+const rcAvatar = (c) => `<span class="rc-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>`;
+const RC_ICONS = {
+  down: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>`,
+  mail: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`,
+  tick: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`,
+};
 
 /* The page */
-function invStatus(inv){
-  if (inv.status === "paid") return { cls: "track", label: "Paid" };
-  if (inv.status === "void") return { cls: "void", label: "Void" };
-  if (inv.status === "sent"){
-    const days = invDaysBetween(inv.date, localDayStr());
-    return days > 7 ? { cls: "late", label: `Unpaid · ${days} days` } : { cls: "client", label: "Sent" };
-  }
-  return { cls: "draft", label: "Draft" };
-}
-function renderInvoices(){
-  const kpis = $("#inv-kpis");
-  if (!kpis) return;
-  if (!invSettingsLoaded) invLoadSettings();
-  const today = localDayStr(), soon = invAddDays(today, INV_SOON_DAYS);
-  const clients = state.clients.filter(invIsBillable).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  const all = invAll();
-
-  // Who needs an invoice now or this week (a draft for that cycle counts as started).
-  const due = clients.filter(c => !invBilling(c).paused && invFee(c) > 0).map(c => ({ c, next: invNextDue(c) }))
-    .filter(x => x.next && x.next.date <= soon).sort((a, b) => a.next.date.localeCompare(b.next.date));
-  const unpaid = all.filter(x => x.inv.status === "sent").sort((a, b) => a.inv.date.localeCompare(b.inv.date));
+function renderReceipts(){
+  const hero = $("#rc-hero-value");
+  if (!hero) return;
+  if (!rcSettingsLoaded) rcLoadSettings();
+  const today = localDayStr(), soon = rcAddDays(today, RC_SOON_DAYS);
+  const clients = state.clients.filter(rcIsBillable).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const all = rcAll();
+  const paid = all.filter(x => rcIsPaid(x.r));
   const ym = today.slice(0, 7);
-  const paidMonth = all.filter(x => x.inv.status === "paid" && (x.inv.paid_at || "").slice(0, 7) === ym);
-  const monthly = clients.filter(c => !invBilling(c).paused).reduce((s, c) => s + (invFee(c) || 0), 0) * (1 + INV_GST);
-  const dueNow = due.filter(x => x.next.date <= today).length;
-  const dueSum = due.reduce((s, x) => s + invFee(x.c) * (1 + INV_GST), 0);
-  const unpaidSum = unpaid.reduce((s, x) => s + invTotal(x.inv), 0);
-  const oldest = unpaid.length ? invDaysBetween(unpaid[0].inv.date, today) : 0;
-  const month = new Date().toLocaleDateString("en-NZ", { month: "long" });
-  kpis.innerHTML = `
-    <div class="onb-kpi ${dueNow ? "warn" : ""}"><span class="onb-kpi-label">To send</span><span class="onb-kpi-value">${due.length}</span><span class="onb-kpi-sub">${due.length ? `${invMoney(dueSum)} incl. GST${dueNow ? ` · ${dueNow} due now` : ""}` : "nothing due this week"}</span></div>
-    <div class="onb-kpi ${oldest > 7 ? "warn" : ""}"><span class="onb-kpi-label">Waiting on payment</span><span class="onb-kpi-value">${invMoney(unpaidSum)}</span><span class="onb-kpi-sub">${unpaid.length ? `${unpaid.length} invoice${unpaid.length === 1 ? "" : "s"} · oldest ${oldest} day${oldest === 1 ? "" : "s"}` : "all paid up"}</span></div>
-    <div class="onb-kpi"><span class="onb-kpi-label">Paid in ${escapeHtml(month)}</span><span class="onb-kpi-value">${invMoney(paidMonth.reduce((s, x) => s + invTotal(x.inv), 0))}</span><span class="onb-kpi-sub">${paidMonth.length} receipt${paidMonth.length === 1 ? "" : "s"}</span></div>
-    <div class="onb-kpi"><span class="onb-kpi-label">Monthly billing</span><span class="onb-kpi-value">${invMoney(monthly)}</span><span class="onb-kpi-sub">incl. GST, across ${(n => `${n} client${n === 1 ? "" : "s"}`)(clients.filter(c => !invBilling(c).paused && invFee(c) > 0).length)}</span></div>`;
-  const navCount = $("#nav-inv-count");
+  const lastYm = (() => { const d = new Date(today + "T00:00:00"); d.setDate(1); d.setMonth(d.getMonth() - 1); return localDayStr(d).slice(0, 7); })();
+  const sumOf = (list) => list.reduce((s, x) => s + rcTotal(x.r), 0);
+  const thisMonth = paid.filter(x => rcPaidDay(x.r).slice(0, 7) === ym), lastMonth = paid.filter(x => rcPaidDay(x.r).slice(0, 7) === lastYm);
+  const active = clients.filter(rcActive);
+  const monthly = active.reduce((s, c) => s + rcFee(c), 0) * (1 + RC_GST);
+  const upcoming = active.map(c => ({ c, next: rcNextDue(c) })).filter(x => x.next && x.next.date <= soon).sort((a, b) => a.next.date.localeCompare(b.next.date));
+  const week = upcoming.filter(x => x.next.date <= rcAddDays(today, 7));
+  const dueNow = upcoming.filter(x => x.next.date <= today).length;
+  const monthName = new Date().toLocaleDateString("en-NZ", { month: "long" });
+  const lastName = new Date(lastYm + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long" });
+
+  $("#rc-hero-title").textContent = `Collected in ${monthName}`;
+  hero.textContent = rcMoney(sumOf(thisMonth));
+  $("#rc-hero-sub").textContent = `${thisMonth.length} receipt${thisMonth.length === 1 ? "" : "s"} sent · ${rcMoney(sumOf(lastMonth))} in ${lastName}`;
+  $("#rc-hero-stats").innerHTML = [
+    ["Due this week", rcMoney(week.reduce((s, x) => s + rcFee(x.c) * (1 + RC_GST), 0)), week.length ? `${week.length} payment${week.length === 1 ? "" : "s"}${dueNow ? ` · ${dueNow} due now` : ""}` : "nothing due", dueNow ? "warn" : ""],
+    ["Monthly billing", rcMoney(monthly), `incl. GST · ${active.length} client${active.length === 1 ? "" : "s"}`, ""],
+    ["Receipts sent", String(paid.length), `this year ${paid.filter(x => rcPaidDay(x.r).slice(0, 4) === today.slice(0, 4)).length}`, ""],
+  ].map(([l, v, s, cls]) => `<div class="rc-stat ${cls}"><span>${escapeHtml(l)}</span><b>${escapeHtml(v)}</b><small>${escapeHtml(s)}</small></div>`).join("");
+  const navCount = $("#nav-rc-count");
   if (navCount){ navCount.hidden = !dueNow; navCount.textContent = dueNow; }
 
-  const biz = invBusiness(), setup = $("#inv-setup");
+  const biz = rcBusiness(), setup = $("#rc-setup");
   if (setup){
     setup.hidden = !!(biz.name && biz.gst);
-    setup.innerHTML = `<div><b>Add your business details first.</b> A tax invoice needs your legal name and GST number, and these print on every invoice.</div><button type="button" class="btn gold sm" data-action="inv-settings">Add details</button>`;
+    setup.innerHTML = `<span class="rc-setup-icon">!</span><div><b>Add your business details</b><span>Your legal name and GST number make each receipt a valid tax invoice.</span></div><button type="button" class="btn gold sm" data-action="rc-settings">Add details</button>`;
   }
 
-  const avatar = (c) => `<span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>`;
-  $("#inv-due-list").innerHTML = due.length ? due.map(({ c, next }) => {
-    const days = invDaysBetween(today, next.date);
-    const draft = invoicesOf(c).find(i => i.status === "draft" && i.cycle === next.cycle);
-    const when = days < 0 ? `${-days} day${days === -1 ? "" : "s"} overdue` : days === 0 ? "Due today" : `Due in ${days} day${days === 1 ? "" : "s"}`;
-    return `<article class="rp-row inv-row ${days <= 0 ? "is-due" : ""}">
-      ${avatar(c)}
-      <div class="rp-row-id"><div class="rp-row-name">${escapeHtml(c.name)}</div><div class="rp-row-sub">Invoice ${next.cycle + 1} · ${escapeHtml(invPeriodLabel(next.from, next.to))}</div></div>
-      <div class="rp-row-stat"><span>Amount</span><b>${invMoney(invFee(c) * (1 + INV_GST))}</b></div>
-      <div class="rp-row-stat"><span>Invoice date</span><b>${escapeHtml(invShort(next.date))}</b></div>
-      <span class="onb-status ${days < 0 ? "late" : days === 0 ? "client" : "soon"}">${when}</span>
-      <div class="rp-row-actions"><button type="button" class="btn gold sm" data-action="${draft ? "inv-edit" : "inv-create"}" data-id="${draft ? draft.id : c.id}">${draft ? "Finish draft" : "Make invoice"}</button></div>
-    </article>`;
-  }).join("") : `<div class="inv-empty">Nothing due this week. Next up: ${(() => {
-      const nxt = clients.filter(c => !invBilling(c).paused && invFee(c) > 0).map(c => ({ c, n: invNextDue(c) })).filter(x => x.n).sort((a, b) => a.n.date.localeCompare(b.n.date))[0];
-      return nxt ? `${escapeHtml(nxt.c.name)} on ${escapeHtml(invShort(nxt.n.date))}` : "set up a client's billing below";
-    })()}.</div>`;
-
-  $("#inv-unpaid-list").innerHTML = unpaid.length ? unpaid.map(({ inv, c }) => {
-    const st = invStatus(inv);
-    return `<article class="rp-row inv-row">
-      ${avatar(c)}
-      <div class="rp-row-id"><div class="rp-row-name">${escapeHtml(c.name)}</div><div class="rp-row-sub">${escapeHtml(inv.number)} · sent ${escapeHtml(invShort((inv.sent_at || inv.date).slice(0, 10)))}</div></div>
-      <div class="rp-row-stat"><span>Total</span><b>${invMoney(invTotal(inv))}</b></div>
-      <div class="rp-row-stat"><span>Invoice date</span><b>${escapeHtml(invShort(inv.date))}</b></div>
-      <span class="onb-status ${st.cls}">${escapeHtml(st.label)}</span>
-      <div class="rp-row-actions">
-        <button type="button" class="btn ghost sm" data-action="inv-email" data-id="${inv.id}">${st.cls === "late" ? "Send reminder" : "Email again"}</button>
-        <button type="button" class="btn gold sm" data-action="inv-paid" data-id="${inv.id}">Mark paid</button>
+  // Up next
+  $("#rc-next").innerHTML = upcoming.length ? upcoming.map(({ c, next }) => {
+    const days = rcDaysBetween(today, next.date);
+    const when = days < 0 ? `${-days} day${days === -1 ? "" : "s"} overdue` : days === 0 ? "Due today" : days === 1 ? "Due tomorrow" : `Due in ${days} days`;
+    const draft = rcRecordsOf(c).find(r => !rcIsPaid(r) && r.status !== "void" && r.cycle === next.cycle);
+    return `<article class="rc-card ${days <= 0 ? "is-due" : ""}">
+      <div class="rc-card-top">${rcAvatar(c)}<div class="rc-card-id"><b>${escapeHtml(c.name)}</b><span>Payment ${next.cycle + 1} · ${escapeHtml(rcPeriodLabel(next.from, next.to))}</span></div></div>
+      <div class="rc-card-amount">${rcMoney(rcFee(c) * (1 + RC_GST))}<small>incl. GST</small></div>
+      <div class="rc-card-foot">
+        <span class="rc-chip ${days < 0 ? "late" : days === 0 ? "now" : ""}">${escapeHtml(when)} · ${escapeHtml(rcShort(next.date))}</span>
+        <button type="button" class="btn gold sm" data-action="${draft ? "rc-edit" : "rc-create"}" data-id="${draft ? draft.id : c.id}">Record payment</button>
       </div>
     </article>`;
-  }).join("") : `<div class="inv-empty">No unpaid invoices.</div>`;
+  }).join("") : `<div class="rc-empty">${(() => {
+      const nxt = active.map(c => ({ c, n: rcNextDue(c) })).filter(x => x.n).sort((a, b) => a.n.date.localeCompare(b.n.date))[0];
+      return nxt ? `Nothing due in the next two weeks. Next up is <b>${escapeHtml(nxt.c.name)}</b> on ${escapeHtml(rcShort(nxt.n.date))}.` : "No payments coming up. Set each client's monthly fee under Clients &amp; billing below.";
+    })()}</div>`;
 
-  // All invoices, newest first.
-  const fc = $("#inv-filter-client"), fs = $("#inv-filter-status");
+  // Receipts list
+  const fc = $("#rc-filter-client");
   if (fc){
     const keep = fc.value;
-    fc.innerHTML = `<option value="">All clients</option>` + state.clients.filter(c => invoicesOf(c).length).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    fc.innerHTML = `<option value="">All clients</option>` + state.clients.filter(c => rcRecordsOf(c).length).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
     fc.value = keep;
   }
-  const rows = all.filter(x => (!fc?.value || x.c.id === fc.value) && (!fs?.value || x.inv.status === fs.value))
-    .sort((a, b) => (Number(b.inv.seq) || 0) - (Number(a.inv.seq) || 0));
-  $("#inv-tbody").innerHTML = rows.length ? rows.map(({ inv, c }) => {
-    const st = invStatus(inv), paid = inv.status === "paid";
-    return `<tr>
-      <td><div class="row-name">${escapeHtml(inv.number)}</div><div class="row-sub">${escapeHtml(invPeriodLabel(inv.from, inv.to))}</div></td>
-      <td>${escapeHtml(c.name)}</td>
-      <td>${escapeHtml(invShort(inv.date))}</td>
-      <td style="font-weight:700;">${invMoney(invTotal(inv))}</td>
-      <td><span class="onb-status ${st.cls}">${escapeHtml(st.label)}</span></td>
-      <td>${paid ? `<button type="button" class="link-btn" data-action="inv-receipt-pdf" data-id="${inv.id}">${escapeHtml(inv.receipt_number || invReceiptNum(inv))}</button>` : "-"}</td>
-      <td class="inv-actions">
-        <button type="button" class="btn ghost sm" data-action="inv-pdf" data-id="${inv.id}">PDF</button>
-        ${paid ? `<button type="button" class="btn ghost sm" data-action="inv-receipt-email" data-id="${inv.id}">Email receipt</button>`
-          : inv.status === "void" ? "" : `<button type="button" class="btn ghost sm" data-action="inv-edit" data-id="${inv.id}">Edit</button>
-            ${inv.status === "sent" ? `<button type="button" class="btn ghost sm" data-action="inv-paid" data-id="${inv.id}">Mark paid</button>` : ""}`}
-        ${inv.status === "draft" ? `<button type="button" class="icon-btn" data-action="inv-delete" data-id="${inv.id}" title="Delete draft">${ICONS.trash}</button>` : ""}
-      </td>
-    </tr>`;
-  }).join("") : `<tr><td colspan="7">${emptyState(all.length ? "No invoices match those filters." : "No invoices yet. They'll show here once you make the first one.")}</td></tr>`;
+  const rows = all.filter(x => x.r.status !== "void" && (!fc?.value || x.c.id === fc.value))
+    .sort((a, b) => rcPaidDay(b.r).localeCompare(rcPaidDay(a.r)) || (Number(b.r.seq) || 0) - (Number(a.r.seq) || 0));
+  $("#rc-list-sub").textContent = rows.length ? `${rows.length} receipt${rows.length === 1 ? "" : "s"} · ${rcMoney(sumOf(rows.filter(x => rcIsPaid(x.r))))} received` : "Every receipt sent, newest first.";
+  $("#rc-list").innerHTML = rows.length ? rows.map(({ r, c }) => {
+    const ok = rcIsPaid(r);
+    return `<article class="rc-row ${ok ? "" : "is-unpaid"}">
+      <span class="rc-row-icon">${ok ? RC_ICONS.tick : "!"}</span>
+      <div class="rc-row-id"><b>${escapeHtml(c.name)}</b><span>${escapeHtml(rcNumberOf(r))}${r.from ? ` · ${escapeHtml(rcPeriodLabel(r.from, r.to))}` : ""}</span></div>
+      <div class="rc-row-meta">${ok ? `<b>${escapeHtml(rcShort(rcPaidDay(r)))}</b><span>${escapeHtml(r.paid_method || "Card")}</span>` : `<b>Not paid yet</b><span>from before receipts</span>`}</div>
+      <div class="rc-row-amount">${rcMoney(rcTotal(r))}</div>
+      <div class="rc-row-actions">
+        ${ok ? `<button type="button" class="rc-icon-btn" data-action="rc-pdf" data-id="${r.id}" title="Download PDF" aria-label="Download PDF">${RC_ICONS.down}</button>
+        <button type="button" class="rc-icon-btn" data-action="rc-email" data-id="${r.id}" title="Email receipt" aria-label="Email receipt">${RC_ICONS.mail}</button>` : ""}
+        <button type="button" class="rc-icon-btn" data-action="rc-edit" data-id="${r.id}" title="${ok ? "Edit" : "Record payment"}" aria-label="Edit">${ICONS.edit}</button>
+        <button type="button" class="rc-icon-btn" data-action="rc-delete" data-id="${r.id}" title="Delete" aria-label="Delete">${ICONS.trash}</button>
+      </div>
+    </article>`;
+  }).join("") : `<div class="rc-empty">${all.length ? "No receipts for that client yet." : "No receipts yet. Record a payment from Up next and the receipt lands here."}</div>`;
 
-  // Billing schedule for every client.
-  $("#inv-schedule-tbody").innerHTML = clients.length ? clients.map(c => {
-    const b = invBilling(c), fee = invFee(c), next = invNextDue(c);
-    return `<tr class="${b.paused ? "inv-paused" : ""}">
-      <td><div class="row-name">${escapeHtml(c.name)}</div><div class="row-sub">${escapeHtml(invContact(c).email || "No email yet")}</div></td>
-      <td>${fee > 0 ? `${invMoney(fee)} <span class="row-sub">+ GST</span>` : `<span class="row-sub">Not set</span>`}</td>
-      <td>${escapeHtml(invShort(invStart(c)) || "-")}</td>
-      <td>${b.paused ? `<span class="onb-status void">Paused</span>` : next ? escapeHtml(invShort(next.date)) : "-"}</td>
-      <td>${(b.pay_link || biz.pay_link) ? `<span class="onb-status track">${b.pay_link ? "Set" : "Default"}</span>` : `<span class="onb-status late">Missing</span>`}</td>
-      <td class="inv-actions"><button type="button" class="btn ghost sm" data-action="inv-billing" data-id="${c.id}">Edit billing</button></td>
-    </tr>`;
-  }).join("") : `<tr><td colspan="6">${emptyState("No clients yet.")}</td></tr>`;
+  // Clients & billing
+  $("#rc-clients").innerHTML = clients.length ? clients.map(c => {
+    const b = rcBilling(c), fee = rcFee(c), next = rcNextDue(c), ct = rcContact(c);
+    const status = b.paused ? `<span class="rc-chip muted">Paused</span>` : !(fee > 0) ? `<span class="rc-chip late">Fee not set</span>` : next ? `<span class="rc-chip">Next ${escapeHtml(rcShort(next.date))}</span>` : "";
+    return `<article class="rc-client ${b.paused ? "is-paused" : ""}">
+      <div class="rc-card-top">${rcAvatar(c)}<div class="rc-card-id"><b>${escapeHtml(c.name)}</b><span>${escapeHtml(ct.email || "No email yet")}</span></div></div>
+      <dl class="rc-client-facts">
+        <div><dt>Monthly fee</dt><dd>${fee > 0 ? `${rcMoney(fee)} <small>+ GST</small>` : "-"}</dd></div>
+        <div><dt>Started</dt><dd>${escapeHtml(rcShort(rcStart(c)) || "-")}</dd></div>
+      </dl>
+      <div class="rc-card-foot">${status}<button type="button" class="btn ghost sm" data-action="rc-billing" data-id="${c.id}">Edit</button></div>
+    </article>`;
+  }).join("") : `<div class="rc-empty">No clients yet.</div>`;
 }
 
-/* The invoice editor */
-let invEditing = null; // { clientId, inv }
-function invLineRow(it = {}){
-  return `<div class="inv-line" ${it.auto ? 'data-auto="1"' : ""}>
-    <input type="text" class="inv-l-desc" placeholder="Description" value="${escapeHtml(it.desc || "")}" aria-label="Description">
-    <input type="text" class="inv-l-sub" placeholder="Detail, e.g. the service period" value="${escapeHtml(it.sub || "")}" aria-label="Detail">
-    <input type="number" class="inv-l-qty" min="0" step="1" value="${it.qty ?? 1}" aria-label="Quantity">
-    <input type="number" class="inv-l-unit" min="0" step="0.01" placeholder="0.00" value="${it.unit ?? ""}" aria-label="Unit price excl. GST">
-    <span class="inv-l-amt"></span>
-    <button type="button" class="icon-btn" data-action="inv-remove-line" title="Remove line">${ICONS.trash}</button>
+/* The receipt editor */
+let rcEditing = null;
+function rcLineRow(it = {}){
+  return `<div class="rc-line" ${it.auto ? 'data-auto="1"' : ""}>
+    <input type="text" class="rc-l-desc" placeholder="Description" value="${escapeHtml(it.desc || "")}" aria-label="Description">
+    <input type="text" class="rc-l-sub" placeholder="Detail, e.g. the service period" value="${escapeHtml(it.sub || "")}" aria-label="Detail">
+    <input type="number" class="rc-l-qty" min="0" step="1" value="${it.qty ?? 1}" aria-label="Quantity">
+    <input type="number" class="rc-l-unit" min="0" step="0.01" placeholder="0.00" value="${it.unit ?? ""}" aria-label="Price excl. GST">
+    <span class="rc-l-amt"></span>
+    <button type="button" class="rc-icon-btn" data-action="rc-remove-line" title="Remove line" aria-label="Remove line">${ICONS.trash}</button>
   </div>`;
 }
-const invPeriodSub = () => { const l = invPeriodLabel($("#inv-from").value, $("#inv-to").value); return l ? `Service period ${l}` : ""; };
-function invReadForm(){
-  const items = $$("#inv-items .inv-line").map(row => ({
-    desc: row.querySelector(".inv-l-desc").value.trim(), sub: row.querySelector(".inv-l-sub").value.trim(),
-    qty: Number(row.querySelector(".inv-l-qty").value) || 0, unit: Number(row.querySelector(".inv-l-unit").value) || 0,
+const rcPeriodSub = () => { const l = rcPeriodLabel($("#rc-from").value, $("#rc-to").value); return l ? `Service period ${l}` : ""; };
+function rcReadForm(){
+  const items = $$("#rc-items .rc-line").map(row => ({
+    desc: row.querySelector(".rc-l-desc").value.trim(), sub: row.querySelector(".rc-l-sub").value.trim(),
+    qty: Number(row.querySelector(".rc-l-qty").value) || 0, unit: Number(row.querySelector(".rc-l-unit").value) || 0,
     ...(row.dataset.auto ? { auto: true } : {}),
   })).filter(it => it.desc || it.unit);
   return {
-    clientId: $("#inv-client").value, number: $("#inv-number").value.trim(), date: $("#inv-date").value,
-    from: $("#inv-from").value || null, to: $("#inv-to").value || null,
-    contact: $("#inv-contact").value.trim(), email: $("#inv-email").value.trim(),
-    items, pay_link: $("#inv-paylink").value.trim(), notes: $("#inv-notes").value.trim(),
+    clientId: $("#rc-client").value, number: $("#rc-number").value.trim(), paid: $("#rc-paid-date").value,
+    method: $("#rc-method").value, reference: $("#rc-reference").value.trim(),
+    from: $("#rc-from").value || null, to: $("#rc-to").value || null,
+    contact: $("#rc-contact").value.trim(), email: $("#rc-email").value.trim(), items, notes: $("#rc-notes").value.trim(),
   };
 }
-function invRenderTotals(){
-  $$("#inv-items .inv-line").forEach(row => {
-    row.querySelector(".inv-l-amt").textContent = invMoney((Number(row.querySelector(".inv-l-qty").value) || 0) * (Number(row.querySelector(".inv-l-unit").value) || 0));
+function rcRenderTotals(){
+  $$("#rc-items .rc-line").forEach(row => {
+    row.querySelector(".rc-l-amt").textContent = rcMoney((Number(row.querySelector(".rc-l-qty").value) || 0) * (Number(row.querySelector(".rc-l-unit").value) || 0));
   });
-  const t = window.MPInvoicePDF.totals(invReadForm().items, INV_GST);
-  $("#inv-totals").innerHTML = `<div><span>Subtotal</span><b>${invMoney(t.subtotal)}</b></div><div><span>GST 15%</span><b>${invMoney(t.gst)}</b></div><div class="inv-total"><span>Total NZD</span><b>${invMoney(t.total)}</b></div>`;
+  const t = window.MPReceiptPDF.totals(rcReadForm().items, RC_GST);
+  $("#rc-totals").innerHTML = `<div><span>Subtotal</span><b>${rcMoney(t.subtotal)}</b></div><div><span>GST 15%</span><b>${rcMoney(t.gst)}</b></div><div class="rc-total"><span>Total paid</span><b>${rcMoney(t.total)}</b></div>`;
 }
-function invFeeLine(c){
-  return { desc: "Monthly management fee", sub: invPeriodSub(), qty: 1, unit: invFee(c) || "", auto: true };
+function rcRenderIncluded(list){
+  $("#rc-included").innerHTML = `<div class="rc-included-head">What's included <button type="button" class="link-btn" data-action="rc-settings">Edit</button></div>` +
+    `<ul>${list.map(s => `<li>${RC_ICONS.tick}<span>${escapeHtml(s)}</span></li>`).join("")}</ul>`;
 }
-function invFillClient(c, inv){
-  const ct = invContact(c);
-  $("#inv-contact").value = inv?.contact ?? ct.name;
-  $("#inv-email").value = inv?.email ?? ct.email;
-  $("#inv-paylink").value = inv?.pay_link ?? (invBilling(c).pay_link || invBusiness().pay_link || "");
-}
-function openInvoiceEditor(clientId, invId){
-  const found = invId ? invFind(invId) : null;
-  const inv = found?.inv || null;
+const rcFeeLine = (c) => ({ desc: "Monthly management fee", sub: rcPeriodSub(), qty: 1, unit: rcFee(c) || "", auto: true });
+function openReceiptEditor(clientId, recId){
+  const found = recId ? rcFind(recId) : null;
+  const rec = found?.r || null;
   const c = found?.c || state.clients.find(x => x.id === clientId) || null;
-  invEditing = { inv };
-  const sel = $("#inv-client");
-  sel.innerHTML = `<option value="">Pick a client</option>` + state.clients.filter(x => invIsBillable(x) || x.id === c?.id).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join("");
-  sel.value = c?.id || ""; sel.disabled = !!inv;
-  const next = c && !inv ? invNextDue(c) : null;
-  $("#inv-id").value = inv?.id || "";
-  $("#inv-number").value = inv?.number || invNum(invNextSeq());
-  $("#inv-date").value = inv?.date || (next && next.date > localDayStr() ? next.date : localDayStr());
-  $("#inv-from").value = inv?.from || next?.from || "";
-  $("#inv-to").value = inv?.to || next?.to || "";
-  if (c) invFillClient(c, inv); else ["contact", "email", "paylink"].forEach(k => { $("#inv-" + k).value = ""; });
-  $("#inv-notes").value = inv?.notes || "";
-  $("#inv-items").innerHTML = (inv?.items?.length ? inv.items : c ? [invFeeLine(c)] : [{}]).map(invLineRow).join("");
-  $("#inv-modal-title").textContent = inv ? `Edit ${inv.number}` : c ? `New invoice for ${c.name}` : "New invoice";
-  $("#inv-void").hidden = !(inv && inv.status === "sent");
-  $("#inv-status").textContent = "";
-  invEditing.cycle = inv ? inv.cycle : next ? next.cycle : null;
-  invRenderTotals();
-  openModal("inv-modal");
+  const next = c && !rec ? rcNextDue(c) : null;
+  rcEditing = { rec, cycle: rec ? rec.cycle : next ? next.cycle : null, included: rec?.included?.length ? rec.included : rcIncluded() };
+  const sel = $("#rc-client");
+  sel.innerHTML = `<option value="">Pick a client</option>` + state.clients.filter(x => rcIsBillable(x) || x.id === c?.id).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join("");
+  sel.value = c?.id || ""; sel.disabled = !!rec;
+  $("#rc-id").value = rec?.id || "";
+  $("#rc-number").value = rec ? rcNumberOf(rec) : rcNum(rcNextSeq());
+  $("#rc-paid-date").value = rec && rcIsPaid(rec) ? rcPaidDay(rec) : localDayStr();
+  $("#rc-method").value = rec?.paid_method || "Card (Stripe)";
+  $("#rc-reference").value = rec?.reference || "";
+  $("#rc-from").value = rec?.from || next?.from || "";
+  $("#rc-to").value = rec?.to || next?.to || "";
+  const ct = c ? rcContact(c) : {};
+  $("#rc-contact").value = rec?.contact ?? ct.name ?? "";
+  $("#rc-email").value = rec?.email ?? ct.email ?? "";
+  $("#rc-notes").value = rec?.notes || "";
+  $("#rc-items").innerHTML = (rec?.items?.length ? rec.items : c ? [rcFeeLine(c)] : [{}]).map(rcLineRow).join("");
+  $("#rc-modal-title").textContent = rec ? `Edit ${rcNumberOf(rec)}` : c ? `Receipt for ${c.name}` : "New receipt";
+  $("#rc-save").textContent = rec && rcIsPaid(rec) ? "Save & send again" : "Save & send receipt";
+  rcStatusMsg("");
+  rcRenderIncluded(rcEditing.included);
+  rcRenderTotals();
+  openModal("rc-modal");
 }
-function invStatusMsg(msg, warn){ const el = $("#inv-status"); if (el){ el.textContent = msg; el.classList.toggle("warn", !!warn); } }
-async function invSaveForm(status){
-  const f = invReadForm();
-  if (!f.clientId) return invStatusMsg("Pick a client first.", true), null;
-  if (!f.items.length) return invStatusMsg("Add at least one line.", true), null;
-  if (!f.date) return invStatusMsg("Add the invoice date.", true), null;
-  const clash = invAll().find(x => x.inv.number === f.number && x.inv.id !== $("#inv-id").value);
-  if (clash) return invStatusMsg(`${f.number} is already used for ${clash.c.name}. Pick another number.`, true), null;
-  const old = invEditing?.inv;
-  const seq = Number((f.number.match(/(\d+)\s*$/) || [])[1]) || invNextSeq();
-  const inv = {
-    ...(old || {}), id: old?.id || (crypto.randomUUID ? crypto.randomUUID() : "inv-" + Date.now()),
-    seq, number: f.number, cycle: invEditing?.cycle ?? null, date: f.date, from: f.from, to: f.to,
-    contact: f.contact, email: f.email, items: f.items, gst_rate: INV_GST, pay_link: f.pay_link, notes: f.notes,
-    status: status === "sent" || old?.status === "sent" ? "sent" : "draft",
-    created_at: old?.created_at || new Date().toISOString(), business: invBusiness(),
+function rcStatusMsg(msg, warn){ const el = $("#rc-status"); if (el){ el.textContent = msg; el.classList.toggle("warn", !!warn); } }
+async function rcSaveForm(){
+  const f = rcReadForm();
+  if (!f.clientId) return rcStatusMsg("Pick a client first.", true), null;
+  if (!f.items.length) return rcStatusMsg("Add at least one line.", true), null;
+  if (!f.paid) return rcStatusMsg("Add the date they paid.", true), null;
+  const clash = rcAll().find(x => rcNumberOf(x.r) === f.number && x.r.id !== $("#rc-id").value);
+  if (clash) return rcStatusMsg(`${f.number} is already used for ${clash.c.name}. Pick another number.`, true), null;
+  const old = rcEditing?.rec;
+  const seq = Number((f.number.match(/(\d+)\s*$/) || [])[1]) || rcNextSeq();
+  const now = new Date().toISOString();
+  const rec = {
+    ...(old || {}), id: old?.id || (crypto.randomUUID ? crypto.randomUUID() : "rc-" + Date.now()),
+    seq, number: f.number, receipt_number: f.number, cycle: rcEditing?.cycle ?? null,
+    date: f.paid, paid_at: f.paid, paid_method: f.method, reference: f.reference, from: f.from, to: f.to,
+    contact: f.contact, email: f.email, address: old?.address ?? rcContact(state.clients.find(x => x.id === f.clientId)).address,
+    items: f.items, included: rcEditing.included, gst_rate: RC_GST, notes: f.notes, status: "paid",
+    created_at: old?.created_at || now, issued_at: old?.issued_at || localDayStr(), business: rcBusiness(),
   };
-  if (status === "sent") inv.sent_at = new Date().toISOString();
-  await invPut(f.clientId, inv);
-  // Remember the client's contact details and card link for next time.
-  const c = state.clients.find(x => x.id === f.clientId), b = invBilling(c);
-  const keep = { ...b, ...(f.pay_link && f.pay_link !== invBusiness().pay_link ? { pay_link: f.pay_link } : {}), ...(f.email ? { email: f.email } : {}), ...(f.contact ? { contact: f.contact } : {}) };
-  if (JSON.stringify(keep) !== JSON.stringify(b)) await invSaveClient(f.clientId, { billing: keep });
-  if (seq >= (Number(invSettings.next) || 0) && invSettings.next) await invSaveSettings({ ...invSettings, next: seq + 1 });
-  invEditing.inv = inv;
-  return { inv, c: state.clients.find(x => x.id === f.clientId) };
+  await rcPut(f.clientId, rec);
+  // Remember the contact details for next time.
+  const c = state.clients.find(x => x.id === f.clientId), b = rcBilling(c);
+  const keep = { ...b, ...(f.email ? { email: f.email } : {}), ...(f.contact ? { contact: f.contact } : {}) };
+  if (JSON.stringify(keep) !== JSON.stringify(b)) await rcSaveClient(f.clientId, { billing: keep });
+  if (rcSettings.next && seq >= Number(rcSettings.next)) await rcSaveSettings({ ...rcSettings, next: seq + 1 });
+  rcEditing.rec = rec;
+  return rec;
 }
-// A plain data object for the PDF.
-function invPdfData(inv, c, kind){
+function rcPdfData(r, c){
   return {
-    kind, number: inv.number, receiptNumber: inv.receipt_number || invReceiptNum(inv),
-    dateLabel: invLong(inv.date), dueLabel: "On receipt", periodLabel: invPeriodLabel(inv.from, inv.to),
-    paidLabel: invLong((inv.paid_at || "").slice(0, 10)), paidMethod: inv.paid_method || "Card (Stripe)",
-    business: { ...invBusiness(), ...(inv.business || {}) }, client: { name: c.name, contact: inv.contact, email: inv.email },
-    items: inv.items, gstRate: inv.gst_rate ?? INV_GST, payLink: inv.pay_link, notes: kind === "invoice" ? inv.notes : "",
+    number: rcNumberOf(r), issuedLabel: rcLong(r.issued_at || rcPaidDay(r)), paidLabel: rcLong(rcPaidDay(r)),
+    paidMethod: r.paid_method || "Card (Stripe)", reference: r.reference || "", periodLabel: rcPeriodLabel(r.from, r.to),
+    business: { ...rcBusiness(), ...(r.business || {}) }, client: { name: c.name, contact: r.contact, email: r.email, address: r.address },
+    items: r.items, included: r.included?.length ? r.included : rcIncluded(), gstRate: r.gst_rate ?? RC_GST, notes: r.notes,
   };
 }
-let invLastUrl = null, invLastName = "";
-async function invMakePdf(inv, c, kind, opts = {}){
+let rcLastUrl = null, rcLastName = "";
+async function rcMakePdf(r, c, opts = {}){
   await wpLoadLibs();
-  const bytes = await window.MPInvoicePDF.build(invPdfData(inv, c, kind));
-  if (invLastUrl) URL.revokeObjectURL(invLastUrl);
-  invLastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-  const safe = (c.name || "Client").replace(/[\\/:*?"<>|]+/g, "");
-  invLastName = kind === "receipt" ? `Mr Priceless Receipt ${inv.receipt_number || invReceiptNum(inv)} - ${safe}.pdf` : `Mr Priceless Invoice ${inv.number} - ${safe}.pdf`;
+  const bytes = await window.MPReceiptPDF.build(rcPdfData(r, c));
+  if (rcLastUrl) URL.revokeObjectURL(rcLastUrl);
+  rcLastUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  rcLastName = `Mr Priceless Receipt ${rcNumberOf(r)} - ${(c.name || "Client").replace(/[\\/:*?"<>|]+/g, "")}.pdf`;
   if (opts.download !== false){
-    const a = document.createElement("a"); a.href = invLastUrl; a.download = invLastName; document.body.appendChild(a); a.click(); a.remove();
+    const a = document.createElement("a"); a.href = rcLastUrl; a.download = rcLastName; document.body.appendChild(a); a.click(); a.remove();
   }
-  return invLastUrl;
+  return rcLastUrl;
 }
-
-/* The ready-to-send email */
-function invEmail(inv, c, kind){
-  const first = (inv.contact || "").split(/\s+/)[0] || "there";
+function rcEmail(r){
+  const first = (r.contact || "").split(/\s+/)[0] || "there";
   const person = window.getActivePerson ? window.getActivePerson() : null;
-  const sender = invSettings.sender || ASSIGNEES[person]?.label || "The Mr Priceless team";
-  const total = invMoney(invTotal(inv));
-  const period = invPeriodLabel(inv.from, inv.to);
-  if (kind === "receipt") return {
-    subject: `Receipt for invoice ${inv.number} - thanks!`,
-    body: `Hi ${first},\n\nThanks for your payment of ${total} on ${invLong((inv.paid_at || "").slice(0, 10))}. Your receipt for invoice ${inv.number} is attached for your records.\n\nCheers,\n${sender}\nMr Priceless`,
-  };
-  const late = inv.status === "sent" && invDaysBetween(inv.date, localDayStr()) > 7;
+  const sender = rcSettings.sender || ASSIGNEES[person]?.label || "The Mr Priceless team";
+  const period = rcPeriodLabel(r.from, r.to);
   return {
-    subject: late ? `Reminder: invoice ${inv.number} from Mr Priceless` : `Invoice ${inv.number} from Mr Priceless`,
-    body: `Hi ${first},\n\n${late ? `Just a friendly reminder that invoice ${inv.number} for ${total} incl. GST is still outstanding.` : `Here's your invoice${period ? ` for ${period}` : ""}: ${total} incl. GST.`}\n\n${inv.pay_link ? `You can pay by card here:\n${inv.pay_link}\n\n` : ""}The PDF is attached for your records. Payment is due on receipt.\n\nAny questions, just reply to this email.\n\nCheers,\n${sender}\nMr Priceless`,
+    subject: `Your Mr Priceless receipt ${rcNumberOf(r)}`,
+    body: `Hi ${first},\n\nThanks for your payment of ${rcMoney(rcTotal(r))} on ${rcLong(rcPaidDay(r))}${period ? ` for ${period}` : ""}. Your receipt is attached - it's also your tax invoice, so keep it for your records.\n\nAny questions, just reply to this email.\n\nCheers,\n${sender}\nMr Priceless`,
   };
 }
-let invSendCtx = null;
-async function openInvoiceSend(invId, kind){
-  const found = invFind(invId);
+async function openReceiptSend(recId){
+  const found = rcFind(recId);
   if (!found) return;
-  const { inv, c } = found;
-  await invMakePdf(inv, c, kind);
-  invSendCtx = { invId, kind };
-  const mail = invEmail(inv, c, kind);
-  $("#inv-send-title").textContent = kind === "receipt" ? `Send receipt ${inv.receipt_number || invReceiptNum(inv)}` : `Send invoice ${inv.number}`;
-  const link = $("#inv-file"); link.href = invLastUrl; link.download = invLastName;
-  $("#inv-file-name").textContent = invLastName;
-  $("#inv-mail-to").value = inv.email || "";
-  $("#inv-mail-subject").value = mail.subject;
-  $("#inv-mail-body").value = mail.body;
-  $("#inv-send-note").textContent = kind === "receipt" ? "Marked paid. Open the email, drag the receipt in and send." : "Open the email, drag the PDF in and hit send.";
-  openModal("inv-send-modal");
+  const { r, c } = found;
+  await rcMakePdf(r, c);
+  const mail = rcEmail(r);
+  rcEditing = { ...(rcEditing || {}), sendId: recId };
+  $("#rc-send-title").textContent = `Send ${rcNumberOf(r)} to ${c.name}`;
+  const link = $("#rc-file"); link.href = rcLastUrl; link.download = rcLastName;
+  $("#rc-file-name").textContent = rcLastName;
+  $("#rc-mail-to").value = r.email || "";
+  $("#rc-mail-subject").value = mail.subject;
+  $("#rc-mail-body").value = mail.body;
+  openModal("rc-send-modal");
 }
-async function invMarkSentAfterEmail(){
-  // Opening the email for a receipt notes when it went out.
-  if (!invSendCtx) return;
-  const found = invFind(invSendCtx.invId);
-  if (!found) return;
-  if (invSendCtx.kind === "receipt" && !found.inv.receipt_sent_at) await invPut(found.c.id, { ...found.inv, receipt_sent_at: new Date().toISOString() });
+async function rcNoteSent(){
+  const found = rcEditing?.sendId && rcFind(rcEditing.sendId);
+  if (found && !found.r.sent_at) await rcPut(found.c.id, { ...found.r, sent_at: new Date().toISOString() });
 }
-
-function openInvoicePaid(invId){
-  const found = invFind(invId);
-  if (!found) return;
-  const { inv, c } = found;
-  $("#inv-paid-id").value = inv.id;
-  $("#inv-paid-title").textContent = `${inv.number} paid`;
-  $("#inv-paid-sub").textContent = `${c.name} · ${invMoney(invTotal(inv))} incl. GST`;
-  $("#inv-paid-date").value = localDayStr();
-  $("#inv-paid-method").value = "Card (Stripe)";
-  $("#inv-receipt-number").value = inv.receipt_number || invReceiptNum(inv);
-  openModal("inv-paid-modal");
-}
-async function invSavePaid(sendReceipt){
-  const found = invFind($("#inv-paid-id").value);
-  if (!found) return;
-  const day = $("#inv-paid-date").value || localDayStr();
-  const inv = { ...found.inv, status: "paid", paid_at: day, paid_method: $("#inv-paid-method").value, receipt_number: $("#inv-receipt-number").value.trim() || invReceiptNum(found.inv) };
-  await invPut(found.c.id, inv);
-  closeModal("inv-paid-modal");
-  if (sendReceipt) await openInvoiceSend(inv.id, "receipt");
-}
-
-function openInvoiceBilling(clientId){
+function openReceiptBilling(clientId){
   const c = state.clients.find(x => x.id === clientId);
   if (!c) return;
-  const b = invBilling(c), ct = invContact(c), deal = clientRetainer(c);
-  $("#inv-bill-id").value = c.id;
-  $("#inv-billing-title").textContent = `Billing for ${c.name}`;
-  $("#inv-bill-start").value = invStart(c) || "";
-  $("#inv-bill-fee").value = b.fee ?? (deal ?? "");
-  $("#inv-bill-fee-hint").textContent = deal != null ? `Their deal says ${invMoney(deal)}/mo.` : "Not on their deal yet.";
-  $("#inv-bill-contact").value = ct.name;
-  $("#inv-bill-email").value = ct.email;
-  $("#inv-bill-paylink").value = b.pay_link || "";
-  $("#inv-bill-paused").checked = !!b.paused;
-  openModal("inv-billing-modal");
+  const b = rcBilling(c), ct = rcContact(c), deal = clientRetainer(c);
+  $("#rc-bill-id").value = c.id;
+  $("#rc-billing-title").textContent = `Billing for ${c.name}`;
+  $("#rc-bill-start").value = rcStart(c) || "";
+  $("#rc-bill-fee").value = b.fee ?? (deal ?? "");
+  $("#rc-bill-fee-hint").textContent = deal != null ? `Their deal says ${rcMoney(deal)}/mo.` : "Not on their deal yet.";
+  $("#rc-bill-contact").value = ct.name;
+  $("#rc-bill-email").value = ct.email;
+  $("#rc-bill-address").value = b.address || "";
+  $("#rc-bill-paused").checked = !!b.paused;
+  openModal("rc-billing-modal");
 }
 
-function setupInvoices(){
-  const page = $("#page-invoices");
-  if (!page) return;
+function setupReceipts(){
+  if (!$("#page-receipts")) return;
   document.addEventListener("click", async (e) => {
-    const btn = e.target.closest("[data-action^='inv-']");
+    const btn = e.target.closest("[data-action^='rc-']");
     if (!btn) return;
     const id = btn.dataset.id, action = btn.dataset.action;
     try {
-      if (action === "inv-new") openInvoiceEditor(null, null);
-      else if (action === "inv-create") openInvoiceEditor(id, null);
-      else if (action === "inv-edit") openInvoiceEditor(null, id);
-      else if (action === "inv-billing") openInvoiceBilling(id);
-      else if (action === "inv-paid") openInvoicePaid(id);
-      else if (action === "inv-email") await openInvoiceSend(id, "invoice");
-      else if (action === "inv-receipt-email") await openInvoiceSend(id, "receipt");
-      else if (action === "inv-pdf" || action === "inv-receipt-pdf"){ const f = invFind(id); if (f) await invMakePdf(f.inv, f.c, action === "inv-pdf" ? "invoice" : "receipt"); }
-      else if (action === "inv-delete"){
-        const f = invFind(id);
-        if (f && confirm(`Delete draft ${f.inv.number}?`)) await invSaveClient(f.c.id, { invoices: invoicesOf(f.c).filter(i => i.id !== id) });
+      if (action === "rc-new") openReceiptEditor(null, null);
+      else if (action === "rc-create") openReceiptEditor(id, null);
+      else if (action === "rc-edit") openReceiptEditor(null, id);
+      else if (action === "rc-billing") openReceiptBilling(id);
+      else if (action === "rc-email") await openReceiptSend(id);
+      else if (action === "rc-pdf"){ const f = rcFind(id); if (f) await rcMakePdf(f.r, f.c); }
+      else if (action === "rc-delete"){
+        const f = rcFind(id);
+        if (f && confirm(`Delete ${rcNumberOf(f.r)} for ${f.c.name}? This can't be undone.`)) await rcSaveClient(f.c.id, { invoices: rcRecordsOf(f.c).filter(r => r.id !== id) });
       }
-      else if (action === "inv-settings"){
-        const b = invBusiness();
-        ["name", "gst", "phone", "email", "website", "address"].forEach(k => { $("#inv-set-" + k).value = b[k] || ""; });
-        $("#inv-set-paylink").value = b.pay_link || "";
-        $("#inv-set-sender").value = invSettings.sender || "";
-        $("#inv-set-next").value = invNextSeq();
-        openModal("inv-settings-modal");
+      else if (action === "rc-settings"){
+        const b = rcBusiness();
+        ["name", "gst", "nzbn", "phone", "email", "website", "address"].forEach(k => { $("#rc-set-" + k).value = b[k] || ""; });
+        $("#rc-set-included").value = rcIncluded().join("\n");
+        $("#rc-set-sender").value = rcSettings.sender || "";
+        $("#rc-set-next").value = rcNextSeq();
+        openModal("rc-settings-modal");
       }
-      else if (action === "inv-add-fee"){
-        const c = state.clients.find(x => x.id === $("#inv-client").value);
-        $("#inv-items").insertAdjacentHTML("beforeend", invLineRow(c ? invFeeLine(c) : { desc: "Monthly management fee", sub: invPeriodSub(), qty: 1, auto: true }));
-        invRenderTotals();
+      else if (action === "rc-add-fee"){
+        const c = state.clients.find(x => x.id === $("#rc-client").value);
+        $("#rc-items").insertAdjacentHTML("beforeend", rcLineRow(c ? rcFeeLine(c) : { desc: "Monthly management fee", sub: rcPeriodSub(), qty: 1, auto: true }));
+        rcRenderTotals();
       }
-      else if (action === "inv-add-line"){ $("#inv-items").insertAdjacentHTML("beforeend", invLineRow({})); $("#inv-items .inv-line:last-child .inv-l-desc")?.focus(); invRenderTotals(); }
-      else if (action === "inv-remove-line"){ btn.closest(".inv-line")?.remove(); invRenderTotals(); }
+      else if (action === "rc-add-line"){ $("#rc-items").insertAdjacentHTML("beforeend", rcLineRow({})); $("#rc-items .rc-line:last-child .rc-l-desc")?.focus(); rcRenderTotals(); }
+      else if (action === "rc-remove-line"){ btn.closest(".rc-line")?.remove(); rcRenderTotals(); }
     } catch(err){ console.error(err); alert("Something went wrong: " + (err.message || err)); }
   });
-  $("#inv-filter-client")?.addEventListener("change", renderInvoices);
-  $("#inv-filter-status")?.addEventListener("change", renderInvoices);
+  $("#rc-filter-client")?.addEventListener("change", renderReceipts);
 
-  const form = $("#inv-form");
+  const form = $("#rc-form");
   form?.addEventListener("input", (e) => {
-    if (e.target.closest(".inv-line") && !e.target.matches(".inv-l-qty,.inv-l-unit")) e.target.closest(".inv-line").removeAttribute("data-auto");
-    invRenderTotals();
+    if (e.target.closest(".rc-line") && !e.target.matches(".rc-l-qty,.rc-l-unit")) e.target.closest(".rc-line").removeAttribute("data-auto");
+    rcRenderTotals();
   });
   form?.addEventListener("change", (e) => {
-    if (e.target.id === "inv-client"){
+    if (e.target.id === "rc-client"){
       const c = state.clients.find(x => x.id === e.target.value);
       if (!c) return;
-      const next = invNextDue(c);
-      if (next){ $("#inv-from").value = next.from; $("#inv-to").value = next.to; invEditing.cycle = next.cycle; }
-      invFillClient(c, null);
-      $("#inv-items").innerHTML = invLineRow(invFeeLine(c));
-      $("#inv-modal-title").textContent = `New invoice for ${c.name}`;
-      invRenderTotals();
+      const next = rcNextDue(c), ct = rcContact(c);
+      if (next){ $("#rc-from").value = next.from; $("#rc-to").value = next.to; rcEditing.cycle = next.cycle; }
+      $("#rc-contact").value = ct.name; $("#rc-email").value = ct.email;
+      $("#rc-items").innerHTML = rcLineRow(rcFeeLine(c));
+      $("#rc-modal-title").textContent = `Receipt for ${c.name}`;
+      rcRenderTotals();
     }
-    if (e.target.id === "inv-from" || e.target.id === "inv-to")
-      $$("#inv-items .inv-line[data-auto] .inv-l-sub").forEach(i => { i.value = invPeriodSub(); });
+    if (e.target.id === "rc-from" || e.target.id === "rc-to")
+      $$("#rc-items .rc-line[data-auto] .rc-l-sub").forEach(i => { i.value = rcPeriodSub(); });
   });
   form?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const btn = $("#inv-send"); btn.disabled = true;
+    const btn = $("#rc-save"); btn.disabled = true;
     try {
-      const saved = await invSaveForm("sent");
-      if (!saved) return;
-      closeModal("inv-modal");
-      await openInvoiceSend(saved.inv.id, "invoice");
-    } catch(err){ console.error(err); invStatusMsg("Couldn't make the invoice: " + (err.message || err), true); }
+      const rec = await rcSaveForm();
+      if (!rec) return;
+      closeModal("rc-modal");
+      await openReceiptSend(rec.id);
+    } catch(err){ console.error(err); rcStatusMsg("Couldn't make the receipt: " + (err.message || err), true); }
     finally { btn.disabled = false; }
   });
-  $("#inv-save-draft")?.addEventListener("click", async () => { if (await invSaveForm("draft")) closeModal("inv-modal"); });
-  $("#inv-preview")?.addEventListener("click", async () => {
-    const f = invReadForm(), c = state.clients.find(x => x.id === f.clientId);
-    if (!c) return invStatusMsg("Pick a client first.", true);
+  $("#rc-preview")?.addEventListener("click", async () => {
+    const f = rcReadForm(), c = state.clients.find(x => x.id === f.clientId);
+    if (!c) return rcStatusMsg("Pick a client first.", true);
     const w = window.open("", "_blank");
     try {
-      const inv = { ...(invEditing?.inv || {}), ...f, gst_rate: INV_GST, seq: Number((f.number.match(/(\d+)\s*$/) || [])[1]) || 0 };
-      const url = await invMakePdf(inv, c, "invoice", { download: false });
+      const r = { ...(rcEditing?.rec || {}), ...f, receipt_number: f.number, paid_at: f.paid, paid_method: f.method, included: rcEditing.included, gst_rate: RC_GST,
+        address: rcEditing?.rec?.address ?? rcContact(c).address, issued_at: rcEditing?.rec?.issued_at || localDayStr() };
+      const url = await rcMakePdf(r, c, { download: false });
       if (w) w.location = url; else window.open(url, "_blank");
-    } catch(err){ if (w) w.close(); invStatusMsg("Couldn't make the preview: " + (err.message || err), true); }
-  });
-  $("#inv-void")?.addEventListener("click", async () => {
-    const inv = invEditing?.inv, f = inv && invFind(inv.id);
-    if (!f || !confirm(`Void ${inv.number}? It stays on record but won't need paying, and the next invoice will be made fresh.`)) return;
-    await invPut(f.c.id, { ...f.inv, status: "void", voided_at: new Date().toISOString(), cycle: null, voided_cycle: f.inv.cycle });
-    closeModal("inv-modal");
+    } catch(err){ if (w) w.close(); rcStatusMsg("Couldn't make the preview: " + (err.message || err), true); }
   });
 
-  $("#inv-paid-form")?.addEventListener("submit", (e) => { e.preventDefault(); invSavePaid(true); });
-  $("#inv-paid-only")?.addEventListener("click", () => invSavePaid(false));
-
-  const mail = () => ({ to: $("#inv-mail-to").value.trim(), su: $("#inv-mail-subject").value, body: $("#inv-mail-body").value });
-  $("#inv-mail-gmail")?.addEventListener("click", () => {
+  const mail = () => ({ to: $("#rc-mail-to").value.trim(), su: $("#rc-mail-subject").value, body: $("#rc-mail-body").value });
+  $("#rc-mail-gmail")?.addEventListener("click", () => {
     const m = mail();
     window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(m.to)}&su=${encodeURIComponent(m.su)}&body=${encodeURIComponent(m.body)}`, "_blank");
-    invMarkSentAfterEmail();
+    rcNoteSent();
   });
-  $("#inv-mail-app")?.addEventListener("click", () => {
+  $("#rc-mail-app")?.addEventListener("click", () => {
     const m = mail();
     window.location.href = `mailto:${encodeURIComponent(m.to)}?subject=${encodeURIComponent(m.su)}&body=${encodeURIComponent(m.body)}`;
-    invMarkSentAfterEmail();
+    rcNoteSent();
   });
-  $("#inv-mail-copy")?.addEventListener("click", async (e) => {
+  $("#rc-mail-copy")?.addEventListener("click", async (e) => {
     try { await navigator.clipboard.writeText(mail().body); e.target.textContent = "Copied"; setTimeout(() => { e.target.textContent = "Copy email"; }, 1600); } catch(err){}
-    invMarkSentAfterEmail();
+    rcNoteSent();
   });
-  $("#inv-file")?.addEventListener("dragstart", (e) => {
-    if (!invLastUrl) return;
+  $("#rc-file")?.addEventListener("dragstart", (e) => {
+    if (!rcLastUrl) return;
     e.dataTransfer.effectAllowed = "copy";
-    e.dataTransfer.setData("DownloadURL", `application/pdf:${invLastName}:${invLastUrl}`);
+    e.dataTransfer.setData("DownloadURL", `application/pdf:${rcLastName}:${rcLastUrl}`);
   });
 
-  $("#inv-settings-form")?.addEventListener("submit", async (e) => {
+  $("#rc-settings-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const v = (k) => $("#inv-set-" + k).value.trim();
-    await invSaveSettings({ ...invSettings, name: v("name"), gst: v("gst"), phone: v("phone"), email: v("email"), website: v("website"), address: $("#inv-set-address").value.trim(), pay_link: v("paylink"), sender: v("sender"), next: Number(v("next")) || undefined });
-    closeModal("inv-settings-modal");
+    const v = (k) => $("#rc-set-" + k).value.trim();
+    const included = $("#rc-set-included").value.split("\n").map(s => s.trim()).filter(Boolean);
+    await rcSaveSettings({ ...rcSettings, name: v("name"), gst: v("gst"), nzbn: v("nzbn"), phone: v("phone"), email: v("email"), website: v("website"),
+      address: $("#rc-set-address").value.trim(), included, sender: v("sender"), next: Number(v("next")) || undefined });
+    if (rcEditing && $("#rc-modal").classList.contains("visible") && !rcEditing.rec){ rcEditing.included = rcIncluded(); rcRenderIncluded(rcEditing.included); }
+    closeModal("rc-settings-modal");
   });
-  $("#inv-billing-form")?.addEventListener("submit", async (e) => {
+  $("#rc-billing-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const c = state.clients.find(x => x.id === $("#inv-bill-id").value);
+    const c = state.clients.find(x => x.id === $("#rc-bill-id").value);
     if (!c) return;
-    const fee = $("#inv-bill-fee").value;
-    await invSaveClient(c.id, { billing: { ...invBilling(c), start: $("#inv-bill-start").value || null, fee: fee === "" ? null : Number(fee),
-      contact: $("#inv-bill-contact").value.trim(), email: $("#inv-bill-email").value.trim(), pay_link: $("#inv-bill-paylink").value.trim(), paused: $("#inv-bill-paused").checked } });
-    closeModal("inv-billing-modal");
+    const fee = $("#rc-bill-fee").value;
+    await rcSaveClient(c.id, { billing: { ...rcBilling(c), start: $("#rc-bill-start").value || null, fee: fee === "" ? null : Number(fee),
+      contact: $("#rc-bill-contact").value.trim(), email: $("#rc-bill-email").value.trim(), address: $("#rc-bill-address").value.trim(), paused: $("#rc-bill-paused").checked } });
+    closeModal("rc-billing-modal");
   });
 }
 
@@ -7529,7 +7479,7 @@ function renderAll(){
   renderContentProduction();
   renderTasks();
   renderReporting();
-  renderInvoices();
+  renderReceipts();
   renderPlans();
   renderWorkshops();
   renderWeeklyReport();
@@ -9563,7 +9513,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupWelcomePack();
   setupOnboarding();
   setupReporting();
-  setupInvoices();
+  setupReceipts();
   setupPlans();
   setupWorkshops();
   populateRegionIndustrySelects();
