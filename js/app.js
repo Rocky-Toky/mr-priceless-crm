@@ -6199,6 +6199,124 @@ function setupReceipts(){
   });
 }
 
+/* ───────── Jarvis ─────────
+   The CRM's assistant (supabase/functions/jarvis). A button on every page
+   opens his panel: chat on one tab, what he's learned on the other. */
+let jvLoaded = false, jvBusy = false;
+async function jarvisCall(body){
+  if (!IS_CONFIGURED) return { error: "demo" };
+  const { data, error } = await supabase.functions.invoke("jarvis", { body });
+  if (error){
+    let msg = error.message || "Couldn't reach Jarvis.";
+    try { const j = await error.context?.json?.(); if (j?.error) msg = j.error; } catch(e){}
+    return { error: msg };
+  }
+  return data || {};
+}
+const JV_NEEDS_KEY = "Jarvis needs his Claude API key before he can talk. In GitHub, go to the repo's Settings → Secrets and variables → Actions, add a secret called ANTHROPIC_API_KEY with a key from console.anthropic.com, then re-run the \"Deploy Supabase functions\" workflow.";
+function jvBubble(role, text){
+  const el = document.createElement("div");
+  el.className = `jv-msg jv-${role}`;
+  el.innerHTML = role === "assistant" ? renderPlaybookMarkdown(text).html : escapeHtml(text).replace(/\n/g, "<br>");
+  if (role === "assistant"){
+    const copy = document.createElement("button");
+    copy.type = "button"; copy.className = "jv-copy"; copy.textContent = "Copy";
+    copy.addEventListener("click", async () => { try { await navigator.clipboard.writeText(text); copy.textContent = "Copied"; setTimeout(() => { copy.textContent = "Copy"; }, 1400); } catch(e){} });
+    el.appendChild(copy);
+  }
+  $("#jarvis-messages").appendChild(el);
+  $("#jarvis-messages").scrollTop = $("#jarvis-messages").scrollHeight;
+  return el;
+}
+function jvGreeting(){
+  const person = window.getActivePerson ? window.getActivePerson() : null;
+  const name = ASSIGNEES[person]?.label;
+  $("#jarvis-messages").innerHTML = "";
+  jvBubble("assistant", `Kia ora${name ? " " + name : ""}. I've got your clients, their reports, every ad creative and the deals pipeline in front of me. Ask me for analysis, ad copy built on what's working, or help with a message.`);
+}
+async function jvLoadHistory(){
+  if (jvLoaded) return;
+  jvLoaded = true;
+  jvGreeting();
+  const r = await jarvisCall({ action: "history" });
+  (r.messages || []).forEach(m => jvBubble(m.role, m.content));
+  $("#jarvis-suggest").hidden = (r.messages || []).length > 0;
+}
+async function jvSend(text){
+  text = String(text || "").trim();
+  if (!text || jvBusy) return;
+  jvBusy = true;
+  $("#jarvis-suggest").hidden = true;
+  jvBubble("user", text);
+  $("#jarvis-text").value = ""; jvAutosize();
+  const thinking = jvBubble("thinking", "");
+  thinking.innerHTML = `<span class="jv-dots"><i></i><i></i><i></i></span> Jarvis is thinking...`;
+  const r = await jarvisCall({ action: "chat", message: text });
+  thinking.remove();
+  if (r.error === "demo") jvBubble("assistant", "I only work in the live CRM, once you're signed in - this is the demo.");
+  else if (r.error === "needs_key") jvBubble("assistant", JV_NEEDS_KEY);
+  else if (r.error) jvBubble("assistant", "Sorry - " + r.error);
+  else {
+    jvBubble("assistant", r.reply || "");
+    if (r.remembered) jvBubble("note", `Saved ${r.remembered} thing${r.remembered === 1 ? "" : "s"} to memory.`);
+  }
+  jvBusy = false;
+}
+function jvAutosize(){ const t = $("#jarvis-text"); if (!t) return; t.style.height = "auto"; t.style.height = Math.min(160, t.scrollHeight) + "px"; }
+async function jvRenderMemory(){
+  const list = $("#jarvis-mem-list");
+  if (!IS_CONFIGURED){ list.innerHTML = `<div class="rc-empty">Memory works in the live CRM.</div>`; return; }
+  const { data, error } = await supabase.from("jarvis_memory").select("id, content, kind, created_by, created_at").order("created_at", { ascending: false });
+  if (error){ list.innerHTML = `<div class="rc-empty">Memory isn't set up yet (sql/057).</div>`; return; }
+  list.innerHTML = (data || []).length ? data.map(m => `<div class="jv-mem">
+      <span class="jv-mem-kind jv-k-${escapeHtml(m.kind)}">${escapeHtml(m.kind)}</span>
+      <div><p>${escapeHtml(m.content)}</p><small>${escapeHtml((m.created_by || "").split("@")[0])} · ${escapeHtml(timeAgo(m.created_at))}</small></div>
+      <button type="button" class="rc-icon-btn" data-jv-forget="${m.id}" title="Forget this" aria-label="Forget this">${ICONS.trash}</button>
+    </div>`).join("") : `<div class="rc-empty">Nothing yet. Jarvis saves learnings as you chat, or add one above.</div>`;
+}
+function setupJarvis(){
+  const panel = $("#jarvis-panel");
+  if (!panel) return;
+  const open = (on) => { panel.hidden = !on; document.body.classList.toggle("jv-open", on); if (on){ jvLoadHistory(); setTimeout(() => $("#jarvis-text")?.focus(), 50); } };
+  $("#jarvis-fab").addEventListener("click", () => open(panel.hidden));
+  $("#jarvis-close").addEventListener("click", () => open(false));
+  $$(".jv-tab").forEach(t => t.addEventListener("click", () => {
+    $$(".jv-tab").forEach(x => x.classList.toggle("active", x === t));
+    const mem = t.dataset.jvTab === "memory";
+    $("#jarvis-chat").hidden = mem; $("#jarvis-memory").hidden = !mem;
+    if (mem) jvRenderMemory();
+  }));
+  $("#jarvis-form").addEventListener("submit", (e) => { e.preventDefault(); jvSend($("#jarvis-text").value); });
+  $("#jarvis-text").addEventListener("input", jvAutosize);
+  $("#jarvis-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); jvSend(e.target.value); } });
+  panel.addEventListener("click", async (e) => {
+    const ask = e.target.closest("[data-jv-ask]");
+    if (ask) jvSend(ask.dataset.jvAsk);
+    const forget = e.target.closest("[data-jv-forget]");
+    if (forget && confirm("Forget this?")){ await supabase.from("jarvis_memory").delete().eq("id", forget.dataset.jvForget); jvRenderMemory(); }
+  });
+  $("#jarvis-mem-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = $("#jarvis-mem-text").value.trim();
+    if (!text || !IS_CONFIGURED) return;
+    await supabase.from("jarvis_memory").insert({ content: text, kind: "preference", created_by: state.user?.email || null });
+    $("#jarvis-mem-text").value = ""; jvRenderMemory();
+  });
+  $("#jarvis-clear").addEventListener("click", async () => {
+    if (!confirm("Clear your conversation with Jarvis? What he's learned stays.")) return;
+    await jarvisCall({ action: "clear" });
+    jvLoaded = false; jvGreeting(); jvLoaded = true; $("#jarvis-suggest").hidden = false;
+  });
+  // Elsewhere in the CRM: "Ask Jarvis" buttons with a ready-made question.
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ask-jarvis]");
+    if (!b) return;
+    open(true); $$(".jv-tab")[0].click();
+    setTimeout(() => jvSend(b.dataset.askJarvis), 80);
+  });
+}
+function showJarvisFab(){ const f = $("#jarvis-fab"); if (f) f.hidden = !(state.user || !IS_CONFIGURED); }
+
 /* The Reporting page */
 function renderReporting(){
   const list = $("#rp-client-list");
@@ -7683,6 +7801,7 @@ function renderTeamFocusPanel(){
 }
 
 function renderAll(){
+  showJarvisFab();
   renderDashboard();
   renderPlaybookUsagePicker();
   renderMeetingsPipeline();
@@ -9786,6 +9905,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupReporting();
   setupReceipts();
   setupNurture();
+  setupJarvis();
   setupPlans();
   setupWorkshops();
   populateRegionIndustrySelects();

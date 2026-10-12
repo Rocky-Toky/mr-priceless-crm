@@ -18,9 +18,10 @@
 //   quote_ready              created in the period and at or past the "quote booked" stage
 //   quoted                   created in the period and at or past the "quote sent" stage
 // Which stages count as "quote booked" and "quote sent" is picked per client in
-// the CRM (body.stages = { booked, sent }, stage ids). Without a pick, a stage
-// name with "book", "appoint" or "visit" is booked, one with "sent" or "quote"
-// is sent, and anything past the first stage counts as booked.
+// the CRM (body.stages = { booked, sent }, stage ids). Without a pick, a quote
+// counts from the first stage that's a site visit, "to be quoted" or any quote
+// stage; "sent"/"proposal" stages (or a plain "Quote") count as quoted; and
+// opportunities sitting in a lost / not interested stage never count.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
