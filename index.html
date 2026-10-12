@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=195">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=195">
+<link rel="stylesheet" href="css/style.css?v=196">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=196">
 </head>
 <body>
 
@@ -1022,14 +1022,18 @@
     <!-- Creative Library (every ad creative across all clients) -->
     <section class="page" id="page-creative">
       <div class="page-header">
-        <div><h2>Creative Library</h2><p>Every ad creative across all your clients, with all-time spend and cost per lead pulled live from Meta.</p></div>
-        <div style="display:flex;gap:8px;">
+        <div><h2 id="creative-page-title">Creative Library</h2><p id="creative-page-sub">Every ad across all clients, live from Meta. Ads over $50 a lead move to Low on their own.</p></div>
+        <div class="country-toggle cr-view-toggle" id="creative-view-toggle" role="group" aria-label="View">
+          <button type="button" data-cr-view="library" class="active" aria-pressed="true">Creative Library</button>
+          <button type="button" data-cr-view="stats" aria-pressed="false">Statistics</button>
+        </div>
+        <div class="cr-lib-actions" id="creative-lib-actions">
           <button class="btn ghost" data-ask-jarvis="Look at our ad creatives. What do the top performers have in common (hook, angle, format, offer)? Then write 5 new Meta ad concepts for our tradie clients built on that - each with a hook, primary text and headline, and which winner it draws on.">Ad ideas from Jarvis</button>
-          <button class="btn ghost" id="cpl-low-btn" title="Tag every ad costing more than $50 a lead as a Low performer">Move $50+ CPL to Low</button>
           <button class="btn ghost" id="link-ad-account-btn">+ Link Ad Account</button>
           <button class="btn gold" id="add-creative-lib-btn">+ Add Creative</button>
         </div>
       </div>
+      <div id="creative-lib-view">
       <div class="stat-grid stat-grid-2">
         <div class="stat-card stat-card-spend">
           <div class="stat-label">All-Time Ad Spend</div>
@@ -1090,6 +1094,8 @@
       </div>
       <nav class="cr-seg-nav" id="creative-seg-nav" aria-label="Jump to section"></nav>
       <div class="cr-segs" id="creative-library-grid"></div>
+      </div>
+      <div id="creative-stats-view" class="cs-view" hidden></div>
     </section>
 
     <!-- Content Production (content pieces across every client) -->
@@ -2216,7 +2222,10 @@
         <div class="field"><label>Phone</label><input type="tel" id="client-phone" placeholder="e.g. 021 234 5678"></div>
         <div class="field"><label>Email</label><input type="email" id="client-email" placeholder="e.g. contact@client.co.nz"></div>
       </div>
-      <div class="field"><label>Website</label><input type="text" id="client-website" placeholder="e.g. clientbusiness.co.nz"></div>
+      <div class="field-row">
+        <div class="field"><label>Website</label><input type="text" id="client-website" placeholder="e.g. clientbusiness.co.nz"></div>
+        <div class="field"><label>Industry</label><input type="text" id="client-industry" list="client-industry-options" placeholder="e.g. Plumbing"><datalist id="client-industry-options"></datalist></div>
+      </div>
       <div class="field-row">
         <div class="field"><label>Stage</label>
           <select id="client-stage"></select>
@@ -2576,16 +2585,16 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=195"></script>
-<script src="js/supabaseClient.js?v=195"></script>
-<script src="js/report-pdf.js?v=195"></script>
-<script src="js/plan-pdf.js?v=195"></script>
-<script src="js/workshop-pdf.js?v=195"></script>
-<script src="js/receipt-pdf.js?v=195"></script>
-<script src="js/builtin-playbooks.js?v=195"></script>
-<script src="js/builtin-email-templates.js?v=195"></script>
-<script src="js/app.js?v=195"></script>
-<script src="js/meetings-tracker.js?v=195"></script>
-<script src="js/todo.js?v=195"></script>
+<script src="js/config.js?v=196"></script>
+<script src="js/supabaseClient.js?v=196"></script>
+<script src="js/report-pdf.js?v=196"></script>
+<script src="js/plan-pdf.js?v=196"></script>
+<script src="js/workshop-pdf.js?v=196"></script>
+<script src="js/receipt-pdf.js?v=196"></script>
+<script src="js/builtin-playbooks.js?v=196"></script>
+<script src="js/builtin-email-templates.js?v=196"></script>
+<script src="js/app.js?v=196"></script>
+<script src="js/meetings-tracker.js?v=196"></script>
+<script src="js/todo.js?v=196"></script>
 </body>
 </html>
