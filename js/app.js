@@ -2315,7 +2315,9 @@ function renderDialer(){
   // prospect calling back can actually reach whoever has the Dialer open -
   // see handleIncomingCall(). Silent because plenty of Dialer views (demo
   // mode, Supabase not configured yet) shouldn't pop a calling-setup alert.
-  if (!voiceDevice) getVoiceDevice(true);
+  if (!voiceDevice && IS_CONFIGURED && callMode() !== "phone") getVoiceDevice(true);
+  const modeSel = $("#dialer-call-mode");
+  if (modeSel && document.activeElement !== modeSel) modeSel.value = callMode();
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
   // Re-checked on every render rather than a one-time flag - getActivePerson
   // isn't guaranteed to be ready on the very first render, and a one-time
@@ -2420,7 +2422,7 @@ function renderDialer(){
           ${p.phone ? `<div class="dl-phone">${phoneHtml(prospectE164(p), "phone-num-xl")}</div>` : ""}
           <div class="dl-meta">${p.last_called_at ? `Called ${Number(p.calls_made||0)}× · last ${escapeHtml(timeAgo(p.last_called_at))}` : "Never called"}${p.email ? ` · ${escapeHtml(p.email)}` : ""}</div>
         </div>
-        ${IS_CONFIGURED
+        ${IS_CONFIGURED && callMode() !== "phone"
           ? `<button type="button" class="dl-call" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${callIco}${callLabel}</button>`
           : `<a href="tel:${escapeHtml(prospectE164(p))}" class="dl-call" data-action="dial-tel" data-id="${p.id}">${callIco}${callLabel}</a>`}
         ${p.notes ? `<div class="dl-notes"><span>Notes</span>${escapeHtml(p.notes)}</div>` : ""}
@@ -2812,10 +2814,28 @@ function setCallWidget(open, { name, status } = {}){
   if (status !== undefined) $("#call-widget-status").textContent = status;
 }
 
+// How calls go out, picked per computer: "phone" hands the number to the
+// computer's own calling app (Phone Link on Windows with an Android, or
+// iPhone calls on a Mac), so it rings out from your own mobile number;
+// "browser" calls through Twilio inside the CRM.
+const CALL_MODE_KEY = "mp_call_mode";
+function callMode(){
+  try { return localStorage.getItem(CALL_MODE_KEY) || "phone"; } catch(e){ return "phone"; }
+}
+function setCallMode(mode){
+  try { localStorage.setItem(CALL_MODE_KEY, mode); } catch(e){}
+}
+// Opens tel: without leaving the CRM - the OS passes it to Phone Link.
+function dialOnPhone(e164){
+  const a = document.createElement("a");
+  a.href = "tel:" + e164;
+  document.body.appendChild(a); a.click(); a.remove();
+}
 async function placeCall(phoneRaw, displayName, defaultCountryCode = "61"){
   if (activeCall){ alert("You're already on a call. Hang up first."); return false; }
   const digits = toE164(phoneRaw, defaultCountryCode);
   if (!digits){ alert("That doesn't look like a usable phone number."); return false; }
+  if (callMode() === "phone"){ dialOnPhone(digits); return true; }
   const device = await getVoiceDevice();
   if (!device) return false;
 
@@ -9474,6 +9494,7 @@ function setupDialerFilters(){
     const activePerson = window.getActivePerson ? window.getActivePerson() : null;
     if (activePerson) await savePlaybookUsage(activePerson, e.target.value);
   });
+  $("#dialer-call-mode")?.addEventListener("change", (e) => { setCallMode(e.target.value); renderDialer(); });
   $("#dialer-view-playbook-btn")?.addEventListener("click", () => {
     const id = $("#dialer-playbook-select")?.value;
     if (!id){ alert("Pick a playbook first."); return; }
