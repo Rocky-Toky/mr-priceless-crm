@@ -2225,9 +2225,23 @@ function isClaimedByOther(p, activePerson){
 // A region+industry combo Lead Engine has ticked off as fully worked (see
 // Vertical Coverage) - never true for a prospect missing either field,
 // since a combo can only be marked complete once it's actually named.
+// A whole region ticked off is stored as a completed vertical with
+// industry "*", so it counts for every industry in that region.
+const REGION_DONE = "*";
+const regionCompletion = (region) => state.completedVerticals.find(v => v.region === region && v.industry === REGION_DONE) || null;
 function isVerticalCompleted(region, industry){
-  if (!region || !industry) return false;
+  if (!region) return false;
+  if (regionCompletion(region)) return true;
+  if (!industry) return false;
   return state.completedVerticals.some(v => v.region === region && v.industry === industry);
+}
+// "Completed 3 months ago" - whole months since it was ticked.
+function monthsSinceLabel(at){
+  const d = new Date(at), now = new Date();
+  let m = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) m--;
+  m = Math.max(0, m);
+  return { months: m, label: m < 1 ? "under a month" : `${m} month${m === 1 ? "" : "s"}` };
 }
 function dialerFilteredProspects(){
   const f = state.dialerFilter;
@@ -7441,25 +7455,38 @@ function renderRegionCoverage(){
   const emptyStatus = industry ? "missing" : "empty";
   const rows = NZ_REGIONS.map(region => {
     const count = counts[region] || 0;
-    return { region, count, status: count === 0 ? emptyStatus : "filling" };
+    const done = regionCompletion(region);
+    return { region, count, done, status: done ? "done" : count === 0 ? emptyStatus : "filling" };
   });
 
   const st = (id,v) => { const el = $(id); if (el) el.textContent = v; };
-  st("#coverage-count-empty", rows.filter(r => r.status !== "filling").length);
+  st("#coverage-count-empty", rows.filter(r => r.status === "empty" || r.status === "missing").length);
   st("#coverage-count-filling", rows.filter(r => r.status === "filling").length);
+  st("#coverage-count-done", rows.filter(r => r.status === "done").length);
   st("#coverage-label-empty", industry ? `have no ${industry} prospects` : "not started");
   st("#coverage-label-filling", industry ? `have ${industry} prospects` : "have prospects");
   $("#coverage-dot-empty")?.classList.toggle("missing", !!industry);
   $("#coverage-dot-empty")?.classList.toggle("empty", !industry);
 
   const noun = industry ? `${industry} prospect` : "prospect";
-  const sorted = [...rows].sort((a,b) => b.count - a.count || a.region.localeCompare(b.region));
-  grid.innerHTML = sorted.map(r => `
-    <button type="button" class="coverage-chip ${r.status}" data-action="filter-region-coverage" data-region="${escapeHtml(r.region)}" title="${escapeHtml(r.region)} - ${r.count} ${escapeHtml(noun)}${r.count===1?"":"s"}">
-      <span class="coverage-chip-name">${escapeHtml(r.region)}</span>
-      <span class="coverage-chip-count">${r.status === "filling" ? `${r.count} ${escapeHtml(noun)}${r.count===1?"":"s"}` : (industry ? "None yet" : "Not started")}</span>
-    </button>
-  `).join("");
+  // Completed regions sit at the end, longest-completed last.
+  const sorted = [...rows].sort((a,b) => (!!a.done - !!b.done) || (a.done && b.done ? new Date(b.done.completed_at) - new Date(a.done.completed_at) : 0) || b.count - a.count || a.region.localeCompare(b.region));
+  grid.innerHTML = sorted.map(r => {
+    const since = r.done ? monthsSinceLabel(r.done.completed_at) : null;
+    const countText = r.done ? `Done ${since.label === "under a month" ? "this month" : since.label + " ago"}`
+      : r.status === "filling" ? `${r.count} ${noun}${r.count===1?"":"s"}` : (industry ? "None yet" : "Not started");
+    return `
+    <div class="coverage-chip ${r.status}${since && since.months >= 6 ? " is-stale" : ""}">
+      <button type="button" class="coverage-chip-main" data-action="filter-region-coverage" data-region="${escapeHtml(r.region)}" title="${escapeHtml(r.region)} - ${r.count} ${escapeHtml(noun)}${r.count===1?"":"s"}">
+        <span class="coverage-chip-name">${escapeHtml(r.region)}</span>
+        <span class="coverage-chip-count">${escapeHtml(countText)}</span>
+        ${since && since.months >= 6 ? `<span class="coverage-chip-revisit">Time to revisit</span>` : ""}
+      </button>
+      <button type="button" class="coverage-tick ${r.done ? "checked" : ""}" data-action="${r.done ? "reopen-region" : "complete-region"}" data-region="${escapeHtml(r.region)}" ${r.done ? `data-id="${r.done.id}"` : ""}
+        title="${r.done ? `Completed ${fmtDate(r.done.completed_at)}${r.done.completed_by ? " by " + escapeHtml(prospectCallerLabel(r.done.completed_by)) : ""} - click to reopen` : `Mark ${escapeHtml(r.region)} as completed`}"
+        aria-label="${r.done ? "Reopen" : "Mark completed"} ${escapeHtml(r.region)}">${r.done ? TASK_CHECK_SVG : ""}</button>
+    </div>`;
+  }).join("");
 }
 // Tick off a region+industry combo once it's been fully worked - its
 // prospects drop out of Prospecting for everyone (see isVerticalCompleted)
@@ -7482,7 +7509,7 @@ function renderVerticalCoverage(){
     .map(([key,count]) => { const [region,industry] = key.split(" "); return { region, industry, count }; })
     .sort((a,b) => b.count - a.count || a.region.localeCompare(b.region));
 
-  const completed = [...state.completedVerticals].sort((a,b) => new Date(b.completed_at) - new Date(a.completed_at));
+  const completed = [...state.completedVerticals].filter(v => v.industry !== REGION_DONE).sort((a,b) => new Date(b.completed_at) - new Date(a.completed_at));
 
   const activeHtml = active.length ? active.map(v => `
     <div class="vertical-row">
@@ -7501,7 +7528,7 @@ function renderVerticalCoverage(){
       <button type="button" class="vertical-check checked" data-action="reactivate-vertical" data-id="${v.id}" title="Reactivate - brings these prospects back into Prospecting">${TASK_CHECK_SVG}</button>
       <div class="vertical-row-info">
         <div class="vertical-row-name">${escapeHtml(v.region)} · ${escapeHtml(v.industry)}</div>
-        <div class="vertical-row-sub">${count} prospect${count===1?"":"s"} tucked away - done ${fmtDate(v.completed_at)}${v.completed_by ? " by "+escapeHtml(prospectCallerLabel(v.completed_by)) : ""}</div>
+        <div class="vertical-row-sub">${count} prospect${count===1?"":"s"} tucked away - completed ${(l => l === "under a month" ? "this month" : l + " ago")(monthsSinceLabel(v.completed_at).label)} (${fmtDate(v.completed_at)})${v.completed_by ? " by "+escapeHtml(prospectCallerLabel(v.completed_by)) : ""}</div>
       </div>
     </div>`;
   }).join("") : `<p class="vertical-empty">Nothing marked complete yet.</p>`;
@@ -9636,6 +9663,17 @@ function setupModals(){
       if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
     if (action === "reactivate-vertical") { await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll(); }
+    if (action === "complete-region"){
+      const region = btn.dataset.region;
+      if (!confirm(`Mark ${region} as completed? Its prospects come off Prospecting for everyone until you reopen it.`)) return;
+      const activePerson = window.getActivePerson ? window.getActivePerson() : null;
+      await DataLayer.insert("completed_verticals", { region, industry: REGION_DONE, completed_at: new Date().toISOString(), completed_by: state.user?.email || activePerson || "demo" });
+      if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
+    }
+    if (action === "reopen-region"){
+      if (!confirm(`Reopen ${btn.dataset.region}? Its prospects come back into Prospecting.`)) return;
+      await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
+    }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
     if (action === "toggle-board-col"){
