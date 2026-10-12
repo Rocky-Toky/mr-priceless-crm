@@ -8215,11 +8215,14 @@ function renderExpenses(){
 // Lightweight markdown-lite renderer: "## " headings, "1. "/"- " lists, "- [ ] "
 // checklist items, **bold**. Keeps playbook authoring as plain text while
 // rendering as a proper doc.
-function renderPlaybookMarkdown(raw, checked){
+function renderPlaybookMarkdown(raw, checked, opts = {}){
   checked = checked || {};
   const inline = (s) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  // Words to say: [Name]-style blanks stand out as things to fill in.
+  const sayHtml = (s) => inline(s).replace(/\[([^\]]{1,40})\]/g, `<span class="pb-fill">$1</span>`);
+  const sayBlock = (s) => `<blockquote class="pb-say"><span class="pb-say-label">Say</span><span class="pb-say-text">${sayHtml(s)}</span><button type="button" class="pb-say-copy" data-action="pb-copy-say" title="Copy">Copy</button></blockquote>`;
   const lines = String(raw||"").split("\n");
-  let html = "", listType = null, checkIdx = 0;
+  let html = "", listType = null, checkIdx = opts.startIdx || 0;
   const closeList = () => { if (listType){ html += `</${listType}>`; listType = null; } };
   for (const rawLine of lines){
     const line = rawLine.trim();
@@ -8244,7 +8247,13 @@ function renderPlaybookMarkdown(raw, checked){
     }
     // "> " is a script line: the words to actually say on the call.
     const say = line.match(/^>\s*(.*)$/);
-    if (say){ closeList(); html += `<blockquote class="pb-say">${inline(say[1])}</blockquote>`; continue; }
+    if (say){ closeList(); html += sayBlock(say[1].replace(/^"(.*)"$/, "$1")); continue; }
+    // **"What they say"** - what you say back: an objection card.
+    const obj = line.match(/^\*\*"(.+?)"\*\*\s*[-–—:]\s*(.+)$/);
+    if (obj){ closeList(); html += `<div class="pb-obj"><div class="pb-obj-they"><span>They say</span>“${inline(obj[1])}”</div><div class="pb-obj-you"><span>You say</span>${sayHtml(obj[2])}</div></div>`; continue; }
+    // A whole line in quotes is a line to say, too.
+    const quoted = line.match(/^"([^"]{12,})"$/);
+    if (quoted){ closeList(); html += sayBlock(quoted[1]); continue; }
     const ol = line.match(/^\d+\.\s+(.*)$/);
     if (ol){ if (listType !== "ol"){ closeList(); html += "<ol>"; listType = "ol"; } html += `<li>${inline(ol[1])}</li>`; continue; }
     const ul = line.match(/^[-*•]\s+(.*)$/);
@@ -8301,63 +8310,293 @@ async function ensureBuiltinPlaybooks(){
     try { localStorage.setItem(key, "1"); } catch(e){}
   }
 }
+/* ───────── Playbooks ─────────
+   Two views. The library: every playbook as a card, grouped by what it's for,
+   with how far you've got through each and a search across all of them. The
+   reader: one playbook as numbered chapters (its "## " sections) with a
+   chapter list that follows you down the page, lines to say as big copyable
+   script cards, objections as "they say / you say" cards, and a tick on each
+   chapter - tick them all and the playbook's mastered. Progress is per
+   browser (localStorage). */
+const PB_CATS = [
+  { key: "objections", label: "Objections & technique", re: /objection|technique|tone|rebuttal|pushback/i },
+  { key: "delivery", label: "Service delivery", re: /deliver|ads\b|onboard|campaign|client|report|workshop/i },
+  { key: "meetings", label: "Meetings & closing", re: /meeting|clos|discovery|pitch|offer/i },
+  { key: "calling", label: "Cold calling", re: /cold|call|dial|script|prospect/i },
+  { key: "other", label: "Everything else", re: /.^/ },
+];
+const pbCat = (p) => PB_CATS.find(c => c.re.test(p.title || "")) || PB_CATS[PB_CATS.length - 1];
+const PB_GOAL_RE = /^(goal|the goal|what this (meeting|call|doc) is for|purpose)$/i;
+// "## " sections. The goal section becomes the playbook's lead line instead of a chapter.
+function pbParse(p){
+  const segs = [];
+  let cur = { title: null, lines: [] };
+  for (const line of String(p.content || "").split("\n")){
+    const h = line.trim().match(/^#{1,2}\s+(.*)$/);
+    if (h){ segs.push(cur); cur = { title: h[1].trim(), lines: [] }; }
+    else cur.lines.push(line);
+  }
+  segs.push(cur);
+  let lead = "";
+  const chapters = [];
+  segs.forEach(s => {
+    const body = s.lines.join("\n").trim();
+    if (s.title === null){ if (body) lead = body; return; }
+    if (!lead && PB_GOAL_RE.test(s.title)){ lead = body; return; }
+    chapters.push({ title: s.title, body });
+  });
+  if (!chapters.length && lead){ chapters.push({ title: "The playbook", body: lead }); lead = ""; }
+  const words = (t) => (String(t).match(/\S+/g) || []).length;
+  chapters.forEach(c => {
+    c.mins = Math.max(1, Math.round(words(c.body) / 200));
+    c.says = (c.body.match(/^\s*>/gm) || []).length + (c.body.match(/^\s*"[^"\n]{12,}"\s*$/gm) || []).length;
+    c.objs = (c.body.match(/^\s*\*\*"[^"]+"\*\*\s*[-–—]/gm) || []).length;
+  });
+  // The lead: the goal, else the first plain sentence anywhere in it.
+  const firstPlain = (t) => String(t).split("\n").map(s => s.trim()).filter(s => s && !/^(#|[-*•]\s|\d+\.\s|>|\*\*")/.test(s))[0] || "";
+  const leadText = (lead.replace(/^>\s*/gm, "").split("\n").map(s => s.trim()).filter(Boolean)[0] || firstPlain(p.content)).replace(/\*\*/g, "");
+  return { lead: leadText, chapters, mins: Math.max(1, Math.round(words(p.content || "") / 200)),
+    says: chapters.reduce((n, c) => n + c.says, 0), objs: chapters.reduce((n, c) => n + c.objs, 0) };
+}
+const pbDoneKey = (id) => "pbx-done-" + id;
+function pbDone(id){ try { return JSON.parse(localStorage.getItem(pbDoneKey(id)) || "{}"); } catch { return {}; } }
+function pbSaveDone(id, d){ try { localStorage.setItem(pbDoneKey(id), JSON.stringify(d)); } catch(e){} }
+// How many of this playbook's chapters are ticked (by chapter title, so edits don't scramble it).
+function pbProgress(p, doc){
+  const d = pbDone(p.id), n = doc.chapters.filter(c => d[c.title]).length;
+  return { done: n, total: doc.chapters.length, pct: doc.chapters.length ? Math.round(n / doc.chapters.length * 100) : 0 };
+}
+function pbRing(pct, size = 44){
+  const r = size / 2 - 4, c = 2 * Math.PI * r;
+  return `<svg class="pbx-ring" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" class="pbx-ring-bg"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" class="pbx-ring-fg" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - pct / 100)).toFixed(1)}" transform="rotate(-90 ${size/2} ${size/2})"/>
+  </svg>`;
+}
+let pbSearch = "";
+let pbObserver = null;
+const pbLastKey = "pbx-last";
+const pbHighlight = (text, q) => {
+  const safe = escapeHtml(text);
+  if (!q) return safe;
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+  return safe.replace(re, m => `<mark>${m}</mark>`);
+};
+function pbSearchResults(list, q){
+  const out = [];
+  const ql = q.toLowerCase();
+  list.forEach(p => {
+    const doc = pbParse(p);
+    if ((p.title || "").toLowerCase().includes(ql)) out.push({ p, sec: -1, title: p.title, snip: doc.lead });
+    doc.chapters.forEach((c, i) => {
+      const plain = c.body.replace(/\*\*/g, "").replace(/^\s*(>|[-*•]|\d+\.)\s*/gm, "").replace(/\[[ xX]?\]\s*/g, "");
+      const hitTitle = c.title.toLowerCase().includes(ql), at = plain.toLowerCase().indexOf(ql);
+      if (!hitTitle && at < 0) return;
+      const from = Math.max(0, at - 60), snip = at < 0 ? plain.slice(0, 140) : (from ? "…" : "") + plain.slice(from, at + 100).replace(/\s+/g, " ") + "…";
+      out.push({ p, sec: i, title: c.title, snip });
+    });
+  });
+  return out.slice(0, 40);
+}
 function renderPlaybooks(){
   ensureBuiltinPlaybooks();
-  const listEl = $("#playbooks-list");
-  const viewer = $("#playbook-viewer");
-  if (!listEl || !viewer) return;
-  const list = [...state.playbooks].sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
-  if (!list.length){
-    listEl.innerHTML = "";
-    viewer.innerHTML = `<div class="playbook-empty"><div class="playbook-empty-icon">${ICONS.book}</div>No playbooks yet.<br>Add your first script or process doc.</div>`;
-    return;
-  }
-  if (!state.selectedPlaybookId || !list.find(p => p.id === state.selectedPlaybookId)){
-    state.selectedPlaybookId = list[0].id;
-  }
-  listEl.innerHTML = list.map(p => {
-    const pState = getPlaybookChecklist(p.id);
-    const { total, checked } = (() => {
-      const r = renderPlaybookMarkdown(p.content, pState);
-      return { total: r.total, checked: Object.values(pState).filter(Boolean).length };
-    })();
-    const sub = total > 0
-      ? `${Math.min(checked,total)} of ${total} steps complete`
-      : escapeHtml((p.content||"").replace(/[#*\n]/g," ").trim().slice(0,42));
-    return `
-    <button type="button" class="playbook-list-item ${p.id === state.selectedPlaybookId ? "active" : ""}" data-action="select-playbook" data-id="${p.id}">
-      <span class="playbook-list-item-icon">${playbookIcon(p.title)}</span>
-      <span class="playbook-list-item-text">
-        <div class="playbook-list-item-title">${escapeHtml(p.title)}</div>
-        <div class="playbook-list-item-sub">${sub}</div>
+  const root = $("#pbx");
+  if (!root) return;
+  const list = [...state.playbooks].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const p = state.selectedPlaybookId && list.find(x => x.id === state.selectedPlaybookId);
+  if (state.selectedPlaybookId && !p) state.selectedPlaybookId = null;
+  const searchFocused = document.activeElement?.id === "pbx-search";
+  root.innerHTML = p ? pbReaderHtml(p, list) : pbLibraryHtml(list);
+  if (p) pbWireReader(p);
+  else if (searchFocused){ const s = $("#pbx-search"); if (s){ s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+}
+function pbLibraryHtml(list){
+  if (!list.length) return `<div class="pbx-empty"><div class="pbx-empty-icon">${ICONS.book}</div><h3>No playbooks yet</h3><p>Add your first script or process and the whole team gets it.</p><button class="btn gold" data-action="pbx-add">+ Add Playbook</button></div>`;
+  const docs = new Map(list.map(p => [p.id, pbParse(p)]));
+  let last = null; try { last = list.find(x => x.id === localStorage.getItem(pbLastKey)); } catch(e){}
+  const all = list.map(p => pbProgress(p, docs.get(p.id)));
+  const chaptersTotal = all.reduce((n, x) => n + x.total, 0), chaptersDone = all.reduce((n, x) => n + x.done, 0);
+  const mastered = all.filter(x => x.total && x.done === x.total).length;
+  const q = pbSearch.trim();
+  const card = (p) => {
+    const doc = docs.get(p.id), pr = pbProgress(p, doc), cat = pbCat(p);
+    return `<button type="button" class="pbx-card pbx-cat-${cat.key}${pr.pct === 100 ? " is-mastered" : ""}" data-action="select-playbook" data-id="${p.id}">
+      <span class="pbx-card-top">
+        <span class="pbx-card-icon">${playbookIcon(p.title)}</span>
+        <span class="pbx-card-ring">${pbRing(pr.pct)}<b>${pr.pct === 100 ? "✓" : pr.pct + "%"}</b></span>
       </span>
-    </button>
-  `;
-  }).join("");
-  const p = list.find(x => x.id === state.selectedPlaybookId);
-  const checklistState = getPlaybookChecklist(p.id);
-  const { html: contentHtml, total } = renderPlaybookMarkdown(p.content, checklistState);
-  const checkedCount = Object.values(checklistState).filter(Boolean).length;
-  const progressHtml = total > 0 ? `
-    <div class="playbook-progress">
-      <div class="playbook-progress-bar"><div class="playbook-progress-fill" id="playbook-progress-fill" style="width:${Math.round(Math.min(checkedCount,total)/total*100)}%"></div></div>
-      <span class="playbook-progress-text" id="playbook-progress-text">${checkedCount} of ${total} steps complete</span>
-      <button type="button" class="playbook-reset-btn" data-action="reset-checklist" data-id="${p.id}">Reset</button>
-    </div>` : "";
-  viewer.innerHTML = `
-    <div class="playbook-viewer-head">
-      <div class="playbook-viewer-head-title">
-        <span class="playbook-viewer-icon">${playbookIcon(p.title)}</span>
-        <div><h3>${escapeHtml(p.title)}</h3><p>Updated ${fmtDate(p.updated_at||p.created_at)}</p></div>
+      <span class="pbx-card-title">${escapeHtml(p.title)}</span>
+      <span class="pbx-card-lead">${escapeHtml(doc.lead || "Open to read it.")}</span>
+      <span class="pbx-card-meta">
+        <span>${doc.chapters.length} chapter${doc.chapters.length === 1 ? "" : "s"}</span>
+        <span>${doc.mins} min read</span>
+        ${doc.says ? `<span>${doc.says} line${doc.says === 1 ? "" : "s"} to say</span>` : ""}
+        ${doc.objs ? `<span>${doc.objs} objection${doc.objs === 1 ? "" : "s"}</span>` : ""}
+      </span>
+    </button>`;
+  };
+  const groups = PB_CATS.map(c => ({ c, items: list.filter(p => pbCat(p).key === c.key) })).filter(g => g.items.length);
+  const results = q ? pbSearchResults(list, q) : null;
+  return `
+    <div class="pbx-lib">
+      <div class="pbx-lib-top">
+        <label class="pbx-search">
+          ${ICONS.search}
+          <input id="pbx-search" type="search" placeholder="Search every playbook - try “price” or “not interested”" value="${escapeHtml(pbSearch)}" autocomplete="off">
+        </label>
+        <div class="pbx-stats">
+          <div><b>${list.length}</b><span>playbooks</span></div>
+          <div><b>${chaptersDone}<small>/${chaptersTotal}</small></b><span>chapters done</span></div>
+          <div class="gold"><b>${mastered}</b><span>mastered</span></div>
+        </div>
       </div>
-      <div class="playbook-viewer-actions">
+      ${results ? `
+        <div class="pbx-results">
+          <div class="pbx-results-head">${results.length ? `${results.length} match${results.length === 1 ? "" : "es"} for “${escapeHtml(q)}”` : `Nothing matches “${escapeHtml(q)}”`}</div>
+          ${results.map(r => `<button type="button" class="pbx-result pbx-cat-${pbCat(r.p).key}" data-action="pbx-open-at" data-id="${r.p.id}" data-sec="${r.sec}">
+            <span class="pbx-result-where"><span class="pbx-dot"></span>${escapeHtml(r.p.title)}${r.sec >= 0 ? ` <em>›</em> ${pbHighlight(r.title, q)}` : ""}</span>
+            <span class="pbx-result-snip">${pbHighlight(r.snip, q)}</span>
+          </button>`).join("")}
+        </div>` : `
+        ${last ? (() => { const pr = pbProgress(last, docs.get(last.id)); return `
+        <button type="button" class="pbx-continue pbx-cat-${pbCat(last).key}" data-action="select-playbook" data-id="${last.id}">
+          <span class="pbx-continue-icon">${playbookIcon(last.title)}</span>
+          <span class="pbx-continue-text"><span class="pbx-k">Pick up where you left off</span><b>${escapeHtml(last.title)}</b></span>
+          <span class="pbx-continue-bar"><i style="width:${pr.pct}%"></i></span>
+          <span class="pbx-continue-pct">${pr.done}/${pr.total}</span>
+          <span class="pbx-continue-go">${pr.pct === 100 ? "Read again" : pr.done ? "Continue" : "Start"} →</span>
+        </button>`; })() : ""}
+        ${groups.map(g => `
+          <section class="pbx-group">
+            <h3 class="pbx-group-title pbx-cat-${g.c.key}"><span class="pbx-dot"></span>${escapeHtml(g.c.label)}<span class="pbx-group-count">${g.items.length}</span></h3>
+            <div class="pbx-grid">${g.items.map(card).join("")}</div>
+          </section>`).join("")}`}
+    </div>`;
+}
+function pbReaderHtml(p, list){
+  const doc = pbParse(p), pr = pbProgress(p, doc), done = pbDone(p.id), cat = pbCat(p);
+  let checkStart = 0;
+  const checked = getPlaybookChecklist(p.id);
+  const chapters = doc.chapters.map((c, i) => {
+    const r = renderPlaybookMarkdown(c.body, checked, { startIdx: checkStart });
+    checkStart = r.total;
+    const isDone = !!done[c.title];
+    const next = doc.chapters[i + 1];
+    return `
+      <section class="pbx-ch${isDone ? " is-done" : ""}" id="pbx-ch-${i}" data-sec="${i}">
+        <header class="pbx-ch-head">
+          <span class="pbx-ch-num">${isDone ? TASK_CHECK_SVG : String(i + 1).padStart(2, "0")}</span>
+          <div class="pbx-ch-titles"><span class="pbx-k">Chapter ${i + 1} of ${doc.chapters.length}</span><h3>${escapeHtml(c.title)}</h3></div>
+          <span class="pbx-ch-time">${c.mins} min</span>
+        </header>
+        <div class="pbx-ch-body playbook-content" data-playbook="${p.id}">${r.html || `<p class="pbx-muted">Nothing in this chapter yet.</p>`}</div>
+        <footer class="pbx-ch-foot">
+          <button type="button" class="pbx-got-it${isDone ? " is-done" : ""}" data-action="pbx-toggle-done" data-sec="${i}">
+            <span class="pbx-got-box">${TASK_CHECK_SVG}</span>${isDone ? "Got it" : "Mark as got it"}
+          </button>
+          ${next ? `<button type="button" class="pbx-next" data-action="pbx-goto" data-sec="${i + 1}">Next: ${escapeHtml(next.title)} →</button>` : ""}
+        </footer>
+      </section>`;
+  }).join("");
+  const idx = list.findIndex(x => x.id === p.id), nextPb = list[idx + 1] || list[0];
+  return `
+    <div class="pbx-reader pbx-cat-${cat.key}">
+      <div class="pbx-bar">
+        <button type="button" class="pbx-back" data-action="pbx-home">← All playbooks</button>
+        <span class="pbx-bar-title">${escapeHtml(p.title)}</span>
+        <span class="pbx-bar-prog" id="pbx-bar-prog">${pr.done}/${pr.total} chapters</span>
         <button class="icon-btn" data-action="edit-playbook" data-id="${p.id}" title="Edit">${ICONS.edit}</button>
         <button class="icon-btn" data-action="delete-playbook" data-id="${p.id}" title="Delete">${ICONS.trash}</button>
+        <span class="pbx-readbar"><i id="pbx-read-fill"></i></span>
       </div>
-    </div>
-    ${progressHtml}
-    <div class="playbook-content" data-playbook="${p.id}">${contentHtml || `<p style="color:var(--text2);">No content yet - click the edit icon to write it.</p>`}</div>
-  `;
+      <header class="pbx-hero">
+        <div class="pbx-hero-text">
+          <span class="pbx-chip"><span class="pbx-dot"></span>${escapeHtml(cat.label)}</span>
+          <h2>${escapeHtml(p.title)}</h2>
+          ${doc.lead ? `<p class="pbx-hero-lead">${escapeHtml(doc.lead)}</p>` : ""}
+          <div class="pbx-hero-meta">
+            <span>${doc.chapters.length} chapters</span><span>${doc.mins} min read</span>
+            ${doc.says ? `<span>${doc.says} lines to say</span>` : ""}${doc.objs ? `<span>${doc.objs} objections</span>` : ""}
+            <span>Updated ${fmtDate(p.updated_at || p.created_at)}</span>
+          </div>
+        </div>
+        <div class="pbx-hero-ring" id="pbx-hero-ring">${pbRing(pr.pct, 112)}<span><b>${pr.pct}%</b><small>${pr.pct === 100 ? "mastered" : "done"}</small></span></div>
+      </header>
+      <div class="pbx-body">
+        <nav class="pbx-toc" aria-label="Chapters">
+          <span class="pbx-k">Chapters</span>
+          ${doc.chapters.map((c, i) => `<button type="button" class="pbx-toc-item${done[c.title] ? " is-done" : ""}" data-action="pbx-goto" data-sec="${i}" data-toc="${i}">
+            <span class="pbx-toc-num">${done[c.title] ? TASK_CHECK_SVG : i + 1}</span><span class="pbx-toc-text">${escapeHtml(c.title)}</span>
+          </button>`).join("")}
+          ${Object.keys(checked).length ? `<button type="button" class="pbx-toc-reset" data-action="reset-checklist" data-id="${p.id}">Reset checklists</button>` : ""}
+        </nav>
+        <main class="pbx-chapters">
+          ${chapters}
+          <div class="pbx-finish${pr.pct === 100 ? " is-mastered" : ""}" id="pbx-finish">
+            <span class="pbx-finish-icon">${pr.pct === 100 ? "🏆" : "📖"}</span>
+            <div><b>${pr.pct === 100 ? "Playbook mastered." : "That's the lot."}</b><p>${pr.pct === 100 ? "Every chapter ticked off. Go use it." : `Tick each chapter as you've got it - ${pr.total - pr.done} to go.`}</p></div>
+            ${nextPb && nextPb.id !== p.id ? `<button type="button" class="btn gold" data-action="select-playbook" data-id="${nextPb.id}">Next playbook: ${escapeHtml(nextPb.title)} →</button>` : ""}
+          </div>
+        </main>
+      </div>
+    </div>`;
+}
+let pbScrollHandler = null;
+function pbWireReader(p){
+  try { localStorage.setItem(pbLastKey, p.id); } catch(e){}
+  const secs = $$("#pbx .pbx-ch");
+  if (pbObserver) pbObserver.disconnect();
+  const visible = new Set();
+  const setActive = (i) => $$("#pbx .pbx-toc-item").forEach(b => b.classList.toggle("active", +b.dataset.toc === i));
+  pbObserver = new IntersectionObserver(entries => {
+    entries.forEach(en => { en.isIntersecting ? visible.add(+en.target.dataset.sec) : visible.delete(+en.target.dataset.sec); });
+    if (visible.size) setActive(Math.min(...visible));
+  }, { rootMargin: "-110px 0px -55% 0px" });
+  secs.forEach(s => pbObserver.observe(s));
+  if (!pbScrollHandler){
+    pbScrollHandler = () => {
+      const fill = $("#pbx-read-fill"), main = $("#pbx .pbx-chapters");
+      if (!fill || !main || state.page !== "playbooks") return;
+      const r = main.getBoundingClientRect(), total = r.height - innerHeight * 0.5;
+      fill.style.width = Math.max(0, Math.min(100, (-r.top + 120) / Math.max(1, total) * 100)) + "%";
+    };
+    window.addEventListener("scroll", pbScrollHandler, { passive: true });
+  }
+  pbScrollHandler();
+}
+function pbGoto(i){
+  const el = $(`#pbx-ch-${i}`);
+  if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - 96, behavior: "smooth" });
+}
+function pbConfetti(x, y, n = 26){
+  const colors = ["#e8c468", "#b8912c", "#3f7d55", "#3b6fb6", "#c0583b", "#fff3c4"];
+  for (let i = 0; i < n; i++){
+    const s = document.createElement("span");
+    s.className = "pbx-confetti";
+    const a = Math.random() * Math.PI * 2, d = 60 + Math.random() * 120;
+    s.style.cssText = `left:${x}px;top:${y}px;background:${colors[i % colors.length]};--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d - 60}px;--r:${Math.random() * 720 - 360}deg`;
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 1000);
+  }
+}
+async function pbToggleDone(btn){
+  const p = state.playbooks.find(x => x.id === state.selectedPlaybookId);
+  if (!p) return;
+  const doc = pbParse(p), i = +btn.dataset.sec, c = doc.chapters[i];
+  if (!c) return;
+  const d = pbDone(p.id);
+  const nowDone = !d[c.title];
+  if (nowDone) d[c.title] = Date.now(); else delete d[c.title];
+  pbSaveDone(p.id, d);
+  const pr = pbProgress(p, doc);
+  const r = btn.getBoundingClientRect();
+  if (nowDone) pbConfetti(r.left + 18, r.top + r.height / 2, pr.pct === 100 ? 70 : 18);
+  const y = scrollY;
+  renderPlaybooks();
+  window.scrollTo(0, y);
+  if (nowDone && pr.pct === 100){
+    const f = $("#pbx-finish"); if (f) setTimeout(() => window.scrollTo({ top: f.getBoundingClientRect().top + scrollY - innerHeight / 2, behavior: "smooth" }), 250);
+  } else if (nowDone && doc.chapters[i + 1] && !d[doc.chapters[i + 1].title]) setTimeout(() => pbGoto(i + 1), 380);
 }
 
 /* ───────── Rules (per-channel standards, shared with the whole team) ─────────
@@ -9105,6 +9344,10 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
+  $("#pbx")?.addEventListener("input", (e) => {
+    if (e.target.id !== "pbx-search") return;
+    pbSearch = e.target.value; renderPlaybooks();
+  });
   $("#add-playbook-btn")?.addEventListener("click", () => {
     $("#playbook-form").reset(); $("#playbook-form-id").value=""; $("#playbook-modal-title").textContent="Add Playbook";
     updateLivePreview("playbook-content");
@@ -9680,7 +9923,21 @@ function setupModals(){
     const { action, id, outcome } = btn.dataset;
     if (action.startsWith("onb-") && await handleOnbAction(action, id, btn)) return;
     if (action === "delete-contact" && confirm("Delete this contact?")) await DataLayer.remove("contacts", id);
-    if (action === "select-playbook"){ state.selectedPlaybookId = id; renderPlaybooks(); }
+    if (action === "select-playbook"){ state.selectedPlaybookId = id; pbSearch = ""; renderPlaybooks(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    if (action === "pbx-home"){ state.selectedPlaybookId = null; renderPlaybooks(); window.scrollTo({ top: 0 }); }
+    if (action === "pbx-add") $("#add-playbook-btn")?.click();
+    if (action === "pbx-goto") pbGoto(+btn.dataset.sec);
+    if (action === "pbx-toggle-done") await pbToggleDone(btn);
+    if (action === "pbx-open-at"){
+      state.selectedPlaybookId = id; pbSearch = ""; renderPlaybooks(); window.scrollTo({ top: 0 });
+      if (+btn.dataset.sec >= 0) setTimeout(() => pbGoto(+btn.dataset.sec), 60);
+    }
+    if (action === "pb-copy-say"){
+      const text = btn.closest(".pb-say")?.querySelector(".pb-say-text")?.textContent || "";
+      try { await navigator.clipboard.writeText(text); } catch(e){}
+      btn.textContent = "Copied"; btn.classList.add("copied");
+      setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1400);
+    }
     if (action === "edit-playbook"){
       const p = state.playbooks.find(x => x.id === id);
       if (!p) return;
