@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=183">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=183">
+<link rel="stylesheet" href="css/style.css?v=184">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=184">
 </head>
 <body>
 
@@ -671,11 +671,11 @@
 
     <!-- Dialer -->
     <section class="page" id="page-dialer">
-      <div class="page-header">
-        <div><h2>Dialler</h2><p>Pick New Zealand or Australia and the region you're targeting, then power dial straight down the list.</p></div>
-        <div style="display:flex;gap:10px;align-items:flex-end;">
+      <div class="page-header mb-header dl-header">
+        <div><h2>Dialler</h2><p id="dialer-date-chip"></p></div>
+        <div class="dl-head-actions">
           <div class="mtr-person-select">
-            <label>You are</label>
+            <label>Calling as</label>
             <select id="dialer-person-select">
               <option value="rocky">Rocky</option>
               <option value="max">Max</option>
@@ -684,27 +684,16 @@
               <option value="thor">Thor</option>
             </select>
           </div>
-          <div class="mtr-person-select">
-            <label>Playbook</label>
-            <select id="dialer-playbook-select">
-              <option value="">Not set</option>
-            </select>
-          </div>
-          <button type="button" class="btn ghost" id="dialer-view-playbook-btn" title="Open this playbook">View</button>
           <input type="file" id="dialer-import-input" accept=".csv,.xls,.xlsx" style="display:none;">
-          <button class="btn ghost" id="dialer-import-btn">Import CSV / XLS</button>
+          <button class="btn ghost" id="dialer-import-btn">Import</button>
           <button class="btn gold" id="dialer-add-btn">+ Add Prospect</button>
         </div>
       </div>
 
-      <div class="toolbar">
+      <div class="dl-filters">
         <div class="country-toggle" id="dialer-country" role="group" aria-label="Country">
-          <button type="button" data-country="NZ" aria-pressed="false"><span class="flag">🇳🇿</span>New Zealand</button>
-          <button type="button" data-country="AU" aria-pressed="false"><span class="flag">🇦🇺</span>Australia</button>
-        </div>
-        <div class="search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input type="text" id="dialer-search" placeholder="Search name, company, notes...">
+          <button type="button" data-country="NZ" aria-pressed="false"><span class="flag">🇳🇿</span>NZ</button>
+          <button type="button" data-country="AU" aria-pressed="false"><span class="flag">🇦🇺</span>AU</button>
         </div>
         <div class="select-icon-wrap">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0116 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -712,10 +701,10 @@
             <option value="">All regions</option>
           </select>
         </div>
-        <select class="filter-select" id="dialer-filter-industry">
+        <select class="filter-select" id="dialer-filter-industry" aria-label="Industry">
           <option value="">All Industries</option>
         </select>
-        <select class="filter-select" id="dialer-filter-owner">
+        <select class="filter-select" id="dialer-filter-owner" aria-label="Whose leads">
           <option value="">Everyone's Leads</option>
           <option value="rocky">Rocky's Leads</option>
           <option value="max">Max's Leads</option>
@@ -723,57 +712,73 @@
           <option value="raheem">Randy's Leads</option>
           <option value="thor">Thor's Leads</option>
         </select>
+        <div class="search dl-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="dialer-search" placeholder="Search...">
+        </div>
       </div>
-      <p class="stat-sub" id="dialer-claim-note" style="padding:0 2px;margin:-4px 0 12px;"></p>
+      <p class="stat-sub" id="dialer-claim-note" style="padding:0 2px;margin:-6px 0 12px;"></p>
 
-      <div class="stat-grid">
-        <div class="stat-card"><div class="stat-label">Prospects</div><div class="stat-value" id="dialer-stat-total">0</div></div>
-        <div class="stat-card"><div class="stat-label">Dialed Today</div><div class="stat-value" id="dialer-stat-today">0</div></div>
-        <div class="stat-card"><div class="stat-label">Total Calls Made</div><div class="stat-value" id="dialer-stat-calls">0</div></div>
-        <div class="stat-card"><div class="stat-label">Never Called</div><div class="stat-value" id="dialer-stat-fresh">0</div></div>
+      <div class="mb-counters dl-counters">
+        <div class="mb-counter dl-counter">
+          <span class="mb-counter-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1.9.4 1.8.7 2.7a2 2 0 01-.5 2.1L8 9.8a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.5c.9.3 1.8.6 2.7.7a2 2 0 011.7 2z"/></svg></span>
+          <div class="mb-counter-body"><span class="mb-counter-num" id="dialer-stat-today">0</span><span class="mb-counter-lbl">Dialled</span><span class="mb-counter-sub">today · <b id="dialer-stat-calls">0</b> calls all-time</span></div>
+        </div>
+        <div class="mb-counter dl-counter">
+          <span class="mb-counter-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></span>
+          <div class="mb-counter-body"><span class="mb-counter-num" id="dialer-stat-left">0</span><span class="mb-counter-lbl">Ready to call</span><span class="mb-counter-sub">of <b id="dialer-stat-total">0</b> in this list</span></div>
+        </div>
+        <div class="mb-counter dl-counter">
+          <span class="mb-counter-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18.5 21 12 16.5 5.5 21l2-7.5L2 9h7z"/></svg></span>
+          <div class="mb-counter-body"><span class="mb-counter-num" id="dialer-stat-fresh">0</span><span class="mb-counter-lbl">Never called</span><span class="mb-counter-sub">fresh leads</span></div>
+        </div>
       </div>
 
-      <div class="two-col">
-        <div>
-          <div class="card" id="dialer-upnow-card">
-            <div class="card-header"><h3>Up Now</h3><span class="badge gold" id="dialer-position">0 / 0</span></div>
-            <div class="card-body" id="dialer-current-body">
-              <div class="empty-state"><p>Import a CSV/XLS file or add a prospect to start power dialing.</p></div>
-            </div>
-          </div>
+      <div class="card dl-hero" id="dialer-upnow-card">
+        <div class="dl-hero-top">
+          <span class="dl-eyebrow">Up now</span>
+          <span class="dl-position" id="dialer-position">0 / 0</span>
         </div>
-        <div>
-          <div class="card">
-            <div class="card-header"><h3 id="dialer-queue-title">Queue</h3>
-              <select class="filter-select" id="dialer-queue-view-select" style="margin-left:auto;">
-                <option value="active">Active</option>
-                <option value="no_answer">No Answer</option>
-                <option value="follow_up">Follow Up</option>
-                <option value="not_interested">Not Interested</option>
-                <option value="disqualified">Disqualified</option>
-                <option value="returning">Returning</option>
-              </select>
-            </div>
-            <div id="dialer-queue-body" style="max-height:560px;overflow-y:auto;"></div>
-          </div>
+        <div class="dl-hero-body" id="dialer-current-body">
+          <div class="empty-state"><p>Import a CSV/XLS file or add a prospect to start power dialing.</p></div>
+        </div>
+        <div class="dl-hero-foot">
+          <label for="dialer-playbook-select">Script</label>
+          <select class="filter-select" id="dialer-playbook-select">
+            <option value="">Not set</option>
+          </select>
+          <button type="button" class="btn ghost sm" id="dialer-view-playbook-btn" title="Open this playbook">Open</button>
         </div>
       </div>
-      <h3 class="analytics-subhead" style="margin-top:28px;">Region Data <span class="region-data-scope" id="region-data-scope"></span></h3>
-      <div class="card">
-        <div class="card-body">
-          <div class="stat-grid" style="margin-top:4px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:0;">
-            <div class="stat-card"><div class="stat-label">Total Prospects</div><div class="stat-value" id="region-data-total">0</div></div>
-            <div class="stat-card"><div class="stat-label">Calls Made</div><div class="stat-value" id="region-data-calls">0</div></div>
-            <div class="stat-card"><div class="stat-label">Bookings</div><div class="stat-value" id="region-data-bookings">0</div></div>
-            <div class="stat-card"><div class="stat-label">Never Called</div><div class="stat-value" id="region-data-nevercalled">0</div></div>
-            <div class="stat-card"><div class="stat-label">Follow Up</div><div class="stat-value" id="region-data-followups">0</div></div>
-            <div class="stat-card"><div class="stat-label">Not Interested</div><div class="stat-value" id="region-data-notinterested">0</div></div>
-            <div class="stat-card"><div class="stat-label">Disqualified</div><div class="stat-value" id="region-data-disqualified">0</div></div>
-            <div class="stat-card"><div class="stat-label">Returning</div><div class="stat-value" id="region-data-returning">0</div></div>
-            <div class="stat-card"><div class="stat-label">No Answer</div><div class="stat-value" id="region-data-noanswer">0</div></div>
-          </div>
+
+      <div class="card dl-queue">
+        <div class="card-header"><h3 id="dialer-queue-title">Up next</h3>
+          <select class="filter-select" id="dialer-queue-view-select" style="margin-left:auto;">
+            <option value="active">Active</option>
+            <option value="no_answer">No Answer</option>
+            <option value="follow_up">Follow Up</option>
+            <option value="not_interested">Not Interested</option>
+            <option value="disqualified">Disqualified</option>
+            <option value="returning">Returning</option>
+          </select>
         </div>
+        <div id="dialer-queue-body" style="max-height:440px;overflow-y:auto;"></div>
       </div>
+
+      <details class="card dl-region">
+        <summary><span>Region breakdown</span> <span class="region-data-scope" id="region-data-scope"></span></summary>
+        <div class="dl-region-grid">
+          <div><b id="region-data-total">0</b><span>Prospects</span></div>
+          <div><b id="region-data-calls">0</b><span>Calls made</span></div>
+          <div><b id="region-data-bookings">0</b><span>Bookings</span></div>
+          <div><b id="region-data-nevercalled">0</b><span>Never called</span></div>
+          <div><b id="region-data-followups">0</b><span>Follow up</span></div>
+          <div><b id="region-data-noanswer">0</b><span>No answer</span></div>
+          <div><b id="region-data-returning">0</b><span>Returning</span></div>
+          <div><b id="region-data-notinterested">0</b><span>Not interested</span></div>
+          <div><b id="region-data-disqualified">0</b><span>Disqualified</span></div>
+        </div>
+      </details>
 
     </section>
 
@@ -2496,15 +2501,15 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=183"></script>
-<script src="js/supabaseClient.js?v=183"></script>
-<script src="js/report-pdf.js?v=183"></script>
-<script src="js/plan-pdf.js?v=183"></script>
-<script src="js/workshop-pdf.js?v=183"></script>
-<script src="js/receipt-pdf.js?v=183"></script>
-<script src="js/builtin-playbooks.js?v=183"></script>
-<script src="js/app.js?v=183"></script>
-<script src="js/meetings-tracker.js?v=183"></script>
-<script src="js/todo.js?v=183"></script>
+<script src="js/config.js?v=184"></script>
+<script src="js/supabaseClient.js?v=184"></script>
+<script src="js/report-pdf.js?v=184"></script>
+<script src="js/plan-pdf.js?v=184"></script>
+<script src="js/workshop-pdf.js?v=184"></script>
+<script src="js/receipt-pdf.js?v=184"></script>
+<script src="js/builtin-playbooks.js?v=184"></script>
+<script src="js/app.js?v=184"></script>
+<script src="js/meetings-tracker.js?v=184"></script>
+<script src="js/todo.js?v=184"></script>
 </body>
 </html>
