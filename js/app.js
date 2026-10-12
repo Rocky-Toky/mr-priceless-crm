@@ -5398,7 +5398,7 @@ async function rpGhlPull(){
   set("dEnquiries", since(m.enquiries, "enquiries")); set("dBooked", since(m.quote_ready, "quoteReady")); set("dQuoted", since(m.quoted, "quoted"));
   rpRenderTotals();
   const warn = m.won_missing_value ? ` ${m.won_missing_value} won job${m.won_missing_value === 1 ? " has" : "s have"} no $ value in GHL, so revenue may be low.` : "";
-  rpStatus(`Filled from GHL (${m.opportunities_checked ?? 0} opportunities). Quotes booked = "${m.booked_stage || "?"}" or later, quotes sent = "${m.sent_stage || "?"}" or later. Ad spend comes from Meta.${warn} Check the numbers, then make the report.`, Boolean(warn));
+  rpStatus(`Filled from GHL (${m.opportunities_checked ?? 0} opportunities). Quotes counted from "${m.booked_stage || "?"}" (site visit / to be quoted / quote) onwards, quotes sent = "${m.sent_stage || "?"}" or later. Ad spend comes from Meta.${warn} Check the numbers, then make the report.`, Boolean(warn));
 }
 async function rpGhlConnect(){
   const c = state.clients.find(x => x.id === rpClientId);
