@@ -2350,8 +2350,12 @@ function renderDialer(){
   st("#dialer-stat-today", dialedToday);
   st("#dialer-stat-calls", totalCalls);
   st("#dialer-stat-fresh", neverCalled);
+  [["#dialer-stat-today", dialedToday], ["#dialer-stat-fresh", neverCalled]].forEach(([id, v]) => $(id)?.closest(".mb-counter")?.classList.toggle("has-count", v > 0));
+  const dateChip = $("#dialer-date-chip");
+  if (dateChip) dateChip.textContent = `${new Date().toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })} · ${DIALER_COUNTRIES[state.dialerCountry]?.label || ""}`;
 
   const queue = dialerQueue();
+  st("#dialer-stat-left", queue.length);
   const posEl = $("#dialer-position");
   if (posEl) posEl.textContent = total ? `1 / ${total}` : "0 / 0";
 
@@ -2393,7 +2397,7 @@ function renderDialer(){
   }
   const view = state.dialerQueueView || "active";
   const titleEl = $("#dialer-queue-title");
-  if (titleEl) titleEl.textContent = view === "active" ? "Queue" : viewLabels[view];
+  if (titleEl) titleEl.textContent = view === "active" ? "Up next" : viewLabels[view];
 
   const upnowCard = $("#dialer-upnow-card");
   if (upnowCard) upnowCard.style.display = view === "active" ? "" : "none";
@@ -2406,25 +2410,23 @@ function renderDialer(){
         : "Import a CSV/XLS file or add a prospect to start power dialing.");
     } else {
       const p = queue[0];
+      const callLabel = p.phone ? "Call " + escapeHtml(formatPhone(prospectE164(p))) : "No phone number";
+      const callIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1.9.4 1.8.7 2.7a2 2 0 01-.5 2.1L8 9.8a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.5c.9.3 1.8.6 2.7.7a2 2 0 011.7 2z"/></svg>`;
+      const where = [p.company, p.region, p.industry].filter(Boolean).map(escapeHtml).join(" · ");
       body.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
-          <div>
-            <h3 style="font-size:22px;margin-bottom:4px;">${escapeHtml(p.name)}</h3>
-            <div style="color:var(--text2);font-size:13.5px;">${escapeHtml(p.company||"No company")}</div>
-            ${p.phone ? `<div style="margin-top:8px;">${phoneHtml(prospectE164(p), "phone-num-xl")}</div>` : ""}
-            <div style="color:var(--text2);font-size:12.5px;margin-top:4px;">${escapeHtml(p.email||"")}</div>
-          </div>
-          <div style="text-align:right;">
-            <div class="badge gray">Calls made: ${Number(p.calls_made||0)}</div>
-            <div style="font-size:11.5px;color:var(--text2);margin-top:6px;">${p.last_called_at ? "Last called " + timeAgo(p.last_called_at) : "Never called"}</div>
-          </div>
+        <div class="dl-person">
+          <h3 class="dl-name">${escapeHtml(p.name)}</h3>
+          <div class="dl-where">${where || "No company"}</div>
+          ${p.phone ? `<div class="dl-phone">${phoneHtml(prospectE164(p), "phone-num-xl")}</div>` : ""}
+          <div class="dl-meta">${p.last_called_at ? `Called ${Number(p.calls_made||0)}× · last ${escapeHtml(timeAgo(p.last_called_at))}` : "Never called"}${p.email ? ` · ${escapeHtml(p.email)}` : ""}</div>
         </div>
         ${IS_CONFIGURED
-          ? `<button type="button" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${p.phone ? "Call " + escapeHtml(formatPhone(prospectE164(p))) : "No phone number"}</button>`
-          : `<a href="tel:${escapeHtml(prospectE164(p))}" class="btn gold" style="width:100%;justify-content:center;margin-top:18px;font-size:17px;padding:14px;" data-action="dial-tel" data-id="${p.id}">${p.phone ? "Call " + escapeHtml(formatPhone(prospectE164(p))) : "No phone number"}</a>`}
-        ${p.notes ? `<div class="card" style="margin-top:14px;padding:12px 14px;background:#faf9f5;box-shadow:none;"><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Notes</div><div style="font-size:13px;">${escapeHtml(p.notes)}</div></div>` : ""}
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">
-          ${OUTCOME_BUTTONS.map(o => `<button class="btn ${o.cls}" data-action="dial-outcome" data-outcome="${o.key}" data-id="${p.id}">${o.label}</button>`).join("")}
+          ? `<button type="button" class="dl-call" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${callIco}${callLabel}</button>`
+          : `<a href="tel:${escapeHtml(prospectE164(p))}" class="dl-call" data-action="dial-tel" data-id="${p.id}">${callIco}${callLabel}</a>`}
+        ${p.notes ? `<div class="dl-notes"><span>Notes</span>${escapeHtml(p.notes)}</div>` : ""}
+        <div class="dl-outcomes-label">How did it go?</div>
+        <div class="dl-outcomes">
+          ${OUTCOME_BUTTONS.map(o => `<button type="button" class="dl-outcome ${o.key === "booked_meeting" ? "is-booked" : ""}" data-action="dial-outcome" data-outcome="${o.key}" data-id="${p.id}">${o.label}</button>`).join("")}
         </div>
       `;
     }
