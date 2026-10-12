@@ -72,17 +72,27 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
   const end = new Date(to + "T23:59:59Z").getTime() - 11 * 3600e3;
   const inPeriod = (d: any) => { const t = d ? new Date(d).getTime() : NaN; return t >= start && t <= end; };
   // For each pipeline: where every stage sits, and the booked and sent points.
-  const stageAt = new Map<string, { pipeline: string; index: number }>();
+  const stageAt = new Map<string, { pipeline: string; index: number; name: string }>();
+  const NOT_A_QUOTE = /lost|dead|not interested|disqual|junk|spam|no show|cancel/i;
   const marks = new Map<string, { booked: number; sent: number; bookedName: string; sentName: string }>();
   for (const p of pipelines || []) {
     const stages = p.stages || [];
-    stages.forEach((s: any, i: number) => stageAt.set(s.id, { pipeline: p.id, index: i }));
+    stages.forEach((s: any, i: number) => stageAt.set(s.id, { pipeline: p.id, index: i, name: s.name || "" }));
     const find = (re: RegExp, after = -1) => stages.findIndex((s: any, i: number) => i > after && re.test(s.name || ""));
+    // A quote counts from the first stage that's a site visit, "to be
+    // quoted" or a quote of any kind - whichever comes first in their
+    // pipeline. Stages that are about losing the job never count.
+    const QUOTE_STAGE = /site\s*visit|visit|to\s*be\s*quoted|quot|book|appoint|measure/i;
+    const SENT_STAGE = /sent|proposal|submitted|quoted$|^quoted|delivered/i;
     let booked = stages.findIndex((s: any) => s.id === picked.booked);
-    if (booked < 0) booked = find(/book|appoint|visit|site/i);
+    if (booked < 0) booked = stages.findIndex((s: any) => QUOTE_STAGE.test(s.name || "") && !NOT_A_QUOTE.test(s.name || "") && !/to\s*be\s*booked/i.test(s.name || ""));
     if (booked < 0) booked = Math.min(1, stages.length - 1);
     let sent = stages.findIndex((s: any) => s.id === picked.sent);
-    if (sent < 0) sent = find(/sent|quoted|proposal/i, booked);
+    if (sent < 0) sent = stages.findIndex((s: any, i: number) => i > booked && SENT_STAGE.test(s.name || "") && !/to\s*be/i.test(s.name || "") && !NOT_A_QUOTE.test(s.name || ""));
+    // If the first quote stage is itself "quote sent", it's both.
+    if (sent < 0 && SENT_STAGE.test(stages[booked]?.name || "") && !/to\s*be/i.test(stages[booked]?.name || "")) sent = booked;
+    // A stage called just "Quote" means the quote is done.
+    if (sent < 0 && /^\s*quotes?\s*$/i.test(stages[booked]?.name || "")) sent = booked;
     if (sent < 0) sent = find(/quot/i, booked);
     if (sent < 0) sent = stages.length; // no sent stage: only won counts as quoted
     marks.set(p.id, { booked, sent, bookedName: stages[booked]?.name || "", sentName: stages[sent]?.name || "Won" });
@@ -93,6 +103,8 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
   const reached = (o: any, which: "booked" | "sent") => {
     if (status(o) === "won") return true;
     const at = stageAt.get(o.pipelineStageId), m = at && marks.get(at.pipeline);
+    // Sitting in a lost / not-interested stage says nothing about a quote.
+    if (at && NOT_A_QUOTE.test(at.name)) return false;
     return Boolean(at && m && at.index >= m[which]);
   };
   const won = opps.filter((o) => status(o) === "won");
