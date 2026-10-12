@@ -35,6 +35,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       PROJECT_REF: chaexdenosljtdwuyjnw
     steps:
       - name: Check for the Supabase token
@@ -69,6 +70,11 @@ jobs:
       - name: Pass Jarvis his API key
         if: steps.token.outputs.ok == 'true' && env.ANTHROPIC_API_KEY != ''
         run: supabase secrets set ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" --project-ref "$PROJECT_REF"
+      # Jarvis runs free on Google Gemini: add a key from aistudio.google.com
+      # once as the GEMINI_API_KEY repo secret (it wins over the Claude key).
+      - name: Pass Jarvis his Gemini key
+        if: steps.token.outputs.ok == 'true' && env.GEMINI_API_KEY != ''
+        run: supabase secrets set GEMINI_API_KEY="$GEMINI_API_KEY" --project-ref "$PROJECT_REF"
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
