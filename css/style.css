@@ -1940,3 +1940,9 @@ button.onb-task-hit:hover .task-check:not(.done){border-color:var(--gold);}
   .rc-line{grid-template-columns:1fr 1fr;}
   .rc-line .rc-l-desc,.rc-line .rc-l-sub{grid-column:1 / -1;}
 }
+/* Website upsell workshop */
+.ws-lib-website{--ws:#7c3aed;}
+.onb-col[data-stage="website"]{--stage:#7c3aed;}
+.ws-col[data-stage="website"] .onb-col-num{background:#7c3aed;color:#fff;}
+.ws-sug-website{border-left:3px solid #7c3aed;}
+.ws-pill-website{background:#7c3aed;}

@@ -6528,6 +6528,35 @@ const WORKSHOP_CATS = [
       "A clear takeover offer, with a start date",
       "2 or 3 actions for them, and ours noted in the CRM",
     ] },
+  { key: "website", label: "Website", blurb: "A site that turns visitors into quotes", duration: "30 min", upsell: true, manual: true,
+    when: "They've got no website, or the one they've got looks dated and isn't bringing in enquiries",
+    outcome: "They see what their website is costing them in lost trust and enquiries, and they've had a clear offer for us to build one that wins quotes.",
+    covers: "Showing them what a proper website would do for them. Most people check a tradie's website before they pick up the phone, and a dated or missing site loses jobs our ads and their referrals already paid for. We look at what they've got, what their competitors have, and offer to build one that turns visitors into booked quotes.",
+    prep: [
+      "Look at their current site on your phone: speed, photos, reviews, how easy it is to get a quote",
+      "Pull up 2 or 3 competitors' sites to compare",
+      "Prepare the website offer, pricing and a couple of sites we've built",
+    ],
+    agenda: [
+      ["5 min", "Their site as a customer sees it, on a phone"],
+      ["10 min", "Side by side with competitors: what's winning people over"],
+      ["5 min", "What a site that books quotes needs: their best work, reviews, a simple quote form"],
+      ["10 min", "The offer: what we'd build, what it costs, how long it takes"],
+    ],
+    questions: [
+      "When someone gets your number from a mate, do you reckon they check you out online first?",
+      "How do you feel about your website at the moment?",
+      "Do you get many enquiries through it? How do you know?",
+      "Have you ever lost a job to someone who just looked more legit online?",
+      "Which jobs would you want it to show off most?",
+      "Have you got good photos of your work we could use?",
+      "What's held you back from sorting the website before?",
+    ],
+    leave: [
+      "What's costing them on their current site (or not having one)",
+      "A clear website proposal, with a decision date",
+      "2 or 3 actions for them, and ours noted in the CRM",
+    ] },
   { key: "recruitment", label: "Recruitment & team", blurb: "Hiring and keeping good people", duration: "45 min", manual: true,
     when: "They're winning more work than the team can deliver",
     outcome: "A clear next hire, a job ad ready to go, and a plan for the new starter's first week.",
@@ -6616,6 +6645,7 @@ function workshopSuggestion(c){
   const target = n("quoteTarget") || c.quote_target, got = n("quotesBooked");
   const everHad = (cat) => workshopsOf(c).some(w => w.category === cat);
   if (!everHad("googleads") && ((roi != null && roi >= 5) || (target && got >= target))) ideas.push({ cat: "googleads", why: roi != null && roi >= 5 ? `Meta's returning ${fmtTimes(roi)}: offer Google Ads` : "Guarantee met: offer Google Ads", weight: 1.6 });
+  if (!everHad("website") && !(c.website || "").trim()) ideas.push({ cat: "website", why: "No website on file: offer to build one", weight: 1.4 });
   if (roi != null && roi < 3) ideas.push({ cat: "financial", why: `Return to date is ${fmtTimes(roi)}`, weight: 2.5 });
   if (n("revenueMonth") > 0 && !recent.has("financial")) ideas.push({ cat: "financial", why: "Jobs are coming in: check pricing and margins", weight: 1 });
   const pick = ideas.filter(i => !recent.has(i.cat)).sort((a, b) => b.weight - a.weight)[0];
@@ -6682,6 +6712,7 @@ const WORKSHOP_ICONS = {
   reviews: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg>`,
   googleads: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>`,
   inbound: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M13 2L3 14h9l-1 8 10-12h-9z"/></svg>`,
+  website: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20M6 6.5h.01M9 6.5h.01"/></svg>`,
   recruitment: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0112 0v1"/><path d="M19 8v6M16 11h6"/></svg>`,
   operations: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>`,
 };
