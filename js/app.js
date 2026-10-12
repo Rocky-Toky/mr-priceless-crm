@@ -378,6 +378,7 @@ const ONBOARDING_SECTIONS = [
     { key: "meta_partner_access", text: "Get full partner access on their Meta ad account." },
     { key: "fb_page_access", text: "On their Facebook Page, get access to Content, Ads, Insights, Leads, Creator Content, and Creator Management." },
     { key: "meta_ad_account_id", text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
+    { key: "ghl_report_connect", text: "Sync GHL with the CRM for reporting." },
     { key: "crm_login", text: "Send their login and confirm they can get in." },
     { key: "crm_auto_text", text: "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due." },
   ]},
