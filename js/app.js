@@ -8935,6 +8935,24 @@ function setupModals(){
     populateAdCreativeCampaignSelect(state.selectedClientId);
     openModal("ad-creative-modal");
   });
+  // Tag every ad costing more than $50 a lead as a Low performer, after
+  // showing exactly which ones. Engagement posts aren't lead-gen, so they're skipped.
+  $("#cpl-low-btn")?.addEventListener("click", async () => {
+    const CPL_LIMIT = 50;
+    const hits = state.adCreatives.filter(a => Number(a.cost_per_result) > CPL_LIMIT && !["killed", "engagement"].includes(a.result));
+    if (!hits.length){ alert(`No ads to move - every ad over $${CPL_LIMIT} a lead is already a Low performer.`); return; }
+    const who = (a) => state.clients.find(c => c.id === a.client_id)?.name || a.client_name || "No client";
+    const list = hits.slice(0, 20).map(a => `• ${who(a)} - ${a.name} ($${Number(a.cost_per_result).toFixed(2)}, now ${AD_RESULTS[a.result]?.label || a.result})`).join("\n");
+    if (!confirm(`Move ${hits.length} ad${hits.length === 1 ? "" : "s"} costing over $${CPL_LIMIT} a lead to Low performer?\n\n${list}${hits.length > 20 ? `\n...and ${hits.length - 20} more` : ""}`)) return;
+    const ids = hits.map(a => a.id);
+    if (IS_CONFIGURED){
+      const { error } = await supabase.from("client_ad_creatives").update({ result: "killed" }).in("id", ids);
+      if (error){ alert("Couldn't move them: " + error.message); return; }
+      await DataLayer.fetchAll();
+    } else hits.forEach(a => { a.result = "killed"; });
+    renderAll();
+    alert(`Done - ${hits.length} ad${hits.length === 1 ? "" : "s"} moved to Low performer.`);
+  });
   $("#add-creative-lib-btn")?.addEventListener("click", () => {
     $("#ad-creative-form").reset(); $("#ad-creative-form-id").value=""; $("#ad-creative-modal-title").textContent="Add Ad Creative";
     $("#ad-creative-current-image").innerHTML = "";
