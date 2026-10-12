@@ -2395,3 +2395,66 @@ body.jv-open .jv-fab{display:none;}
 .pbx-ch-body.playbook-content{padding:0;max-width:760px;animation:none;}
 /* clip, not hidden: hidden makes .main a scroll box, which stops sticky bars working */
 .main{overflow-x:clip;}
+
+/* Playbooks v2: nothing to tick, easier reading */
+.pbx-lib{gap:22px;}
+.pbx-search{flex:none;}
+.pbx-feature{display:flex;align-items:center;gap:22px;width:100%;text-align:left;border:0;cursor:pointer;border-radius:24px;padding:26px 28px;background:var(--black);color:#fff;box-shadow:0 18px 40px rgba(9,9,10,.2);position:relative;overflow:hidden;transition:transform .16s,box-shadow .16s;}
+.pbx-feature::after{content:"";position:absolute;right:-90px;top:-110px;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,rgba(232,196,104,.22),transparent 70%);pointer-events:none;}
+.pbx-feature:hover{transform:translateY(-3px);box-shadow:0 24px 48px rgba(9,9,10,.26);}
+.pbx-feature-icon{width:64px;height:64px;border-radius:18px;flex-shrink:0;background:linear-gradient(135deg,var(--gold-bright),var(--gold));color:var(--black);display:flex;align-items:center;justify-content:center;align-self:flex-start;}
+.pbx-feature-icon svg{width:30px;height:30px;}
+.pbx-feature-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;position:relative;z-index:1;}
+.pbx-feature-text .pbx-k{color:var(--gold-bright);}
+.pbx-feature-text b{font-size:26px;font-weight:800;letter-spacing:-.02em;}
+.pbx-feature-lead{font-size:14.5px;line-height:1.55;color:rgba(255,255,255,.72);max-width:720px;}
+.pbx-feature-steps{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.pbx-feature-steps span{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:rgba(255,255,255,.88);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:4px 11px 4px 4px;}
+.pbx-feature-steps i{font-style:normal;width:20px;height:20px;border-radius:50%;background:var(--gold-bright);color:var(--black);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+.pbx-feature-go{font-weight:800;color:var(--gold-bright);white-space:nowrap;position:relative;z-index:1;}
+.pbx-continue{background:var(--white);color:var(--text);border:1px solid var(--line);box-shadow:0 1px 2px rgba(20,15,5,.04);padding:14px 18px;}
+.pbx-continue:hover{box-shadow:0 10px 24px rgba(20,15,5,.08);border-color:var(--cat);}
+.pbx-continue-icon{width:40px;height:40px;background:var(--cat-soft);color:var(--cat);}
+.pbx-continue-text .pbx-k{color:var(--text2);}
+.pbx-continue-text b{font-size:15px;}
+.pbx-continue-at{flex:1;min-width:0;font-size:13px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;}
+.pbx-continue-go{color:var(--cat);}
+.pbx-card{gap:9px;}
+.pbx-card-go{font-size:13px;font-weight:700;color:var(--cat);margin-top:2px;}
+.pbx-card-meta{margin-top:auto;}
+
+/* Reader: one clear reading column */
+.pbx-hero{padding:28px 32px;}
+.pbx-hero-lead{font-size:18px;}
+.pbx-body{grid-template-columns:240px minmax(0,1fr);gap:26px;}
+.pbx-toc-item.is-read{color:var(--text);}
+.pbx-toc-item.is-read .pbx-toc-num{background:var(--cat-soft);border-color:transparent;color:var(--cat);}
+.pbx-toc-item.active .pbx-toc-text{font-weight:700;}
+.pbx-chapters{gap:20px;}
+.pbx-ch{padding:30px 36px 22px;border-radius:24px;transition:border-color .25s,box-shadow .25s;}
+.pbx-ch.is-current{border-color:var(--cat);box-shadow:0 0 0 3px var(--cat-soft);}
+.pbx-ch-head{margin-bottom:20px;align-items:flex-start;}
+.pbx-ch-num{width:40px;height:40px;border-radius:12px;font-size:16px;background:var(--cat);color:#fff;}
+.pbx-ch-titles h3{font-size:24px;}
+.pbx-ch-body{font-size:16px;line-height:1.75;max-width:700px;}
+.pbx-ch-body.playbook-content p{margin:0 0 16px;}
+.pbx-ch-body.playbook-content h4{font-size:12.5px;margin:26px 0 12px;color:var(--cat);}
+.pbx-ch-body.playbook-content h4::before{background:var(--cat);}
+.pbx-ch-body.playbook-content strong{color:var(--text);}
+.pbx-ch-body.playbook-content ul,.pbx-ch-body.playbook-content ol{gap:12px;margin-bottom:22px;}
+.pbx-ch-body.playbook-content ul:not(.pb-checklist) li::before{background:var(--cat);margin-top:10px;}
+.pbx-ch-foot{justify-content:space-between;}
+.pbx-prev{border:0;background:none;color:var(--text2);font-weight:600;font-size:13px;cursor:pointer;padding:8px 2px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pbx-prev:hover{color:var(--text);}
+.pbx-next{display:inline-flex;flex-direction:column;align-items:flex-end;gap:1px;border:1px solid var(--line);background:var(--paper);border-radius:14px;padding:9px 16px;color:var(--text);font-size:14px;max-width:60%;white-space:normal;text-align:right;}
+.pbx-next .pbx-k{color:var(--cat);}
+.pbx-next:hover{border-color:var(--cat);background:var(--cat-soft);text-decoration:none;}
+@media (max-width:900px){
+  .pbx-feature{flex-direction:column;align-items:flex-start;padding:22px;}
+  .pbx-feature-text b{font-size:22px;}
+  .pbx-continue-at{display:none;}
+  .pbx-ch{padding:22px 18px 16px;}
+  .pbx-ch-titles h3{font-size:20px;}
+  .pbx-ch-body{font-size:15.5px;}
+  .pbx-next{max-width:70%;}
+}
