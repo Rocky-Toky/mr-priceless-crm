@@ -2056,6 +2056,7 @@ function setupDragDrop(){
         const dragId = dealDragId;
         const before = state.deals.find(d => d.id === dragId)?.stage;
         const updated = await DataLayer.update("deals", dragId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
+        await onDealStageChanged(updated, before);
         const created = await maybeCreateClientFromDeal(updated);
         // Already a client (so no new pack popped up)? Still offer the pack on signing.
         if (!created && col.dataset.stage === "onboarding" && before !== "onboarding") openWelcomePackForDeal(updated || state.deals.find(d => d.id === dragId));
@@ -4886,6 +4887,153 @@ function renderCreativeSegmentNav(groups){
   nav.innerHTML = groups.map(g => `<button type="button" class="cr-seg-chip cr-chip-${g.key}" data-action="jump-creative-seg" data-key="${g.key}"><span class="cr-seg-dot"></span>${escapeHtml(g.label)}<b>${g.items.length}</b></button>`).join("");
 }
 
+/* ───────── Nurture: lost and ghosted deals ─────────
+   A Closed Lost or Ghosted deal starts a 6-month sequence: the Lead
+   nurture email templates, one every 14 days, then a re-engage call at six
+   months (also left as a task). What's been sent is kept on the deal
+   (deals.nurture, from sql/057); until that column exists, the sequence
+   simply runs from when the deal was last updated. */
+const NURTURE_STAGES = new Set(["closed_lost", "ghosted"]);
+const NURTURE_EVERY_DAYS = 14, NURTURE_REENGAGE_DAYS = 182;
+const nurtureOf = (d) => d.nurture || {};
+const nurtureStart = (d) => (nurtureOf(d).started_at || d.stage_changed_at || d.updated_at || d.created_at || "").slice(0, 10);
+const nurtureDay = (start, n) => { const t = new Date(start + "T00:00:00"); t.setDate(t.getDate() + n); return localDayStr(t); };
+// The sequence, from the Lead nurture templates in Email Templates.
+function nurtureSteps(){
+  const pick = (list) => list.filter(t => /^Lead nurture · \d+\./.test(t.title || ""))
+    .map(t => ({ ...t, n: Number(t.title.match(/^Lead nurture · (\d+)\./)[1]) }))
+    .sort((a, b) => a.n - b.n);
+  const live = pick(state.emailTemplates || []);
+  return live.length ? live : pick(window.MP_BUILTIN_EMAIL_TEMPLATES || []);
+}
+function nurtureState(d){
+  const n = nurtureOf(d), start = nurtureStart(d), steps = nurtureSteps();
+  const sent = Array.isArray(n.sent) ? n.sent : [];
+  // Deals lost before nurture existed pick up where they'd be by now,
+  // rather than all starting at email 1.
+  const elapsed = Math.max(0, Math.round((new Date(localDayStr()) - new Date(start)) / 86400000));
+  const nextIdx = Number.isInteger(n.pos) ? n.pos : n.started_at ? sent.length : Math.min(steps.length, Math.floor(elapsed / NURTURE_EVERY_DAYS));
+  const next = steps[nextIdx] || null;
+  return {
+    start, steps, sent, stopped: !!n.stopped,
+    next, nextIdx, nextDue: next ? nurtureDay(start, nextIdx * NURTURE_EVERY_DAYS) : null,
+    reengage: nurtureDay(start, NURTURE_REENGAGE_DAYS),
+  };
+}
+function nurtureContact(d){
+  const contact = d.contact_id ? state.contacts.find(c => c.id === d.contact_id) : null;
+  const name = (contact?.name || (d.contact_name || "").split(" - ")[0] || "").trim();
+  return { name, first: name.split(/\s+/)[0] || "", email: contact?.email || "", business: dealBusinessName(d) };
+}
+// Saves nurture progress on the deal. Quietly does nothing if sql/057
+// hasn't been run yet, so the pipeline itself never breaks.
+async function saveNurture(d, patch){
+  const nurture = { ...nurtureOf(d), ...patch };
+  d.nurture = nurture;
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("deals").update({ nurture }).eq("id", d.id);
+    if (error) console.warn("Nurture not saved (run sql/057):", error.message);
+  }
+  renderNurture();
+}
+// Called whenever a deal's stage changes.
+async function onDealStageChanged(deal, before){
+  if (!deal || deal.stage === before) return;
+  const now = new Date().toISOString();
+  if (IS_CONFIGURED) supabase.from("deals").update({ stage_changed_at: now }).eq("id", deal.id).then(({ error }) => { if (error) console.warn(error.message); });
+  deal.stage_changed_at = now;
+  if (!NURTURE_STAGES.has(deal.stage) || NURTURE_STAGES.has(before)) return;
+  await saveNurture(deal, { started_at: now, pos: 0, sent: [], stopped: false });
+  // The six-month re-engage, as a task so it lands in Tasks too.
+  const title = `Re-engage ${deal.contact_name || deal.title} (6-month nurture)`;
+  if (!state.tasks.some(t => t.deal_id === deal.id && t.status === "open" && t.title === title)){
+    await DataLayer.insert("tasks", {
+      title, notes: `"${deal.title}" went ${STAGES.find(s => s.key === deal.stage)?.label || deal.stage} six months ago. Call to see if the timing's better now.`,
+      due_date: nurtureDay(localDayStr(), NURTURE_REENGAGE_DAYS), priority: "medium", assignee: deal.assignee || null,
+      deal_id: deal.id, status: "open",
+    });
+  }
+}
+function renderNurture(){
+  const list = $("#nurture-list");
+  if (!list) return;
+  const today = localDayStr();
+  const deals = state.deals.filter(d => NURTURE_STAGES.has(d.stage)).map(d => ({ d, s: nurtureState(d) }));
+  const active = deals.filter(x => !x.s.stopped);
+  const due = active.filter(x => x.s.next && x.s.nextDue <= today);
+  const reengage = active.filter(x => x.s.reengage <= nurtureDay(today, 30));
+  $("#nurture-kpis").innerHTML = [
+    [due.length, "emails due"], [active.length, "in nurture"], [reengage.length, "re-engage within 30 days"],
+  ].map(([v, l], i) => `<span class="nr-kpi ${i === 0 && v ? "is-due" : ""}"><b>${v}</b>${escapeHtml(l)}</span>`).join("");
+  if (!deals.length){ list.innerHTML = `<div class="rc-empty">No lost or ghosted deals. When one goes Closed Lost or Ghosted, it starts its 6-month nurture here.</div>`; return; }
+  const order = (x) => x.s.stopped ? "9" : (x.s.next ? x.s.nextDue : x.s.reengage);
+  deals.sort((a, b) => order(a).localeCompare(order(b)));
+  list.innerHTML = deals.map(({ d, s }) => {
+    const c = nurtureContact(d);
+    const days = s.nextDue ? Math.round((new Date(s.nextDue) - new Date(today)) / 86400000) : null;
+    const when = !s.next ? (s.reengage <= today ? "Re-engage call due" : `Sequence done · re-engage ${fmtShortDay(s.reengage)}`)
+      : days < 0 ? `${-days} day${days === -1 ? "" : "s"} overdue` : days === 0 ? "Due today" : `Due ${fmtShortDay(s.nextDue)}`;
+    const dots = s.steps.map((_, i) => `<i class="${i < s.nextIdx ? "on" : i === s.nextIdx ? "next" : ""}"></i>`).join("");
+    const nextName = s.next ? etSplit(s.next.title)[1].replace(/^\d+\.\s*/, "") : "";
+    return `<article class="nr-row ${s.stopped ? "is-stopped" : days != null && days <= 0 ? "is-due" : ""}">
+      <span class="rc-avatar">${escapeHtml((c.business || d.title || "?").trim().charAt(0).toUpperCase())}</span>
+      <div class="nr-id"><b>${escapeHtml(c.business || d.title)}</b><span>${escapeHtml(c.name || "No contact")} · ${escapeHtml(STAGES.find(x => x.key === d.stage)?.label || d.stage)} ${escapeHtml(fmtShortDay(s.start))}</span></div>
+      <div class="nr-progress"><div class="nr-dots">${dots}</div><span>${s.stopped ? "Stopped" : s.next ? `Next: ${escapeHtml(nextName)}` : "Emails done"}</span></div>
+      <span class="rc-chip ${s.stopped ? "muted" : days != null && days < 0 ? "late" : days === 0 || (!s.next && s.reengage <= today) ? "now" : ""}">${escapeHtml(s.stopped ? "Paused" : when)}</span>
+      <div class="nr-actions">
+        ${s.stopped ? `<button type="button" class="btn ghost sm" data-action="nurture-resume" data-id="${d.id}">Resume</button>`
+          : `${s.next ? `<button type="button" class="btn gold sm" data-action="nurture-open" data-id="${d.id}">Send email ${s.nextIdx + 1}</button>` : ""}
+             <button type="button" class="btn ghost sm" data-action="nurture-stop" data-id="${d.id}" title="Stop the emails for this deal">Stop</button>`}
+        <button type="button" class="btn ghost sm" data-action="view-deal" data-id="${d.id}">Open deal</button>
+      </div>
+    </article>`;
+  }).join("");
+}
+const fmtShortDay = (day) => day ? new Date(day + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "";
+function fillNurtureTemplate(text, c){
+  const person = window.getActivePerson ? window.getActivePerson() : null;
+  return String(text || "")
+    .replace(/\[First name\]/g, c.first || "there")
+    .replace(/\[Business\]/g, c.business || "your business")
+    .replace(/\[Your name\]/g, ASSIGNEES[person]?.label || "[Your name]");
+}
+function openNurtureEmail(dealId){
+  const d = state.deals.find(x => x.id === dealId);
+  if (!d) return;
+  const s = nurtureState(d), c = nurtureContact(d);
+  if (!s.next) return;
+  $("#nurture-deal-id").value = d.id;
+  $("#nurture-modal-title").textContent = `Email ${s.nextIdx + 1} of ${s.steps.length} · ${c.business || d.title}`;
+  $("#nurture-modal-sub").textContent = `${etSplit(s.next.title)[1]}. Check the [square bracket] bits, send it, then mark it sent - the next one's due two weeks later.`;
+  $("#nurture-to").value = c.email;
+  $("#nurture-subject").value = fillNurtureTemplate(s.next.subject, c);
+  $("#nurture-body").value = fillNurtureTemplate(s.next.body, c);
+  openModal("nurture-modal");
+}
+function setupNurture(){
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-action^='nurture-']");
+    if (!btn) return;
+    const d = state.deals.find(x => x.id === btn.dataset.id);
+    if (btn.dataset.action === "nurture-open") openNurtureEmail(btn.dataset.id);
+    if (btn.dataset.action === "nurture-stop" && d) await saveNurture(d, { stopped: true });
+    if (btn.dataset.action === "nurture-resume" && d) await saveNurture(d, { stopped: false });
+  });
+  $("#nurture-copy")?.addEventListener("click", async (e) => {
+    try { await navigator.clipboard.writeText($("#nurture-body").value); e.target.textContent = "Copied"; setTimeout(() => { e.target.textContent = "Copy email"; }, 1500); } catch(err){}
+  });
+  $("#nurture-gmail")?.addEventListener("click", () => {
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent($("#nurture-to").value)}&su=${encodeURIComponent($("#nurture-subject").value)}&body=${encodeURIComponent($("#nurture-body").value)}`, "_blank");
+  });
+  $("#nurture-mark-sent")?.addEventListener("click", async () => {
+    const d = state.deals.find(x => x.id === $("#nurture-deal-id").value);
+    if (!d) return;
+    const s = nurtureState(d);
+    await saveNurture(d, { started_at: nurtureOf(d).started_at || s.start, pos: s.nextIdx + 1, sent: [...s.sent, { n: s.nextIdx + 1, at: new Date().toISOString() }] });
+    closeModal("nurture-modal");
+  });
+}
+
 /* ───────── Auto-create a Client (Onboarding) when a deal wins ───────── */
 // The business a deal is for: the linked contact's company, else the part
 // after " - " in "Person - Business", else the deal title before " - ".
@@ -7507,6 +7655,7 @@ function renderAll(){
   renderMeetingsPipeline();
   renderContacts();
   renderDeals();
+  renderNurture();
   renderCommission();
   renderRegionData();
   renderTeamFocusPanel();
@@ -8785,6 +8934,7 @@ function setupModals(){
     const createdClient = deal ? await maybeCreateClientFromDeal(deal) : null;
     if (deal && !createdClient && row.stage === "onboarding" && stageBefore !== "onboarding") openWelcomePackForDeal(deal);
     if (deal) await maybeCreateNoShowFollowup(deal);
+    if (deal) await onDealStageChanged(deal, stageBefore);
     // Keep the linked client's Ad Start Date lined up with what was just
     // entered here as the invoice date - one date, editable from either
     // Deals or Clients, instead of two fields that can drift apart.
@@ -9602,6 +9752,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupOnboarding();
   setupReporting();
   setupReceipts();
+  setupNurture();
   setupPlans();
   setupWorkshops();
   populateRegionIndustrySelects();
