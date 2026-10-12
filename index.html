@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=190">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=190">
+<link rel="stylesheet" href="css/style.css?v=191">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=191">
 </head>
 <body>
 
@@ -1023,6 +1023,7 @@
       <div class="page-header">
         <div><h2>Creative Library</h2><p>Every ad creative across all your clients, with all-time spend and cost per lead pulled live from Meta.</p></div>
         <div style="display:flex;gap:8px;">
+          <button class="btn ghost" data-ask-jarvis="Look at our ad creatives. What do the top performers have in common (hook, angle, format, offer)? Then write 5 new Meta ad concepts for our tradie clients built on that - each with a hook, primary text and headline, and which winner it draws on.">Ad ideas from Jarvis</button>
           <button class="btn ghost" id="cpl-low-btn" title="Tag every ad costing more than $50 a lead as a Low performer">Move $50+ CPL to Low</button>
           <button class="btn ghost" id="link-ad-account-btn">+ Link Ad Account</button>
           <button class="btn gold" id="add-creative-lib-btn">+ Add Creative</button>
@@ -2532,19 +2533,58 @@
 </div>
 
 <!-- Kept in the repo and pinned, so a new release or a CDN outage can't break sign-in. -->
+<!-- Jarvis: the CRM's assistant, on every page -->
+<button type="button" class="jv-fab" id="jarvis-fab" aria-label="Ask Jarvis" title="Ask Jarvis" hidden>
+  <span class="jv-fab-orb"></span><span class="jv-fab-label">Jarvis</span>
+</button>
+<aside class="jv-panel" id="jarvis-panel" hidden aria-label="Jarvis">
+  <header class="jv-head">
+    <span class="jv-orb"></span>
+    <div class="jv-head-text"><b>Jarvis</b><span>Knows your clients, ads and pipeline. Learns as you go.</span></div>
+    <div class="jv-tabs" role="tablist">
+      <button type="button" class="jv-tab active" data-jv-tab="chat">Chat</button>
+      <button type="button" class="jv-tab" data-jv-tab="memory">Memory</button>
+    </div>
+    <button type="button" class="jv-close" id="jarvis-close" aria-label="Close Jarvis">&times;</button>
+  </header>
+  <div class="jv-body" id="jarvis-chat">
+    <div class="jv-messages" id="jarvis-messages"></div>
+    <div class="jv-suggest" id="jarvis-suggest">
+      <button type="button" data-jv-ask="Write 5 new Meta ad hooks and primary text for our tradie clients, based on what our top-performing creatives have in common.">Write ad copy from our winners</button>
+      <button type="button" data-jv-ask="Which clients have the best and worst cost per quote right now, and what's driving the difference?">Cost per quote by client</button>
+      <button type="button" data-jv-ask="Which clients look at risk right now and why? What should we do about each one?">Who's at risk?</button>
+      <button type="button" data-jv-ask="Look at our ad creatives: what's working, what's fatiguing, and what should we test next?">What's working in our ads?</button>
+      <button type="button" data-jv-ask="Summarise the deals pipeline: what's likely to close, what's stuck, and why we've been losing deals.">Pipeline check</button>
+    </div>
+    <form class="jv-input" id="jarvis-form">
+      <textarea id="jarvis-text" rows="1" placeholder="Ask Jarvis anything..."></textarea>
+      <button type="submit" class="jv-send" id="jarvis-send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </form>
+  </div>
+  <div class="jv-body" id="jarvis-memory" hidden>
+    <p class="jv-mem-intro">What Jarvis has learned. He adds to this himself as you chat, and you can add or remove things here. Shared with the whole team.</p>
+    <form class="jv-mem-add" id="jarvis-mem-form">
+      <input type="text" id="jarvis-mem-text" placeholder="e.g. Rocky prefers short punchy hooks with a number in them">
+      <button type="submit" class="btn gold sm">Add</button>
+    </form>
+    <div class="jv-mem-list" id="jarvis-mem-list"></div>
+    <button type="button" class="btn ghost sm jv-clear" id="jarvis-clear">Clear my chat history</button>
+  </div>
+</aside>
+
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=190"></script>
-<script src="js/supabaseClient.js?v=190"></script>
-<script src="js/report-pdf.js?v=190"></script>
-<script src="js/plan-pdf.js?v=190"></script>
-<script src="js/workshop-pdf.js?v=190"></script>
-<script src="js/receipt-pdf.js?v=190"></script>
-<script src="js/builtin-playbooks.js?v=190"></script>
-<script src="js/builtin-email-templates.js?v=190"></script>
-<script src="js/app.js?v=190"></script>
-<script src="js/meetings-tracker.js?v=190"></script>
-<script src="js/todo.js?v=190"></script>
+<script src="js/config.js?v=191"></script>
+<script src="js/supabaseClient.js?v=191"></script>
+<script src="js/report-pdf.js?v=191"></script>
+<script src="js/plan-pdf.js?v=191"></script>
+<script src="js/workshop-pdf.js?v=191"></script>
+<script src="js/receipt-pdf.js?v=191"></script>
+<script src="js/builtin-playbooks.js?v=191"></script>
+<script src="js/builtin-email-templates.js?v=191"></script>
+<script src="js/app.js?v=191"></script>
+<script src="js/meetings-tracker.js?v=191"></script>
+<script src="js/todo.js?v=191"></script>
 </body>
 </html>
