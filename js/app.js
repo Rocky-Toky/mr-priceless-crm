@@ -220,6 +220,7 @@ function populateRegionIndustrySelects(){
   populateStaticSelect("#log-call-region", ALL_REGIONS, "- Select a region -");
   populateStaticSelect("#import-details-region", ALL_REGIONS, "- Select a region -");
   populateStaticSelect("#import-details-industry", HOME_SERVICES_INDUSTRIES, "- Select an industry -");
+  const indList = $("#client-industry-options"); if (indList) indList.innerHTML = [...HOME_SERVICES_INDUSTRIES, "Real Estate", "Dental", "Legal", "Other"].map(o => `<option value="${escapeHtml(o)}">`).join("");
 }
 const OUTCOMES = {
   no_answer: { label: "No Answer", cls: "gray" },
@@ -1033,8 +1034,32 @@ async function allRows(build){
     if (!data || data.length < FETCH_PAGE) return { data: rows, error: null };
   }
 }
+// Any ad costing more than $50 a lead is a Low performer - automatically,
+// every time the ads load (after each Meta sync). Engagement posts aren't
+// lead-gen, and an ad someone has put back by hand (result_manual) stays put.
+const LOW_CPL_LIMIT = 50;
+function autoLowPerformers(){
+  const hits = state.adCreatives.filter(a => Number(a.cost_per_result) > LOW_CPL_LIMIT && !["killed", "engagement"].includes(a.result) && !a.result_manual);
+  if (!hits.length) return;
+  hits.forEach(a => { a.result = "killed"; });
+  if (IS_CONFIGURED) supabase.from("client_ad_creatives").update({ result: "killed" }).in("id", hits.map(a => a.id))
+    .then(({ error }) => { if (error) console.warn("Couldn't move $50+ CPL ads to Low:", error.message); });
+}
+// Reloads are shared: while one is running, every other caller waits on a
+// single follow-up that starts once it finishes (so it still sees their
+// write). A burst of saves or realtime events is a couple of reloads, not dozens.
+let fetchRun = null, fetchQueued = null, fetchStartedAt = 0;
 const DataLayer = {
-  async fetchAll(){
+  fetchAll(){
+    if (!fetchRun){
+      fetchStartedAt = Date.now();
+      fetchRun = DataLayer._fetchAllNow().finally(() => { fetchRun = null; });
+      return fetchRun;
+    }
+    if (!fetchQueued) fetchQueued = fetchRun.catch(() => {}).then(() => { fetchQueued = null; return DataLayer.fetchAll(); });
+    return fetchQueued;
+  },
+  async _fetchAllNow(){
     if (!IS_CONFIGURED){ return; }
     const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv] = await Promise.all([
       allRows(() => supabase.from("contacts").select("*").order("created_at",{ascending:false})),
@@ -1077,6 +1102,7 @@ const DataLayer = {
     state.clients = (cl.data || []).filter(c => c.stage !== ARCHIVED_STAGE);
     state.clientContent = ccon.data || [];
     state.adCreatives = cad.data || [];
+    autoLowPerformers();
     state.campaigns = camp.data || [];
     state.dealContacts = dc.data || [];
     state.tasks = tk.data || [];
@@ -1178,30 +1204,23 @@ let realtimeSubscribed = false;
 function subscribeRealtime(){
   if (!IS_CONFIGURED || realtimeSubscribed) return;
   realtimeSubscribed = true;
-  supabase.channel("crm-live")
-    .on("postgres_changes", { event:"*", schema:"public", table:"contacts" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"cold_calls" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"deals" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"prospecting_regions" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"dial_prospects" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"clients" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"client_content" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"client_ad_creatives" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"client_campaigns" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"deal_contacts" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"tasks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"client_reports" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"notes" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"playbooks" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"rules" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"email_templates" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"expenses" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"call_activity" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"playbook_usage" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"creative_weekly_snapshots" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"team_focus" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"client_leads" }, async () => { await DataLayer.fetchAll(); renderAll(); })
-    .on("postgres_changes", { event:"*", schema:"public", table:"completed_verticals" }, async () => { await DataLayer.fetchAll(); renderAll(); })
+  // Changes arrive in bursts (an ad sync touches every creative), so they're
+  // gathered up and the CRM reloads once - and not at all if a reload already
+  // started after the latest change (our own saves reload themselves).
+  let liveTimer = null, liveSince = 0;
+  const liveRefresh = () => {
+    liveSince = Date.now();
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(async () => {
+      liveTimer = null;
+      if (fetchStartedAt > liveSince) return;
+      await DataLayer.fetchAll(); renderAll();
+    }, 350);
+  };
+  const LIVE_TABLES = ["contacts", "cold_calls", "deals", "prospecting_regions", "dial_prospects", "clients", "client_content", "client_ad_creatives", "client_campaigns", "deal_contacts", "tasks", "client_reports", "notes", "playbooks", "rules", "email_templates", "expenses", "call_activity", "playbook_usage", "creative_weekly_snapshots", "team_focus", "client_leads", "completed_verticals"];
+  const channel = supabase.channel("crm-live");
+  LIVE_TABLES.forEach(table => channel.on("postgres_changes", { event:"*", schema:"public", table }, liveRefresh));
+  channel
     .on("postgres_changes", { event:"INSERT", schema:"public", table:"meeting_reviews" }, () => { checkPendingMeetingReviews(); })
     .subscribe();
 }
@@ -1215,7 +1234,7 @@ function authFailed(msg){
 }
 async function initAuth(){
   if (!IS_CONFIGURED){
-    seedDemo();
+    seedDemo(); autoLowPerformers();
     await repairNzProspectCountryCodes();
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
@@ -1502,6 +1521,7 @@ function setupNav(){
   $("#coverage-industry-select")?.addEventListener("change", (e) => { state.coverageIndustry = e.target.value; renderRegionCoverage(); });
   $$(".nav-item[data-page]").forEach(btn => {
     btn.addEventListener("click", () => {
+      flushRenders();
       state.page = btn.dataset.page;
       $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));
       $$(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + state.page));
@@ -2114,6 +2134,8 @@ function openEditClientModal(c){
   $("#client-phone").value = c.phone||"";
   $("#client-email").value = c.email||"";
   $("#client-website").value = c.website||"";
+  $("#client-industry").value = c.industry || "";
+  $("#client-industry").placeholder = clientIndustry({ ...c, industry: "" }).name || "e.g. Plumbing";
   $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
   $("#client-monthly-ad-spend").value = c.monthly_ad_spend != null ? c.monthly_ad_spend : "";
   $("#client-notes").value = c.notes||"";
@@ -4734,9 +4756,206 @@ function creativeMetricsBlock(a, tierCls){
       <div class="creative-metric"><span class="creative-metric-value">${leads}</span><span class="creative-metric-label">Leads</span></div>
     </div>`;
 }
+/* ───────── Creative Library > Statistics ─────────
+   How every client is really doing, segmented by industry: what's been spent
+   on ads (live from Meta), the leads it brought, the quotes those turned into
+   and what each quote cost. Quotes, jobs and revenue come live from each
+   client's GHL (all time since their ads started) when it's connected, and
+   from their finance reports otherwise. */
+const INDUSTRY_HINTS = [
+  [/plumb/i, "Plumbing"], [/electric|sparky/i, "Electrical"], [/roof/i, "Roofing"], [/landscap/i, "Landscaping"],
+  [/concret/i, "Concreting"], [/fenc/i, "Fencing"], [/til(e|ing)\b/i, "Tiling"], [/paint/i, "House Painting"],
+  [/heat ?pump/i, "Heat Pump Installation"], [/hvac|air ?con/i, "HVAC"], [/solar/i, "Solar Installation"],
+  [/build|construct/i, "Builders"], [/carpent|joiner/i, "Carpentry"], [/deck/i, "Deck Building"], [/glaz|glass/i, "Glazing"],
+  [/gutter/i, "Guttering"], [/insulat/i, "Insulation"], [/clean/i, "House Cleaning"], [/pest/i, "Pest Control"],
+  [/tree|arbor/i, "Tree Services"], [/kitchen|bathroom|renovat/i, "Kitchen & Bathroom Renovation"], [/scaffold/i, "Scaffolding"],
+  [/plaster/i, "Plastering"], [/floor/i, "Flooring"], [/drainage|excavat|digger/i, "Excavation"], [/paving|driveway/i, "Driveways & Paving"],
+  [/real estate|property/i, "Real Estate"], [/dental|dentist/i, "Dental"], [/legal|law(yer)?s?\b/i, "Legal"],
+];
+const CLIENT_INDUSTRY_OPTIONS = [...HOME_SERVICES_INDUSTRIES, "Real Estate", "Dental", "Legal", "Other"];
+const normName = (s) => String(s || "").toLowerCase().replace(/\b(ltd|limited|nz|co)\b/g, "").replace(/[^a-z0-9]/g, "");
+// The client's industry: what's set on them, else the prospect they came
+// from, else a guess from their name and notes. { name, guessed }.
+function clientIndustry(c){
+  if (c.industry) return { name: c.industry, guessed: false };
+  const n = normName(c.name);
+  const p = n && state.prospects.find(x => x.industry && (normName(x.company) === n || (c.phone && x.phone && x.phone.replace(/\D/g, "").slice(-8) === c.phone.replace(/\D/g, "").slice(-8))));
+  if (p) return { name: p.industry, guessed: true };
+  const text = [c.name, c.notes, c.services].join(" ");
+  const hit = INDUSTRY_HINTS.find(([re]) => re.test(text));
+  return hit ? { name: hit[1], guessed: true } : { name: "", guessed: true };
+}
+
+let crView = "library";
+const csGhl = {};          // client id -> { at, metrics } or { at, error }
+let csGhlRunning = false, csScope = "current";
+async function csPullGhl(force){
+  if (!IS_CONFIGURED || csGhlRunning) return;
+  const fresh = (id) => csGhl[id] && Date.now() - csGhl[id].at < 15 * 60e3;
+  const todo = state.clients.filter(c => force || !fresh(c.id));
+  if (!todo.length) return;
+  csGhlRunning = true; renderCreativeStats();
+  const today = localDayStr();
+  const queue = [...todo];
+  const worker = async () => {
+    while (queue.length){
+      const c = queue.shift();
+      const from = String(c.ad_start_date || c.created_at || today).slice(0, 10);
+      const r = await ghlCall({ action: "pull", client_id: c.id, from, to: today, stages: (c.onboarding_progress || {}).ghl_stages || {} });
+      csGhl[c.id] = r.error ? { at: Date.now(), error: r.error } : { at: Date.now(), metrics: r.metrics || {} };
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  csGhlRunning = false;
+  if (crView === "stats") renderCreativeStats();
+}
+// One client's numbers, all time.
+function clientPerformance(c){
+  const ads = state.adCreatives.filter(a => a.client_id === c.id);
+  const sum = (list, k) => list.reduce((s, x) => s + (Number(x[k]) || 0), 0);
+  const metaSpend = sum(ads, "spend"), metaLeads = ads.filter(a => a.result !== "engagement").reduce((s, a) => s + (Number(a.results) || 0), 0);
+  const byMonth = new Map(); monthReportsFor(c.id).forEach(r => byMonth.set(ymOf(r.period_end), r.metrics || {}));
+  const months = [...byMonth.values()];
+  const rep = (k) => months.reduce((s, m) => s + (toNum(m[k]) || 0), 0);
+  const g = csGhl[c.id]?.metrics || null;
+  const source = g ? "ghl" : months.length ? "reports" : metaSpend ? "meta" : "none";
+  const spend = metaSpend || rep("adSpendMonth");
+  const leads = metaLeads || (g ? toNum(g.enquiries) : null) || rep("enquiries");
+  const quotes = g ? toNum(g.quote_ready) || 0 : rep("quoteReady");
+  const quoted = g ? toNum(g.quoted) || 0 : rep("quoted");
+  const jobs = g ? toNum(g.jobs_won) || 0 : rep("jobsMonth");
+  const revenue = g ? toNum(g.revenue_won) || 0 : rep("revenueMonth");
+  const fees = rcRecordsOf(c).filter(rcIsPaid).reduce((s, r) => s + rcTotal(r), 0) || rep("mgmtMonth");
+  return { c, industry: clientIndustry(c), source, spend, leads, quotes, quoted, jobs, revenue, fees, ads: ads.length };
+}
+// Ratios for a client or a whole industry.
+function perfRatios(t){
+  return {
+    cpl: t.spend && t.leads ? t.spend / t.leads : null,
+    cpq: t.spend && t.quotes ? t.spend / t.quotes : null,
+    leadToQuote: t.leads && t.quotes ? t.quotes / t.leads : null,
+    close: t.quoted && t.jobs ? t.jobs / t.quoted : null,
+    roi: t.revenue && (t.spend + t.fees) ? t.revenue / (t.spend + t.fees) : null,
+  };
+}
+function sumPerf(rows){
+  const t = { spend: 0, leads: 0, quotes: 0, quoted: 0, jobs: 0, revenue: 0, fees: 0 };
+  rows.forEach(r => Object.keys(t).forEach(k => { t[k] += Number(r[k]) || 0; }));
+  return { ...t, ...perfRatios(t), count: rows.length };
+}
+const pct = (v) => v == null ? "-" : Math.round(v * 100) + "%";
+const moneyOrDash = (v) => v == null ? "-" : fmtMoney(v);
+
+function renderCreativeStats(){
+  const box = $("#creative-stats-view");
+  if (!box || crView !== "stats") return;
+  const clients = state.clients.filter(c => csScope === "all" || !["churned"].includes(c.stage));
+  const rows = clients.map(clientPerformance).filter(r => r.spend || r.quotes || r.leads || r.revenue);
+  const idle = clients.length - rows.length;
+  const total = sumPerf(rows);
+  const groups = new Map();
+  rows.forEach(r => { const k = r.industry.name || "Industry not set"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+  const inds = [...groups.entries()].map(([name, list]) => ({ name, list, t: sumPerf(list) }))
+    .sort((a, b) => (a.name === "Industry not set") - (b.name === "Industry not set") || b.t.spend - a.t.spend);
+  const bestCpq = Math.max(...inds.map(i => i.t.cpq || 0), 1);
+  const ghlCount = rows.filter(r => r.source === "ghl").length;
+  const ghlNote = !IS_CONFIGURED ? "Demo numbers - live GHL pulls work on the live CRM."
+    : csGhlRunning ? "Pulling live quotes from each client's GHL…"
+    : `${ghlCount} of ${rows.length} client${rows.length === 1 ? "" : "s"} live from GHL · the rest from their finance reports`;
+  const kpi = (label, value, sub, cls = "") => `<div class="cs-kpi ${cls}"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  const srcChip = (r) => `<span class="cs-src cs-src-${r.source}">${{ ghl: "GHL live", reports: "Reports", meta: "Meta only", none: "-" }[r.source]}</span>`;
+  const indSelect = (r) => `<select class="cs-ind-select" data-client="${r.c.id}" aria-label="Industry for ${escapeHtml(r.c.name)}">
+      <option value="">${r.industry.name ? escapeHtml(r.industry.name) + " (guess)" : "Set industry…"}</option>
+      ${CLIENT_INDUSTRY_OPTIONS.map(o => `<option value="${escapeHtml(o)}" ${!r.industry.guessed && r.industry.name === o ? "selected" : ""}>${escapeHtml(o)}</option>`).join("")}
+    </select>`;
+  box.innerHTML = `
+    <div class="cs-bar">
+      <div class="country-toggle" role="group" aria-label="Which clients">
+        <button type="button" data-cs-scope="current" class="${csScope === "current" ? "active" : ""}">Current clients</button>
+        <button type="button" data-cs-scope="all" class="${csScope === "all" ? "active" : ""}">Include churned</button>
+      </div>
+      <span class="cs-ghl-note ${csGhlRunning ? "busy" : ""}">${escapeHtml(ghlNote)}</span>
+      ${IS_CONFIGURED ? `<button type="button" class="btn ghost sm" data-action="cs-refresh-ghl" ${csGhlRunning ? "disabled" : ""}>Refresh from GHL</button>` : ""}
+    </div>
+    <div class="cs-hero card">
+      <div class="cs-hero-main">
+        <span class="cs-k">Average cost per quote</span>
+        <b class="cs-hero-num">${moneyOrDash(total.cpq)}</b>
+        <span class="cs-hero-sub">${total.quotes.toLocaleString()} quotes from ${fmtMoney(total.spend)} of ad spend across ${rows.length} client${rows.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="cs-kpis">
+        ${kpi("Ad spend", fmtMoney(total.spend), "all time, from Meta")}
+        ${kpi("Leads", total.leads.toLocaleString(), total.cpl != null ? fmtMoney(total.cpl) + " a lead" : "")}
+        ${kpi("Lead to quote", pct(total.leadToQuote), "leads that became quotes")}
+        ${kpi("Jobs won", total.jobs.toLocaleString(), total.close != null ? pct(total.close) + " of quotes sent" : "")}
+        ${kpi("Revenue won", fmtMoney(total.revenue), "for our clients")}
+        ${kpi("Return", fmtTimes(total.roi), "revenue per $1 of ads + fees", "gold")}
+      </div>
+    </div>
+    ${!rows.length ? `<div class="card cs-empty">${emptyState("No client results yet. Once ads sync from Meta and reports or GHL come in, every client's numbers show here.")}</div>` : `
+    <div class="card cs-card">
+      <div class="cs-card-head"><div><h3>By industry</h3><p>Which trades our system works best for. Shorter bar = cheaper quotes.</p></div></div>
+      <div class="table-wrap"><table class="cs-table">
+        <thead><tr><th>Industry</th><th>Clients</th><th>Ad spend</th><th>Leads</th><th>Cost per lead</th><th>Quotes</th><th>Cost per quote</th><th>Lead → quote</th><th>Jobs</th><th>Revenue</th><th>Return</th></tr></thead>
+        <tbody>${inds.map(i => `
+          <tr>
+            <td><div class="row-name">${escapeHtml(i.name)}</div></td>
+            <td>${i.list.length}</td>
+            <td>${fmtMoney(i.t.spend)}</td>
+            <td>${i.t.leads.toLocaleString()}</td>
+            <td>${moneyOrDash(i.t.cpl)}</td>
+            <td>${i.t.quotes.toLocaleString()}</td>
+            <td class="cs-cpq"><b>${moneyOrDash(i.t.cpq)}</b>${i.t.cpq != null ? `<span class="cs-cpq-bar"><i style="width:${Math.max(4, Math.round(i.t.cpq / bestCpq * 100))}%"></i></span>` : ""}</td>
+            <td>${pct(i.t.leadToQuote)}</td>
+            <td>${i.t.jobs.toLocaleString()}</td>
+            <td>${fmtMoney(i.t.revenue)}</td>
+            <td class="cs-roi">${fmtTimes(i.t.roi)}</td>
+          </tr>`).join("")}</tbody>
+      </table></div>
+    </div>
+    ${inds.map(i => `
+    <div class="card cs-card">
+      <div class="cs-card-head">
+        <div><h3>${escapeHtml(i.name)}</h3><p>${i.list.length} client${i.list.length === 1 ? "" : "s"} · ${moneyOrDash(i.t.cpq)} a quote · ${moneyOrDash(i.t.cpl)} a lead</p></div>
+      </div>
+      <div class="table-wrap"><table class="cs-table">
+        <thead><tr><th>Client</th><th>Ad spend</th><th>Leads</th><th>Cost per lead</th><th>Quotes</th><th>Cost per quote</th><th>Lead → quote</th><th>Jobs</th><th>Revenue</th><th>Return</th></tr></thead>
+        <tbody>${i.list.sort((a, b) => (perfRatios(a).cpq ?? 1e9) - (perfRatios(b).cpq ?? 1e9)).map(r => { const x = perfRatios(r); return `
+          <tr>
+            <td><button type="button" class="cs-client" data-action="view-client" data-id="${r.c.id}">${escapeHtml(r.c.name)}</button><div class="row-sub cs-client-sub">${srcChip(r)} ${r.ads} ad${r.ads === 1 ? "" : "s"} ${indSelect(r)}</div></td>
+            <td>${fmtMoney(r.spend)}</td>
+            <td>${(r.leads || 0).toLocaleString()}</td>
+            <td>${moneyOrDash(x.cpl)}</td>
+            <td>${r.quotes.toLocaleString()}</td>
+            <td class="cs-cpq"><b>${moneyOrDash(x.cpq)}</b></td>
+            <td>${pct(x.leadToQuote)}</td>
+            <td>${r.jobs.toLocaleString()}</td>
+            <td>${fmtMoney(r.revenue)}</td>
+            <td class="cs-roi">${fmtTimes(x.roi)}</td>
+          </tr>`; }).join("")}</tbody>
+      </table></div>
+    </div>`).join("")}`}
+    ${idle ? `<p class="cs-foot">${idle} client${idle === 1 ? " has" : "s have"} no ad spend or results yet, so ${idle === 1 ? "isn't" : "aren't"} counted.</p>` : ""}
+    <p class="cs-foot">Cost per quote = all-time Meta ad spend ÷ quotes booked (site visit arranged, to be quoted or any quote stage in GHL). Return = revenue won ÷ (ad spend + our fees paid).</p>`;
+}
+function setCreativeView(view){
+  crView = view;
+  $$("#creative-view-toggle button").forEach(b => { const on = b.dataset.crView === view; b.classList.toggle("active", on); b.setAttribute("aria-pressed", on); });
+  const stats = view === "stats";
+  $("#creative-lib-view").hidden = stats;
+  $("#creative-lib-actions").hidden = stats;
+  $("#creative-stats-view").hidden = !stats;
+  $("#creative-page-title").textContent = stats ? "Statistics" : "Creative Library";
+  $("#creative-page-sub").textContent = stats
+    ? "How our clients are doing by industry, and what every quote costs."
+    : "Every ad across all clients, live from Meta. Ads over $50 a lead move to Low on their own.";
+  if (stats){ renderCreativeStats(); csPullGhl(false); }
+}
+
 function renderCreativeLibrary(){
   const grid = $("#creative-library-grid");
   if (!grid) return;
+  renderCreativeStats();
 
   const clientSel = $("#creative-filter-client");
   if (clientSel){
@@ -7825,40 +8044,36 @@ function renderTeamFocusPanel(){
   }).join("");
 }
 
+// Every section the CRM draws, with the pages it draws on ("*" = always,
+// e.g. the shared dropdowns). renderAll draws the page you're looking at
+// straight away and the rest just after, while the browser is idle, so a
+// save or a live update never stalls the screen redrawing pages nobody's on.
+const RENDERERS = [
+  [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
+  [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["deals"]], [renderCommission, ["commission"]],
+  [renderRegionData, ["dialer", "lead-engine"]], [renderTeamFocusPanel, ["lead-engine"]], [renderRegionCoverage, ["lead-engine"]],
+  [renderVerticalCoverage, ["lead-engine"]], [renderProspectList, ["*"]], [renderDialer, ["dialer"]], [renderClients, ["clients"]],
+  [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]],
+  [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
+  [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
+  [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
+  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [fillContactDropdowns, ["*"]],
+];
+let renderBacklog = [], renderBacklogTimer = null;
+function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
+function flushRenders(){
+  if (renderBacklogTimer){ (window.cancelIdleCallback || clearTimeout)(renderBacklogTimer); renderBacklogTimer = null; }
+  const todo = renderBacklog; renderBacklog = [];
+  todo.forEach(runRenderer);
+}
 function renderAll(){
   showJarvisFab();
-  renderDashboard();
-  renderPlaybookUsagePicker();
-  renderMeetingsPipeline();
-  renderContacts();
-  renderDeals();
-  renderNurture();
-  renderCommission();
-  renderRegionData();
-  renderTeamFocusPanel();
-  renderRegionCoverage();
-  renderVerticalCoverage();
-  renderProspectList();
-  renderDialer();
-  renderClients();
-  renderOnboarding();
-  renderCreativeLibrary();
-  renderContentProduction();
-  renderTasks();
-  renderReporting();
-  renderReceipts();
-  renderPlans();
-  renderWorkshops();
-  renderWeeklyReport();
-  renderLeadCenterImport();
-  renderTeam();
-  renderCalendarGrid();
-  renderPlaybooks();
-  renderRules();
-  renderEmailTemplates();
-  renderExpenses();
-  renderStatistics();
-  fillContactDropdowns();
+  const now = [], later = [];
+  RENDERERS.forEach(([fn, pages]) => (pages.includes("*") || pages.includes(state.page) ? now : later).push(fn));
+  now.forEach(runRenderer);
+  renderBacklog = later;
+  if (renderBacklogTimer) (window.cancelIdleCallback || clearTimeout)(renderBacklogTimer);
+  renderBacklogTimer = window.requestIdleCallback ? requestIdleCallback(flushRenders, { timeout: 400 }) : setTimeout(flushRenders, 60);
 }
 
 /* ───────── Render: Statistics (long-term, any person / any time range) ───────── */
@@ -9219,6 +9434,7 @@ function setupModals(){
       phone: $("#client-phone").value.trim(),
       email: $("#client-email").value.trim(),
       website: $("#client-website").value.trim(),
+      industry: $("#client-industry").value.trim() || null,
       cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
       monthly_ad_spend: $("#client-monthly-ad-spend").value !== "" ? Number($("#client-monthly-ad-spend").value) : null,
       quote_target: $("#client-quote-target").value !== "" ? Number($("#client-quote-target").value) : null,
@@ -9314,23 +9530,18 @@ function setupModals(){
     populateAdCreativeCampaignSelect(state.selectedClientId);
     openModal("ad-creative-modal");
   });
-  // Tag every ad costing more than $50 a lead as a Low performer, after
-  // showing exactly which ones. Engagement posts aren't lead-gen, so they're skipped.
-  $("#cpl-low-btn")?.addEventListener("click", async () => {
-    const CPL_LIMIT = 50;
-    const hits = state.adCreatives.filter(a => Number(a.cost_per_result) > CPL_LIMIT && !["killed", "engagement"].includes(a.result));
-    if (!hits.length){ alert(`No ads to move - every ad over $${CPL_LIMIT} a lead is already a Low performer.`); return; }
-    const who = (a) => state.clients.find(c => c.id === a.client_id)?.name || a.client_name || "No client";
-    const list = hits.slice(0, 20).map(a => `• ${who(a)} - ${a.name} ($${Number(a.cost_per_result).toFixed(2)}, now ${AD_RESULTS[a.result]?.label || a.result})`).join("\n");
-    if (!confirm(`Move ${hits.length} ad${hits.length === 1 ? "" : "s"} costing over $${CPL_LIMIT} a lead to Low performer?\n\n${list}${hits.length > 20 ? `\n...and ${hits.length - 20} more` : ""}`)) return;
-    const ids = hits.map(a => a.id);
-    if (IS_CONFIGURED){
-      const { error } = await supabase.from("client_ad_creatives").update({ result: "killed" }).in("id", ids);
-      if (error){ alert("Couldn't move them: " + error.message); return; }
-      await DataLayer.fetchAll();
-    } else hits.forEach(a => { a.result = "killed"; });
-    renderAll();
-    alert(`Done - ${hits.length} ad${hits.length === 1 ? "" : "s"} moved to Low performer.`);
+  $("#creative-view-toggle")?.addEventListener("click", (e) => { const b = e.target.closest("[data-cr-view]"); if (b) setCreativeView(b.dataset.crView); });
+  $("#creative-stats-view")?.addEventListener("click", (e) => {
+    const scope = e.target.closest("[data-cs-scope]");
+    if (scope){ csScope = scope.dataset.csScope; renderCreativeStats(); }
+    if (e.target.closest('[data-action="cs-refresh-ghl"]')) csPullGhl(true);
+  });
+  $("#creative-stats-view")?.addEventListener("change", async (e) => {
+    const sel = e.target.closest(".cs-ind-select");
+    if (!sel || !sel.value) return;
+    await DataLayer.update("clients", sel.dataset.client, { industry: sel.value, updated_at: new Date().toISOString() });
+    if (IS_CONFIGURED) await DataLayer.fetchAll();
+    renderCreativeStats();
   });
   $("#add-creative-lib-btn")?.addEventListener("click", () => {
     $("#ad-creative-form").reset(); $("#ad-creative-form-id").value=""; $("#ad-creative-modal-title").textContent="Add Ad Creative";
@@ -9405,6 +9616,9 @@ function setupModals(){
       const imageUrl = await uploadAdCreativeImage(file);
       if (imageUrl) row.image_url = imageUrl;
     }
+    // Picking a different performer tag by hand keeps it, even over the $50 rule.
+    const before = id ? state.adCreatives.find(x => x.id === id) : null;
+    if (before && before.result !== row.result) row.result_manual = true;
     if (id) await DataLayer.update("client_ad_creatives", id, row);
     else await DataLayer.insert("client_ad_creatives", row);
     closeModal("ad-creative-modal");
