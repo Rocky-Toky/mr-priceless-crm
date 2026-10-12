@@ -6229,10 +6229,8 @@ function jvBubble(role, text){
   return el;
 }
 function jvGreeting(){
-  const person = window.getActivePerson ? window.getActivePerson() : null;
-  const name = ASSIGNEES[person]?.label;
   $("#jarvis-messages").innerHTML = "";
-  jvBubble("assistant", `Kia ora${name ? " " + name : ""}. I've got your clients, their reports, every ad creative and the deals pipeline in front of me. Ask me for analysis, ad copy built on what's working, or help with a message.`);
+  jvBubble("assistant", "Hi Master. What do you need?");
 }
 async function jvLoadHistory(){
   if (jvLoaded) return;
@@ -6253,9 +6251,9 @@ async function jvSend(text){
   thinking.innerHTML = `<span class="jv-dots"><i></i><i></i><i></i></span> Jarvis is thinking...`;
   const r = await jarvisCall({ action: "chat", message: text });
   thinking.remove();
-  if (r.error === "demo") jvBubble("assistant", "I only work in the live CRM, once you're signed in - this is the demo.");
+  if (r.error === "demo") jvBubble("assistant", "Hi Master. I only work in the live CRM, not the demo.");
   else if (r.error === "needs_key") jvBubble("assistant", JV_NEEDS_KEY);
-  else if (r.error) jvBubble("assistant", "Sorry - " + r.error);
+  else if (r.error) jvBubble("assistant", "Hi Master. Hit a snag: " + r.error);
   else {
     jvBubble("assistant", r.reply || "");
     if (r.remembered) jvBubble("note", `Saved ${r.remembered} thing${r.remembered === 1 ? "" : "s"} to memory.`);
