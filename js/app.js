@@ -3805,6 +3805,26 @@ function renderClientDetail(c){
 
 // The parts of the client profile that pull from other areas: their results
 // from the reports, their workshops, and their reports and 90-day plan.
+// Quotes and what they cost, from the client's reports: every month's
+// latest report adds up to the all-time totals; since the last receipt
+// counts the quotes booked in reports after that payment.
+function clientQuoteStats(c){
+  const reps = monthReportsFor(c.id);
+  const byMonth = new Map(); reps.forEach(r => byMonth.set(ymOf(r.period_end), r));
+  const months = [...byMonth.values()];
+  const quotes = months.reduce((s, r) => s + (toNum(r.metrics.quoteReady) || 0), 0);
+  const spend = months.reduce((s, r) => s + (toNum(r.metrics.adSpendMonth) || 0), 0);
+  const last = reps[reps.length - 1];
+  const lastPaid = (typeof rcRecordsOf === "function" ? rcRecordsOf(c).filter(rcIsPaid).map(rcPaidDay).sort().pop() : null) || null;
+  const since = lastPaid ? reps.filter(r => r.period_end > lastPaid).reduce((s, r) => s + (toNum(r.metrics.dBooked) || 0), 0) : null;
+  const thisYm = ymOf(localDayStr());
+  return {
+    quotes, spend, cpq: quotes && spend ? spend / quotes : null,
+    open: last ? toNum(last.metrics.openQuotesCount) : null,
+    month: byMonth.get(thisYm) ? toNum(byMonth.get(thisYm).metrics.quoteReady) || 0 : 0,
+    since, lastPaid, hasReports: reps.length > 0,
+  };
+}
 function renderClientProfileExtras(c){
   const since = c.signed_at || (c.onboarding_progress || {}).signed_at || c.created_at;
   const sinceEl = $("#cp-since");
@@ -3819,6 +3839,17 @@ function renderClientProfileExtras(c){
   const setStat = (id, v, sub) => { const el = $(id); if (el) el.innerHTML = v; const s = $(id + "-sub"); if (s) s.textContent = sub || ""; };
   setStat("#cp-revenue", toNum(m.revenueToDate) != null ? fmtMoney(m.revenueToDate) : `<span class="cl-muted">No reports yet</span>`, toNum(m.revenueMonth) != null ? `${fmtMoney(m.revenueMonth)} in ${monthNameOf(last.period_end)}` : "");
   setStat("#cp-roi", toNum(m.roiToDate) != null ? fmtTimes(toNum(m.roiToDate)) : "-", toNum(m.investedToDate) != null ? `on ${fmtMoney(m.investedToDate)} invested` : "");
+  const qs = clientQuoteStats(c), strip = $("#cp-quote-strip");
+  if (strip){
+    const cell = (k, v, sub) => `<div class="cp-q"><span>${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+    strip.innerHTML = !qs.hasReports ? `<div class="cp-q-empty">Cost per quote and quote counts show here once their first report is made.</div>` : [
+      cell("Cost per quote", qs.cpq != null ? fmtMoney(qs.cpq) : "-", qs.spend ? `${fmtMoney(qs.spend)} ad spend` : ""),
+      cell("Quotes this month", qs.month, ""),
+      cell("Open quotes", qs.open ?? "-", "waiting on a decision"),
+      cell("Since last payment", qs.since ?? "-", qs.lastPaid ? `since ${new Date(qs.lastPaid + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : "no receipts yet"),
+      cell("Quotes all-time", qs.quotes, "from their reports"),
+    ].join("");
+  }
 
   // Workshops
   const wsEl = $("#cp-workshops");
@@ -6184,7 +6215,9 @@ function renderReporting(){
   if (kpis) kpis.innerHTML = `
     <div class="onb-kpi ${due.length ? "warn" : ""}"><span class="onb-kpi-label">Reports due</span><span class="onb-kpi-value">${due.length}</span><span class="onb-kpi-sub">${due.length ? "of " + clients.length + " active clients" : "all caught up"}</span></div>
     <div class="onb-kpi"><span class="onb-kpi-label">Revenue reported in ${escapeHtml(monthNameOf(localDayStr()))}</span><span class="onb-kpi-value">${fmtMoney(revenueMonth)}</span><span class="onb-kpi-sub">across ${latestThisMonth.length} client${latestThisMonth.length === 1 ? "" : "s"}</span></div>
-    <div class="onb-kpi"><span class="onb-kpi-label">Average return to date</span><span class="onb-kpi-value">${rois.length ? fmtTimes(rois.reduce((a, b) => a + b, 0) / rois.length) : "-"}</span><span class="onb-kpi-sub">from each client's latest report</span></div>`;
+    <div class="onb-kpi"><span class="onb-kpi-label">Average return to date</span><span class="onb-kpi-value">${rois.length ? fmtTimes(rois.reduce((a, b) => a + b, 0) / rois.length) : "-"}</span><span class="onb-kpi-sub">from each client's latest report</span></div>
+    ${(() => { const qs = clients.map(clientQuoteStats).filter(q => q.quotes && q.spend); const spend = qs.reduce((a, q) => a + q.spend, 0), quotes = qs.reduce((a, q) => a + q.quotes, 0);
+      return `<div class="onb-kpi"><span class="onb-kpi-label">Cost per quote</span><span class="onb-kpi-value">${quotes ? fmtMoney(spend / quotes) : "-"}</span><span class="onb-kpi-sub">${quotes ? `${quotes} quotes across ${qs.length} client${qs.length === 1 ? "" : "s"}, all-time` : "once reports are in"}</span></div>`; })()}`;
   if (!clients.length){ list.innerHTML = `<div class="card onb-empty"><div><h3>No active clients to report on</h3><p>Clients get reports once they've finished onboarding.</p></div></div>`; return; }
   const order = [...clients].sort((a, b) => (infos.get(b.id).due - infos.get(a.id).due) || (a.name || "").localeCompare(b.name || ""));
   list.innerHTML = order.map(c => {
