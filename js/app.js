@@ -981,6 +981,7 @@ Let me know if you want to jump on a call to go through it in more detail.
 
 Cheers,
 [Your Name]` },
+    ...(window.MP_BUILTIN_EMAIL_TEMPLATES || []).map(t => ({ id:uid(), ...t, created_at:new Date().toISOString(), updated_at:new Date().toISOString() })),
   ];
   state.expenses = [
     { id:uid(), title:"Meta + Google Ads platform fees", category:"software", amount:49, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*3).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*90).toISOString(), updated_at:new Date(Date.now()-86400e3*3).toISOString() },
@@ -1085,6 +1086,7 @@ const DataLayer = {
     state.playbooksLoaded = !pb.error;
     state.rules = ru.data || [];
     state.emailTemplates = et.data || [];
+    state.emailTemplatesLoaded = !et.error;
     state.expenses = ex.data || [];
     state.callActivity = ca.data || [];
     state.playbookUsage = pu.data || [];
@@ -8037,7 +8039,30 @@ function wireRuleControls(totalRules){
 }
 
 /* ───────── Email Templates ───────── */
+// Email templates that ship with the app (js/builtin-email-templates.js):
+// any whose title isn't in the shared table yet get added in one go, the
+// first time someone signed in loads the CRM. Remembered per browser.
+let builtinEmailTemplatesChecked = false;
+async function ensureBuiltinEmailTemplates(){
+  if (builtinEmailTemplatesChecked || !IS_CONFIGURED || !state.user || !state.emailTemplatesLoaded) return;
+  builtinEmailTemplatesChecked = true;
+  const KEY = "mp_builtin_et_v1";
+  let seen = {}; try { seen = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch(e){}
+  const have = new Set(state.emailTemplates.map(t => (t.title || "").trim().toLowerCase()));
+  const rows = (window.MP_BUILTIN_EMAIL_TEMPLATES || []).filter(t => !seen[t.title] && !have.has(t.title.toLowerCase()))
+    .map(({ title, subject, body, sort_order }) => ({ title, subject, body, sort_order }));
+  if (rows.length){
+    const { error } = await supabase.from("email_templates").insert(rows);
+    if (error){ console.error(error); return; }
+    await DataLayer.fetchAll(); renderAll();
+  }
+  (window.MP_BUILTIN_EMAIL_TEMPLATES || []).forEach(t => { seen[t.title] = 1; });
+  try { localStorage.setItem(KEY, JSON.stringify(seen)); } catch(e){}
+}
+// "Group · Name" titles are listed under a heading for the group.
+const etSplit = (title) => { const i = String(title || "").indexOf(" · "); return i > 0 ? [title.slice(0, i), title.slice(i + 3)] : ["", title || ""]; };
 function renderEmailTemplates(){
+  ensureBuiltinEmailTemplates();
   const listEl = $("#email-templates-list");
   const viewer = $("#email-template-viewer");
   if (!listEl || !viewer) return;
@@ -8050,15 +8075,20 @@ function renderEmailTemplates(){
   if (!state.selectedEmailTemplateId || !list.find(p => p.id === state.selectedEmailTemplateId)){
     state.selectedEmailTemplateId = list[0].id;
   }
-  listEl.innerHTML = list.map(t => `
+  let lastGroup = null;
+  listEl.innerHTML = list.map(t => {
+    const [group, name] = etSplit(t.title);
+    const head = group !== lastGroup ? `<div class="et-group-head">${escapeHtml(group || "Templates")}</div>` : "";
+    lastGroup = group;
+    return `${head}
     <button type="button" class="playbook-list-item ${t.id === state.selectedEmailTemplateId ? "active" : ""}" data-action="select-email-template" data-id="${t.id}">
       <span class="playbook-list-item-icon">${ICONS.book}</span>
       <span class="playbook-list-item-text">
-        <div class="playbook-list-item-title">${escapeHtml(t.title)}</div>
+        <div class="playbook-list-item-title">${escapeHtml(name)}</div>
         <div class="playbook-list-item-sub">${escapeHtml(t.subject || "No subject set")}</div>
       </span>
     </button>
-  `).join("");
+  `;}).join("");
   const t = list.find(x => x.id === state.selectedEmailTemplateId);
   viewer.innerHTML = `
     <div class="playbook-viewer-head">
