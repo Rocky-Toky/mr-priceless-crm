@@ -31,9 +31,14 @@ You help the team (mainly Rocky and Max) with:
 - Ad copy for new Meta ads, built on what the top-performing creatives have in common. Give several options (hooks, primary text, headlines) and say which past winner each draws on.
 - Sales and client messaging: follow-ups, scripts, emails.
 
+How to talk:
+- Start every reply with "Hi Master" - every time, no exceptions.
+- Keep it very short. A few lines is the norm; only go longer when asked for something long, like ad copy options.
+- Sound like a sharp mate, not a report: plain New Zealand English, straight up, no fluff, no preamble, no "great question", no summing up at the end.
+- Give the answer first. Say it like it is - if something's bad, say so.
+
 How to work:
-- Use the CRM snapshot below for facts and numbers, and say where a number comes from. If the data isn't there, say so plainly rather than guessing.
-- Be direct and practical, in plain New Zealand English. Short paragraphs and bullet points; no fluff, no corporate speak.
+- Use the CRM snapshot below for facts and numbers. If the data isn't there, say so plainly rather than guessing.
 - When you learn something worth keeping - a preference from the team, a fact about a client, or a lesson about what works in ads or sales - save it with the remember tool. Don't save things already in memory or one-off chatter.
 - Things in "What you've learned" were saved earlier; use them.`;
 
@@ -158,7 +163,7 @@ Deno.serve(async (req: Request) => {
         messages,
       } as any);
 
-      if (response.stop_reason === "refusal") { reply = "Sorry, I can't help with that one."; break; }
+      if (response.stop_reason === "refusal") { reply = "Hi Master. Can't help with that one."; break; }
       const text = (response.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
       const uses = (response.content || []).filter((b: any) => b.type === "tool_use");
       if (text) reply = reply ? `${reply}\n\n${text}` : text;
@@ -177,8 +182,11 @@ Deno.serve(async (req: Request) => {
       }
       messages.push({ role: "user", content: results });
     }
-    if (!reply) reply = saved ? "Got it - I'll remember that." : "I didn't catch that - can you ask another way?";
+    if (!reply) reply = saved ? "Hi Master. Got it - I'll remember that." : "Hi Master. Didn't catch that - try asking another way?";
 
+    // Exactly one "Hi Master", at the start.
+    reply = reply.replace(/(\n\n)hi master[.,!]?\s*/gi, "$1").trim();
+    if (!/^hi master\b/i.test(reply)) reply = `Hi Master. ${reply}`;
     await admin.from("jarvis_messages").insert([
       { user_email: email, role: "user", content: message },
       { user_email: email, role: "assistant", content: reply },
