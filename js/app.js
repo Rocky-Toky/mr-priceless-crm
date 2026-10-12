@@ -4746,23 +4746,16 @@ function renderCreativeLibrary(){
     return matchesClient && matchesResult && matchesDelivery;
   });
 
-  // Priority tier ahead of whatever sort is picked below: fatiguing actives
-  // need attention right now, so they always lead; then every other active
-  // creative, plus anything brand new that hasn't synced a delivery status
-  // yet (so a freshly-added creative surfaces near the top instead of
-  // getting buried with old paused/killed ones just because it has no
-  // status yet); everything else (paused/attention) comes after that.
-  // Engagement Posts always sort dead last regardless of any of the above -
-  // they're not lead-gen creatives being tested, so they don't belong mixed
-  // in with ones that are. This is layered on top of - not instead of - the
-  // chosen sort, and never looks at performance numbers to decide fatigue,
-  // only the flag Rocky sets.
+  // Inside each section, active ads always come first, then anything brand
+  // new that hasn't synced a delivery status yet, then ones Meta is holding
+  // up, then paused ones. The chosen sort applies within each of those, and
+  // fatigue never changes the order - it's a badge on the card.
   const priorityTier = (a) => {
-    if (a.result === "engagement") return 3;
-    const running = DELIVERY_STATUS[a.delivery_status]?.group === "running";
-    if (running && a.fatigue_status === "fatiguing") return 0;
-    if (running || !a.delivery_status) return 1;
-    return 2;
+    const group = DELIVERY_STATUS[a.delivery_status]?.group;
+    if (group === "running") return 0;
+    if (!a.delivery_status) return 1;
+    if (group === "attention") return 2;
+    return 3;
   };
 
   const sort = state.creativeFilter.sort || "top";
@@ -4788,9 +4781,10 @@ function renderCreativeLibrary(){
     const initial = (client?.name || a.client_name || archivedClientName(a.client_id) || "?").trim().charAt(0).toUpperCase();
     const delivery = DELIVERY_STATUS[a.delivery_status];
     const fatigue = FATIGUE_STATUS[a.fatigue_status];
-    const cardTierCls = a.fatigue_status === "fatiguing" ? "is-fatiguing" : a.fatigue_status === "fatigued" ? "is-fatigued" : "";
+    const cardTierCls = a.fatigue_status === "fatiguing" ? "is-fatiguing" : a.fatigue_status === "fatigued" ? "is-fatigued" : ""
+    const offCls = DELIVERY_STATUS[a.delivery_status]?.group === "paused" ? " is-off" : "";
     return `
-    <div class="creative-card ${cardTierCls}">
+    <div class="creative-card ${cardTierCls}${offCls}">
       <div class="creative-card-media">
         ${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="creative-card-img" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="creative-card-img-empty">${escapeHtml(initial)}</div>`}
         ${delivery ? `<span class="badge creative-card-delivery ${delivery.cls}">${delivery.label}</span>` : ""}
@@ -4822,9 +4816,8 @@ function renderCreativeLibrary(){
     </div>
   `;
   };
-  // Segment the library so it's obvious what's working, what's tiring and
-  // what's switched off. Each creative lands in exactly one section; the
-  // chosen sort still applies inside each one.
+  // Segment the library by performer tag. Each creative lands in exactly
+  // one section; active ads lead and the chosen sort applies inside each.
   const groups = CREATIVE_SEGMENTS.map(seg => ({ ...seg, items: [] }));
   const bySeg = Object.fromEntries(groups.map(g => [g.key, g]));
   filtered.forEach(a => bySeg[creativeSegmentOf(a)].items.push(a));
@@ -4846,27 +4839,19 @@ function renderCreativeLibrary(){
       </section>`;
   }).join("");
 }
-// Which section a creative belongs in. Only Rocky's fatigue flag decides
-// "Needs a refresh" - never the numbers - and it only counts while the ad is
-// still live; a fatigued ad that's already switched off is just not running.
+// Which section a creative belongs in: only the performer tag you set
+// decides it. Fatigue and whether the ad is running or paused never move it
+// to another section - they show as badges on the card, and active ads sort
+// to the front of their section.
 const CREATIVE_SEG_PREVIEW = 4;
 const CREATIVE_SEGMENTS = [
-  { key: "refresh", label: "Needs a refresh", blurb: "Live ads you've flagged as fatiguing. Line up replacements before results drop off." },
-  { key: "attention", label: "Needs attention", blurb: "Meta has these held up: disapproved, in review, or a billing issue." },
-  { key: "performing", label: "Top performers", blurb: "Ads you've tagged as top performers." },
-  { key: "testing", label: "Average performers", blurb: "Ads tagged average, including new ads synced from Meta until you rate them." },
+  { key: "performing", label: "Top performers", blurb: "Ads you've tagged as top performers. Active ones first." },
+  { key: "testing", label: "Average performers", blurb: "Ads tagged average, including new ads synced from Meta until you rate them. Active ones first." },
   { key: "low", label: "Low performers", blurb: "Ads tagged low performers. Pause or replace them." },
-  { key: "off", label: "Not running", blurb: "Paused in Meta. Kept here for reference.", collapsed: true },
   { key: "engagement", label: "Engagement posts", blurb: "Not lead-gen ads, so they sit apart from the rest.", collapsed: true },
 ];
 function creativeSegmentOf(a){
   if (a.result === "engagement") return "engagement";
-  const group = DELIVERY_STATUS[a.delivery_status]?.group;
-  if (group === "attention") return "attention";
-  const off = group === "paused";
-  if (!off && (a.fatigue_status === "fatiguing" || a.fatigue_status === "fatigued")) return "refresh";
-  if (off) return "off";
-  // The performer tag you set decides the section; the numbers never override it.
   if (a.result === "killed") return "low";
   if (a.result === "winner") return "performing";
   return "testing";
