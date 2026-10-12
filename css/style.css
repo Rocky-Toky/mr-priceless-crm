@@ -714,6 +714,21 @@ mark{background:rgba(232,196,104,0.45);color:inherit;border-radius:3px;padding:0
 .coverage-chip-count{font-size:11px;color:var(--text2);margin-top:2px;display:block;}
 .coverage-chip.empty .coverage-chip-count{color:var(--danger);font-weight:600;}
 .coverage-chip.filling .coverage-chip-count{color:var(--success);font-weight:600;}
+.coverage-chip{display:flex;align-items:center;gap:8px;}
+.coverage-chip-main{flex:1;min-width:0;background:none;border:0;padding:0;margin:0;text-align:left;cursor:pointer;font:inherit;color:inherit;}
+.coverage-tick{
+  width:22px;height:22px;flex-shrink:0;border-radius:50%;border:1.5px solid var(--line);background:var(--paper);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;color:#fff;transition:border-color .15s,background .15s;
+}
+.coverage-tick:hover{border-color:var(--gold);background:var(--gold-soft);}
+.coverage-tick.checked{background:var(--gold);border-color:var(--gold);}
+.coverage-tick svg{width:12px;height:12px;}
+.coverage-chip.done{background:var(--gold-soft);border-color:var(--gold-border);box-shadow:none;}
+.coverage-chip.done .coverage-chip-name{color:var(--text);}
+.coverage-chip.done .coverage-chip-count{color:var(--gold);font-weight:600;}
+.coverage-chip.done.is-stale{border-color:var(--gold);}
+.coverage-chip-revisit{display:inline-block;margin-top:4px;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--danger);}
+.coverage-summary-dot.done{background:var(--gold);}
 
 .vertical-coverage-body{display:grid;grid-template-columns:1fr 1fr;gap:0 20px;padding:0 22px 20px;}
 @media (max-width:760px){.vertical-coverage-body{grid-template-columns:1fr;}}
