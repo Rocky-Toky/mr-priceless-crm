@@ -10,7 +10,8 @@
 //   { action: "chat", message }   -> { reply }
 //   { action: "history" }         -> { messages }
 //   { action: "clear" }           -> clears your conversation
-// Needs the ANTHROPIC_API_KEY secret on the Supabase project.
+// Runs on Google Gemini (free tier) when the GEMINI_API_KEY secret is set on
+// the Supabase project, otherwise on Claude with ANTHROPIC_API_KEY.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
@@ -20,6 +21,8 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 const MODEL = "claude-opus-5-5";
+// Gemini's "latest Flash" alias, then a pinned Flash model if the alias isn't served.
+const GEMINI_MODELS = [Deno.env.get("GEMINI_MODEL") || "gemini-flash-latest", "gemini-2.5-flash"];
 const HISTORY_TURNS = 24;
 
 const SYSTEM = `You are Jarvis, the assistant built into the Mr Priceless CRM.
@@ -99,6 +102,63 @@ async function crmSnapshot(admin: any) {
   return { snapshot: lines.join("\n"), memory: mem.length ? mem.join("\n") : "(nothing yet)" };
 }
 
+class GeminiError extends Error {
+  status: number;
+  constructor(status: number, msg: string) { super(msg); this.status = status; }
+}
+
+// One Gemini turn. contents = [{ role: "user" | "model", parts: [...] }].
+async function geminiTurn(key: string, system: string, contents: any[]) {
+  let last: GeminiError | null = null;
+  for (const model of GEMINI_MODELS) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents,
+        tools: [{ functionDeclarations: [{ name: REMEMBER_TOOL.name, description: REMEMBER_TOOL.description, parameters: {
+          type: "object",
+          properties: REMEMBER_TOOL.input_schema.properties,
+          required: REMEMBER_TOOL.input_schema.required,
+        } }] }],
+        generationConfig: { maxOutputTokens: 4096, temperature: 0.7 },
+      }),
+    });
+    const body: any = await res.json().catch(() => ({}));
+    if (res.ok) return body;
+    last = new GeminiError(res.status, body?.error?.message || `Gemini returned ${res.status}`);
+    if (res.status !== 404) break; // only a missing model is worth trying the next one for
+  }
+  throw last;
+}
+
+// Jarvis on Gemini: same prompt, snapshot and remember tool as on Claude.
+async function chatGemini(key: string, system: string, history: any[], userText: string, remember: (input: any) => Promise<boolean>) {
+  const contents: any[] = history.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+  contents.push({ role: "user", parts: [{ text: userText }] });
+  let reply = "", saved = 0;
+  for (let round = 0; round < 4; round++) {
+    const body = await geminiTurn(key, system, contents);
+    const cand = body?.candidates?.[0];
+    const parts: any[] = cand?.content?.parts || [];
+    if (!cand || cand.finishReason === "SAFETY" || body?.promptFeedback?.blockReason) { reply = reply || "Hi Master. Can't help with that one."; break; }
+    const text = parts.filter((p) => typeof p.text === "string" && !p.thought).map((p) => p.text).join("").trim();
+    const calls = parts.filter((p) => p.functionCall);
+    if (text) reply = reply ? `${reply}\n\n${text}` : text;
+    if (!calls.length) break;
+    contents.push({ role: "model", parts }); // as sent, so any thought signatures go back with it
+    const responses: any[] = [];
+    for (const p of calls) {
+      const ok = p.functionCall.name === "remember" && await remember(p.functionCall.args || {});
+      if (ok) saved++;
+      responses.push({ functionResponse: { name: p.functionCall.name, response: { result: ok ? "Saved." : "Couldn't save that." } } });
+    }
+    contents.push({ role: "user", parts: responses });
+  }
+  return { reply, saved };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -131,8 +191,9 @@ Deno.serve(async (req: Request) => {
 
     const message = String(body.message || "").trim().slice(0, 8000);
     if (!message) return json({ error: "Say something to Jarvis." }, 400);
+    const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
     const KEY = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!KEY) return json({ error: "needs_key" }, 503);
+    if (!GEMINI_KEY && !KEY) return json({ error: "needs_key" }, 503);
 
     const { data: past } = await admin.from("jarvis_messages").select("role, content").eq("user_email", email).order("created_at", { ascending: false }).limit(HISTORY_TURNS);
     const history: any[] = (past || []).reverse().map((m: any) => ({ role: m.role, content: m.content }));
@@ -142,13 +203,23 @@ Deno.serve(async (req: Request) => {
     const { snapshot, memory } = await crmSnapshot(admin);
     const today = new Date().toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "long", day: "numeric", month: "long", year: "numeric" });
     const name = email.split("@")[0];
-    const messages: any[] = [...history, { role: "user", content: `(${today} · from ${name})\n\n${message}` }];
+    const userText = `(${today} · from ${name})\n\n${message}`;
+    const messages: any[] = [...history, { role: "user", content: userText }];
+    const remember = async (input: any) => {
+      if (!input || typeof input.content !== "string" || !input.content.trim()) return false;
+      const kind = ["preference", "learning", "note"].includes(input.kind) ? input.kind : "note";
+      const { error } = await admin.from("jarvis_memory").insert({ content: input.content.trim().slice(0, 1000), kind, created_by: email });
+      return !error;
+    };
 
-    const client = new Anthropic({ apiKey: KEY });
     let reply = "";
     let saved = 0;
+    if (GEMINI_KEY) {
+      ({ reply, saved } = await chatGemini(GEMINI_KEY, `${SYSTEM}\n\n# CRM snapshot\n${snapshot}\n\n# What you've learned\n${memory}`, history, userText, remember));
+    }
+    const client = GEMINI_KEY ? null : new Anthropic({ apiKey: KEY! });
     // Up to a few rounds, in case Jarvis saves something to memory first.
-    for (let round = 0; round < 4; round++) {
+    for (let round = 0; client && round < 4; round++) {
       const response: any = await client.beta.messages.create({
         model: MODEL,
         max_tokens: 16000,
@@ -172,12 +243,8 @@ Deno.serve(async (req: Request) => {
       messages.push({ role: "assistant", content: response.content });
       const results: any[] = [];
       for (const u of uses) {
-        let ok = false;
-        if (u.name === "remember" && u.input && typeof u.input.content === "string" && u.input.content.trim()) {
-          const kind = ["preference", "learning", "note"].includes(u.input.kind) ? u.input.kind : "note";
-          const { error } = await admin.from("jarvis_memory").insert({ content: u.input.content.trim().slice(0, 1000), kind, created_by: email });
-          ok = !error; if (ok) saved++;
-        }
+        const ok = u.name === "remember" && await remember(u.input);
+        if (ok) saved++;
         results.push({ type: "tool_result", tool_use_id: u.id, content: ok ? "Saved." : "Couldn't save that.", ...(ok ? {} : { is_error: true }) });
       }
       messages.push({ role: "user", content: results });
@@ -193,6 +260,11 @@ Deno.serve(async (req: Request) => {
     ]);
     return json({ reply, remembered: saved });
   } catch (e) {
+    if (e instanceof GeminiError) {
+      if (e.status === 429) return json({ error: "Jarvis has hit Gemini's free limit for now - try again in a minute (or tomorrow if it keeps happening)." }, 429);
+      if (e.status === 400 || e.status === 403) return json({ error: `Gemini didn't accept the key or request: ${e.message}` }, 502);
+      return json({ error: `Jarvis hit an error (${e.status}). Try again.` }, 502);
+    }
     if (e instanceof Anthropic.AuthenticationError) return json({ error: "The Anthropic API key isn't valid." }, 502);
     if (e instanceof Anthropic.RateLimitError) return json({ error: "Jarvis is busy - try again in a moment." }, 429);
     if (e instanceof Anthropic.APIError) return json({ error: `Jarvis hit an error (${e.status}). Try again.` }, 502);

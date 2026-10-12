@@ -6446,7 +6446,7 @@ async function jarvisCall(body){
   }
   return data || {};
 }
-const JV_NEEDS_KEY = "Jarvis needs his Claude API key before he can talk. In GitHub, go to the repo's Settings → Secrets and variables → Actions, add a secret called ANTHROPIC_API_KEY with a key from console.anthropic.com, then re-run the \"Deploy Supabase functions\" workflow.";
+const JV_NEEDS_KEY = "Jarvis needs a free Google Gemini key before he can talk. Get one at aistudio.google.com (Get API key), add it in GitHub under Settings → Secrets and variables → Actions as GEMINI_API_KEY, then re-run the \"Deploy Supabase functions\" workflow.";
 function jvBubble(role, text){
   const el = document.createElement("div");
   el.className = `jv-msg jv-${role}`;
