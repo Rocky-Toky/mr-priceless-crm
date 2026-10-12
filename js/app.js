@@ -6435,7 +6435,7 @@ function setupReceipts(){
 /* ───────── Jarvis ─────────
    The CRM's assistant (supabase/functions/jarvis). A button on every page
    opens his panel: chat on one tab, what he's learned on the other. */
-let jvLoaded = false, jvBusy = false;
+let jvLoaded = false, jvBusy = false, jvSimple = false;
 async function jarvisCall(body){
   if (!IS_CONFIGURED) return { error: "demo" };
   const { data, error } = await supabase.functions.invoke("jarvis", { body });
@@ -6446,7 +6446,99 @@ async function jarvisCall(body){
   }
   return data || {};
 }
-const JV_NEEDS_KEY = "Jarvis needs a free Google Gemini key before he can talk. Get one at aistudio.google.com (Get API key), add it in GitHub under Settings → Secrets and variables → Actions as GEMINI_API_KEY, then re-run the \"Deploy Supabase functions\" workflow.";
+/* Jarvis without an AI key: answers straight from the CRM's own data in the
+   browser - cost per quote, who's at risk, what's working in the ads, the
+   pipeline, any client by name - and writes ad copy from templates built on
+   the winning ads. The AI version (the jarvis function) takes over by itself
+   once a key is added. */
+const jvMoney = (v) => v == null || !isFinite(v) ? "-" : fmtMoney(v);
+function jvTopAds(n = 3){
+  return state.adCreatives.filter(a => a.result !== "engagement" && Number(a.results) > 0 && Number(a.cost_per_result) > 0)
+    .sort((a, b) => Number(a.cost_per_result) - Number(b.cost_per_result)).slice(0, n);
+}
+const jvClientName = (a) => state.clients.find(c => c.id === a.client_id)?.name || a.client_name || "a client";
+function jvCpq(){
+  const rows = state.clients.map(clientPerformance).filter(r => r.spend && r.quotes).map(r => ({ ...r, cpq: r.spend / r.quotes }))
+    .sort((a, b) => a.cpq - b.cpq);
+  if (!rows.length) return "Hi Master. No cost per quote yet - need ad spend and quotes (from GHL or a report) on at least one client.";
+  const line = (r) => `- **${r.c.name}** - ${jvMoney(r.cpq)} a quote (${r.quotes} quotes off ${jvMoney(r.spend)})`;
+  const best = rows.slice(0, 3), worst = rows.length > 3 ? rows.slice(-2).reverse() : [];
+  return `Hi Master. Cheapest quotes:\n${best.map(line).join("\n")}${worst.length ? `\n\nDearest:\n${worst.map(line).join("\n")}` : ""}\n\nFull breakdown by industry is in Creative → Statistics.`;
+}
+function jvRisk(){
+  const out = [];
+  state.clients.filter(c => c.stage !== "churned").forEach(c => {
+    const why = [];
+    if (c.churn_risk === "high") why.push("flagged high churn risk");
+    else if (c.churn_risk === "medium") why.push("flagged medium churn risk");
+    const reps = monthReportsFor(c.id), last = reps[reps.length - 1];
+    if (c.ad_start_date && (!last || daysSince(last.period_end) > 21)) why.push(last ? `no report in ${Math.round(daysSince(last.period_end))} days` : "no report yet");
+    const ads = state.adCreatives.filter(a => a.client_id === c.id && a.result !== "engagement");
+    const spend = ads.reduce((s, a) => s + (Number(a.spend) || 0), 0), leads = ads.reduce((s, a) => s + (Number(a.results) || 0), 0);
+    if (spend > 300 && leads && spend / leads > LOW_CPL_LIMIT) why.push(`leads costing ${jvMoney(spend / leads)}`);
+    if (c.stage === "quote_guarantee" && (c.quotes_sent || 0) < (c.quote_target || 10) / 2 && daysSince(c.stage_changed_at || c.created_at) > 30) why.push(`only ${c.quotes_sent || 0}/${c.quote_target || 10} quotes after a month`);
+    if (why.length) out.push({ c, why, score: why.length + (c.churn_risk === "high" ? 2 : 0) });
+  });
+  if (!out.length) return "Hi Master. Nobody's waving a red flag right now. Keep the reports and workshops going.";
+  out.sort((a, b) => b.score - a.score);
+  return `Hi Master. Watch these:\n${out.slice(0, 5).map(x => `- **${x.c.name}** - ${x.why.join(", ")}`).join("\n")}\n\nGet a call or workshop in with the top one this week.`;
+}
+function jvAds(){
+  const top = jvTopAds(3);
+  const fatiguing = state.adCreatives.filter(a => a.fatigue_status && a.fatigue_status !== "fresh" && ["active", "learning"].includes(a.delivery_status));
+  const low = state.adCreatives.filter(a => a.result === "killed").length;
+  if (!top.length) return "Hi Master. No ads with leads synced yet - sync a client's Meta account first.";
+  return `Hi Master. Cheapest leads right now:\n${top.map(a => `- **${a.name}** (${jvClientName(a)}) - ${jvMoney(a.cost_per_result)} a lead, ${a.results} leads`).join("\n")}${fatiguing.length ? `\n\nFatiguing but still running: ${fatiguing.slice(0, 4).map(a => a.name).join(", ")}. Line up fresh creative.` : ""}\n\n${low} ad${low === 1 ? "" : "s"} sitting in Low performer. Test new hooks in the angles the winners use.`;
+}
+function jvPipeline(){
+  const open = state.deals.filter(d => !CLOSED_STAGES.has(d.stage));
+  const by = (k) => open.filter(d => d.stage === k).length;
+  const stale = open.filter(d => daysSince(d.updated_at || d.created_at) > 14);
+  const month = ymOf(localDayStr());
+  const lostMonth = state.deals.filter(d => ["closed_lost", "ghosted"].includes(d.stage) && ymOf(d.stage_changed_at || d.updated_at) === month).length;
+  const wonMonth = state.deals.filter(d => ["closed_won", ADHOC_STAGE].includes(d.stage) && ymOf(d.stage_changed_at || d.updated_at) === month).length;
+  const mrr = open.filter(d => (d.contract_type || "retainer") === "retainer").reduce((s, d) => s + (Number(d.value) || 0), 0);
+  return `Hi Master. ${open.length} open deal${open.length === 1 ? "" : "s"} worth ${jvMoney(mrr)}/mo.\n- Meetings booked: ${by("qualified")}\n- Proposal: ${by("proposal")} · Negotiation: ${by("negotiation")}\n- This month: ${wonMonth} won, ${lostMonth} lost or ghosted${stale.length ? `\n\nStuck (no update in 2+ weeks): ${stale.slice(0, 5).map(d => d.title || d.contact_name).join(", ")}. Chase them today.` : ""}`;
+}
+function jvClient(c){
+  const r = clientPerformance(c), x = perfRatios(r);
+  const stage = CLIENT_STAGES.find(s => s.key === c.stage)?.label || c.stage || "-";
+  return `Hi Master. **${c.name}** - ${stage}${r.industry.name ? `, ${r.industry.name}` : ""}.\n- Ad spend ${jvMoney(r.spend)}, ${r.leads || 0} leads (${jvMoney(x.cpl)} each)\n- ${r.quotes} quotes, ${jvMoney(x.cpq)} a quote\n- ${r.jobs} jobs won, ${jvMoney(r.revenue)} revenue${x.roi ? ` (${fmtTimes(x.roi)} return)` : ""}${c.churn_risk ? `\n- Churn risk: ${c.churn_risk}` : ""}`;
+}
+function jvCopy(text){
+  const top = jvTopAds(2);
+  const inds = [...new Set(state.clients.map(c => clientIndustry(c).name).filter(Boolean))];
+  // The trade they asked for, else the most common one among our clients.
+  const asked = CLIENT_INDUSTRY_OPTIONS.find(i => text.toLowerCase().includes(i.toLowerCase())) || INDUSTRY_HINTS.find(([re]) => re.test(text))?.[1];
+  const trade = (asked || inds[0] || "tradie").toLowerCase();
+  const region = (text.match(/\b(auckland|wellington|christchurch|hamilton|tauranga|dunedin|north shore|waikato|bay of plenty)\b/i) || [])[0] || "your area";
+  const hooks = [
+    [`Still waiting on a ${trade} quote that never came?`, `We turn up when we say, quote on the spot and get it done right. Local, reviewed and booking now in ${region}.`, `Free quote this week`],
+    [`${region}: 3 ${trade} slots left this month`, `Tell us what you need and we'll call you back within the hour with a straight price. No call-out fee for quotes.`, `Grab a slot`],
+    [`The ${trade} job you've been putting off? Sorted in a day.`, `Fixed price before we start, tidy site when we leave. Over 100 five-star reviews from locals.`, `Get my price`],
+    [`Why ${region} homeowners keep calling us back`, `On time, upfront pricing and work that lasts. See why our reviews do the talking.`, `See our work`],
+    [`Don't pay for a ${trade} job twice.`, `Get it done properly the first time by a team that guarantees the work. Quotes in 24 hours.`, `Book a free quote`],
+  ];
+  return `Hi Master. Five to test for ${trade}${top.length ? `, built on the angle of your cheapest ad (“${top[0].name}”, ${jvMoney(top[0].cost_per_result)} a lead)` : ""}:\n\n${hooks.map((h, i) => `**${i + 1}. ${h[0]}**\n${h[1]}\nHeadline: ${h[2]}`).join("\n\n")}\n\nSwap in a real number (reviews, jobs done) wherever you can.`;
+}
+function jvOverview(){
+  const rows = state.clients.map(clientPerformance), t = sumPerf(rows.filter(r => r.spend || r.quotes));
+  const open = state.deals.filter(d => !CLOSED_STAGES.has(d.stage)).length;
+  return `Hi Master. ${state.clients.length} clients, ${open} open deals.\n- Ad spend ${jvMoney(t.spend)} → ${t.leads} leads (${jvMoney(t.cpl)} each)\n- ${t.quotes} quotes at ${jvMoney(t.cpq)} each\n- ${jvMoney(t.revenue)} won for clients${t.roi ? `, ${fmtTimes(t.roi)} return` : ""}`;
+}
+function jvLocalReply(text){
+  const t = text.toLowerCase();
+  const client = state.clients.find(c => c.name && t.includes(c.name.toLowerCase().split(/\s+/).slice(0, 2).join(" ")));
+  if (/\b(write|copy|hook|headline|caption|ad idea|ad concept|primary text)/.test(t)) return jvCopy(text);
+  if (client) return jvClient(client);
+  if (/cost per quote|\bcpq\b|per quote|cheapest quote/.test(t)) return jvCpq();
+  if (/risk|churn|unhappy|lose|losing (a )?client/.test(t)) return jvRisk();
+  if (/\bads?\b|creative|fatigu|cpl|cost per lead|working/.test(t)) return jvAds();
+  if (/pipeline|deal|close|closing|lost|stuck|proposal/.test(t)) return jvPipeline();
+  if (/overview|how are we|numbers|summary|doing|stats/.test(t)) return jvOverview();
+  if (/^(hi|hey|yo|kia ora|gday|hello)\b/.test(t)) return "Hi Master. What do you need? Try cost per quote, who's at risk, what's working in the ads, the pipeline, a client's name, or ask me to write ad copy.";
+  return "Hi Master. I'm running in simple mode for now, so I stick to what's in the CRM. Ask me about:\n- cost per quote\n- who's at risk\n- what's working in the ads\n- the pipeline\n- any client by name\n- write ad copy (say the trade and area)";
+}
 function jvBubble(role, text){
   const el = document.createElement("div");
   el.className = `jv-msg jv-${role}`;
@@ -6482,12 +6574,16 @@ async function jvSend(text){
   $("#jarvis-text").value = ""; jvAutosize();
   const thinking = jvBubble("thinking", "");
   thinking.innerHTML = `<span class="jv-dots"><i></i><i></i><i></i></span> Jarvis is thinking...`;
-  const r = await jarvisCall({ action: "chat", message: text });
+  // Simple mode (answers from the CRM itself) until an AI key is set up,
+  // and whenever the AI can't be reached.
+  const r = jvSimple ? { error: "needs_key" } : await jarvisCall({ action: "chat", message: text });
   thinking.remove();
-  if (r.error === "demo") jvBubble("assistant", "Hi Master. I only work in the live CRM, not the demo.");
-  else if (r.error === "needs_key") jvBubble("assistant", JV_NEEDS_KEY);
-  else if (r.error) jvBubble("assistant", "Hi Master. Hit a snag: " + r.error);
-  else {
+  if (r.error){
+    if (r.error === "needs_key" || r.error === "demo") jvSimple = true;
+    else console.warn("Jarvis AI unavailable, using simple mode:", r.error);
+    await new Promise(res => setTimeout(res, 350));
+    jvBubble("assistant", jvLocalReply(text));
+  } else {
     jvBubble("assistant", r.reply || "");
     if (r.remembered) jvBubble("note", `Saved ${r.remembered} thing${r.remembered === 1 ? "" : "s"} to memory.`);
   }
