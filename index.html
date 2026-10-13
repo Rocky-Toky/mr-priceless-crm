@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=203">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=203">
+<link rel="stylesheet" href="css/style.css?v=204">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=204">
 </head>
 <body>
 
@@ -1993,12 +1993,14 @@
     <form id="welcome-pack-form" class="modal-body" autocomplete="off">
       <input type="hidden" id="wp-client-id">
       <div class="wp-grid">
+        <div class="field wp-wide"><label for="wp-kind">Type of client <span class="wp-opt">(changes the wording: quotes and jobs, or enquiries and new clients)</span></label>
+          <select id="wp-kind"><option value="trades">Trades / home services</option><option value="pro">Professional services</option></select></div>
         <div class="field"><label for="wp-client_first_name">First name</label><input type="text" id="wp-client_first_name" placeholder="Marlon"></div>
         <div class="field"><label for="wp-business_name">Business</label><input type="text" id="wp-business_name" placeholder="Reeve Builders"></div>
         <div class="field"><label for="wp-call_when">Onboarding call</label><input type="text" id="wp-call_when" placeholder="Thursday 8 October, 10am"></div>
         <div class="field"><label for="wp-ads_live">Ads go live</label><input type="text" id="wp-ads_live" placeholder="15 October"></div>
-        <div class="field wp-wide"><label for="wp-why_excited">A sentence or two just for them <span class="wp-opt">(goes at the top of Rocky's letter)</span></label>
-          <textarea id="wp-why_excited" rows="3" placeholder="Great to finally have you on board after our chat last week. Your reviews speak for themselves, and there's heaps of demand for quality builds around the Bay right now."></textarea></div>
+        <div class="field wp-wide"><label for="wp-why_excited">A sentence or two just for them <span class="wp-opt">(goes at the top of Rocky's letter - any length, the page makes room)</span></label>
+          <textarea id="wp-why_excited" rows="4" placeholder="Great to finally have you on board after our chat last week. Your reviews speak for themselves, and there's heaps of demand for quality builds around the Bay right now."></textarea></div>
       </div>
       <div class="wp-group-title">Their go-to person</div>
       <div class="wp-grid wp-grid-3">
@@ -2567,16 +2569,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=203"></script>
-<script src="js/supabaseClient.js?v=203"></script>
-<script src="js/report-pdf.js?v=203"></script>
-<script src="js/plan-pdf.js?v=203"></script>
-<script src="js/workshop-pdf.js?v=203"></script>
-<script src="js/receipt-pdf.js?v=203"></script>
-<script src="js/builtin-playbooks.js?v=203"></script>
-<script src="js/builtin-email-templates.js?v=203"></script>
-<script src="js/app.js?v=203"></script>
-<script src="js/meetings-tracker.js?v=203"></script>
-<script src="js/todo.js?v=203"></script>
+<script src="js/config.js?v=204"></script>
+<script src="js/supabaseClient.js?v=204"></script>
+<script src="js/report-pdf.js?v=204"></script>
+<script src="js/plan-pdf.js?v=204"></script>
+<script src="js/workshop-pdf.js?v=204"></script>
+<script src="js/receipt-pdf.js?v=204"></script>
+<script src="js/welcome-pdf.js?v=204"></script>
+<script src="js/builtin-playbooks.js?v=204"></script>
+<script src="js/builtin-email-templates.js?v=204"></script>
+<script src="js/app.js?v=204"></script>
+<script src="js/meetings-tracker.js?v=204"></script>
+<script src="js/todo.js?v=204"></script>
 </body>
 </html>
