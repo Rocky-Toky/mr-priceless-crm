@@ -2537,3 +2537,69 @@ body.jv-open .jv-fab{display:none;}
   .am-slots{grid-template-columns:1fr;}
   .cl-board-5{grid-template-columns:1fr;}
 }
+
+/* ───────── Content Library: video scripts ───────── */
+.vs-new{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 20px;margin-bottom:22px;}
+.vs-new > div{flex:1;min-width:220px;display:flex;flex-direction:column;gap:2px;}
+.vs-new b{font-size:15px;}
+.vs-new span{font-size:12.5px;color:var(--text2);}
+.vs-empty{padding:20px;}
+.vs-month{margin-bottom:22px;}
+.vs-month-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);margin-bottom:10px;}
+.vs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;}
+.vs-card{display:flex;flex-direction:column;gap:6px;text-align:left;background:var(--white);border:1px solid var(--line);border-radius:18px;padding:16px 18px;cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s;}
+.vs-card:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(20,15,5,.09);border-color:var(--gold);}
+.vs-card-client{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--gold-deep);}
+.vs-card-title{font-size:16px;font-weight:800;}
+.vs-card-meter{display:flex;gap:12px;font-size:12px;color:var(--text2);}
+.vs-card-meter b{color:var(--text);}
+.vs-card-bar{height:5px;border-radius:999px;background:var(--line);overflow:hidden;}
+.vs-card-bar i{display:block;height:100%;background:var(--gold);}
+.vs-card-stage{align-self:flex-start;font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;background:var(--paper);border:1px solid var(--line);}
+.vs-stage-sent .vs-card-stage,.vs-stage-filmed .vs-card-stage{background:var(--gold-soft);border-color:var(--gold-border);color:var(--gold-deep);}
+.vs-stage-live .vs-card-stage{background:var(--success);border-color:var(--success);color:#fff;}
+.vs-bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(249,247,242,.94);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:16px;padding:8px 10px 10px 8px;margin-bottom:16px;}
+.vs-title{flex:1;min-width:160px;font-size:16px;font-weight:800;border:1px solid transparent;background:transparent;border-radius:9px;padding:6px 8px;}
+.vs-title:hover,.vs-title:focus{border-color:var(--line);background:var(--white);outline:0;}
+.vs-bar-client{font-size:12.5px;font-weight:700;color:var(--gold-deep);}
+.vs-save{font-size:12px;color:var(--text2);min-width:52px;}
+.vs-progress{position:absolute;left:14px;right:14px;bottom:3px;height:3px;border-radius:999px;background:var(--line);overflow:hidden;}
+.vs-progress i{display:block;height:100%;width:0;background:var(--gold);transition:width .3s;}
+.vs-sec{padding:22px 24px;margin-bottom:16px;}
+.vs-sec-head{display:flex;gap:14px;align-items:flex-start;margin-bottom:16px;}
+.vs-sec-num{width:36px;height:36px;border-radius:11px;background:var(--black);color:var(--gold-bright);font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.vs-sec-head h3{font-size:19px;font-weight:800;display:flex;align-items:center;gap:8px;}
+.vs-sec-head p{font-size:13px;color:var(--text2);margin-top:3px;max-width:640px;}
+.vs-count{font-size:12px;font-weight:800;color:var(--gold-deep);background:var(--gold-soft);border-radius:999px;padding:2px 9px;}
+.vs-hooks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;}
+.vs-hook{display:flex;align-items:center;gap:8px;}
+.vs-hook span{width:26px;height:26px;border-radius:50%;flex-shrink:0;background:var(--paper);border:1px solid var(--line);font-size:11.5px;font-weight:800;color:var(--text2);display:flex;align-items:center;justify-content:center;}
+.vs-hook input{flex:1;min-width:0;}
+.vs-hook:focus-within span{background:var(--gold);border-color:var(--gold);color:#fff;}
+.vs-bodies{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.vs-body{border:1px solid var(--line);border-radius:14px;padding:12px;background:var(--paper);display:flex;flex-direction:column;gap:8px;min-width:0;}
+.vs-body-head{display:flex;align-items:center;gap:8px;}
+.vs-body-letter{width:28px;height:28px;border-radius:9px;background:var(--gold);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.vs-body-name{flex:1;min-width:0;font-weight:700;border:1px solid transparent;background:transparent;border-radius:8px;padding:4px 6px;}
+.vs-body-name:hover,.vs-body-name:focus{border-color:var(--line);background:var(--white);outline:0;}
+.vs-body-len{font-size:11px;color:var(--text2);white-space:nowrap;}
+.vs-body-text{width:100%;min-height:170px;resize:vertical;font-size:14px;line-height:1.6;}
+.vs-extras{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.vs-extras .vs-wide{grid-column:1 / -1;}
+.vs-finish{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:20px 24px;background:var(--black);color:#fff;border:0;}
+.vs-finish > div{flex:1;min-width:220px;display:flex;flex-direction:column;gap:3px;}
+.vs-finish b{font-size:16px;color:var(--gold-bright);}
+.vs-finish span{font-size:13px;color:rgba(255,255,255,.7);}
+.vs-finish .btn:disabled{opacity:.5;cursor:not-allowed;}
+.vs-email-modal{max-width:720px;}
+.vs-email-modal textarea{font-size:13px;line-height:1.55;font-family:inherit;}
+.vs-email-saved{font-size:12.5px;color:var(--success);font-weight:600;margin:4px 0 10px;}
+.am-script-link{align-self:flex-start;border:0;background:none;padding:0;font-size:12px;font-weight:700;color:var(--gold-deep);cursor:pointer;}
+.am-script-link:hover{text-decoration:underline;}
+@media (max-width:900px){
+  .vs-hooks,.vs-bodies,.vs-extras{grid-template-columns:1fr;}
+}
+.vs-hook input,.vs-body-text{font:inherit;font-size:14px;color:var(--text);background:var(--white);border:1px solid var(--line);border-radius:10px;padding:9px 12px;transition:border-color .15s,box-shadow .15s;}
+.vs-body-text{padding:10px 12px;line-height:1.6;}
+.vs-hook input:focus,.vs-body-text:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-soft);}
+.vs-hook input::placeholder,.vs-body-text::placeholder{color:#a59f90;}

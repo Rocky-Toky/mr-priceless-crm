@@ -3474,6 +3474,225 @@ function boardColumnCards(boardKey, stageKey, cardsHtml){
     : "");
 }
 
+/* ───────── Content Library: video scripts ─────────
+   One script per client video: 20 hooks (the first 3 seconds - we test them
+   against each other) and 3 bodies (the rest of the video, three ways), plus
+   the call to action. Once it's filled in, "Create filming email" writes the
+   client a filming brief with every line to say and exactly how to film it,
+   and saves it to Email Templates. Stored as client_content rows with
+   type "video_script"; the script itself is JSON in the script column. */
+const VS_HOOKS = 20, VS_BODIES = 3;
+const VS_STAGES = [
+  { key: "writing", label: "Writing", status: "scripting" },
+  { key: "sent", label: "Sent to client", status: "filming" },
+  { key: "filmed", label: "Filmed", status: "filming" },
+  { key: "live", label: "Edited & live", status: "posted" },
+];
+const VS_BODY_NAMES = ["The story", "The proof", "The offer"];
+let vsOpenId = null, vsSaveTimer = null;
+const vsRows = () => state.clientContent.filter(r => r.type === "video_script");
+function vsData(row){
+  let d = {}; try { d = JSON.parse(row?.script || "{}") || {}; } catch(e){ d = {}; }
+  const hooks = Array.from({ length: VS_HOOKS }, (_, i) => String((d.hooks || [])[i] || ""));
+  const bodies = Array.from({ length: VS_BODIES }, (_, i) => ({ name: ((d.bodies || [])[i] || {}).name || VS_BODY_NAMES[i], text: ((d.bodies || [])[i] || {}).text || "" }));
+  return { hooks, bodies, cta: d.cta || "", where: d.where || "", wear: d.wear || "", due: d.due || "", stage: d.stage || "writing", month: d.month || ymOf(localDayStr()), templateId: d.templateId || null };
+}
+const vsWords = (s) => (String(s).match(/\S+/g) || []).length;
+const vsSecs = (s) => Math.round(vsWords(s) / 2.5);
+function vsCounts(d){
+  return { hooks: d.hooks.filter(h => h.trim()).length, bodies: d.bodies.filter(b => b.text.trim()).length };
+}
+async function vsCreate(clientId, month){
+  const c = state.clients.find(x => x.id === clientId);
+  const ym = month || ymOf(localDayStr());
+  const monthName = new Date(ym + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long" });
+  const d = { hooks: [], bodies: VS_BODY_NAMES.map(n => ({ name: n, text: "" })), cta: "", stage: "writing", month: ym };
+  const row = await DataLayer.insert("client_content", { client_id: clientId, type: "video_script", status: "scripting", title: `${monthName} video`, script: JSON.stringify(d), directions: "", notes: "" });
+  if (IS_CONFIGURED) await DataLayer.fetchAll();
+  const made = row || vsRows().find(r => r.client_id === clientId && vsData(r).month === ym);
+  vsOpenId = made?.id || null;
+  if (!c) return;
+  renderContentLibrary();
+}
+// Saves what's typed a moment after you stop typing.
+function vsQueueSave(){
+  clearTimeout(vsSaveTimer);
+  const el = $("#vs-save-state"); if (el) el.textContent = "Saving…";
+  vsSaveTimer = setTimeout(vsSaveNow, 600);
+}
+async function vsSaveNow(){
+  clearTimeout(vsSaveTimer);
+  const row = state.clientContent.find(r => r.id === vsOpenId);
+  if (!row) return;
+  const prev = vsData(row);
+  const d = {
+    ...prev,
+    hooks: $$("#vs-editor .vs-hook-input").map(i => i.value),
+    bodies: $$("#vs-editor .vs-body").map(b => ({ name: b.querySelector(".vs-body-name").value.trim(), text: b.querySelector(".vs-body-text").value })),
+    cta: $("#vs-cta")?.value || "", where: $("#vs-where")?.value || "", wear: $("#vs-wear")?.value || "", due: $("#vs-due")?.value || "",
+  };
+  const title = $("#vs-title")?.value.trim() || row.title;
+  const patch = { title, script: JSON.stringify(d), updated_at: new Date().toISOString() };
+  Object.assign(row, patch);
+  await DataLayer.update("client_content", row.id, patch);
+  const el = $("#vs-save-state"); if (el) el.textContent = "Saved";
+  vsRefreshCounts();
+}
+function vsRefreshCounts(){
+  const row = state.clientContent.find(r => r.id === vsOpenId);
+  if (!row) return;
+  const hooks = $$("#vs-editor .vs-hook-input").filter(i => i.value.trim()).length;
+  const bodies = $$("#vs-editor .vs-body-text").filter(t => t.value.trim()).length;
+  const hc = $("#vs-hook-count"); if (hc) hc.textContent = `${hooks}/${VS_HOOKS}`;
+  const bc = $("#vs-body-count"); if (bc) bc.textContent = `${bodies}/${VS_BODIES}`;
+  $$("#vs-editor .vs-body").forEach(b => { const t = b.querySelector(".vs-body-text").value; b.querySelector(".vs-body-len").textContent = t.trim() ? `${vsWords(t)} words · about ${vsSecs(t)}s` : "Not written yet"; });
+  const pct = Math.round((hooks / VS_HOOKS * 0.6 + bodies / VS_BODIES * 0.4) * 100);
+  const bar = $("#vs-progress"); if (bar) bar.style.width = pct + "%";
+  const ready = hooks >= 1 && bodies >= 1;
+  const btn = $("#vs-make-email"); if (btn) btn.disabled = !ready;
+}
+// The filming brief the client gets: every line, and exactly how to film it.
+function vsEmail(row){
+  const d = vsData(row), c = state.clients.find(x => x.id === row.client_id) || {};
+  const first = (c.onboarding_progress || {}).contact_first || (c.key_contacts || "").split(/[\s,-]/)[0] || "there";
+  const person = window.getActivePerson ? window.getActivePerson() : null;
+  const sender = ASSIGNEES[person]?.label || "Rocky";
+  const hooks = d.hooks.map(h => h.trim()).filter(Boolean);
+  const bodies = d.bodies.filter(b => b.text.trim());
+  const monthName = new Date(d.month + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long" });
+  const due = d.due ? new Date(d.due + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long" }) : "";
+  const lines = [];
+  lines.push(`Hi ${first},`, "");
+  lines.push(`Here's everything for your ${monthName} video. It should take about 30-40 minutes to film, and you don't need to memorise anything - read each line off this email between takes.`, "");
+  lines.push("HOW TO FILM", "");
+  [
+    "Hold your phone upright (portrait), on the back camera, at eye height. Prop it on a shelf or tripod - no selfie-stick wobble.",
+    "Film somewhere quiet, facing a window or outside in the shade so your face is well lit. No bright light behind you.",
+    "Look straight into the camera lens, not at the screen. Talk like you're explaining it to a mate.",
+    "Hit record, wait 2 seconds, say the line, wait 2 seconds, then stop. One line per clip makes our editing much faster.",
+    "Say each line twice. If you stumble, just pause and start the line again - we'll cut it.",
+    "Energy up a notch more than feels normal. It comes across much calmer on camera.",
+  ].forEach((t, i) => lines.push(`${i + 1}. ${t}`));
+  if (d.where.trim()) lines.push("", `Where: ${d.where.trim()}`);
+  if (d.wear.trim()) lines.push(`What to wear: ${d.wear.trim()}`);
+  lines.push("", `PART 1 - THE HOOKS (${hooks.length})`, "These are the opening lines. Each one is its own short clip - we'll test them against each other to find the winner.", "");
+  hooks.forEach((h, i) => lines.push(`Hook ${i + 1}: "${h}"`));
+  lines.push("", `PART 2 - THE MAIN VIDEO (${bodies.length} version${bodies.length === 1 ? "" : "s"})`, "Film each version in full, start to finish, as its own clip. Read it through once before you hit record.", "");
+  bodies.forEach((b, i) => {
+    lines.push(`Version ${String.fromCharCode(65 + i)}${b.name ? ` - ${b.name}` : ""} (about ${Math.max(10, vsSecs(b.text))} seconds):`);
+    lines.push(b.text.trim(), "");
+  });
+  if (d.cta.trim()) lines.push("PART 3 - THE ENDING", "Film this on its own, twice:", `"${d.cta.trim()}"`, "");
+  lines.push("SENDING IT TO US", "Upload all the clips to a Google Drive folder (or WeTransfer) and send us the link. Don't edit or trim anything - send the raw clips.");
+  if (due) lines.push("", `If you can get them to us by ${due}, we'll have your new ad live within the week.`);
+  lines.push("", "Any questions at all, just give me a call.", "", "Cheers,", sender, "Mr Priceless");
+  return { subject: `Your ${monthName} video - what to film`, body: lines.join("\n"), to: c.report_email || c.email || "" };
+}
+async function vsMakeEmail(){
+  await vsSaveNow();
+  const row = state.clientContent.find(r => r.id === vsOpenId);
+  if (!row) return;
+  const c = state.clients.find(x => x.id === row.client_id);
+  const d = vsData(row), em = vsEmail(row);
+  const title = `Filming brief · ${c?.name || "Client"} · ${new Date(d.month + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long", year: "numeric" })}`;
+  // One template per script: made the first time, updated after that.
+  let tpl = d.templateId && state.emailTemplates.find(t => t.id === d.templateId);
+  if (tpl) await DataLayer.update("email_templates", tpl.id, { title, subject: em.subject, body: em.body, updated_at: new Date().toISOString() });
+  else {
+    tpl = await DataLayer.insert("email_templates", { title, subject: em.subject, body: em.body, sort_order: state.emailTemplates.length });
+    if (tpl?.id){ d.templateId = tpl.id; await DataLayer.update("client_content", row.id, { script: JSON.stringify(d) }); row.script = JSON.stringify(d); }
+  }
+  if (IS_CONFIGURED) await DataLayer.fetchAll();
+  $("#vs-email-subject").value = em.subject;
+  $("#vs-email-body").value = em.body;
+  $("#vs-email-to").textContent = em.to ? `To ${em.to}` : "Add their email on the client to send it straight from here";
+  $("#vs-email-send").href = `mailto:${encodeURIComponent(em.to)}?subject=${encodeURIComponent(em.subject)}&body=${encodeURIComponent(em.body)}`;
+  $("#vs-email-saved").textContent = `Saved to Email Templates as “${title}”.`;
+  openModal("vs-email-modal");
+}
+function renderContentLibrary(){
+  const root = $("#vs-root");
+  if (!root) return;
+  const row = vsOpenId && state.clientContent.find(r => r.id === vsOpenId);
+  if (vsOpenId && !row) vsOpenId = null;
+  // Don't redraw the editor under someone's fingers.
+  if (row && root.dataset.open === row.id && root.contains(document.activeElement)) return;
+  root.dataset.open = row ? row.id : "";
+  root.innerHTML = row ? vsEditorHtml(row) : vsListHtml();
+  if (row) vsRefreshCounts();
+}
+function vsListHtml(){
+  const rows = vsRows().map(r => ({ r, d: vsData(r), c: state.clients.find(x => x.id === r.client_id) }))
+    .sort((a, b) => b.d.month.localeCompare(a.d.month) || (a.c?.name || "").localeCompare(b.c?.name || ""));
+  const clients = state.clients.filter(c => normalizeClientStage(c.stage) !== "churned").sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const months = [...new Set(rows.map(x => x.d.month))];
+  return `
+    <div class="vs-new card">
+      <div><b>New video script</b><span>20 hooks, 3 bodies and the ending - then it writes the filming email for you.</span></div>
+      <select id="vs-new-client" class="filter-select"><option value="">Pick a client…</option>${clients.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select>
+      <button type="button" class="btn gold" data-action="vs-new">Start script</button>
+    </div>
+    ${!rows.length ? `<div class="card vs-empty">${emptyState("No scripts yet. Pick a client above to write their first one.")}</div>` : months.map(m => `
+      <section class="vs-month">
+        <h3 class="vs-month-title">${escapeHtml(new Date(m + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long", year: "numeric" }))}</h3>
+        <div class="vs-grid">${rows.filter(x => x.d.month === m).map(({ r, d, c }) => { const n = vsCounts(d), st = VS_STAGES.find(s => s.key === d.stage) || VS_STAGES[0]; return `
+          <button type="button" class="vs-card vs-stage-${st.key}" data-action="vs-open" data-id="${r.id}">
+            <span class="vs-card-client">${escapeHtml(c?.name || "Deleted client")}</span>
+            <span class="vs-card-title">${escapeHtml(r.title || "Video")}</span>
+            <span class="vs-card-meter"><span><b>${n.hooks}</b>/${VS_HOOKS} hooks</span><span><b>${n.bodies}</b>/${VS_BODIES} bodies</span></span>
+            <span class="vs-card-bar"><i style="width:${Math.round((n.hooks / VS_HOOKS * 0.6 + n.bodies / VS_BODIES * 0.4) * 100)}%"></i></span>
+            <span class="vs-card-stage">${escapeHtml(st.label)}</span>
+          </button>`; }).join("")}</div>
+      </section>`).join("")}`;
+}
+function vsEditorHtml(row){
+  const d = vsData(row), c = state.clients.find(x => x.id === row.client_id);
+  return `
+    <div class="vs-editor" id="vs-editor" data-id="${row.id}">
+      <div class="vs-bar">
+        <button type="button" class="pbx-back" data-action="vs-close">← All scripts</button>
+        <input type="text" id="vs-title" class="vs-title" value="${escapeHtml(row.title || "")}" placeholder="Video name" aria-label="Video name">
+        <span class="vs-bar-client">${escapeHtml(c?.name || "")}</span>
+        <select id="vs-stage" class="filter-select" aria-label="Stage">${VS_STAGES.map(s => `<option value="${s.key}" ${s.key === d.stage ? "selected" : ""}>${s.label}</option>`).join("")}</select>
+        <span class="vs-save" id="vs-save-state">Saved</span>
+        <button type="button" class="icon-btn" data-action="vs-delete" data-id="${row.id}" title="Delete script">${ICONS.trash}</button>
+        <span class="vs-progress"><i id="vs-progress"></i></span>
+      </div>
+
+      <section class="vs-sec card">
+        <header class="vs-sec-head"><span class="vs-sec-num">1</span><div><h3>Hooks <span class="vs-count" id="vs-hook-count"></span></h3><p>The first 3 seconds. Each one gets filmed as its own clip so we can test them against each other. Short, punchy, straight to camera.</p></div></header>
+        <div class="vs-hooks">${d.hooks.map((h, i) => `
+          <label class="vs-hook"><span>${i + 1}</span><input type="text" class="vs-hook-input" value="${escapeHtml(h)}" maxlength="200" placeholder="${i === 0 ? "e.g. Most builders won't tell you this about decks…" : i === 1 ? "e.g. Here's what a $40k bathroom actually looks like" : ""}"></label>`).join("")}
+        </div>
+      </section>
+
+      <section class="vs-sec card">
+        <header class="vs-sec-head"><span class="vs-sec-num">2</span><div><h3>Bodies <span class="vs-count" id="vs-body-count"></span></h3><p>The rest of the video, three different ways. Any hook can go on the front of any body. Aim for 20-40 seconds each.</p></div></header>
+        <div class="vs-bodies">${d.bodies.map((b, i) => `
+          <div class="vs-body">
+            <div class="vs-body-head"><span class="vs-body-letter">${String.fromCharCode(65 + i)}</span><input type="text" class="vs-body-name" value="${escapeHtml(b.name)}" placeholder="Name this version" maxlength="60"><span class="vs-body-len"></span></div>
+            <textarea class="vs-body-text" rows="7" placeholder="${["Tell the story: the problem the customer had, what you did, how it turned out.", "Show the proof: reviews, numbers, before and after, why people pick you.", "Make the offer: what they get, why now, what happens when they get in touch."][i]}">${escapeHtml(b.text)}</textarea>
+          </div>`).join("")}
+        </div>
+      </section>
+
+      <section class="vs-sec card">
+        <header class="vs-sec-head"><span class="vs-sec-num">3</span><div><h3>Ending and filming notes</h3><p>How every version finishes, and anything they need to know before they film.</p></div></header>
+        <div class="vs-extras">
+          <div class="field vs-wide"><label for="vs-cta">Call to action (the last line)</label><input type="text" id="vs-cta" value="${escapeHtml(d.cta)}" placeholder="e.g. Tap the button below and we'll come out for a free quote this week."></div>
+          <div class="field"><label for="vs-where">Where to film</label><input type="text" id="vs-where" value="${escapeHtml(d.where)}" placeholder="e.g. On a finished job, or outside the van"></div>
+          <div class="field"><label for="vs-wear">What to wear</label><input type="text" id="vs-wear" value="${escapeHtml(d.wear)}" placeholder="e.g. Branded work shirt"></div>
+          <div class="field"><label for="vs-due">Clips back by</label><input type="date" id="vs-due" value="${escapeHtml(d.due)}"></div>
+        </div>
+      </section>
+
+      <div class="vs-finish card">
+        <div><b>All filled in?</b><span>We'll write the client a filming email with every line and exactly how to film it, and save it to Email Templates.</span></div>
+        <button type="button" class="btn gold" id="vs-make-email" data-action="vs-email">Create filming email →</button>
+      </div>
+    </div>`;
+}
+
 /* ───────── Ads This Month ─────────
    The rule: every client gets 1 video ad and 2 static ads live each month.
    Each ad moves Brief → Made → Live and only counts once it's live. The
@@ -3582,6 +3801,7 @@ function renderAdsMonth(){
       <div class="am-steps" role="group" aria-label="${escapeHtml(s.label)} for ${escapeHtml(c.name)}">
         ${AM_STEPS.map((st, i) => `<button type="button" class="am-stepbtn${i <= idx ? " on" : ""}${i === idx ? " current" : ""}" data-action="am-set" data-id="${c.id}" data-slot="${s.key}" data-step="${st.key}" aria-pressed="${i <= idx}">${st.label}</button>`).join("")}
       </div>
+      ${s.kind === "video" ? `<button type="button" class="am-script-link" data-action="am-script" data-id="${c.id}">${vsRows().some(r => r.client_id === c.id && vsData(r).month === ym) ? "Open script →" : "Write the script →"}</button>` : ""}
       <input type="text" class="am-slot-title" data-id="${c.id}" data-slot="${s.key}" value="${escapeHtml(s.title)}" placeholder="${s.kind === "video" ? "What's the video? e.g. Owner walk-through" : "What's the angle? e.g. Before/after"}" maxlength="120">
     </div>`;
   };
@@ -8261,7 +8481,7 @@ const RENDERERS = [
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["deals"]], [renderCommission, ["commission"]],
   [renderRegionData, ["dialer", "lead-engine"]], [renderTeamFocusPanel, ["lead-engine"]], [renderRegionCoverage, ["lead-engine"]],
   [renderVerticalCoverage, ["lead-engine"]], [renderProspectList, ["*"]], [renderDialer, ["dialer"]], [renderClients, ["clients"]],
-  [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]], [renderAdsMonth, ["ads-month"]], [amNavCount, ["*"]],
+  [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]], [renderAdsMonth, ["ads-month"]], [renderContentLibrary, ["content-library"]], [amNavCount, ["*"]],
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
@@ -9938,6 +10158,18 @@ function setupModals(){
     populateAdCreativeCampaignSelect(state.selectedClientId);
     openModal("ad-creative-modal");
   });
+  $("#vs-root")?.addEventListener("input", (e) => { if (e.target.closest("#vs-editor") && e.target.id !== "vs-stage") vsQueueSave(); });
+  $("#vs-root")?.addEventListener("change", async (e) => {
+    if (e.target.id !== "vs-stage") return;
+    await vsSaveNow();
+    const row = state.clientContent.find(r => r.id === vsOpenId); if (!row) return;
+    const d = vsData(row); d.stage = e.target.value;
+    const patch = { script: JSON.stringify(d), status: (VS_STAGES.find(s => s.key === d.stage) || VS_STAGES[0]).status };
+    Object.assign(row, patch); await DataLayer.update("client_content", row.id, patch);
+  });
+  $("#vs-email-copy")?.addEventListener("click", async (e) => {
+    try { await navigator.clipboard.writeText($("#vs-email-subject").value + "\n\n" + $("#vs-email-body").value); e.target.textContent = "Copied"; setTimeout(() => { e.target.textContent = "Copy email"; }, 1500); } catch(err){}
+  });
   $("#am-root")?.addEventListener("change", async (e) => {
     const inp = e.target.closest(".am-slot-title");
     if (!inp) return;
@@ -10336,6 +10568,17 @@ function setupModals(){
       return;
     }
     if (action === "open-workshops-page"){ $('.nav-item[data-page="workshops"]')?.click(); return; }
+    if (action === "vs-new"){ const cid = $("#vs-new-client")?.value; if (!cid){ $("#vs-new-client")?.focus(); return; } await vsCreate(cid); window.scrollTo({ top: 0 }); return; }
+    if (action === "vs-open"){ vsOpenId = id; renderContentLibrary(); window.scrollTo({ top: 0 }); return; }
+    if (action === "vs-close"){ await vsSaveNow(); vsOpenId = null; renderContentLibrary(); return; }
+    if (action === "vs-email"){ await vsMakeEmail(); return; }
+    if (action === "vs-delete"){ if (!confirm("Delete this script?")) return; await DataLayer.remove("client_content", id); vsOpenId = null; if (IS_CONFIGURED) await DataLayer.fetchAll(); renderContentLibrary(); return; }
+    if (action === "am-script"){
+      const ym = amYm(), existing = vsRows().find(r => r.client_id === id && vsData(r).month === ym);
+      $('.nav-item[data-page="content-library"]')?.click();
+      if (existing){ vsOpenId = existing.id; renderContentLibrary(); } else await vsCreate(id, ym);
+      window.scrollTo({ top: 0 }); return;
+    }
     if (action === "am-month"){
       const step = +btn.dataset.step, base = new Date(amYm() + "-01T00:00:00");
       if (step === 0) state.amMonth = null; else { base.setMonth(base.getMonth() + step); state.amMonth = ymOf(localDayStr(base)); }
