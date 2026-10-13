@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=202">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=202">
+<link rel="stylesheet" href="css/style.css?v=203">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=203">
 </head>
 <body>
 
@@ -241,11 +241,7 @@
       </div>
       <button class="nav-item" data-page="clients" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/></svg>
-        <span>Clients</span>
-      </button>
-      <button class="nav-item" data-page="onboarding" data-workspace="delivery">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>
-        <span>Onboarding</span><span class="nav-count" id="nav-onb-count" hidden></span>
+        <span>Clients</span><span class="nav-count" id="nav-onb-count" hidden title="Clients onboarding"></span>
       </button>
       <button class="nav-item" data-page="workshops" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18v12H3z"/><path d="M8 20h8M12 16v4"/><path d="M7 12l3-3 2 2 4-4"/></svg>
@@ -255,9 +251,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
         <span>Creative</span>
       </button>
-      <button class="nav-item" data-page="content-production" data-workspace="delivery">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16v13H4z"/><path d="M4 7l2.5-4h3L8 7"/><path d="M13.5 3h3L18 7"/></svg>
-        <span>Content Production</span>
+      <button class="nav-item" data-page="ads-month" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M9 15l2 2 4-4"/></svg>
+        <span>Ads This Month</span><span class="nav-count" id="nav-ads-count" hidden title="Ads still to go live this month"></span>
       </button>
       <button class="nav-item" data-page="todo" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
@@ -1073,6 +1069,15 @@
       <div class="cr-segs" id="creative-library-grid"></div>
       </div>
       <div id="creative-stats-view" class="cs-view" hidden></div>
+    </section>
+
+    <!-- Ads This Month: 1 video + 2 static ads live for every client, every month -->
+    <section class="page" id="page-ads-month">
+      <div class="page-header">
+        <div><h2>Ads This Month</h2><p>Every client gets 1 video ad and 2 static ads live each month. Move each one along as it happens.</p></div>
+        <div class="am-month-nav" id="am-month-nav"></div>
+      </div>
+      <div id="am-root"></div>
     </section>
 
     <!-- Content Production (content pieces across every client) -->
@@ -2562,16 +2567,16 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=202"></script>
-<script src="js/supabaseClient.js?v=202"></script>
-<script src="js/report-pdf.js?v=202"></script>
-<script src="js/plan-pdf.js?v=202"></script>
-<script src="js/workshop-pdf.js?v=202"></script>
-<script src="js/receipt-pdf.js?v=202"></script>
-<script src="js/builtin-playbooks.js?v=202"></script>
-<script src="js/builtin-email-templates.js?v=202"></script>
-<script src="js/app.js?v=202"></script>
-<script src="js/meetings-tracker.js?v=202"></script>
-<script src="js/todo.js?v=202"></script>
+<script src="js/config.js?v=203"></script>
+<script src="js/supabaseClient.js?v=203"></script>
+<script src="js/report-pdf.js?v=203"></script>
+<script src="js/plan-pdf.js?v=203"></script>
+<script src="js/workshop-pdf.js?v=203"></script>
+<script src="js/receipt-pdf.js?v=203"></script>
+<script src="js/builtin-playbooks.js?v=203"></script>
+<script src="js/builtin-email-templates.js?v=203"></script>
+<script src="js/app.js?v=203"></script>
+<script src="js/meetings-tracker.js?v=203"></script>
+<script src="js/todo.js?v=203"></script>
 </body>
 </html>

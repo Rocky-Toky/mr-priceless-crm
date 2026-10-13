@@ -312,15 +312,21 @@ const EXPENSE_FREQUENCIES = {
 const CLIENT_STAGES = [
   { key: "onboarding", label: "Onboarding", days: 30, cls: "gold" },
   { key: "quote_guarantee", label: "Quote Guarantee", days: null, cls: "black" },
-  { key: "month_1", label: "Month 1", days: 30, cls: "gold" },
-  { key: "month_2", label: "Month 2", days: 30, cls: "gold" },
-  { key: "month_3", label: "Month 3", days: 30, cls: "gold" },
-  { key: "established", label: "Established", days: null, cls: "green" },
-  // Existing clients whose creatives are fatiguing or who are changing direction.
-  { key: "creatives_due", label: "New Creatives Due", days: 14, cls: "gold" },
+  { key: "live", label: "Live", days: null, cls: "green" },
   { key: "at_risk", label: "At Risk", days: null, cls: "red" },
   { key: "churned", label: "Churned", days: null, cls: "gray" },
 ];
+// The old Month 1/2/3, Established and New Creatives Due stages are all just
+// "Live" now (the card shows which month they're in), so older clients map across.
+const LEGACY_LIVE_STAGES = new Set(["month_1", "month_2", "month_3", "established", "creatives_due"]);
+const normalizeClientStage = (s) => LEGACY_LIVE_STAGES.has(s) ? "live" : (s || "onboarding");
+// Which month of ads they're in, from when ads started (or when they went live).
+function clientMonthNumber(c){
+  const start = c.ad_start_date || (c.onboarding_progress || {}).live_at;
+  if (!start) return null;
+  const d = new Date(String(start).slice(0, 10) + "T00:00:00"), now = new Date();
+  return Math.max(1, (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth() + (now.getDate() >= d.getDate() ? 1 : 0));
+}
 const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
 const ARCHIVED_STAGE = "archived";
 const archivedClientName = (id) => (state.archivedClients || []).find(c => c.id === id)?.name || "";
@@ -1100,6 +1106,7 @@ const DataLayer = {
     // their creatives stay in the Creative Library - keep them out of everything else.
     state.archivedClients = (cl.data || []).filter(c => c.stage === ARCHIVED_STAGE);
     state.clients = (cl.data || []).filter(c => c.stage !== ARCHIVED_STAGE);
+    state.clients.forEach(c => { c.stage = normalizeClientStage(c.stage); });
     state.clientContent = ccon.data || [];
     state.adCreatives = cad.data || [];
     autoLowPerformers();
@@ -1235,6 +1242,7 @@ function authFailed(msg){
 async function initAuth(){
   if (!IS_CONFIGURED){
     seedDemo(); autoLowPerformers();
+    state.clients.forEach(c => { c.stage = normalizeClientStage(c.stage); });
     await repairNzProspectCountryCodes();
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
@@ -3466,22 +3474,171 @@ function boardColumnCards(boardKey, stageKey, cardsHtml){
     : "");
 }
 
+/* ───────── Ads This Month ─────────
+   The rule: every client gets 1 video ad and 2 static ads live each month.
+   Each ad moves Brief → Made → Live and only counts once it's live. The
+   procedure has dates on it - briefs by the 3rd, statics live by the 14th,
+   the video live by the 21st - so anything slipping goes red on its own.
+   Stored per client per month in clients.onboarding_progress.ads. */
+// A little burst of confetti from a point on screen (an ad going live).
+function pbConfetti(x, y, n = 26){
+  const colors = ["#e8c468", "#b8912c", "#3f7d55", "#3b6fb6", "#c0583b", "#fff3c4"];
+  for (let i = 0; i < n; i++){
+    const s = document.createElement("span");
+    s.className = "pbx-confetti";
+    const a = Math.random() * Math.PI * 2, d = 60 + Math.random() * 120;
+    s.style.cssText = `left:${x}px;top:${y}px;background:${colors[i % colors.length]};--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d - 60}px;--r:${Math.random() * 720 - 360}deg`;
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 1000);
+  }
+}
+const AM_SLOTS = [
+  { key: "static1", kind: "static", label: "Static ad 1", due: 14 },
+  { key: "static2", kind: "static", label: "Static ad 2", due: 14 },
+  { key: "video", kind: "video", label: "Video ad", due: 21 },
+];
+const AM_STEPS = [
+  { key: "brief", label: "Brief" },
+  { key: "made", label: "Made" },
+  { key: "live", label: "Live" },
+];
+const AM_BRIEF_DUE = 3;
+const AM_STAGES = new Set(["quote_guarantee", "live", "at_risk"]);
+const amYm = () => state.amMonth || ymOf(localDayStr());
+const amClients = () => state.clients.filter(c => AM_STAGES.has(normalizeClientStage(c.stage)));
+const amMonthOf = (c, ym) => ((c.onboarding_progress || {}).ads || {})[ym] || {};
+function amDueDay(ym, day){ return `${ym}-${String(day).padStart(2, "0")}`; }
+// Where a client is up to this month: how many are live, and whether any slot is past its date.
+function amClientProgress(c, ym = amYm()){
+  const m = amMonthOf(c, ym), today = localDayStr();
+  const slots = AM_SLOTS.map(sl => {
+    const v = m[sl.key] || {}, status = v.s || "";
+    const briefLate = !status && today > amDueDay(ym, AM_BRIEF_DUE);
+    const late = status !== "live" && today > amDueDay(ym, sl.due);
+    return { ...sl, status, title: v.t || "", late, briefLate };
+  });
+  const live = slots.filter(s => s.status === "live").length;
+  return { slots, live, target: AM_SLOTS.length, overdue: slots.some(s => s.late) };
+}
+async function amSetSlot(clientId, slotKey, patch){
+  const c = state.clients.find(x => x.id === clientId);
+  if (!c) return;
+  const ym = amYm(), op = c.onboarding_progress || {};
+  const ads = { ...(op.ads || {}) }, month = { ...(ads[ym] || {}) };
+  month[slotKey] = { ...(month[slotKey] || {}), ...patch, at: new Date().toISOString() };
+  ads[ym] = month;
+  await rcSaveClient(c.id, { ads });
+}
+function amNavCount(){
+  const el = $("#nav-ads-count");
+  if (!el) return;
+  const ym = ymOf(localDayStr());
+  const left = amClients().reduce((n, c) => n + (AM_SLOTS.length - amClientProgress(c, ym).live), 0);
+  el.hidden = !left; el.textContent = left;
+}
+const amFmtDay = (ym, d) => new Date(amDueDay(ym, d) + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+function renderAdsMonth(){
+  amNavCount();
+  const root = $("#am-root"), nav = $("#am-month-nav");
+  if (!root || !nav) return;
+  const ym = amYm(), thisYm = ymOf(localDayStr()), isNow = ym === thisYm;
+  const monthLabel = new Date(ym + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long", year: "numeric" });
+  nav.innerHTML = `<button type="button" class="am-nav-btn" data-action="am-month" data-step="-1" aria-label="Previous month">‹</button>
+    <span class="am-nav-label">${escapeHtml(monthLabel)}</span>
+    <button type="button" class="am-nav-btn" data-action="am-month" data-step="1" aria-label="Next month" ${ym >= thisYm ? "disabled" : ""}>›</button>
+    ${isNow ? "" : `<button type="button" class="btn ghost sm" data-action="am-month" data-step="0">This month</button>`}`;
+  const clients = amClients();
+  const onboarding = state.clients.filter(c => normalizeClientStage(c.stage) === "onboarding");
+  if (!clients.length){
+    root.innerHTML = `<div class="card am-empty">${emptyState("No live clients yet. Once a client is on Quote Guarantee or Live, their 3 ads for the month show up here.")}</div>`;
+    return;
+  }
+  const rows = clients.map(c => ({ c, p: amClientProgress(c, ym) }));
+  const target = rows.length * AM_SLOTS.length, live = rows.reduce((n, r) => n + r.p.live, 0);
+  const videos = rows.filter(r => r.p.slots.find(s => s.key === "video").status === "live").length;
+  const statics = rows.reduce((n, r) => n + r.p.slots.filter(s => s.kind === "static" && s.status === "live").length, 0);
+  const overdueSlots = rows.reduce((n, r) => n + r.p.slots.filter(s => s.late).length, 0);
+  const today = new Date(), dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysLeft = isNow ? dim - today.getDate() : 0;
+  const pct = target ? Math.round(live / target * 100) : 0;
+  const filter = state.amFilter || "todo";
+  const shown = rows.filter(r => filter === "all" || r.p.live < r.p.target)
+    .sort((a, b) => (b.p.overdue - a.p.overdue) || (a.c.name || "").localeCompare(b.c.name || ""));
+  const stepsHtml = [
+    ["1", "Brief all 3", `by ${amFmtDay(ym, AM_BRIEF_DUE)}`, "Angles from this month's winning ads"],
+    ["2", "Statics live", `by ${amFmtDay(ym, 14)}`, "Design, client OK, launch both"],
+    ["3", "Video live", `by ${amFmtDay(ym, 21)}`, "Film, edit, client OK, launch"],
+    ["4", "Review", "last week", "What won → next month's briefs"],
+  ].map(([n, t, when, sub]) => `<div class="am-step"><span class="am-step-num">${n}</span><div><b>${t}</b><span class="am-step-when">${when}</span><small>${sub}</small></div></div>`).join("");
+  const slotHtml = (c, s) => {
+    const idx = AM_STEPS.findIndex(x => x.key === s.status);
+    const cls = s.status === "live" ? "is-live" : s.late ? "is-late" : s.status ? "is-going" : "";
+    return `<div class="am-slot am-${s.kind} ${cls}">
+      <div class="am-slot-head">
+        <span class="am-slot-icon">${s.kind === "video" ? "🎬" : "🖼️"}</span>
+        <span class="am-slot-label">${s.label}</span>
+        <span class="am-slot-due">${s.status === "live" ? "Live ✓" : s.late ? `Overdue · was due ${amFmtDay(ym, s.due)}` : `Due ${amFmtDay(ym, s.due)}`}</span>
+      </div>
+      <div class="am-steps" role="group" aria-label="${escapeHtml(s.label)} for ${escapeHtml(c.name)}">
+        ${AM_STEPS.map((st, i) => `<button type="button" class="am-stepbtn${i <= idx ? " on" : ""}${i === idx ? " current" : ""}" data-action="am-set" data-id="${c.id}" data-slot="${s.key}" data-step="${st.key}" aria-pressed="${i <= idx}">${st.label}</button>`).join("")}
+      </div>
+      <input type="text" class="am-slot-title" data-id="${c.id}" data-slot="${s.key}" value="${escapeHtml(s.title)}" placeholder="${s.kind === "video" ? "What's the video? e.g. Owner walk-through" : "What's the angle? e.g. Before/after"}" maxlength="120">
+    </div>`;
+  };
+  root.innerHTML = `
+    <div class="am-hero card">
+      <div class="am-hero-main">
+        <span class="am-k">${isNow ? "Live this month" : "Went live"}</span>
+        <div class="am-hero-num"><b>${live}</b><span>/ ${target} ads</span></div>
+        <div class="am-bar"><i style="width:${pct}%"></i></div>
+        <span class="am-hero-sub">${isNow ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left in ${escapeHtml(monthLabel.split(" ")[0])}` : escapeHtml(monthLabel)} · ${rows.length} client${rows.length === 1 ? "" : "s"} × 1 video + 2 statics</span>
+      </div>
+      <div class="am-hero-kpis">
+        <div><span>Videos live</span><b>${videos}<small>/${rows.length}</small></b></div>
+        <div><span>Statics live</span><b>${statics}<small>/${rows.length * 2}</small></b></div>
+        <div class="${overdueSlots ? "bad" : "good"}"><span>Overdue</span><b>${overdueSlots}</b></div>
+      </div>
+    </div>
+    <div class="am-procedure">${stepsHtml}</div>
+    <div class="am-bar-row">
+      <div class="country-toggle" role="group" aria-label="Show">
+        <button type="button" data-action="am-filter" data-filter="todo" class="${filter === "todo" ? "active" : ""}">Still to do (${rows.filter(r => r.p.live < r.p.target).length})</button>
+        <button type="button" data-action="am-filter" data-filter="all" class="${filter === "all" ? "active" : ""}">All clients (${rows.length})</button>
+      </div>
+      ${onboarding.length ? `<span class="am-note">${onboarding.length} onboarding - their first ads are in their onboarding checklist on Clients.</span>` : ""}
+    </div>
+    ${!shown.length ? `<div class="card am-done">🎉 Every client has all 3 ads live for ${escapeHtml(monthLabel.split(" ")[0])}.</div>` : ""}
+    <div class="am-list">
+      ${shown.map(({ c, p }) => `
+        <article class="am-client card${p.live === p.target ? " is-done" : p.overdue ? " is-late" : ""}">
+          <header class="am-client-head">
+            <button type="button" class="am-client-name" data-action="view-client" data-id="${c.id}">${escapeHtml(c.name)}</button>
+            <span class="am-client-meta">${escapeHtml(CLIENT_STAGE_MAP[normalizeClientStage(c.stage)]?.label || "")}${clientMonthNumber(c) ? ` · Month ${clientMonthNumber(c)}` : ""}</span>
+            <span class="am-client-count">${p.live}/${p.target} live</span>
+          </header>
+          <div class="am-slots">${p.slots.map(s => slotHtml(c, s)).join("")}</div>
+        </article>`).join("")}
+    </div>`;
+}
+
 /* ───────── Clients board: drag clients between lifecycle stages ───────── */
 function clientsView(){
   if (!state.clientsView){ try { state.clientsView = localStorage.getItem("mp_clients_view") === "list" ? "list" : "board"; } catch(e){ state.clientsView = "board"; } }
   return state.clientsView;
 }
 const CLIENT_STAGE_BLURBS = {
-  onboarding: "Signed, getting set up", quote_guarantee: "Delivering the quotes", month_1: "First month live",
-  month_2: "Second month", month_3: "Third month", established: "Steady and happy",
-  creatives_due: "Fatiguing ads or a new direction", at_risk: "Needs attention", churned: "No longer with us",
+  onboarding: "Signed, getting set up", quote_guarantee: "Delivering the quotes", live: "Ads running, month to month",
+  at_risk: "Needs attention", churned: "No longer with us",
 };
 function clientFatiguingCount(c){
   return state.adCreatives.filter(a => a.client_id === c.id && (a.fatigue_status === "fatiguing" || a.fatigue_status === "fatigued")).length;
 }
 function clientsBoardHtml(clients, alertsById){
   const stageOf = (c) => c.stage || "onboarding";
-  return `<div class="onb-board cl-board" id="clients-board">${CLIENT_STAGES.map((st, i) => {
+  // Churned sits in a slim strip under the board (still a drop target), not a full column.
+  const churned = clients.filter(c => stageOf(c) === "churned");
+  const showChurned = !!state.showChurned;
+  return `<div class="onb-board cl-board cl-board-5" id="clients-board">${CLIENT_STAGES.filter(st => st.key !== "churned").map((st, i) => {
     const col = clients.filter(c => stageOf(c) === st.key).sort((a,b) => (a.name||"").localeCompare(b.name||""));
     const mrr = col.map(clientRetainer).filter(v => v != null).reduce((a,b) => a+b, 0);
     return `
@@ -3496,7 +3653,14 @@ function clientsBoardHtml(clients, alertsById){
           <div class="onb-drop-hint">${col.length ? "Drop here" : "Drag a client here"}</div>
         </div>
       </section>`;
-  }).join("")}</div>`;
+  }).join("")}</div>
+  <section class="onb-col cl-churned${showChurned ? " open" : ""}" data-stage="churned" data-board="clients" aria-label="Churned">
+    <button type="button" class="cl-churned-head" data-action="toggle-churned">
+      <span class="onb-col-title">Churned</span><span class="onb-col-count">${churned.length}</span>
+      <span class="cl-churned-hint">${showChurned ? "Hide" : churned.length ? "Show" : "Drag a client here to mark them churned"}</span>
+    </button>
+    ${showChurned && churned.length ? `<div class="onb-col-body cl-churned-body">${churned.map(c => clientBoardCardHtml(c, alertsById.get(c.id) || [])).join("")}</div>` : ""}
+  </section>`;
 }
 function clientBoardCardHtml(c, alerts){
   const stage = c.stage || "onboarding";
@@ -3509,6 +3673,7 @@ function clientBoardCardHtml(c, alerts){
   const chips = [];
   alerts.forEach(a => chips.push(`<span class="onb-status ${a.type === "danger" ? "late" : "client"}">${escapeHtml(a.text.replace(" - overdue to move on", ""))}</span>`));
   if (fatiguing && stage !== "creatives_due") chips.push(`<span class="onb-status client">${fatiguing} creative${fatiguing === 1 ? "" : "s"} fatiguing</span>`);
+  if (["quote_guarantee", "live", "at_risk"].includes(stage)){ const am = amClientProgress(c); if (am.live < am.target) chips.push(`<span class="onb-status ${am.overdue ? "late" : "client"}">Ads ${am.live}/${am.target} live this month</span>`); }
   if (c.churn_risk === "high" || c.churn_risk === "medium") chips.push(`<span class="onb-status ${c.churn_risk === "high" ? "late" : "client"}">${c.churn_risk === "high" ? "High" : "Medium"} churn risk</span>`);
   let body = "";
   if (stage === "onboarding"){
@@ -3528,12 +3693,12 @@ function clientBoardCardHtml(c, alerts){
     ? `<button type="button" class="onb-finish" data-action="creatives-done" data-id="${c.id}">New creatives live → ${escapeHtml(CLIENT_STAGE_MAP[back]?.label || "Established")}</button>`
     : "";
   return `
-    <article class="onb-card cl-card" draggable="true" data-action="view-client" data-id="${c.id}" tabindex="0" aria-label="${escapeHtml(c.name)}">
+    <article class="onb-card cl-card" draggable="true" data-action="${stage === "onboarding" ? "onb-open" : "view-client"}" data-id="${c.id}" tabindex="0" aria-label="${escapeHtml(c.name)}">
       <div class="onb-card-top">
         <span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>
         <div class="onb-card-id">
           <div class="onb-card-name">${escapeHtml(c.name)}</div>
-          <div class="onb-card-meta">${[retainer != null ? `${fmtMoney(retainer)}/mo` : "", days != null ? `${days}d here` : ""].filter(Boolean).join(" · ") || "&nbsp;"}</div>
+          <div class="onb-card-meta">${[stage === "live" && clientMonthNumber(c) ? `Month ${clientMonthNumber(c)}` : "", retainer != null ? `${fmtMoney(retainer)}/mo` : "", days != null ? `${days}d here` : ""].filter(Boolean).join(" · ") || "&nbsp;"}</div>
         </div>
         ${ownerChipHtml(owner, true)}
         <button type="button" class="cl-card-del" data-action="delete-client-row" data-id="${c.id}" title="Delete ${escapeHtml(c.name)}" aria-label="Delete ${escapeHtml(c.name)}">${ICONS.trash}</button>
@@ -4373,7 +4538,7 @@ async function moveOnbStage(c, stageKey){
   if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
 }
 // The step after onboarding: the quote guarantee if they're on one, otherwise Month 1.
-function postOnboardingStage(c){ return c.quote_target ? "quote_guarantee" : "month_1"; }
+function postOnboardingStage(c){ return c.quote_target ? "quote_guarantee" : "live"; }
 async function finishOnboarding(c){
   const next = postOnboardingStage(c);
   if (!confirm(`Finish onboarding for ${c.name} and move them to ${CLIENT_STAGE_MAP[next].label}?${c.ad_start_date ? "" : " Their ads start date will be set to today."}`)) return;
@@ -8169,7 +8334,7 @@ const RENDERERS = [
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["deals"]], [renderCommission, ["commission"]],
   [renderRegionData, ["dialer", "lead-engine"]], [renderTeamFocusPanel, ["lead-engine"]], [renderRegionCoverage, ["lead-engine"]],
   [renderVerticalCoverage, ["lead-engine"]], [renderProspectList, ["*"]], [renderDialer, ["dialer"]], [renderClients, ["clients"]],
-  [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]],
+  [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]], [renderAdsMonth, ["ads-month"]], [amNavCount, ["*"]],
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
@@ -9846,6 +10011,11 @@ function setupModals(){
     populateAdCreativeCampaignSelect(state.selectedClientId);
     openModal("ad-creative-modal");
   });
+  $("#am-root")?.addEventListener("change", async (e) => {
+    const inp = e.target.closest(".am-slot-title");
+    if (!inp) return;
+    await amSetSlot(inp.dataset.id, inp.dataset.slot, { t: inp.value.trim() });
+  });
   $("#creative-view-toggle")?.addEventListener("click", (e) => { const b = e.target.closest("[data-cr-view]"); if (b) setCreativeView(b.dataset.crView); });
   $("#creative-stats-view")?.addEventListener("click", (e) => {
     const scope = e.target.closest("[data-cs-scope]");
@@ -10239,10 +10409,29 @@ function setupModals(){
       return;
     }
     if (action === "open-workshops-page"){ $('.nav-item[data-page="workshops"]')?.click(); return; }
-    if (action === "open-onboarding-board"){ $('.nav-item[data-page="onboarding"]')?.click(); }
+    if (action === "am-month"){
+      const step = +btn.dataset.step, base = new Date(amYm() + "-01T00:00:00");
+      if (step === 0) state.amMonth = null; else { base.setMonth(base.getMonth() + step); state.amMonth = ymOf(localDayStr(base)); }
+      if (state.amMonth === ymOf(localDayStr())) state.amMonth = null;
+      renderAdsMonth(); return;
+    }
+    if (action === "am-filter"){ state.amFilter = btn.dataset.filter; renderAdsMonth(); return; }
+    if (action === "am-set"){
+      const c = state.clients.find(x => x.id === id);
+      const cur = amClientProgress(c).slots.find(s => s.key === btn.dataset.slot)?.status || "";
+      // Tapping the step it's already on steps it back one.
+      const steps = AM_STEPS.map(x => x.key), want = btn.dataset.step;
+      const next = cur === want ? (steps[steps.indexOf(want) - 1] || "") : want;
+      await amSetSlot(id, btn.dataset.slot, { s: next });
+      renderAdsMonth(); renderClients();
+      if (next === "live"){ const r = btn.getBoundingClientRect(); if (typeof pbConfetti === "function") pbConfetti(r.left + r.width / 2, r.top, 22); }
+      return;
+    }
+    if (action === "toggle-churned"){ state.showChurned = !state.showChurned; renderClients(); return; }
+    if (action === "open-onboarding-board"){ const c = state.clients.find(x => normalizeClientStage(x.stage) === "onboarding"); if (c) openOnbModal(c.id); }
     if (action === "creatives-done"){
       const c = state.clients.find(x => x.id === id);
-      if (c) await moveClientStage(c, (c.onboarding_progress || {}).before_creatives || "established");
+      if (c) await moveClientStage(c, "live");
     }
     if (action === "toggle-onboarding-step"){
       const c = state.clients.find(x => x.id === id);
@@ -10254,7 +10443,7 @@ function setupModals(){
       if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
     if (action === "complete-onboarding" && confirm("Mark onboarding complete and move this client to Month 1?")){
-      await DataLayer.update("clients", id, { stage: "month_1", stage_changed_at: new Date().toISOString() });
+      await DataLayer.update("clients", id, { stage: "live", stage_changed_at: new Date().toISOString() });
       if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
     if (action === "open-welcome-pack"){ if (state.selectedClientId) openWelcomePack(state.selectedClientId); }
