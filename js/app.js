@@ -4204,6 +4204,12 @@ function renderContentProduction(){
    happens in the browser; nothing is uploaded. pdf-lib + fontkit are bundled in
    assets/vendor and load only the first time a pack is made. */
 const WP_FIELDS = ["client_first_name","business_name","call_when","ads_live","why_excited","account_manager","phone","email"];
+// Trades get the quotes-and-jobs wording; everyone else gets the professional services version.
+function wpKindFor(c){
+  const ind = (typeof clientIndustry === "function" ? clientIndustry(c).name : "") || "";
+  if (!ind) return "trades";
+  return HOME_SERVICES_INDUSTRIES.includes(ind) ? "trades" : "pro";
+}
 const WP_LIBS = [
   "assets/vendor/pdf-lib-1.17.1.min.js",
   "assets/vendor/fontkit-1.1.1.umd.min.js",
@@ -4261,6 +4267,7 @@ function openWelcomePack(clientId, asClient){
   const v = wpPrefill(c);
   $("#wp-client-id").value = c.id;
   WP_FIELDS.forEach(k => { $("#wp-" + k).value = v[k] || ""; });
+  const kindSel = $("#wp-kind"); if (kindSel) kindSel.value = c.id || c.name ? wpKindFor(c) : "trades";
   $("#wp-sub").textContent = `${c.name} is onboarding. Check the details, then we'll make the finished PDF.`;
   $("#welcome-pack-form").hidden = false;
   $("#wp-done").hidden = true;
@@ -4269,93 +4276,12 @@ function openWelcomePack(clientId, asClient){
   setTimeout(() => $(WP_FIELDS.map(k => "#wp-" + k).find(sel => !$(sel).value) || "#wp-why_excited")?.focus(), 50);
 }
 function wpStatus(msg, warn){ const el = $("#wp-status"); if (el){ el.textContent = msg; el.classList.toggle("warn", !!warn); } }
+// Drawn in code (js/welcome-pdf.js) so the personal note can be any length
+// and the wording matches trades or professional services.
 async function buildWelcomePackPdf(values){
   await wpLoadLibs();
-  const { PDFDocument, rgb } = window.PDFLib;
-  const get = (url, what, as) => fetch(url).then(r => { if (!r.ok) throw new Error(`Couldn't load the ${what}.`); return as === "json" ? r.json() : r.arrayBuffer(); });
-  // The template is the finished design with gaps; the layout says where each
-  // answer goes and in what size, weight and colour, so answers read as part
-  // of the page rather than as filled-in boxes.
-  const [tpl, layout, f400, f600, f700, e400, e600, e700] = await Promise.all([
-    get("assets/welcome-pack-template.pdf?v=8", "welcome pack template"),
-    get("assets/welcome-pack-layout.json?v=8", "welcome pack layout", "json"),
-    get("assets/fonts/figtree-400.ttf?v=1", "brand font"),
-    get("assets/fonts/figtree-600.ttf?v=1", "brand font"),
-    get("assets/fonts/figtree-700.ttf?v=1", "brand font"),
-    get("assets/fonts/figtree-ext-400.ttf?v=1", "brand font"),
-    get("assets/fonts/figtree-ext-600.ttf?v=1", "brand font"),
-    get("assets/fonts/figtree-ext-700.ttf?v=1", "brand font"),
-  ]);
-  const pdf = await PDFDocument.load(tpl);
-  pdf.registerFontkit(window.fontkit);
-  // Each weight comes in two halves: basic Latin, and the extended letters
-  // (macrons for te reo place names and the like).
-  const pair = async (main, ext) => {
-    const opt = { features: { calt: false, liga: false, rvrn: false, rlig: false } };
-    const m = await pdf.embedFont(main, opt), x = await pdf.embedFont(ext, opt);
-    return { m, x, mSet: new Set(m.getCharacterSet()), xSet: new Set(x.getCharacterSet()) };
-  };
-  const fonts = { 400: await pair(f400, e400), 600: await pair(f600, e600), 700: await pair(f700, e700) };
-  const pages = pdf.getPages();
-  const colour = (h) => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255);
-  // Split text into runs by which half of the font has each letter; a letter
-  // neither half has falls back to its plain form (or is dropped).
-  const runs = (F, text) => {
-    const out = [];
-    for (let ch of text){
-      let cp = ch.codePointAt(0), font = F.mSet.has(cp) ? F.m : F.xSet.has(cp) ? F.x : null;
-      if (!font){ ch = ch.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); if (!ch || !F.mSet.has(ch.codePointAt(0))) continue; font = F.m; }
-      if (out.length && out[out.length - 1].font === font) out[out.length - 1].s += ch; else out.push({ font, s: ch });
-    }
-    return out;
-  };
-  const widthOf = (F, text, size, ls) => runs(F, text).reduce((w, r) => w + r.font.widthOfTextAtSize(r.s, size), 0) + ls * Math.max(0, [...text].length - 1);
-  const draw = (page, F, text, x, y, size, ls, color) => {
-    for (const r of runs(F, text)){
-      if (!ls){ page.drawText(r.s, { x, y, size, font: r.font, color }); x += r.font.widthOfTextAtSize(r.s, size); continue; }
-      for (const ch of r.s){ page.drawText(ch, { x, y, size, font: r.font, color }); x += r.font.widthOfTextAtSize(ch, size) + ls; }
-    }
-  };
-  for (const L of layout.fields){
-    const font = fonts[L.weight] || fonts[400];
-    let text = (values[L.f] || "").trim().replace(/\s+/g, " ");
-    if (!text) continue;
-    if (L.caps) text = text.toUpperCase();
-    const page = pages[L.p], H = page.getHeight(), color = colour(L.color);
-    if (L.lh){
-      // A paragraph: wrap to the box, easing the size down a touch if it runs long.
-      for (let size = L.size; size >= L.size * 0.8; size -= 0.2){
-        const lh = L.lh * size / L.size, lines = [];
-        let line = "";
-        for (const word of text.split(" ")){
-          const next = line ? line + " " + word : word;
-          if (line && widthOf(font, next, size, L.ls) > L.w){ lines.push(line); line = word; } else line = next;
-        }
-        if (line) lines.push(line);
-        if (lines.length * lh <= L.h + 0.5 || size - 0.2 < L.size * 0.8){
-          const first = L.base - L.top;  // first baseline below the top of the box
-          lines.forEach((ln, i) => draw(page, font, ln, L.x, H - (L.top + first * size / L.size + i * lh), size, L.ls, color));
-          break;
-        }
-      }
-    } else {
-      // One line: shrink only if it would run past the edge of its box.
-      let size = L.size;
-      while (size > L.size * 0.7 && widthOf(font, text, size, L.ls) > L.w) size -= 0.2;
-      draw(page, font, text, L.x, H - L.base, size, L.ls, color);
-    }
-  }
-  // Real tick boxes over the "send us" items, so the client can tick them off in any PDF viewer.
-  const form = pdf.getForm();
-  for (const ck of layout.checks || []){
-    const page = pages[ck.p], H = page.getHeight();
-    const box = form.createCheckBox(ck.name);
-    box.addToPage(page, { x: ck.x, y: H - ck.top - ck.size, width: ck.size, height: ck.size,
-      textColor: colour("#7e611a"), backgroundColor: rgb(1, 1, 1), borderColor: colour("#b8912c"), borderWidth: 1.05 });
-  }
-  pdf.setTitle(`Mr Priceless Welcome Pack - ${values.business_name || ""}`.trim());
-  pdf.setAuthor("Mr Priceless");
-  return pdf.save();
+  if (!window.MPWelcomePDF || !window.MPReportPDF) throw new Error("Couldn't load the welcome pack - refresh the page and try again.");
+  return window.MPWelcomePDF.build(values);
 }
 function wpFileName(business){
   const safe = (business || "Client").replace(/[\\/:*?"<>|]+/g, "").trim() || "Client";
@@ -4365,6 +4291,7 @@ function setupWelcomePack(){
   $("#welcome-pack-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const values = Object.fromEntries(WP_FIELDS.map(k => [k, $("#wp-" + k).value]));
+    values.kind = $("#wp-kind")?.value || "trades";
     const missing = WP_FIELDS.filter(k => !values[k].trim());
     const btn = $("#wp-create");
     if (missing.length && btn.dataset.confirm !== "1"){
@@ -4814,7 +4741,7 @@ async function handleOnbAction(action, id, btn){
   }
   if (action === "onb-move"){ await moveOnbStage(c, btn.dataset.stage); return true; }
   if (action === "onb-finish"){ await finishOnboarding(c); return true; }
-  if (action === "onb-pack"){ openWelcomePack(c.id); return true; }
+  if (action === "onb-pack"){ state.onbOpenId = null; closeModal("onb-modal"); openWelcomePack(c.id); return true; }
   if (action === "onb-client-page"){
     state.onbOpenId = null; closeModal("onb-modal");
     state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click();
