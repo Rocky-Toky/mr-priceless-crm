@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=204">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=204">
+<link rel="stylesheet" href="css/style.css?v=205">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=205">
 </head>
 <body>
 
@@ -254,6 +254,10 @@
       <button class="nav-item" data-page="ads-month" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M9 15l2 2 4-4"/></svg>
         <span>Ads This Month</span><span class="nav-count" id="nav-ads-count" hidden title="Ads still to go live this month"></span>
+      </button>
+      <button class="nav-item" data-page="content-library" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg>
+        <span>Content Library</span>
       </button>
       <button class="nav-item" data-page="todo" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
@@ -1078,6 +1082,14 @@
         <div class="am-month-nav" id="am-month-nav"></div>
       </div>
       <div id="am-root"></div>
+    </section>
+
+    <!-- Content Library: video scripts (20 hooks, 3 bodies) that turn into a filming email -->
+    <section class="page" id="page-content-library">
+      <div class="page-header">
+        <div><h2>Content Library</h2><p>Every client video script: 20 hooks, 3 bodies and the ending. Fill it in and it writes the client their filming email.</p></div>
+      </div>
+      <div id="vs-root"></div>
     </section>
 
     <!-- Content Production (content pieces across every client) -->
@@ -2527,6 +2539,24 @@
 </div>
 
 <!-- Kept in the repo and pinned, so a new release or a CDN outage can't break sign-in. -->
+<div class="overlay" id="vs-email-modal">
+  <div class="modal vs-email-modal">
+    <div class="modal-header">
+      <div><h3>Filming email</h3><p class="wp-sub" id="vs-email-to"></p></div>
+      <button class="modal-close" data-close="vs-email-modal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label for="vs-email-subject">Subject</label><input type="text" id="vs-email-subject"></div>
+      <div class="field"><label for="vs-email-body">Email</label><textarea id="vs-email-body" rows="16"></textarea></div>
+      <p class="vs-email-saved" id="vs-email-saved"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" id="vs-email-copy">Copy email</button>
+        <a class="btn gold" id="vs-email-send" href="#">Open in email</a>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Jarvis: the CRM's assistant, on every page -->
 <button type="button" class="jv-fab" id="jarvis-fab" aria-label="Ask Jarvis" title="Ask Jarvis" hidden>
   <span class="jv-fab-orb"></span><span class="jv-fab-label">Jarvis</span>
@@ -2569,17 +2599,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=204"></script>
-<script src="js/supabaseClient.js?v=204"></script>
-<script src="js/report-pdf.js?v=204"></script>
-<script src="js/plan-pdf.js?v=204"></script>
-<script src="js/workshop-pdf.js?v=204"></script>
-<script src="js/receipt-pdf.js?v=204"></script>
-<script src="js/welcome-pdf.js?v=204"></script>
-<script src="js/builtin-playbooks.js?v=204"></script>
-<script src="js/builtin-email-templates.js?v=204"></script>
-<script src="js/app.js?v=204"></script>
-<script src="js/meetings-tracker.js?v=204"></script>
-<script src="js/todo.js?v=204"></script>
+<script src="js/config.js?v=205"></script>
+<script src="js/supabaseClient.js?v=205"></script>
+<script src="js/report-pdf.js?v=205"></script>
+<script src="js/plan-pdf.js?v=205"></script>
+<script src="js/workshop-pdf.js?v=205"></script>
+<script src="js/receipt-pdf.js?v=205"></script>
+<script src="js/welcome-pdf.js?v=205"></script>
+<script src="js/builtin-playbooks.js?v=205"></script>
+<script src="js/builtin-email-templates.js?v=205"></script>
+<script src="js/app.js?v=205"></script>
+<script src="js/meetings-tracker.js?v=205"></script>
+<script src="js/todo.js?v=205"></script>
 </body>
 </html>
