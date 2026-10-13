@@ -2458,3 +2458,6 @@ body.jv-open .jv-fab{display:none;}
   .pbx-ch-body{font-size:15.5px;}
   .pbx-next{max-width:70%;}
 }
+.cs-why{color:var(--danger);font-weight:600;white-space:normal;max-width:160px;}
+.cs-idle{font-weight:700;text-decoration:underline;}
+.cs-src-leads{background:rgba(59,111,182,0.12);color:#3b6fb6;} .cs-src-counter{background:rgba(122,91,181,0.12);color:#7a5bb5;}

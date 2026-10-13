@@ -3855,11 +3855,15 @@ function clientQuoteStats(c){
   const lastPaid = (typeof rcRecordsOf === "function" ? rcRecordsOf(c).filter(rcIsPaid).map(rcPaidDay).sort().pop() : null) || null;
   const since = lastPaid ? reps.filter(r => r.period_end > lastPaid).reduce((s, r) => s + (toNum(r.metrics.dBooked) || 0), 0) : null;
   const thisYm = ymOf(localDayStr());
+  // All-time quotes and spend the same way Statistics counts them (GHL,
+  // reports, the quote counter, imported leads; Meta spend), so the two match.
+  const perf = clientPerformance(c);
+  const allQuotes = Math.max(quotes, perf.quotes), allSpend = perf.spend || spend;
   return {
-    quotes, spend, cpq: quotes && spend ? spend / quotes : null,
+    quotes: allQuotes, spend: allSpend, cpq: allQuotes && allSpend ? allSpend / allQuotes : null, missing: perf.missing,
     open: last ? toNum(last.metrics.openQuotesCount) : null,
     month: byMonth.get(thisYm) ? toNum(byMonth.get(thisYm).metrics.quoteReady) || 0 : 0,
-    since, lastPaid, hasReports: reps.length > 0,
+    since, lastPaid, hasReports: reps.length > 0 || allQuotes > 0 || allSpend > 0,
   };
 }
 function renderClientProfileExtras(c){
@@ -3880,11 +3884,11 @@ function renderClientProfileExtras(c){
   if (strip){
     const cell = (k, v, sub) => `<div class="cp-q"><span>${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
     strip.innerHTML = !qs.hasReports ? `<div class="cp-q-empty">Cost per quote and quote counts show here once their first report is made.</div>` : [
-      cell("Cost per quote", qs.cpq != null ? fmtMoney(qs.cpq) : "-", qs.spend ? `${fmtMoney(qs.spend)} ad spend` : ""),
+      cell("Cost per quote", qs.cpq != null ? fmtMoney(qs.cpq) : "-", qs.cpq != null ? `${fmtMoney(qs.spend)} ad spend` : qs.missing),
       cell("Quotes this month", qs.month, ""),
       cell("Open quotes", qs.open ?? "-", "waiting on a decision"),
       cell("Since last payment", qs.since ?? "-", qs.lastPaid ? `since ${new Date(qs.lastPaid + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : "no receipts yet"),
-      cell("Quotes all-time", qs.quotes, "from their reports"),
+      cell("Quotes all-time", qs.quotes, ""),
     ].join("");
   }
 
@@ -4810,7 +4814,12 @@ async function csPullGhl(force){
   csGhlRunning = false;
   if (crView === "stats") renderCreativeStats();
 }
-// One client's numbers, all time.
+// One client's numbers, all time. Quotes come from wherever they've been
+// logged - live GHL, the finance reports, the Quote Guarantee counter on the
+// client, or imported leads marked Qualified - taking whichever has the most,
+// so a client never shows no cost per quote just because their quotes were
+// logged a different way. Ad spend is Meta's, else the reports', else an
+// estimate from their monthly ad spend since ads started.
 function clientPerformance(c){
   const ads = state.adCreatives.filter(a => a.client_id === c.id);
   const sum = (list, k) => list.reduce((s, x) => s + (Number(x[k]) || 0), 0);
@@ -4818,16 +4827,31 @@ function clientPerformance(c){
   const byMonth = new Map(); monthReportsFor(c.id).forEach(r => byMonth.set(ymOf(r.period_end), r.metrics || {}));
   const months = [...byMonth.values()];
   const rep = (k) => months.reduce((s, m) => s + (toNum(m[k]) || 0), 0);
-  const g = csGhl[c.id]?.metrics || null;
-  const source = g ? "ghl" : months.length ? "reports" : metaSpend ? "meta" : "none";
-  const spend = metaSpend || rep("adSpendMonth");
-  const leads = metaLeads || (g ? toNum(g.enquiries) : null) || rep("enquiries");
-  const quotes = g ? toNum(g.quote_ready) || 0 : rep("quoteReady");
+  const gh = csGhl[c.id] || null, g = gh?.metrics || null;
+  const imported = (state.clientLeads || []).filter(l => l.client_id === c.id);
+  const quoteSources = [
+    ["GHL live", g ? toNum(g.quote_ready) || 0 : 0],
+    ["Reports", rep("quoteReady")],
+    ["Quote counter", Number(c.quotes_sent) || 0],
+    ["Imported leads", imported.filter(l => classifyLeadStatus(l.status) === "Qualified").length],
+  ].sort((a, b) => b[1] - a[1]);
+  const quotes = quoteSources[0][1];
+  let spend = metaSpend, spendSource = "Meta";
+  if (!spend && rep("adSpendMonth")){ spend = rep("adSpendMonth"); spendSource = "Reports"; }
+  if (!spend && Number(c.monthly_ad_spend) && c.ad_start_date){
+    const m = Math.max(0, daysSince(c.ad_start_date) / 30.4);
+    if (m > 0){ spend = Math.round(Number(c.monthly_ad_spend) * m); spendSource = "Estimate"; }
+  }
+  const quoteSource = quotes ? quoteSources[0][0] : "";
+  const source = { "GHL live": "ghl", "Reports": "reports", "Quote counter": "counter", "Imported leads": "leads" }[quoteSource] || (metaSpend ? "meta" : "none");
+  const leads = metaLeads || (g ? toNum(g.enquiries) : null) || rep("enquiries") || imported.length;
   const quoted = g ? toNum(g.quoted) || 0 : rep("quoted");
   const jobs = g ? toNum(g.jobs_won) || 0 : rep("jobsMonth");
   const revenue = g ? toNum(g.revenue_won) || 0 : rep("revenueMonth");
   const fees = rcRecordsOf(c).filter(rcIsPaid).reduce((s, r) => s + rcTotal(r), 0) || rep("mgmtMonth");
-  return { c, industry: clientIndustry(c), source, spend, leads, quotes, quoted, jobs, revenue, fees, ads: ads.length };
+  // Why there's no cost per quote, if there isn't one.
+  const missing = !spend && !quotes ? "No ad spend or quotes yet" : !spend ? "No ad spend synced" : !quotes ? "No quotes logged yet" : "";
+  return { c, industry: clientIndustry(c), source, spend, spendSource, leads, quotes, quoteSource, quoted, jobs, revenue, fees, ads: ads.length, missing, ghlError: gh?.error || "" };
 }
 // Ratios for a client or a whole industry.
 function perfRatios(t){
@@ -4842,7 +4866,11 @@ function perfRatios(t){
 function sumPerf(rows){
   const t = { spend: 0, leads: 0, quotes: 0, quoted: 0, jobs: 0, revenue: 0, fees: 0 };
   rows.forEach(r => Object.keys(t).forEach(k => { t[k] += Number(r[k]) || 0; }));
-  return { ...t, ...perfRatios(t), count: rows.length };
+  // Cost per quote only over clients that have both spend and quotes, so a
+  // client with quotes but no synced spend doesn't drag the average down.
+  const both = rows.filter(r => r.spend && r.quotes);
+  const bs = both.reduce((n, r) => n + r.spend, 0), bq = both.reduce((n, r) => n + r.quotes, 0);
+  return { ...t, ...perfRatios(t), cpq: bs && bq ? bs / bq : null, cpqSpend: bs, cpqQuotes: bq, count: rows.length };
 }
 const pct = (v) => v == null ? "-" : Math.round(v * 100) + "%";
 const moneyOrDash = (v) => v == null ? "-" : fmtMoney(v);
@@ -4852,7 +4880,7 @@ function renderCreativeStats(){
   if (!box || crView !== "stats") return;
   const clients = state.clients.filter(c => csScope === "all" || !["churned"].includes(c.stage));
   const rows = clients.map(clientPerformance).filter(r => r.spend || r.quotes || r.leads || r.revenue);
-  const idle = clients.length - rows.length;
+  const idleList = clients.filter(c => !rows.some(r => r.c.id === c.id)), idle = idleList.length;
   const total = sumPerf(rows);
   const groups = new Map();
   rows.forEach(r => { const k = r.industry.name || "Industry not set"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
@@ -4864,7 +4892,7 @@ function renderCreativeStats(){
     : csGhlRunning ? "Pulling live quotes from each client's GHL…"
     : `${ghlCount} of ${rows.length} client${rows.length === 1 ? "" : "s"} live from GHL · the rest from their finance reports`;
   const kpi = (label, value, sub, cls = "") => `<div class="cs-kpi ${cls}"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
-  const srcChip = (r) => `<span class="cs-src cs-src-${r.source}">${{ ghl: "GHL live", reports: "Reports", meta: "Meta only", none: "-" }[r.source]}</span>`;
+  const srcChip = (r) => `<span class="cs-src cs-src-${r.source}" title="${escapeHtml([r.quoteSource && "Quotes: " + r.quoteSource, "Spend: " + r.spendSource, r.ghlError && "GHL: " + r.ghlError].filter(Boolean).join(" · "))}">${{ ghl: "GHL live", reports: "Reports", counter: "Quote counter", leads: "Imported leads", meta: "Meta only", none: "-" }[r.source]}</span>${r.spendSource === "Estimate" ? ` <span class="cs-src" title="Worked out from their monthly ad spend since ads started - sync their Meta ads for the real figure">est. spend</span>` : ""}`;
   const indSelect = (r) => `<select class="cs-ind-select" data-client="${r.c.id}" aria-label="Industry for ${escapeHtml(r.c.name)}">
       <option value="">${r.industry.name ? escapeHtml(r.industry.name) + " (guess)" : "Set industry…"}</option>
       ${CLIENT_INDUSTRY_OPTIONS.map(o => `<option value="${escapeHtml(o)}" ${!r.industry.guessed && r.industry.name === o ? "selected" : ""}>${escapeHtml(o)}</option>`).join("")}
@@ -4882,7 +4910,7 @@ function renderCreativeStats(){
       <div class="cs-hero-main">
         <span class="cs-k">Average cost per quote</span>
         <b class="cs-hero-num">${moneyOrDash(total.cpq)}</b>
-        <span class="cs-hero-sub">${total.quotes.toLocaleString()} quotes from ${fmtMoney(total.spend)} of ad spend across ${rows.length} client${rows.length === 1 ? "" : "s"}</span>
+        <span class="cs-hero-sub">${total.cpqQuotes.toLocaleString()} quotes from ${fmtMoney(total.cpqSpend)} of ad spend · ${total.quotes.toLocaleString()} quotes across ${rows.length} client${rows.length === 1 ? "" : "s"} in all</span>
       </div>
       <div class="cs-kpis">
         ${kpi("Ad spend", fmtMoney(total.spend), "all time, from Meta")}
@@ -4928,7 +4956,7 @@ function renderCreativeStats(){
             <td>${(r.leads || 0).toLocaleString()}</td>
             <td>${moneyOrDash(x.cpl)}</td>
             <td>${r.quotes.toLocaleString()}</td>
-            <td class="cs-cpq"><b>${moneyOrDash(x.cpq)}</b></td>
+            <td class="cs-cpq"><b>${moneyOrDash(x.cpq)}</b>${r.missing ? `<div class="row-sub cs-why">${escapeHtml(r.missing)}</div>` : ""}</td>
             <td>${pct(x.leadToQuote)}</td>
             <td>${r.jobs.toLocaleString()}</td>
             <td>${fmtMoney(r.revenue)}</td>
@@ -4936,7 +4964,7 @@ function renderCreativeStats(){
           </tr>`; }).join("")}</tbody>
       </table></div>
     </div>`).join("")}`}
-    ${idle ? `<p class="cs-foot">${idle} client${idle === 1 ? " has" : "s have"} no ad spend or results yet, so ${idle === 1 ? "isn't" : "aren't"} counted.</p>` : ""}
+    ${idle ? `<p class="cs-foot">Not counted yet (no ad spend, leads or quotes in the CRM): ${idleList.map(c => `<button type="button" class="cs-client cs-idle" data-action="view-client" data-id="${c.id}">${escapeHtml(c.name)}</button>`).join(", ")}. Sync their Meta ads, connect GHL or log quotes on their profile and they'll show up.</p>` : ""}
     <p class="cs-foot">Cost per quote = all-time Meta ad spend ÷ quotes booked (site visit arranged, to be quoted or any quote stage in GHL). Return = revenue won ÷ (ad spend + our fees paid).</p>`;
 }
 function setCreativeView(view){
