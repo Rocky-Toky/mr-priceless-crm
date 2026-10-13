@@ -1525,6 +1525,7 @@ function setupNav(){
       state.page = btn.dataset.page;
       $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));
       $$(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + state.page));
+      showJarvisFab();
       $$(".nav-dropdown.open").forEach(d => d.classList.remove("open"));
     });
   });
@@ -4971,21 +4972,6 @@ function renderCreativeLibrary(){
   if (sortSel) sortSel.value = state.creativeFilter.sort || "top";
 
   const all = state.adCreatives;
-  $("#creative-stat-total").textContent = all.length;
-  $("#creative-stat-winners").textContent = all.filter(a => a.result === "winner").length;
-  $("#creative-stat-testing").textContent = all.filter(a => a.result === "testing").length;
-  $("#creative-stat-killed").textContent = all.filter(a => a.result === "killed").length;
-  const winners = all.filter(a => a.result === "winner").length;
-  const decided = winners + all.filter(a => a.result === "killed").length;
-  $("#creative-stat-winrate").textContent = decided ? Math.round(winners / decided * 100) + "%" : "-";
-
-  const totalSpend = all.reduce((s,a) => s + (Number(a.spend)||0), 0);
-  const totalLeads = all.reduce((s,a) => s + (Number(a.results)||0), 0);
-  const spendCreatives = all.filter(a => a.spend != null).length;
-  $("#creative-stat-spend").textContent = fmtMoney(totalSpend);
-  $("#creative-stat-spend-sub").textContent = `All-time · across ${spendCreatives} synced creative${spendCreatives===1?"":"s"}`;
-  $("#creative-stat-cpl").textContent = totalLeads > 0 ? fmtMoney(totalSpend / totalLeads) : "-";
-  $("#creative-stat-leads-sub").textContent = `${totalLeads.toLocaleString()} lead${totalLeads===1?"":"s"} generated all-time`;
 
   // Delivery status breakdown, so it's obvious at a glance how many of these
   // are actually running vs sitting paused/needing attention.
@@ -6642,7 +6628,13 @@ function setupJarvis(){
     setTimeout(() => jvSend(b.dataset.askJarvis), 80);
   });
 }
-function showJarvisFab(){ const f = $("#jarvis-fab"); if (f) f.hidden = !(state.user || !IS_CONFIGURED); }
+// Jarvis lives on the Creative Library only.
+function showJarvisFab(){
+  const f = $("#jarvis-fab"); if (!f) return;
+  const here = state.page === "creative";
+  f.hidden = !(state.user || !IS_CONFIGURED) || !here;
+  if (!here && $("#jarvis-panel")){ $("#jarvis-panel").hidden = true; document.body.classList.remove("jv-open"); }
+}
 
 /* The Reporting page */
 function renderReporting(){
