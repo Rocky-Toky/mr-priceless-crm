@@ -2639,3 +2639,9 @@ body.jv-open .jv-fab{display:none;}
   .am-head span:first-child{display:none;}
   .am-box{height:42px;font-size:12.5px;}
 }
+
+/* Merged pages: hidden menu entries, tabs on top */
+.nav-item.nav-hidden{display:none !important;}
+.page-tabs{margin-bottom:18px;}
+.page-tabs button{font-size:13px;}
+.nav-count[hidden]{display:none !important;}
