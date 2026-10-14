@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=211">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=211">
+<link rel="stylesheet" href="css/style.css?v=212">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=212">
 </head>
 <body>
 
@@ -943,15 +943,19 @@
               </span></span></div>
           </div>
           <div class="cp-quote-strip" id="cp-quote-strip"></div>
+        <div class="cp-big" id="cp-big"></div>
+          <div class="cp-subline" id="cp-subline"></div>
         </section>
 
-        <div class="cl-detail-grid cp-grid">
-          <div class="cl-detail-main" id="client-detail-main">
-            <div class="card cl-launch" id="client-launch-card" hidden></div>
-
-            <div class="card cl-panel cp-panel" id="cp-workshops"></div>
-
-            <div class="card cl-panel cp-panel">
+        <div class="card cl-launch" id="client-launch-card" hidden></div>
+        <div class="cp-month" id="cp-month"></div>
+        <div class="country-toggle cp-tabs" id="cp-tabs" role="tablist">
+          <button type="button" data-cp-tab="ads" class="active">Ads</button>
+          <button type="button" data-cp-tab="workshops">Workshops</button>
+          <button type="button" data-cp-tab="info">Info &amp; notes</button>
+        </div>
+        <div class="cp-pane" data-cp-pane="ads">
+          <div class="card cl-panel cp-panel">
               <div class="cl-panel-head cp-panel-head">
                 <div><h3>Campaigns</h3><p>Every campaign running for this client, and its cost per lead.</p></div>
                 <div class="cl-panel-actions">
@@ -976,10 +980,12 @@
               </div>
               <div class="cp-creatives" id="ad-creatives-grid"></div>
             </div>
-          </div>
-
-          <aside class="cl-detail-side">
-            <div class="card cl-panel cp-panel" id="cp-reports"></div>
+        </div>
+        <div class="cp-pane" data-cp-pane="workshops" hidden>
+          <div class="card cl-panel cp-panel" id="cp-workshops"></div>
+        </div>
+        <div class="cp-pane cp-pane-info" data-cp-pane="info" hidden>
+          <div class="card cl-panel cp-panel" id="cp-reports"></div>
             <div class="card cl-panel cp-panel client-info-card">
               <div class="cl-panel-head cp-panel-head">
                 <div>
@@ -1000,7 +1006,6 @@
               </div>
               <div class="cl-notes" id="client-detail-notes">-</div>
             </div>
-          </aside>
         </div>
       </div>
     </section>
@@ -2620,17 +2625,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=211"></script>
-<script src="js/supabaseClient.js?v=211"></script>
-<script src="js/report-pdf.js?v=211"></script>
-<script src="js/plan-pdf.js?v=211"></script>
-<script src="js/workshop-pdf.js?v=211"></script>
-<script src="js/receipt-pdf.js?v=211"></script>
-<script src="js/welcome-pdf.js?v=211"></script>
-<script src="js/builtin-playbooks.js?v=211"></script>
-<script src="js/builtin-email-templates.js?v=211"></script>
-<script src="js/app.js?v=211"></script>
-<script src="js/meetings-tracker.js?v=211"></script>
-<script src="js/todo.js?v=211"></script>
+<script src="js/config.js?v=212"></script>
+<script src="js/supabaseClient.js?v=212"></script>
+<script src="js/report-pdf.js?v=212"></script>
+<script src="js/plan-pdf.js?v=212"></script>
+<script src="js/workshop-pdf.js?v=212"></script>
+<script src="js/receipt-pdf.js?v=212"></script>
+<script src="js/welcome-pdf.js?v=212"></script>
+<script src="js/builtin-playbooks.js?v=212"></script>
+<script src="js/builtin-email-templates.js?v=212"></script>
+<script src="js/app.js?v=212"></script>
+<script src="js/meetings-tracker.js?v=212"></script>
+<script src="js/todo.js?v=212"></script>
 </body>
 </html>
