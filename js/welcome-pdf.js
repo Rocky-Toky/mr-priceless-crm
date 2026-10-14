@@ -34,7 +34,7 @@ const COPY = {
       ["Paid leads aren't word of mouth.", "Referrals will always be your best source, but they're hard to scale. Paid leads fill that gap. They convert a bit lower, and that's normal."],
       ["Month one is the warm-up.", "You might not win a job in the first month, and that's normal. You'll head into month two with a pipeline of leads and quotes built, and that's where it pays off."],
       ["Your feedback steers the ads.", "Moving leads through the CRM stages tells us which ones were good, so we can sharpen who sees your ads."],
-      ["Speed wins jobs.", "The quicker you get back to a lead, the more turn into quotes. A call within the hour makes a real difference."],
+      ["We call every lead for you.", "Our team rings each one within minutes and books the quote straight into your calendar. Your job is to turn up and follow the quote up."],
     ],
   },
   pro: {
@@ -59,7 +59,7 @@ const COPY = {
       ["Paid leads aren't word of mouth.", "Referrals will always be your best source, but they're hard to scale. Paid leads fill that gap. They convert a bit lower, and that's normal."],
       ["Month one is the warm-up.", "You might not sign a new client in the first month, and that's normal. You'll head into month two with a pipeline of enquiries and appointments built, and that's where it pays off."],
       ["Your feedback steers the ads.", "Telling us which enquiries were a good fit lets us sharpen who sees your ads, so the quality keeps climbing."],
-      ["Speed wins clients.", "The quicker you get back to an enquiry, the more turn into appointments. A call within the hour makes a real difference."],
+      ["We call every enquiry for you.", "Our team rings each one within minutes and books the appointment straight into your calendar. Your job is to show up and follow up."],
     ],
   },
 };
