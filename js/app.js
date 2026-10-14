@@ -1528,6 +1528,7 @@ function applyWorkspace(){
 }
 // Pages that live together under one menu item, switched with tabs at the top.
 const PAGE_GROUPS = {
+  deals: [["deals", "Pipeline"], ["nurture", "Nurture"]],
   stats: [["dashboard", "Overview"], ["statistics", "Team"], ["commission", "Commission"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
   library: [["playbooks", "Playbooks"], ["email-templates", "Email templates"], ["rules", "Rules"]],
@@ -1556,7 +1557,7 @@ function setupPageGroups(){
     tabs.className = "page-tabs country-toggle";
     tabs.innerHTML = pages.map(([p, label]) => `<button type="button" data-goto="${p}">${escapeHtml(label)}</button>`).join("");
     tabs.addEventListener("click", (e) => { const b = e.target.closest("[data-goto]"); if (b) goPage(b.dataset.goto); });
-    sec.insertBefore(tabs, head || sec.firstChild);
+    if (head) head.parentNode.insertBefore(tabs, head); else sec.insertBefore(tabs, sec.firstChild);
   }));
   $$(".nav-group-item").forEach(b => b.addEventListener("click", () => goPage(lastTabOf(b.dataset.group))));
 }
@@ -5577,6 +5578,7 @@ function renderNurture(){
   const active = deals.filter(x => !x.s.stopped);
   const due = active.filter(x => x.s.next && x.s.nextDue <= today);
   const reengage = active.filter(x => x.s.reengage <= nurtureDay(today, 30));
+  const navCount = $("#nav-nurture-count"); if (navCount){ navCount.hidden = !due.length; navCount.textContent = due.length; }
   $("#nurture-kpis").innerHTML = [
     [due.length, "emails due"], [active.length, "in nurture"], [reengage.length, "re-engage within 30 days"],
   ].map(([v, l], i) => `<span class="nr-kpi ${i === 0 && v ? "is-due" : ""}"><b>${v}</b>${escapeHtml(l)}</span>`).join("");
@@ -8501,7 +8503,7 @@ function renderTeamFocusPanel(){
 // save or a live update never stalls the screen redrawing pages nobody's on.
 const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
-  [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["deals"]], [renderCommission, ["commission"]],
+  [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
   [renderRegionData, ["dialer", "lead-engine"]], [renderTeamFocusPanel, ["lead-engine"]], [renderRegionCoverage, ["lead-engine"]],
   [renderVerticalCoverage, ["lead-engine"]], [renderProspectList, ["*"]], [renderDialer, ["dialer"]], [renderClients, ["clients"]],
   [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]], [renderAdsMonth, ["ads-month"]], [renderContentLibrary, ["content-library"]], [amNavCount, ["*"]],
@@ -10461,7 +10463,7 @@ function setupModals(){
       renderPlaybooks();
     }
     if (action === "delete-deal" && confirm("Delete this deal?")) await DataLayer.remove("deals", id);
-    if (action === "view-deal"){ state.selectedDealId = id; renderDeals(); }
+    if (action === "view-deal"){ state.selectedDealId = id; if (state.page !== "deals") goPage("deals"); renderDeals(); }
     if (action === "view-meeting-deal"){ state.selectedDealId = id; $('.nav-item[data-page="deals"]')?.click(); renderDeals(); }
     if (action === "edit-deal"){
       const d = state.deals.find(x => x.id === (id || state.selectedDealId));
