@@ -2698,3 +2698,15 @@ body.jv-open .jv-fab{display:none;}
 .dl-month .am-nav-label{display:flex;flex-direction:column;align-items:center;line-height:1.15;min-width:120px;}
 .dl-month .am-nav-label small{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);}
 .dl-later{font-size:12px;font-weight:700;color:var(--gold-deep);background:var(--gold-soft);border-radius:999px;padding:3px 10px;}
+
+/* Deal card month picker */
+.dmp{position:fixed;z-index:200;width:228px;background:var(--white);border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 44px rgba(20,15,5,.18);padding:10px;animation:modal-pop .15s ease;}
+.dmp[hidden]{display:none;}
+.dmp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.dmp-head b{font-size:14px;}
+.dmp-head button{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);background:var(--paper);font-size:16px;cursor:pointer;}
+.dmp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.dmp-grid button{height:36px;border-radius:10px;border:1px solid var(--line);background:var(--paper);font-size:13px;font-weight:700;color:var(--text);cursor:pointer;}
+.dmp-grid button:hover{border-color:var(--gold);background:var(--gold-soft);}
+.dmp-grid button.is-now{border-color:var(--gold-border);}
+.dmp-grid button.is-cur{background:var(--black);border-color:var(--black);color:var(--gold-bright);}
