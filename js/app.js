@@ -1020,6 +1020,7 @@ Cheers,
     });
   }
   state.callActivity = callActivitySeed;
+  setTimeout(() => window.renderCounters?.(), 0);
   state.playbookUsage = [
     { id:uid(), person:"rocky", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
     { id:uid(), person:"max", month:monthKey(new Date()), playbook_id:pbCold, created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
@@ -1124,6 +1125,7 @@ const DataLayer = {
     state.emailTemplatesLoaded = !et.error;
     state.expenses = ex.data || [];
     state.callActivity = ca.data || [];
+    setTimeout(() => window.renderCounters?.(), 0);
     state.playbookUsage = pu.data || [];
     state.teamFocus = { rocky: null, max: null, gabriel: null, raheem: null, thor: null };
     (tf.data || []).forEach(row => { state.teamFocus[row.person] = row.industry || null; });
@@ -1794,6 +1796,11 @@ window.CRM_CALL_ACTIVITY = {
       } catch(e){ console.error("Couldn't sync call activity:", e); }
     }
     renderStatistics();
+    window.renderCounters?.();
+  },
+  // Today's row for one person (calls, conversations, meetings_booked).
+  today(person){
+    return state.callActivity.find(r => r.person === person && r.activity_date === localDayStr()) || null;
   },
 };
 // Switching "Tracking as" on the Meetings Booked page changes whose focus
@@ -2729,10 +2736,10 @@ function personKeyFromEmail(email){
 async function bumpCallActivity(personKey, outcome){
   if (!personKey) return;
   const deltas = { calls: 1 };
-  // A "conversation" is any call where an actual human was reached - every
-  // outcome except No Answer. This is what Call Conversion % on Statistics
-  // divides by, so it has to move for real calls, not just demo seed data.
-  if (outcome !== "no_answer") deltas.conversations = 1;
+  // A "conversation" is any call where we actually spoke to someone who
+  // counts - every outcome except No Answer and Decision Maker Unavailable.
+  // The Meetings Booked counter and the Stats funnel both read this.
+  if (outcome !== "no_answer" && outcome !== "dm_unavailable") deltas.conversations = 1;
   if (outcome === "booked_meeting") deltas.meetings_booked = 1;
   await window.CRM_CALL_ACTIVITY.bump(personKey, deltas);
 }

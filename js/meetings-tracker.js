@@ -985,17 +985,27 @@ function renderAll(){
 /* ══════════════════════════════════════════
    CALLS + CONVERSATIONS (tap counters)
 ══════════════════════════════════════════ */
+// Both numbers come from today's shared call_activity row, so calls logged
+// in the Dialer show here too. Conversations are never tapped: they're
+// added by the outcome picked for each call (anything but No Answer or
+// Decision Maker Unavailable).
+function counterValues(){
+  const row = window.CRM_CALL_ACTIVITY?.today ? window.CRM_CALL_ACTIVITY.today(getActivePerson()) : null;
+  return row ? { calls: Number(row.calls || 0), convos: Number(row.conversations || 0) } : { calls: state.calls, convos: state.convos };
+}
 function renderCounters(){
+  const v = counterValues();
   ['calls','convos'].forEach(k => {
     const num = document.getElementById('cnt-' + k), card = document.getElementById('cc-' + k);
     if (!num || !card) return;
-    num.textContent = state[k];
-    card.classList.toggle('has-count', state[k] > 0);
+    num.textContent = v[k];
+    card.classList.toggle('has-count', v[k] > 0);
   });
   // How many calls turned into a real conversation.
   const sub = document.getElementById('cnt-convos-sub');
-  if (sub) sub.textContent = state.calls > 0 && state.convos > 0 ? `${Math.round(Math.min(state.convos, state.calls) / state.calls * 100)}% of calls` : 'today';
+  if (sub) sub.textContent = v.calls > 0 && v.convos > 0 ? `${Math.round(Math.min(v.convos, v.calls) / v.calls * 100)}% of calls` : 'from call outcomes';
 }
+window.renderCounters = renderCounters;
 
 // Adds each tap to the shared call_activity counts that Statistics reads.
 // Only ever +1 / -1: the Dialer adds to the same row, so sending this page's
@@ -1029,6 +1039,7 @@ function playCounterTick(isConvo){
 }
 
 function incCounter(key, e){
+  if (key !== 'calls') return;
   state[key]++;
   save();
   syncCallActivity(key, 1);
@@ -1048,8 +1059,8 @@ function incCounter(key, e){
 }
 
 function decCounter(key){
-  if(state[key] <= 0) return;
-  state[key]--;
+  if (key !== 'calls' || counterValues()[key] <= 0) return;
+  state[key] = Math.max(0, state[key] - 1);
   save();
   syncCallActivity(key, -1);
   renderCounters();
