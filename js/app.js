@@ -3756,91 +3756,63 @@ function amNavCount(){
   el.hidden = !left; el.textContent = left;
 }
 const amFmtDay = (ym, d) => new Date(amDueDay(ym, d) + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+// One row per client, one box per ad. Tap a box: To do → Made → Live → back to To do.
+const AM_CYCLE = { "": "made", brief: "made", made: "live", live: "" };
+const AM_LOOK = {
+  "": { label: "To do", cls: "todo" }, brief: { label: "To do", cls: "todo" },
+  made: { label: "Made", cls: "made" }, live: { label: "Live", cls: "live" },
+};
 function renderAdsMonth(){
   amNavCount();
   const root = $("#am-root"), nav = $("#am-month-nav");
   if (!root || !nav) return;
   const ym = amYm(), thisYm = ymOf(localDayStr()), isNow = ym === thisYm;
+  const monthName = new Date(ym + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long" });
   const monthLabel = new Date(ym + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long", year: "numeric" });
   nav.innerHTML = `<button type="button" class="am-nav-btn" data-action="am-month" data-step="-1" aria-label="Previous month">‹</button>
     <span class="am-nav-label">${escapeHtml(monthLabel)}</span>
-    <button type="button" class="am-nav-btn" data-action="am-month" data-step="1" aria-label="Next month" ${ym >= thisYm ? "disabled" : ""}>›</button>
-    ${isNow ? "" : `<button type="button" class="btn ghost sm" data-action="am-month" data-step="0">This month</button>`}`;
-  const clients = amClients();
-  const onboarding = state.clients.filter(c => normalizeClientStage(c.stage) === "onboarding");
+    <button type="button" class="am-nav-btn" data-action="am-month" data-step="1" aria-label="Next month" ${ym >= thisYm ? "disabled" : ""}>›</button>`;
+  const clients = amClients().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (!clients.length){
-    root.innerHTML = `<div class="card am-empty">${emptyState("No live clients yet. Once a client is on Quote Guarantee or Live, their 3 ads for the month show up here.")}</div>`;
+    root.innerHTML = `<div class="card am-empty">${emptyState("No live clients yet. Clients on Quote Guarantee, Live or At Risk show up here.")}</div>`;
     return;
   }
   const rows = clients.map(c => ({ c, p: amClientProgress(c, ym) }));
   const target = rows.length * AM_SLOTS.length, live = rows.reduce((n, r) => n + r.p.live, 0);
-  const videos = rows.filter(r => r.p.slots.find(s => s.key === "video").status === "live").length;
-  const statics = rows.reduce((n, r) => n + r.p.slots.filter(s => s.kind === "static" && s.status === "live").length, 0);
-  const overdueSlots = rows.reduce((n, r) => n + r.p.slots.filter(s => s.late).length, 0);
-  const today = new Date(), dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  const daysLeft = isNow ? dim - today.getDate() : 0;
+  const late = rows.reduce((n, r) => n + r.p.slots.filter(s => s.late).length, 0);
+  const today = new Date(), daysLeft = isNow ? new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - today.getDate() : 0;
   const pct = target ? Math.round(live / target * 100) : 0;
-  const filter = state.amFilter || "todo";
-  const shown = rows.filter(r => filter === "all" || r.p.live < r.p.target)
-    .sort((a, b) => (b.p.overdue - a.p.overdue) || (a.c.name || "").localeCompare(b.c.name || ""));
-  const stepsHtml = [
-    ["1", "Brief all 3", `by ${amFmtDay(ym, AM_BRIEF_DUE)}`, "Angles from this month's winning ads"],
-    ["2", "Statics live", `by ${amFmtDay(ym, 14)}`, "Design, client OK, launch both"],
-    ["3", "Video live", `by ${amFmtDay(ym, 21)}`, "Film, edit, client OK, launch"],
-    ["4", "Review", "last week", "What won → next month's briefs"],
-  ].map(([n, t, when, sub]) => `<div class="am-step"><span class="am-step-num">${n}</span><div><b>${t}</b><span class="am-step-when">${when}</span><small>${sub}</small></div></div>`).join("");
-  const slotHtml = (c, s) => {
-    const idx = AM_STEPS.findIndex(x => x.key === s.status);
-    const cls = s.status === "live" ? "is-live" : s.late ? "is-late" : s.status ? "is-going" : "";
-    return `<div class="am-slot am-${s.kind} ${cls}">
-      <div class="am-slot-head">
-        <span class="am-slot-icon">${s.kind === "video" ? "🎬" : "🖼️"}</span>
-        <span class="am-slot-label">${s.label}</span>
-        <span class="am-slot-due">${s.status === "live" ? "Live ✓" : s.late ? `Overdue · was due ${amFmtDay(ym, s.due)}` : `Due ${amFmtDay(ym, s.due)}`}</span>
-      </div>
-      <div class="am-steps" role="group" aria-label="${escapeHtml(s.label)} for ${escapeHtml(c.name)}">
-        ${AM_STEPS.map((st, i) => `<button type="button" class="am-stepbtn${i <= idx ? " on" : ""}${i === idx ? " current" : ""}" data-action="am-set" data-id="${c.id}" data-slot="${s.key}" data-step="${st.key}" aria-pressed="${i <= idx}">${st.label}</button>`).join("")}
-      </div>
-      ${s.kind === "video" ? `<button type="button" class="am-script-link" data-action="am-script" data-id="${c.id}">${vsRows().some(r => r.client_id === c.id && vsData(r).month === ym) ? "Open script →" : "Write the script →"}</button>` : ""}
-      <input type="text" class="am-slot-title" data-id="${c.id}" data-slot="${s.key}" value="${escapeHtml(s.title)}" placeholder="${s.kind === "video" ? "What's the video? e.g. Owner walk-through" : "What's the angle? e.g. Before/after"}" maxlength="120">
-    </div>`;
+  const cell = (c, s) => {
+    const look = AM_LOOK[s.status] || AM_LOOK[""];
+    return `<button type="button" class="am-box am-${look.cls}${s.late ? " is-late" : ""}" data-action="am-tap" data-id="${c.id}" data-slot="${s.key}" title="${escapeHtml(c.name)} · ${s.label}: ${look.label}${s.late ? " (late)" : ""} - tap to change">
+      <span class="am-box-dot"></span>${s.status === "live" ? "Live ✓" : s.late ? `${look.label} · late` : look.label}
+    </button>`;
   };
   root.innerHTML = `
-    <div class="am-hero card">
-      <div class="am-hero-main">
-        <span class="am-k">${isNow ? "Live this month" : "Went live"}</span>
-        <div class="am-hero-num"><b>${live}</b><span>/ ${target} ads</span></div>
-        <div class="am-bar"><i style="width:${pct}%"></i></div>
-        <span class="am-hero-sub">${isNow ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left in ${escapeHtml(monthLabel.split(" ")[0])}` : escapeHtml(monthLabel)} · ${rows.length} client${rows.length === 1 ? "" : "s"} × 1 video + 2 statics</span>
-      </div>
-      <div class="am-hero-kpis">
-        <div><span>Videos live</span><b>${videos}<small>/${rows.length}</small></b></div>
-        <div><span>Statics live</span><b>${statics}<small>/${rows.length * 2}</small></b></div>
-        <div class="${overdueSlots ? "bad" : "good"}"><span>Overdue</span><b>${overdueSlots}</b></div>
-      </div>
+    <div class="am-summary">
+      <div class="am-summary-text"><b>${live} of ${target}</b> ads live${isNow ? ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left in ${escapeHtml(monthName)}` : ""}${late ? ` · <span class="am-late-txt">${late} late</span>` : ""}</div>
+      <div class="am-bar"><i style="width:${pct}%"></i></div>
     </div>
-    <div class="am-procedure">${stepsHtml}</div>
-    <div class="am-bar-row">
-      <div class="country-toggle" role="group" aria-label="Show">
-        <button type="button" data-action="am-filter" data-filter="todo" class="${filter === "todo" ? "active" : ""}">Still to do (${rows.filter(r => r.p.live < r.p.target).length})</button>
-        <button type="button" data-action="am-filter" data-filter="all" class="${filter === "all" ? "active" : ""}">All clients (${rows.length})</button>
+    <div class="am-table card">
+      <div class="am-row am-head">
+        <span>Client</span>
+        <span>Static 1<small>live by ${amFmtDay(ym, 14)}</small></span>
+        <span>Static 2<small>live by ${amFmtDay(ym, 14)}</small></span>
+        <span>Video<small>live by ${amFmtDay(ym, 21)}</small></span>
       </div>
-      ${onboarding.length ? `<span class="am-note">${onboarding.length} onboarding - their first ads are in their onboarding checklist on Clients.</span>` : ""}
-    </div>
-    ${!shown.length ? `<div class="card am-done">🎉 Every client has all 3 ads live for ${escapeHtml(monthLabel.split(" ")[0])}.</div>` : ""}
-    <div class="am-list">
-      ${shown.map(({ c, p }) => `
-        <article class="am-client card${p.live === p.target ? " is-done" : p.overdue ? " is-late" : ""}">
-          <header class="am-client-head">
+      ${rows.map(({ c, p }) => {
+        const hasScript = vsRows().some(r => r.client_id === c.id && vsData(r).month === ym);
+        return `<div class="am-row${p.live === p.target ? " is-done" : ""}">
+          <span class="am-who">
             <button type="button" class="am-client-name" data-action="view-client" data-id="${c.id}">${escapeHtml(c.name)}</button>
-            <span class="am-client-meta">${escapeHtml(CLIENT_STAGE_MAP[normalizeClientStage(c.stage)]?.label || "")}${clientMonthNumber(c) ? ` · Month ${clientMonthNumber(c)}` : ""}</span>
-            <span class="am-client-count">${p.live}/${p.target} live</span>
-          </header>
-          <div class="am-slots">${p.slots.map(s => slotHtml(c, s)).join("")}</div>
-        </article>`).join("")}
-    </div>`;
+            <span class="am-who-sub">${p.live}/3 live · <button type="button" class="am-script-link" data-action="am-script" data-id="${c.id}">${hasScript ? "Video script" : "+ Video script"}</button></span>
+          </span>
+          ${p.slots.map(s => cell(c, s)).join("")}
+        </div>`;
+      }).join("")}
+    </div>
+    <p class="am-howto">Tap a box to move it along: <span class="am-key am-todo">To do</span> → <span class="am-key am-made">Made</span> → <span class="am-key am-live">Live</span>. Tap a live one to start it over. Anything not live by its date shows as late.</p>`;
 }
-
 /* ───────── Clients board: drag clients between lifecycle stages ───────── */
 function clientsView(){
   if (!state.clientsView){ try { state.clientsView = localStorage.getItem("mp_clients_view") === "list" ? "list" : "board"; } catch(e){ state.clientsView = "board"; } }
@@ -10586,6 +10558,16 @@ function setupModals(){
       renderAdsMonth(); return;
     }
     if (action === "am-filter"){ state.amFilter = btn.dataset.filter; renderAdsMonth(); return; }
+    if (action === "am-tap"){
+      const c = state.clients.find(x => x.id === id);
+      const cur = amClientProgress(c).slots.find(s => s.key === btn.dataset.slot)?.status || "";
+      const next = AM_CYCLE[cur] ?? "made";
+      const r = btn.getBoundingClientRect();
+      await amSetSlot(id, btn.dataset.slot, { s: next });
+      renderAdsMonth(); renderClients();
+      if (next === "live") pbConfetti(r.left + r.width / 2, r.top, 22);
+      return;
+    }
     if (action === "am-set"){
       const c = state.clients.find(x => x.id === id);
       const cur = amClientProgress(c).slots.find(s => s.key === btn.dataset.slot)?.status || "";
