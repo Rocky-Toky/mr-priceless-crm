@@ -1848,6 +1848,7 @@ async function bookMeeting(name, phone, person, extra={}){
     assignee: person || null,
     notes: "",
     deal_date: localDayStr(),
+    source: extra.source || "outbound",
   });
   return deal;
 }
@@ -2062,58 +2063,98 @@ function dealActivityFor(dealId){
 function dealNotesFor(dealId){
   return state.notes.filter(n => n.deal_id === dealId && n.title === "Note").sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
 }
+// Outbound = came from our cold calling; inbound = they came to us.
+// Deals from before this was tracked count as outbound.
+const DEAL_SOURCES = { outbound: "Outbound", inbound: "Inbound" };
+const dealSource = (d) => d.source === "inbound" ? "inbound" : "outbound";
+const DD_NOTE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>`;
 function renderDealDetail(deal){
   $("#deal-detail-title").textContent = deal.title;
-  $("#deal-detail-value").textContent = dealValueLabel(deal);
-  const netEl = $("#deal-detail-net");
-  if (netEl){
-    const net = dealNetValue(deal);
-    netEl.style.display = net != null ? "" : "none";
-    if (net != null) netEl.textContent = `Net ${fmtMoney(net)} after ${fmtMoney(deal.commission_initial_amount)} commission`;
-  }
   $("#deal-detail-delete").dataset.id = deal.id;
+  const stageSel = $("#deal-detail-stage");
+  if (stageSel){
+    stageSel.innerHTML = STAGES.map(st => `<option value="${st.key}" ${st.key === deal.stage ? "selected" : ""}>${escapeHtml(st.label)}</option>`).join("");
+    stageSel.dataset.stage = deal.stage;
+  }
   const assigneeEl = $("#deal-detail-assignee");
   if (assigneeEl){
     const a = ASSIGNEES[deal.assignee];
     assigneeEl.style.display = a ? "" : "none";
     if (a){ assigneeEl.textContent = a.label; assigneeEl.className = `badge ${a.cls}`; }
   }
+  $$("#deal-detail-source button").forEach(b => b.classList.toggle("active", b.dataset.source === dealSource(deal)));
+
+  const activity = dealActivityFor(deal.id);
+  const lastCall = activity[0];
+  const net = dealNetValue(deal);
+  const ago = (iso) => { const n = daysSince(iso); return n == null ? "" : n <= 0 ? "Today" : n === 1 ? "Yesterday" : `${n} days ago`; };
+  const fact = (k, v, sub, cls = "") => `<div class="dd-fact ${cls}"><span class="dd-k">${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  $("#deal-detail-facts").innerHTML = [
+    fact("Value", escapeHtml(dealValueLabel(deal)), deal.contract_type === "retainer" || !deal.contract_type ? "per month" : escapeHtml(CONTRACT_TYPES[deal.contract_type]?.label || ""), "gold"),
+    net != null ? fact("Net", escapeHtml(fmtMoney(net)), `after ${escapeHtml(fmtMoney(deal.commission_initial_amount))} commission`) : "",
+    fact("Month", escapeHtml(monthNameOf(dealDate(deal), true)), "on the pipeline"),
+    fact("Last called", lastCall ? escapeHtml(ago(lastCall.created_at)) : "Not yet", lastCall ? escapeHtml(fmtDate(lastCall.created_at)) : "tap Called them after a call"),
+  ].join("");
 
   const contactsBody = $("#deal-detail-contacts");
   const extraContacts = dealContactsFor(deal.id);
   const primary = deal.contact_id ? state.contacts.find(c => c.id === deal.contact_id) : null;
   const rows = [];
-  if (primary) rows.push({ name: primary.name, phone: primary.phone, role: "Primary" });
+  if (primary) rows.push({ name: primary.name, phone: primary.phone, email: primary.email, role: "Primary" });
   else if (deal.contact_name) rows.push({ name: deal.contact_name, phone: "", role: "Primary" });
-  extraContacts.forEach(dc => rows.push({ name: dc.name, phone: dc.phone, role: dc.role || "Contact" }));
+  extraContacts.forEach(dc => { const c = state.contacts.find(x => x.id === dc.contact_id); rows.push({ name: dc.name, phone: c?.phone || dc.phone, email: c?.email, role: dc.role || "Contact" }); });
   contactsBody.innerHTML = rows.length
-    ? rows.map(r => `<div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;"><b>${escapeHtml(r.name)}</b> ${r.phone ? "· " + phoneHtml(r.phone) : ""} <span class="badge gray">${escapeHtml(r.role)}</span> ${callButtonHtml(r.phone, r.name)}</div>`).join("")
-    : `<span style="color:var(--text2);">No contact linked to this deal.</span>`;
+    ? rows.map(r => `<div class="dd-person">
+        <span class="dd-avatar">${escapeHtml((r.name || "?").trim().charAt(0).toUpperCase())}</span>
+        <span class="dd-person-text"><b>${escapeHtml(r.name)}</b><small>${r.phone ? escapeHtml(formatPhone(r.phone)) : "No phone"}${r.role !== "Primary" ? ` · ${escapeHtml(r.role)}` : ""}</small>${r.email ? `<small>${escapeHtml(r.email)}</small>` : ""}</span>
+        ${callButtonHtml(r.phone, r.name)}
+      </div>`).join("")
+    : `<p class="dd-empty">No contact linked to this deal.</p>`;
 
   const linkedIds = new Set(extraContacts.map(dc => dc.contact_id).filter(Boolean));
   if (deal.contact_id) linkedIds.add(deal.contact_id);
-  const pickable = state.contacts.filter(c => !linkedIds.has(c.id));
+  const pickable = state.contacts.filter(c => !linkedIds.has(c.id)).sort((x, y) => (x.name || "").localeCompare(y.name || ""));
   const select = $("#deal-detail-contact-select");
   if (select){
     select.innerHTML = pickable.length
-      ? pickable.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")
+      ? `<option value="">Add another contact...</option>` + pickable.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")
       : `<option value="">No other contacts to add</option>`;
     select.disabled = !pickable.length;
   }
 
-  const notes = dealNotesFor(deal.id);
-  const legacyNote = deal.notes ? [{ body: deal.notes, created_at: deal.updated_at || deal.created_at }] : [];
-  const allNotes = [...notes, ...legacyNote];
-  const notesList = $("#deal-detail-notes-list");
-  notesList.innerHTML = allNotes.length
-    ? allNotes.map(n => `<div style="padding:8px 0;border-bottom:1px solid var(--line);"><div style="font-size:13.5px;">${escapeHtml(n.body)}</div><div style="color:var(--text2);font-size:11.5px;margin-top:2px;">${fmtDate(n.created_at)}</div></div>`).join("")
-    : `<span style="color:var(--text2);">No notes yet.</span>`;
+  const det = (k, v) => v ? `<div><dt>${k}</dt><dd>${v}</dd></div>` : "";
+  $("#deal-detail-details").innerHTML = [
+    det("Contract", escapeHtml(CONTRACT_TYPES[deal.contract_type || "retainer"]?.label || "")),
+    det("Lead source", DEAL_SOURCES[dealSource(deal)]),
+    det("In this stage", deal.stage_changed_at ? escapeHtml(ago(deal.stage_changed_at).replace(" ago", "")) : ""),
+    det("Deal date", escapeHtml(fmtDate(dealDate(deal)))),
+    det("Created", escapeHtml(fmtDate(deal.created_at))),
+  ].join("");
 
-  const activity = dealActivityFor(deal.id);
-  const activityBody = $("#deal-detail-activity");
-  activityBody.innerHTML = activity.length
-    ? activity.map(a => `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="16" height="16" style="color:var(--gold);flex-shrink:0;"><path d="M20 6L9 17l-5-5"/></svg><span>${escapeHtml(a.body)}</span><span style="margin-left:auto;color:var(--text2);font-size:12px;">${fmtDate(a.created_at)}</span></div>`).join("")
-    : `<span style="color:var(--text2);">No calls logged yet.</span>`;
+  // Notes and logged calls in one timeline, newest first.
+  const legacyNote = deal.notes ? [{ body: deal.notes, created_at: deal.updated_at || deal.created_at, kind: "note" }] : [];
+  const items = [
+    ...dealNotesFor(deal.id).map(n => ({ ...n, kind: "note" })),
+    ...activity.map(n => ({ ...n, kind: "call" })),
+    ...legacyNote,
+  ].sort((x, y) => new Date(y.created_at) - new Date(x.created_at));
+  $("#deal-detail-notes-list").innerHTML = items.length
+    ? items.map(n => `<div class="dd-item dd-item-${n.kind}">
+        <span class="dd-item-icon">${n.kind === "call" ? ICONS.phone : DD_NOTE_SVG}</span>
+        <div class="dd-item-body">${n.kind === "call" ? `<b>Called</b>` : `<p>${escapeHtml(n.body)}</p>`}<small>${escapeHtml(fmtDate(n.created_at))} · ${escapeHtml(timeAgo(n.created_at))}</small></div>
+      </div>`).join("")
+    : `<p class="dd-empty">Nothing yet. Add a note or tap Called them after a call.</p>`;
+}
+// Moving a deal to a new stage, from the board or from the deal itself.
+async function changeDealStage(dealId, stage){
+  const before = state.deals.find(d => d.id === dealId)?.stage;
+  if (!stage || before === stage) return;
+  const updated = await DataLayer.update("deals", dealId, { stage, updated_at: new Date().toISOString() });
+  await onDealStageChanged(updated, before);
+  const created = await maybeCreateClientFromDeal(updated);
+  // Already a client (so no new pack popped up)? Still offer the pack on signing.
+  if (!created && stage === "onboarding" && before !== "onboarding") openWelcomePackForDeal(updated || state.deals.find(d => d.id === dealId));
+  await maybeCreateNoShowFollowup(updated);
 }
 async function markDealCalled(dealId){
   await DataLayer.insert("notes", {
@@ -2192,14 +2233,7 @@ function setupDragDrop(){
         e.preventDefault();
         col.classList.remove("dragover");
         if (!dealDragId) return;
-        const dragId = dealDragId;
-        const before = state.deals.find(d => d.id === dragId)?.stage;
-        const updated = await DataLayer.update("deals", dragId, { stage: col.dataset.stage, updated_at: new Date().toISOString() });
-        await onDealStageChanged(updated, before);
-        const created = await maybeCreateClientFromDeal(updated);
-        // Already a client (so no new pack popped up)? Still offer the pack on signing.
-        if (!created && col.dataset.stage === "onboarding" && before !== "onboarding") openWelcomePackForDeal(updated || state.deals.find(d => d.id === dragId));
-        await maybeCreateNoShowFollowup(updated);
+        await changeDealStage(dealDragId, col.dataset.stage);
       });
     });
   });
@@ -7432,35 +7466,65 @@ function setupPlans(){
      run sheet. Starter content lives here; edits are saved as rows in the
      rules table titled "workshop:<category>" (kept off the Rules page). */
 const WORKSHOP_CATS = [
-  { key: "financial", label: "Financial", blurb: "Pricing, margins and cash flow", duration: "45 min",
+  { key: "financial", label: "Financial: Profitability", blurb: "Real overheads, true margins, real profit", duration: "45 min",
     when: "Return is under 3x, or jobs are coming in but the money isn't showing up",
-    outcome: "A monthly revenue target they believe in, prices they're confident in, and a clear picture of which jobs actually make them money.",
-    covers: "Making sure the jobs they're winning are actually making them money. We look at what they charge, what each job really costs them, how cash comes in and out, and set a revenue target they can plan around.",
+    outcome: "Their real monthly overheads on paper, what every hour actually costs them, the revenue they need just to break even, and a profit target they can plan around.",
+    covers: "Working out whether the business is actually profitable once every overhead is counted. Most owners price off materials and labour and forget the van, insurance, software, phone, accountant and their own wage. We add it all up together, turn it into a true cost per hour and a break-even number, then check their prices against it.",
     prep: [
       "Pull their revenue, jobs won and return to date from their reports",
-      "Note their average job value and their biggest and smallest wins",
-      "Ask them to bring a rough idea of their monthly running costs",
+      "Ask them to bring last month's bank statement or a rough list of every regular cost",
+      "Note their average job value and how many jobs they do a month",
     ],
     agenda: [
       ["5 min", "Their numbers so far: what our ads have brought in, and the return"],
-      ["10 min", "Work out average job value and real margin together"],
-      ["10 min", "Most and least profitable job types: what to chase, what to drop"],
-      ["10 min", "Pricing, deposits and payment terms"],
-      ["10 min", "Set a monthly revenue target and what it means in jobs"],
+      ["15 min", "List every overhead together using the calculator: rent, vehicles, insurance, software, phone, admin wages, accountant, their own wage"],
+      ["10 min", "Turn it into a true cost per hour and a monthly break-even figure"],
+      ["10 min", "Check their prices against it: which job types are actually making money"],
+      ["5 min", "Set a monthly profit target and the number of jobs it takes"],
     ],
     questions: [
-      "What was your revenue last month, and what do you want it to be in 12 months?",
+      "What does it cost to run the business each month before you earn a cent?",
+      "What do you pay yourself, and is it what you'd pay someone to do your job?",
+      "How many hours a month are actually billable, not driving, quoting or admin?",
       "On a typical job, what's left after materials, labour and travel?",
       "When did you last put your prices up?",
-      "Which jobs make you the most money for the time they take?",
+      "Which jobs make you the most money for the time they take, and which don't really pay?",
       "How long does it usually take to get paid once a job's done?",
-      "Do you know what it costs to run the business each month before you earn a cent?",
-      "Are there jobs you keep taking that don't really pay?",
     ],
     leave: [
-      "A monthly revenue target, and the number of jobs it takes to hit it",
-      "Their top 2 job types to push in the ads",
-      "2 or 3 actions for them, and ours noted in the CRM",
+      "Their true monthly overheads and cost per billable hour",
+      "Their monthly break-even revenue, and a profit target on top of it",
+      "Any prices that need to go up, and 2 or 3 actions for them",
+    ] },
+  { key: "lean", label: "Financial: Costs & running lean", blurb: "Cheaper materials and the right person on every job", duration: "45 min",
+    when: "Margins are thin, material costs keep climbing, or the owner and senior staff are stuck doing basic work",
+    outcome: "A list of suppliers to get better pricing from, a clear split of which jobs go to which staff, and senior people back on the work only they can do.",
+    covers: "Cutting what the business spends without cutting quality. First the materials: who they buy from, whether they have trade accounts and bulk pricing, and which suppliers to get quotes from. Then the team: who does what, what an hour of each person costs, and making sure no senior staff are doing junior jobs.",
+    prep: [
+      "Ask them to bring their top 3 suppliers and roughly what they spend with each a month",
+      "Ask for a list of the team, each person's role and hourly cost",
+      "Note their average job value and margin from their reports",
+    ],
+    agenda: [
+      ["10 min", "Materials: their biggest spend, current suppliers, trade discounts and payment terms"],
+      ["10 min", "Pick 2 or 3 suppliers to get competing quotes or bulk pricing from"],
+      ["10 min", "The team: map each person's hourly cost against the work they actually do in a week"],
+      ["10 min", "Reassign: junior and admin jobs off senior staff, each person on the work that suits their rate"],
+      ["5 min", "Agree the changes and who's doing what by when"],
+    ],
+    questions: [
+      "What are your three biggest material costs, and who do you buy them from?",
+      "When did you last get a competing quote from another supplier?",
+      "Do you have trade accounts, bulk pricing or early-payment discounts set up?",
+      "How much material ends up wasted or left over on a typical job?",
+      "What does an hour of each person on your team cost you, all in?",
+      "What is your most senior person doing this week that a junior or apprentice could do?",
+      "How much of your own week goes on admin, running materials or travel instead of the jobs that need you?",
+    ],
+    leave: [
+      "2 or 3 suppliers to get pricing from, and who's chasing it",
+      "Who does which jobs: senior staff only on senior work",
+      "The monthly saving we expect, and 2 or 3 actions for them",
     ] },
   { key: "sales", label: "Sales & closing", blurb: "Winning the quotes they go out to", duration: "45 min",
     when: "Fewer than 1 in 4 quotes are turning into jobs",
@@ -7756,7 +7820,8 @@ function workshopSuggestion(c){
   if (!everHad("googleads") && ((roi != null && roi >= 5) || (target && got >= target))) ideas.push({ cat: "googleads", why: roi != null && roi >= 5 ? `Meta's returning ${fmtTimes(roi)}: offer Google Ads` : "Guarantee met: offer Google Ads", weight: 1.6 });
   if (!everHad("website") && !(c.website || "").trim()) ideas.push({ cat: "website", why: "No website on file: offer to build one", weight: 1.4 });
   if (roi != null && roi < 3) ideas.push({ cat: "financial", why: `Return to date is ${fmtTimes(roi)}`, weight: 2.5 });
-  if (n("revenueMonth") > 0 && !recent.has("financial")) ideas.push({ cat: "financial", why: "Jobs are coming in: check pricing and margins", weight: 1 });
+  if (n("revenueMonth") > 0 && !recent.has("financial")) ideas.push({ cat: "financial", why: "Jobs are coming in: check their real overheads and margins", weight: 1 });
+  if (jobs >= 4 && !recent.has("lean")) ideas.push({ cat: "lean", why: `${jobs} jobs this month: tighten material costs and who does what`, weight: 1.1 });
   const pick = ideas.filter(i => !recent.has(i.cat)).sort((a, b) => b.weight - a.weight)[0];
   if (pick) return pick;
   // Nothing stands out: whichever they haven't had for longest.
@@ -7813,6 +7878,7 @@ function renderWorkshops(){
 }
 const WORKSHOP_ICONS = {
   financial: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>`,
+  lean: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>`,
   sales: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>`,
   followup: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>`,
   marketing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>`,
@@ -7888,6 +7954,71 @@ function setupWorkshopDrag(){
   });
 }
 
+/* Profitability workshop: add up every overhead, then what it means */
+const WS_OVERHEADS = [
+  ["rent", "Rent, yard or workshop"], ["vehicles", "Vehicles, fuel and finance"], ["insurance", "Insurance"],
+  ["software", "Software, phone and internet"], ["admin", "Admin and office wages"], ["accounts", "Accountant, bank and loan fees"],
+  ["owner", "Owner's wage"], ["other", "Tools, ACC and everything else"],
+];
+function renderWorkshopCalc(c, catKey){
+  const el = $("#ws-calc");
+  if (!el) return;
+  el.hidden = catKey !== "financial";
+  if (el.hidden || el.dataset.key === catKey) return;
+  el.dataset.key = catKey;
+  const m = monthReportsFor(c.id).slice(-1)[0]?.metrics || {};
+  const rev = toNum(m.revenueMonth), jobsN = toNum(m.jobsMonth);
+  const avg = rev && jobsN ? Math.round(rev / jobsN) : "";
+  const money = (id, label, val = "") => `<label class="ws-calc-f"><span>${escapeHtml(label)}</span><span class="ws-calc-in"><i>$</i><input type="number" min="0" step="1" inputmode="decimal" id="ws-oh-${id}" value="${val}" placeholder="0"></span></label>`;
+  el.innerHTML = `
+    <h4>Overheads calculator <small>per month</small></h4>
+    <div class="ws-calc-grid">${WS_OVERHEADS.map(([id, label]) => money(id, label)).join("")}</div>
+    <div class="ws-calc-grid ws-calc-grid-2">
+      <label class="ws-calc-f"><span>Billable hours a month (whole team)</span><span class="ws-calc-in"><input type="number" min="0" step="1" id="ws-oh-hours" placeholder="e.g. 320"></span></label>
+      <label class="ws-calc-f"><span>Margin on jobs after materials and labour</span><span class="ws-calc-in"><input type="number" min="0" max="100" step="1" id="ws-oh-margin" placeholder="e.g. 35"><i>%</i></span></label>
+      ${money("job", "Average job value", avg)}
+      ${money("target", "Profit they want each month")}
+    </div>
+    <div class="ws-calc-out" id="ws-calc-out"></div>`;
+  el.oninput = updateWorkshopCalc;
+  updateWorkshopCalc();
+}
+function workshopCalcValues(){
+  const v = (id) => Number($("#ws-oh-" + id)?.value || 0);
+  const items = WS_OVERHEADS.map(([id, label]) => ({ label, amount: v(id) })).filter(i => i.amount > 0);
+  const total = items.reduce((t, i) => t + i.amount, 0);
+  const hours = v("hours"), margin = v("margin") / 100, job = v("job"), target = v("target");
+  const breakEven = margin > 0 ? total / margin : null;
+  const needed = margin > 0 ? (total + target) / margin : null;
+  return { items, total, hours, margin: v("margin"), job, target,
+    perHour: hours > 0 ? total / hours : null, breakEven, needed,
+    jobsNeeded: needed != null && job > 0 ? Math.ceil(needed / job) : null };
+}
+function updateWorkshopCalc(){
+  const out = $("#ws-calc-out");
+  if (!out) return;
+  const r = workshopCalcValues();
+  const box = (k, v, sub) => `<div><span>${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  out.innerHTML = [
+    box("Real overheads", fmtMoney(r.total), "every month, before any job"),
+    box("Cost per billable hour", r.perHour != null ? fmtMoney(r.perHour) : "-", r.perHour != null ? "just to cover overheads" : "add billable hours"),
+    box("Break-even revenue", r.breakEven != null ? fmtMoney(r.breakEven) : "-", r.breakEven != null ? "a month to cover overheads" : "add their margin"),
+    box(r.target ? "Revenue for their profit goal" : "Jobs to break even", r.target ? (r.needed != null ? fmtMoney(r.needed) : "-") : (r.jobsNeeded != null ? String(r.jobsNeeded) : "-"),
+      r.target ? (r.jobsNeeded != null ? `${r.jobsNeeded} jobs a month` : "add margin and job value") : (r.jobsNeeded != null ? "a month at their average job" : "add margin and job value")),
+  ].join("");
+}
+// The calculator's answers, as lines for the workshop notes and PDF.
+function workshopCalcLines(){
+  const r = workshopCalcValues();
+  if (!r.total) return [];
+  return [
+    `Real monthly overheads: ${fmtMoney(r.total)} (${r.items.map(i => `${i.label} ${fmtMoney(i.amount)}`).join(" · ")})`,
+    r.perHour != null ? `Every billable hour costs ${fmtMoney(r.perHour)} in overheads before materials or wages on the job` : "",
+    r.breakEven != null ? `Break-even revenue: ${fmtMoney(r.breakEven)} a month at a ${r.margin}% margin` : "",
+    r.target && r.needed != null ? `To make ${fmtMoney(r.target)} profit a month: ${fmtMoney(r.needed)} revenue${r.jobsNeeded != null ? `, about ${r.jobsNeeded} jobs` : ""}` : (r.jobsNeeded != null ? `About ${r.jobsNeeded} jobs a month just to break even` : ""),
+  ].filter(Boolean);
+}
+
 /* A client's workshops: log one, see past ones, tick off actions */
 function openWorkshopModal(id){
   state.wsOpenId = id;
@@ -7901,6 +8032,7 @@ function openWorkshopModal(id){
   $("#ws-by").innerHTML = Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${k === person ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("");
   $("#ws-actions-us").value = ""; $("#ws-actions-them").value = "";
   $("#ws-status").textContent = ""; if ($("#ws-file")) $("#ws-file").hidden = true;
+  if ($("#ws-calc")) $("#ws-calc").dataset.key = "";
   renderWorkshopModal();
   openModal("ws-modal");
 }
@@ -7911,6 +8043,7 @@ function renderWorkshopModal(){
   const sug = workshopSuggestion(c);
   $("#ws-modal-sub").innerHTML = `Suggested next: <b>${escapeHtml(WORKSHOP_MAP[sug.cat].label)}</b> · ${escapeHtml(sug.why)}`;
   const cat = workshopContent($("#ws-category").value || sug.cat);
+  renderWorkshopCalc(c, $("#ws-category").value || sug.cat);
   $("#ws-prompts").innerHTML = `
     ${cat.outcome ? `<p class="ws-prompt-goal"><b>Goal:</b> ${escapeHtml(cat.outcome)}</p>` : ""}
     ${(cat.agenda || []).length ? `<h4>Run sheet · ${escapeHtml(cat.label)}</h4><ol class="wsl-agenda compact">${workshopAgenda(cat).map(([t, step]) => `<li><span class="wsl-time">${escapeHtml(t)}</span><span>${escapeHtml(step)}</span></li>`).join("")}</ol>` : ""}
@@ -7933,7 +8066,7 @@ async function logWorkshop(){
   const lines = (id, owner) => $(id).value.split("\n").map(s => s.trim()).filter(Boolean).map(text => ({ text, owner, done: false }));
   const entry = {
     id: uid(), date: $("#ws-date").value || localDayStr(), category: $("#ws-category").value, by: $("#ws-by").value,
-    notes: $("#ws-notes").value.trim(), plan: $("#ws-plan").value.split("\n").map(x => x.trim()).filter(Boolean),
+    notes: [...($("#ws-category").value === "financial" ? workshopCalcLines() : []), $("#ws-notes").value.trim()].filter(Boolean).join("\n"), plan: $("#ws-plan").value.split("\n").map(x => x.trim()).filter(Boolean),
     actions: [...lines("#ws-actions-us", "us"), ...lines("#ws-actions-them", "them")],
   };
   const makePdf = $("#ws-make-pdf")?.checked;
@@ -7944,6 +8077,7 @@ async function logWorkshop(){
   $("#ws-form").reset(); $("#ws-date").value = localDayStr();
   $("#ws-category").value = (c.onboarding_progress || {}).workshop_next || workshopSuggestion(c).cat;
   $("#ws-make-pdf").checked = makePdf;
+  if ($("#ws-calc")) $("#ws-calc").dataset.key = "";
   renderWorkshopModal();
   $("#ws-status").textContent = `Logged ${WORKSHOP_MAP[entry.category]?.label || "the"} workshop for ${fmtShortDate(entry.date)}.`;
   if (makePdf) await makeWorkshopPdf(c, entry);
@@ -8688,6 +8822,55 @@ function statsForPerson(p, bounds){
   const meetingRate = meetingsBooked ? Math.round(closedMeetings/meetingsBooked*100) : 0;
   return { calls, convos, meetingsBooked, closedMeetings, closedDeals, callRate, meetingRate };
 }
+// From dial to signed client. A meeting has "sat" once its deal moves past
+// Meeting Booked to anything but No Show; sit rate only counts meetings that
+// have happened (sat or no-show), so ones still coming up don't drag it down.
+function funnelDeals(scope, bounds){
+  const inScope = (d) => scope.some(p => p ? d.assignee === p : !ASSIGNEES[d.assignee]);
+  const deals = state.deals.filter(d => inScope(d) && inStatsRange(d.created_at, bounds));
+  const split = (list) => {
+    const sat = list.filter(d => d.stage !== "qualified" && d.stage !== "no_show").length;
+    const noShow = list.filter(d => d.stage === "no_show").length;
+    const closed = list.filter(d => STATS_CLOSED_MEETING_STAGES.has(d.stage) || d.stage === "churned").length;
+    return { booked: list.length, upcoming: list.filter(d => d.stage === "qualified").length, sat, noShow, closed,
+      sitRate: sat + noShow ? sat / (sat + noShow) : null, closeRate: sat ? closed / sat : null };
+  };
+  return { outbound: split(deals.filter(d => dealSource(d) === "outbound")), inbound: split(deals.filter(d => dealSource(d) === "inbound")), all: split(deals) };
+}
+function renderSalesFunnel(scope, bounds){
+  const el = $("#stats-funnel");
+  if (!el) return;
+  const rows = state.callActivity.filter(r => scope.includes(r.person) && inStatsRange(r.activity_date, bounds));
+  const dials = rows.reduce((t, r) => t + (r.calls || 0), 0);
+  const convos = rows.reduce((t, r) => t + (r.conversations || 0), 0);
+  const f = funnelDeals(scope, bounds), o = f.outbound;
+  const pct = (a, b) => b ? `${Math.round(a / b * 100)}%` : "-";
+  const rate = (r) => r == null ? "-" : `${Math.round(r * 100)}%`;
+  const every = (n, what) => n ? `1 ${what} every ${Math.round(dials / n).toLocaleString()} dials` : `No ${what}s yet`;
+  const steps = [
+    ["Dials", dials, ""],
+    ["Conversations", convos, pct(convos, dials) + " of dials"],
+    ["Meetings booked", o.booked, pct(o.booked, convos) + " of conversations"],
+    ["Meetings sat", o.sat, rate(o.sitRate) + " sit rate"],
+    ["Clients won", o.closed, rate(o.closeRate) + " close rate"],
+  ];
+  const srcRow = (label, x, cls = "") => `<tr class="${cls}"><td>${label}</td><td>${x.booked}</td><td>${x.sat}</td><td>${x.noShow}</td><td>${x.upcoming}</td><td><b>${rate(x.sitRate)}</b></td><td>${x.closed}</td><td><b>${rate(x.closeRate)}</b></td></tr>`;
+  el.innerHTML = `
+    <div class="sf-label">Cold calling (outbound)</div>
+    <ol class="sf-steps">${steps.map(([k, v, sub], i) => `<li class="${i === steps.length - 1 ? "gold" : ""}"><span>${k}</span><b>${Number(v).toLocaleString()}</b><small>${sub || "&nbsp;"}</small></li>`).join("")}</ol>
+    <div class="sf-ratios">
+      <div><span>Dials to meeting booked</span><b>${pct(o.booked, dials)}</b><small>${every(o.booked, "meeting")}</small></div>
+      <div><span>Dials to meeting sat</span><b>${pct(o.sat, dials)}</b><small>${every(o.sat, "sat meeting")}</small></div>
+      <div><span>Conversations to meeting</span><b>${pct(o.booked, convos)}</b><small>${convos ? `1 meeting every ${o.booked ? Math.round(convos / o.booked) : "-"} conversations` : "No conversations yet"}</small></div>
+      <div><span>Dials to client</span><b>${pct(o.closed, dials)}</b><small>${every(o.closed, "client")}</small></div>
+    </div>
+    <div class="sf-label">Sit rate and close rate by lead source</div>
+    <div class="table-wrap"><table class="sf-table">
+      <thead><tr><th>Source</th><th>Booked</th><th>Sat</th><th>No shows</th><th>Still to come</th><th>Sit rate</th><th>Won</th><th>Close rate</th></tr></thead>
+      <tbody>${srcRow("Outbound", f.outbound)}${srcRow("Inbound", f.inbound)}${srcRow("All meetings", f.all, "sf-total")}</tbody>
+    </table></div>
+    <p class="sf-foot">Sit rate = meetings sat ÷ meetings that have happened (sat + no shows). Close rate = clients won ÷ meetings sat. Set a deal's source to Inbound or Outbound on the deal itself.</p>`;
+}
 function renderStatistics(){
   const grid = $("#stats-summary-grid");
   if (!grid) return;
@@ -8713,6 +8896,8 @@ function renderStatistics(){
     <div class="stat-card"><div class="stat-label">Meetings Booked</div><div class="stat-value">${totals.meetingsBooked}</div><div class="stat-sub">${totals.closedDeals} closed deals</div></div>
     <div class="stat-card"><div class="stat-label">Meeting Conversion</div><div class="stat-value">${meetingRate}%</div><div class="stat-sub">${totals.closedMeetings} closed meetings</div></div>
   `;
+
+  renderSalesFunnel(scope, bounds);
 
   const tbody = $("#stats-breakdown-tbody");
   if (tbody){
@@ -10042,13 +10227,14 @@ function setupModals(){
     const email = $("#book-meeting-email").value.trim();
     const person = $("#book-meeting-assignee").value;
     const stage = $("#book-meeting-stage").value;
+    const source = $("#book-meeting-source")?.value || "outbound";
     const slotIdx = $("#book-meeting-slot-idx").value;
     if (!name) return;
     const btnRect = $("#book-meeting-btn").getBoundingClientRect();
     const x = form.dataset.x ? Number(form.dataset.x) : btnRect.left + btnRect.width/2;
     const y = form.dataset.y ? Number(form.dataset.y) : btnRect.top + btnRect.height/2;
     delete form.dataset.x; delete form.dataset.y;
-    const deal = await bookMeeting(name, phone, person, { company, email, stage });
+    const deal = await bookMeeting(name, phone, person, { company, email, stage, source });
     closeModal("book-meeting-modal");
     if (deal) window.bookMeetingInTracker?.(company || name, x, y, slotIdx);
     if (!IS_CONFIGURED) return; renderAll();
@@ -10064,6 +10250,7 @@ function setupModals(){
     $("#deal-modal-title").textContent = "New Deal";
     $("#deal-date").value = localDayStr();
     $("#deal-value").value = 1500;
+    $("#deal-source").value = "outbound";
     $("#deal-contacts-rows").innerHTML = "";
     addDealContactRow();
     openModal("deal-modal");
@@ -10074,6 +10261,13 @@ function setupModals(){
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
   $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
+  $("#deal-detail-stage")?.addEventListener("change", (e) => { if (state.selectedDealId) changeDealStage(state.selectedDealId, e.target.value); });
+  $("#deal-detail-source")?.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-source]"); const d = state.deals.find(x => x.id === state.selectedDealId);
+    if (!b || !d || dealSource(d) === b.dataset.source) return;
+    await DataLayer.update("deals", d.id, { source: b.dataset.source, updated_at: new Date().toISOString() });
+    renderDeals();
+  });
   $("#deal-contacts-rows")?.addEventListener("click", (e) => {
     const removeBtn = e.target.closest(".dc-remove");
     if (removeBtn) removeBtn.closest(".deal-contact-row")?.remove();
@@ -10096,6 +10290,7 @@ function setupModals(){
       commission_initial_amount: $("#deal-commission").value !== "" ? Number($("#deal-commission").value) : null,
       commission_invoice_date: $("#deal-commission-invoice-date").value || null,
       deal_date: $("#deal-date").value || null,
+      source: $("#deal-source").value || "outbound",
       updated_at: new Date().toISOString(),
     };
     if (!row.title) return;
@@ -10606,6 +10801,7 @@ function setupModals(){
       $("#deal-commission").value = d.commission_initial_amount ?? "";
       $("#deal-commission-invoice-date").value = clientForDeal(d.id)?.ad_start_date || d.commission_invoice_date || "";
       $("#deal-date").value = dealDate(d);
+      $("#deal-source").value = dealSource(d);
       toggleDealContractFields();
       updateDealCommissionVisibility();
       $("#deal-contacts-rows").innerHTML = "";
