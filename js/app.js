@@ -1845,6 +1845,7 @@ async function bookMeeting(name, phone, person, extra={}){
     stage,
     assignee: person || null,
     notes: "",
+    deal_date: localDayStr(),
   });
   return deal;
 }
@@ -1887,8 +1888,13 @@ function renderDeals(){
   }
 }
 const KANBAN_PREVIEW_COUNT = 2;
+// The month a deal belongs to: its deal date, or when it was created.
+const dealDate = (d) => String(d.deal_date || d.created_at || "").slice(0, 10);
+const dealsYm = () => state.dealsMonth || ymOf(localDayStr());
+// The pipeline shows deals dated in or before the month being viewed.
+const pipelineDeals = () => state.deals.filter(d => ymOf(dealDate(d)) <= dealsYm());
 function renderDealStageCol(stage){
-  const deals = state.deals.filter(d => d.stage === stage.key);
+  const deals = pipelineDeals().filter(d => d.stage === stage.key);
   const expanded = !!state.expandedStages[stage.key];
   // Net of rep commission where it's known, same as the pipeline total above
   // the board - a column footer that only ever showed gross was overstating
@@ -1908,7 +1914,7 @@ function renderDealStageCol(stage){
         return `
         <div class="deal-card" draggable="true" data-id="${d.id}" data-action="view-deal">
           <h5>${escapeHtml(d.title)}</h5>
-          <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}</div>
+          <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}${d.deal_date ? ` · ${escapeHtml(new Date(d.deal_date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" }))}` : ""}</div>
           ${extraContacts.length ? `<div class="deal-extra-contacts">${extraContacts.map(dc => `${escapeHtml(dc.role||"Contact")}: ${escapeHtml(dc.name)}`).join(", ")}</div>` : ""}
           <div class="deal-card-foot">
             <span class="deal-value">${dealValueLabel(d)}</span>
@@ -1927,7 +1933,14 @@ function renderDealsList(){
   const board = $("#kanban-board");
   const closedBoard = $("#kanban-board-closed");
   const totalEl = $("#pipeline-total");
-  if (totalEl) totalEl.textContent = fmtMoney(state.deals.filter(d => !CLOSED_STAGES.has(d.stage)).reduce((s,d) => { const net = dealNetValue(d); return s + (net != null ? net : Number(d.value||0)); }, 0));
+  const ym = dealsYm(), thisYm = ymOf(localDayStr());
+  const later = state.deals.filter(d => ymOf(dealDate(d)) > ym && !CLOSED_STAGES.has(d.stage)).length;
+  const mnav = $("#deals-month-nav");
+  if (mnav) mnav.innerHTML = `<button type="button" class="am-nav-btn" data-action="deals-month" data-step="-1" aria-label="Previous month" ${ym <= thisYm ? "disabled" : ""}>‹</button>
+    <span class="am-nav-label"><small>Showing up to</small>${escapeHtml(new Date(ym + "-01T00:00:00").toLocaleDateString("en-NZ", { month: "long", year: "numeric" }))}</span>
+    <button type="button" class="am-nav-btn" data-action="deals-month" data-step="1" aria-label="Next month">›</button>
+    ${later ? `<span class="dl-later">${later} later</span>` : ""}`;
+  if (totalEl) totalEl.textContent = fmtMoney(pipelineDeals().filter(d => !CLOSED_STAGES.has(d.stage)).reduce((s,d) => { const net = dealNetValue(d); return s + (net != null ? net : Number(d.value||0)); }, 0));
   board.innerHTML = STAGES.filter(s => !CLOSED_STAGES.has(s.key)).map(renderDealStageCol).join("");
   // Closed stages are a slim row of drop targets with their count and value;
   // tap one to see its deals underneath.
@@ -1935,7 +1948,7 @@ function renderDealsList(){
     const closed = STAGES.filter(s => CLOSED_STAGES.has(s.key));
     if (state.closedOpen && !closed.some(s => s.key === state.closedOpen)) state.closedOpen = null;
     const chips = closed.map(st => {
-      const ds = state.deals.filter(d => d.stage === st.key);
+      const ds = pipelineDeals().filter(d => d.stage === st.key);
       const val = ds.reduce((s, d) => { const net = dealNetValue(d); return s + (net != null ? net : Number(d.value || 0)); }, 0);
       return `<button type="button" class="kanban-col dl-closed-chip${state.closedOpen === st.key ? " open" : ""}" data-stage="${st.key}" data-action="toggle-closed-stage">
         <span class="dl-closed-label">${escapeHtml({ closed_won: "Won MRR", closed_won_adhoc: "Won adhoc", closed_lost: "Lost" }[st.key] || st.label)}</span><span class="kanban-count">${ds.length}</span>
@@ -9653,6 +9666,7 @@ async function resolveMeetingReview(answer){
     contact_id: null,
     contact_name: attendee,
     notes: `MRR deal auto-created from a calendar meeting (${attendee}).`,
+    deal_date: review.meeting_start ? localDayStr(new Date(review.meeting_start)) : localDayStr(),
     updated_at: new Date().toISOString(),
   };
   const deal = await DataLayer.insert("deals", dealRow);
@@ -9939,6 +9953,7 @@ function setupModals(){
     toggleDealContractFields();
     toggleDealCommissionFields();
     $("#deal-modal-title").textContent = "New Deal";
+    $("#deal-date").value = localDayStr();
     $("#deal-contacts-rows").innerHTML = "";
     addDealContactRow();
     openModal("deal-modal");
@@ -9970,6 +9985,7 @@ function setupModals(){
       assignee: $("#deal-assignee").value || null,
       commission_initial_amount: $("#deal-commission").value !== "" ? Number($("#deal-commission").value) : null,
       commission_invoice_date: $("#deal-commission-invoice-date").value || null,
+      deal_date: $("#deal-date").value || null,
       updated_at: new Date().toISOString(),
     };
     if (!row.title) return;
@@ -10478,6 +10494,7 @@ function setupModals(){
       $("#deal-assignee").value = d.assignee||"";
       $("#deal-commission").value = d.commission_initial_amount ?? "";
       $("#deal-commission-invoice-date").value = clientForDeal(d.id)?.ad_start_date || d.commission_invoice_date || "";
+      $("#deal-date").value = dealDate(d);
       toggleDealContractFields();
       updateDealCommissionVisibility();
       $("#deal-contacts-rows").innerHTML = "";
@@ -10638,6 +10655,11 @@ function setupModals(){
       renderAdsMonth(); renderClients();
       if (next === "live"){ const r = btn.getBoundingClientRect(); if (typeof pbConfetti === "function") pbConfetti(r.left + r.width / 2, r.top, 22); }
       return;
+    }
+    if (action === "deals-month"){
+      const base = new Date(dealsYm() + "-01T00:00:00"); base.setMonth(base.getMonth() + Number(btn.dataset.step));
+      const ym = ymOf(localDayStr(base)); state.dealsMonth = ym <= ymOf(localDayStr()) ? null : ym;
+      renderDealsList(); return;
     }
     if (action === "toggle-closed-stage"){ state.closedOpen = state.closedOpen === btn.dataset.stage ? null : btn.dataset.stage; renderDealsList(); return; }
     if (action === "toggle-churned"){ state.showChurned = !state.showChurned; renderClients(); return; }
