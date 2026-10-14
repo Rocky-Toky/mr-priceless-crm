@@ -6135,6 +6135,7 @@ function rpMonthValues(c){
   return out;
 }
 
+const RP_EARLY_SUMMARY = "Your ads are still in Meta's learning phase, where it works out exactly who your best customers are. In the meantime your brand is getting in front of a lot of local people, the enquiries are coming in, and quotes are building in the pipeline. These first weeks lay the groundwork - the jobs from them land over the coming weeks as quotes come back and the ads keep getting sharper.";
 function openReportModal(clientId, existingId){
   const c = state.clients.find(x => x.id === clientId);
   if (!c) return;
@@ -6158,6 +6159,11 @@ function openReportModal(clientId, existingId){
     rpSet("to", to); rpSet("from", reportFrom(c.id, to));
     rpApplyPrefill(c);
   }
+  // Clients who haven't won a job yet get the early days report by default.
+  const perf = clientPerformance(c);
+  const style = (rpExisting?.metrics || {}).style || (!perf.jobs && !perf.revenue ? "early" : "results");
+  $("#rp-style").value = style;
+  if (style === "early" && !rpVal("summary")) rpSet("summary", RP_EARLY_SUMMARY);
   rpStatus("");
   rpRenderTotals();
   rpRenderGhl(c);
@@ -6334,10 +6340,18 @@ async function makeReport(){
       ],
       contactName: am.account_manager || ASSIGNEES[deal?.assignee]?.label || "", contactPhone: am.phone || "",
     };
-    const bytes = await window.MPReportPDF.build(data);
+    const style = $("#rp-style")?.value || "results";
+    const ads = state.adCreatives.filter(a => a.client_id === c.id && a.result !== "engagement");
+    Object.assign(data, {
+      impressions: ads.reduce((n, a) => n + (Number(a.impressions) || 0), 0),
+      clicks: ads.reduce((n, a) => n + (Number(a.clicks) || 0), 0),
+      leadsToDate: ads.reduce((n, a) => n + (Number(a.results) || 0), 0),
+      adSpendToDate: ads.reduce((n, a) => n + (Number(a.spend) || 0), 0) || t.adSpendToDate,
+    });
+    const bytes = style === "early" ? await window.MPReportPDF.buildEarly(data) : await window.MPReportPDF.build(data);
     // Save this report's numbers so later reports' totals build on them.
     // Both what changed since the last report and the month totals it adds up to.
-    const metrics = { kind: REPORT_KIND, ...Object.fromEntries(REPORT_FIELDS.slice(2).map(k => [k, form[k]])),
+    const metrics = { kind: REPORT_KIND, style, ...Object.fromEntries(REPORT_FIELDS.slice(2).map(k => [k, form[k]])),
       revenueMonth: rev, jobsMonth: jobs, adSpendMonth: spend, mgmtMonth: mv.mgmtMonth, enquiries: enq, quoteReady: ready, quoted, quotesBooked: ready,
       openQuotesCount: Math.max(0, (quoted || 0) - (jobs || 0)),
       report_number: data.reportNumber, revenueToDate: t.revenueToDate, investedToDate: t.investedToDate, roiToDate: t.roiToDate,
