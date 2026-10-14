@@ -2645,3 +2645,51 @@ body.jv-open .jv-fab{display:none;}
 .page-tabs{margin-bottom:18px;}
 .page-tabs button{font-size:13px;}
 .nav-count[hidden]{display:none !important;}
+
+/* Deals: closed stages as a slim row */
+#kanban-board-closed{display:block;}
+.dl-closed-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;}
+.kanban-col.dl-closed-chip{display:flex;flex-direction:row;align-items:center;gap:8px;min-height:0;padding:12px 14px;cursor:pointer;text-align:left;font:inherit;border-radius:14px;}
+.dl-closed-chip .dl-closed-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dl-closed-chip .dl-closed-val{font-size:12.5px;font-weight:700;color:var(--gold-deep);}
+.dl-closed-chip.open{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-soft);}
+.dl-closed-chip.dragover{border-color:var(--gold);background:var(--gold-soft);}
+.dl-closed-open{margin-top:12px;}
+.dl-closed-open .kanban-col{max-width:none;}
+.dl-closed-open .kanban-col > .deal-card{display:inline-block;width:calc(33.33% - 10px);margin-right:10px;vertical-align:top;}
+@media (max-width:900px){ .dl-closed-row{grid-template-columns:1fr 1fr;} .dl-closed-open .kanban-col > .deal-card{width:100%;margin-right:0;} }
+.kanban-col.dl-closed-chip{min-height:0 !important;height:auto;max-height:none;}
+
+/* One-line page summaries (Meetings Booked style) */
+.sum-line{font-size:15px;color:var(--text2);margin-bottom:8px;}
+.sum-line b{color:var(--text);font-size:18px;}
+.sum-warn{color:var(--danger);font-weight:700;}
+.sum-wrap{display:block !important;margin-bottom:18px;}
+#ws-kpis{display:block;margin-bottom:16px;}
+
+/* Workshops: one row per client */
+.wsl-list{padding:4px 0;display:block;overflow:visible;}
+.wsl-row{display:grid;grid-template-columns:minmax(180px,1.4fr) minmax(200px,1.2fr) 140px 130px;gap:14px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);}
+.wsl-row:last-child{border-bottom:0;}
+.wsl-row.is-done{background:rgba(63,125,85,.05);}
+.wsl-who{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.wsl-who .am-client-name{font-size:14.5px;text-align:left;}
+.wsl-who small{font-size:12px;color:var(--text2);}
+.wsl-next{display:flex;align-items:center;gap:8px;min-width:0;}
+.wsl-next span{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);}
+.wsl-next select{flex:1;min-width:0;font:inherit;font-size:13px;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--paper);color:var(--text);}
+.wsl-status{font-size:12.5px;font-weight:700;border-radius:999px;padding:5px 11px;text-align:center;}
+.wsl-status.done{background:var(--success);color:#fff;}
+.wsl-status.due{background:var(--gold-soft);color:var(--gold-deep);}
+@media (max-width:860px){ .wsl-row{grid-template-columns:1fr 1fr;} .wsl-who,.wsl-next{grid-column:1 / -1;} }
+/* Stat-card rows shown as one summary line: "5 open · 1 overdue · 0 due today" */
+.as-line{display:flex !important;flex-wrap:wrap;align-items:baseline;gap:6px 0;margin-bottom:20px !important;grid-template-columns:none !important;}
+.as-line > .stat-card,.as-line > .onb-kpi{display:inline-flex !important;flex-direction:row !important;align-items:baseline;gap:6px;flex:none !important;width:auto !important;max-width:none !important;background:none !important;border:0 !important;box-shadow:none !important;padding:0 !important;min-height:0 !important;}
+.as-line > .stat-card::after,.as-line > .onb-kpi::after{display:none !important;}
+.as-line > .stat-card + .stat-card::before,.as-line > .onb-kpi + .onb-kpi::before{content:"·" !important;display:inline !important;position:static !important;order:-1;margin:0 12px 0 10px;color:#cfc6b2;font-weight:700;background:none !important;width:auto !important;height:auto !important;inset:auto !important;}
+.as-line > :first-child::before{display:none !important;}
+.as-line .stat-value,.as-line .onb-kpi-value{order:0;font-size:19px !important;font-weight:800;color:var(--text) !important;line-height:1.2;letter-spacing:-.01em;margin:0 !important;}
+.as-line > :first-child .stat-value,.as-line > :first-child .onb-kpi-value{font-size:22px !important;}
+.as-line .stat-label,.as-line .onb-kpi-label{order:1;font-size:14px !important;text-transform:lowercase !important;letter-spacing:0 !important;font-weight:500 !important;color:var(--text2) !important;margin:0 !important;white-space:nowrap;}
+.as-line .stat-sub,.as-line .onb-kpi-sub{display:none !important;}
+.as-line .stat-value small,.as-line .onb-kpi-value small{font-size:13px;}

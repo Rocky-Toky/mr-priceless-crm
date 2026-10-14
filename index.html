@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=207">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=207">
+<link rel="stylesheet" href="css/style.css?v=208">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=208">
 </head>
 <body>
 
@@ -602,7 +602,7 @@
         <div><h2>Tasks</h2><p>Set tasks, attach a contact or deal, and keep on top of due dates.</p></div>
         <button class="btn gold" id="add-task-btn">+ Add Task</button>
       </div>
-      <div class="stat-grid">
+      <div class="stat-grid as-line">
         <div class="stat-card"><div class="stat-label">Open</div><div class="stat-value" id="tasks-stat-open">0</div></div>
         <div class="stat-card"><div class="stat-label">Overdue</div><div class="stat-value" id="tasks-stat-overdue">0</div></div>
         <div class="stat-card"><div class="stat-label">Due Today</div><div class="stat-value" id="tasks-stat-today">0</div></div>
@@ -858,7 +858,7 @@
           <div><h2>Clients</h2><p>Track cost per lead, retention, and how every client is tracking.</p></div>
           <button class="btn gold" id="add-client-btn">+ Add Client</button>
         </div>
-        <div class="stat-grid stat-grid-5">
+        <div class="stat-grid as-line stat-grid-5">
           <div class="stat-card"><div class="stat-label">Active Clients</div><div class="stat-value" id="clients-stat-total">0</div><div class="stat-sub" id="clients-stat-total-sub"></div></div>
           <div class="stat-card"><div class="stat-label">Monthly Retainers</div><div class="stat-value" id="clients-stat-mrr">-</div><div class="stat-sub" id="clients-stat-mrr-sub"></div></div>
           <div class="stat-card"><div class="stat-label">Avg Cost Per Lead</div><div class="stat-value" id="clients-stat-cpl">-</div></div>
@@ -1009,7 +1009,7 @@
     <!-- Workshops: monthly consulting sessions with each client -->
     <section class="page" id="page-workshops">
       <div class="page-header">
-        <div><h2>Workshops</h2><p>Once a month we sit down with each client and look at their business. Drag each client to the workshop they need next, and open one to log the session.</p></div>
+        <div><h2>Workshops</h2><p>Once a month we sit down with each client and look at their business. Pick what each client needs next, and log it once it's done.</p></div>
         <div class="ws-tabs" role="group" aria-label="Workshops view">
           <button type="button" class="ws-tab active" data-ws-tab="board" aria-pressed="true">Who needs what</button>
           <button type="button" class="ws-tab" data-ws-tab="library" aria-pressed="false">Workshop library</button>
@@ -1171,7 +1171,7 @@
       <div class="page-header">
         <div><h2>Reporting</h2><p>A report for every client each fortnight, showing how their month is going: revenue won, the 10-quote guarantee, and the return. Make one, then drag the PDF into your email.</p></div>
       </div>
-      <div class="onb-kpis rp-kpis" id="rp-kpis"></div>
+      <div class="onb-kpis rp-kpis as-line" id="rp-kpis"></div>
       <div class="rp-list" id="rp-client-list"></div>
 
       <!-- 90-day plans: switched off for now (PLANS_ENABLED in app.js). -->
@@ -1243,7 +1243,7 @@
         <div><h2>Expenses</h2><p>Track business costs and profit-share income against your MRR.</p></div>
         <button class="btn gold" id="add-expense-btn">+ Add Expense</button>
       </div>
-      <div class="stat-grid stat-grid-5">
+      <div class="stat-grid as-line stat-grid-5">
         <div class="stat-card"><div class="stat-label">Monthly Recurring</div><div class="stat-value" id="stat-expenses-monthly">$0</div></div>
         <div class="stat-card"><div class="stat-label">One-off This Month</div><div class="stat-value" id="stat-expenses-oneoff">$0</div></div>
         <div class="stat-card"><div class="stat-label">Total This Month</div><div class="stat-value" id="stat-expenses-total-month">$0</div></div>
@@ -1296,7 +1296,7 @@
         </div>
       </div>
 
-      <div class="stat-grid">
+      <div class="stat-grid as-line">
         <div class="stat-card"><div class="stat-label">Done</div><div class="stat-value mtr-kpi-done" id="td-kpi-done">0</div><div class="stat-sub" id="td-kpi-done-sub">of 0 tasks</div></div>
         <div class="stat-card"><div class="stat-label">Remaining</div><div class="stat-value" id="td-kpi-left">0</div><div class="stat-sub">to finish</div></div>
         <div class="stat-card"><div class="stat-label">Complete</div><div class="stat-value mtr-kpi-complete" id="td-kpi-rate">0%</div><div class="stat-sub">of this week's list</div></div>
@@ -2603,17 +2603,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=207"></script>
-<script src="js/supabaseClient.js?v=207"></script>
-<script src="js/report-pdf.js?v=207"></script>
-<script src="js/plan-pdf.js?v=207"></script>
-<script src="js/workshop-pdf.js?v=207"></script>
-<script src="js/receipt-pdf.js?v=207"></script>
-<script src="js/welcome-pdf.js?v=207"></script>
-<script src="js/builtin-playbooks.js?v=207"></script>
-<script src="js/builtin-email-templates.js?v=207"></script>
-<script src="js/app.js?v=207"></script>
-<script src="js/meetings-tracker.js?v=207"></script>
-<script src="js/todo.js?v=207"></script>
+<script src="js/config.js?v=208"></script>
+<script src="js/supabaseClient.js?v=208"></script>
+<script src="js/report-pdf.js?v=208"></script>
+<script src="js/plan-pdf.js?v=208"></script>
+<script src="js/workshop-pdf.js?v=208"></script>
+<script src="js/receipt-pdf.js?v=208"></script>
+<script src="js/welcome-pdf.js?v=208"></script>
+<script src="js/builtin-playbooks.js?v=208"></script>
+<script src="js/builtin-email-templates.js?v=208"></script>
+<script src="js/app.js?v=208"></script>
+<script src="js/meetings-tracker.js?v=208"></script>
+<script src="js/todo.js?v=208"></script>
 </body>
 </html>

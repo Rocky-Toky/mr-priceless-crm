@@ -1928,7 +1928,22 @@ function renderDealsList(){
   const totalEl = $("#pipeline-total");
   if (totalEl) totalEl.textContent = fmtMoney(state.deals.filter(d => !CLOSED_STAGES.has(d.stage)).reduce((s,d) => { const net = dealNetValue(d); return s + (net != null ? net : Number(d.value||0)); }, 0));
   board.innerHTML = STAGES.filter(s => !CLOSED_STAGES.has(s.key)).map(renderDealStageCol).join("");
-  if (closedBoard) closedBoard.innerHTML = STAGES.filter(s => CLOSED_STAGES.has(s.key)).map(renderDealStageCol).join("");
+  // Closed stages are a slim row of drop targets with their count and value;
+  // tap one to see its deals underneath.
+  if (closedBoard){
+    const closed = STAGES.filter(s => CLOSED_STAGES.has(s.key));
+    if (state.closedOpen && !closed.some(s => s.key === state.closedOpen)) state.closedOpen = null;
+    const chips = closed.map(st => {
+      const ds = state.deals.filter(d => d.stage === st.key);
+      const val = ds.reduce((s, d) => { const net = dealNetValue(d); return s + (net != null ? net : Number(d.value || 0)); }, 0);
+      return `<button type="button" class="kanban-col dl-closed-chip${state.closedOpen === st.key ? " open" : ""}" data-stage="${st.key}" data-action="toggle-closed-stage">
+        <span class="dl-closed-label">${escapeHtml({ closed_won: "Won MRR", closed_won_adhoc: "Won adhoc", closed_lost: "Lost" }[st.key] || st.label)}</span><span class="kanban-count">${ds.length}</span>
+        <span class="dl-closed-val">${fmtMoney(val)}</span>
+      </button>`;
+    }).join("");
+    const openSt = closed.find(s => s.key === state.closedOpen);
+    closedBoard.innerHTML = `<div class="dl-closed-row">${chips}</div>${openSt ? `<div class="dl-closed-open">${renderDealStageCol(openSt)}</div>` : ""}`;
+  }
   setupDragDrop();
 }
 // Commission by rep, grouped like the Clients gallery - one collapsible
@@ -7657,27 +7672,25 @@ function renderWorkshops(){
   const ours = clients.reduce((s, c) => s + openActions(c, "us").length, 0), theirs = clients.reduce((s, c) => s + openActions(c, "them").length, 0);
   const month = monthNameOf(localDayStr());
   const kpis = $("#ws-kpis");
-  if (kpis) kpis.innerHTML = `
-    <div class="onb-kpi"><span class="onb-kpi-label">Done in ${escapeHtml(month)}</span><span class="onb-kpi-value">${done.length}<small> of ${clients.length}</small></span><span class="onb-kpi-sub">${clients.length - done.length ? `${clients.length - done.length} still to run` : "everyone's had theirs"}</span></div>
-    <div class="onb-kpi ${ours ? "warn" : ""}"><span class="onb-kpi-label">Our open actions</span><span class="onb-kpi-value">${ours}</span><span class="onb-kpi-sub">from past workshops</span></div>
-    <div class="onb-kpi"><span class="onb-kpi-label">Their open actions</span><span class="onb-kpi-value">${theirs}</span><span class="onb-kpi-sub">to check in on next time</span></div>`;
+  if (kpis) kpis.innerHTML = `<div class="sum-line"><b>${done.length} of ${clients.length}</b> workshops done in ${escapeHtml(month)}${ours ? ` · <span class="sum-warn">${ours} open action${ours === 1 ? "" : "s"} on us</span>` : ""}${theirs ? ` · ${theirs} on them` : ""}</div>
+    <div class="am-bar"><i style="width:${clients.length ? Math.round(done.length / clients.length * 100) : 0}%"></i></div>`;
   if (tab === "library"){ renderWorkshopLibrary(); return; }
-  const cols = [{ key: "", label: "Not picked yet", blurb: "Suggested from their numbers" }, ...WORKSHOP_CATS];
-  const nextOf = (c) => { const k = (c.onboarding_progress || {}).workshop_next || ""; return WORKSHOP_MAP[k] ? k : ""; };
-  board.innerHTML = cols.map((col, i) => {
-    const list = clients.filter(c => nextOf(c) === col.key).sort((a, b) => Boolean(doneThisMonth(a)) - Boolean(doneThisMonth(b)) || (a.name || "").localeCompare(b.name || ""));
-    return `
-      <section class="onb-col ws-col" data-stage="${col.key || "none"}" data-ws-cat="${col.key}" aria-label="${escapeHtml(col.label)}">
-        <header class="onb-col-head">
-          <span class="onb-col-num">${i ? WORKSHOP_ICONS[col.key] : "?"}</span>
-          <div><div class="onb-col-title">${escapeHtml(col.label)}${col.upsell ? `<span class="ws-upsell">Upsell</span>` : ""}</div><div class="onb-col-blurb">${escapeHtml(col.blurb)}</div></div>
-          <span class="onb-col-count">${list.length}</span>
-        </header>
-        <div class="onb-col-body">
-          ${boardColumnCards("ws", col.key || "none", list.map(c => workshopCardHtml(c, col.key)))}
-          <div class="onb-drop-hint">${list.length ? "Drop here" : "Drag a client here"}</div>
-        </div>
-      </section>`;
+  // One row per client: what they need next, whether this month's is done, and log it.
+  board.className = "wsl-list card";
+  const sorted = [...clients].sort((a, b) => Boolean(doneThisMonth(a)) - Boolean(doneThisMonth(b)) || (a.name || "").localeCompare(b.name || ""));
+  board.innerHTML = !sorted.length ? emptyState("No workshop clients yet.") : sorted.map(c => {
+    const next = (c.onboarding_progress || {}).workshop_next || "", sug = workshopSuggestion(c), last = workshopsOf(c)[0], thisMonth = doneThisMonth(c);
+    const ours = openActions(c, "us").length, theirs = openActions(c, "them").length;
+    return `<div class="wsl-row${thisMonth ? " is-done" : ""}">
+      <span class="wsl-who"><button type="button" class="am-client-name" data-action="view-client" data-id="${c.id}">${escapeHtml(c.name)}</button>
+        <small>${last ? `Last: ${escapeHtml(WORKSHOP_MAP[last.category]?.label || "Workshop")} · ${escapeHtml(fmtShortDate(last.date))}` : "No workshops yet"}${ours + theirs ? ` · ${ours + theirs} open action${ours + theirs === 1 ? "" : "s"}` : ""}</small></span>
+      <label class="wsl-next"><span>Next</span><select class="wsl-next-select" data-id="${c.id}" aria-label="Next workshop for ${escapeHtml(c.name)}">
+        <option value="" ${!WORKSHOP_MAP[next] ? "selected" : ""}>Suggested: ${escapeHtml(WORKSHOP_MAP[sug.cat]?.label || "")}</option>
+        ${WORKSHOP_CATS.map(w => `<option value="${w.key}" ${w.key === next ? "selected" : ""}>${escapeHtml(w.label)}${w.upsell ? " (upsell)" : ""}</option>`).join("")}
+      </select></label>
+      <span class="wsl-status ${thisMonth ? "done" : "due"}">${thisMonth ? `Done ${escapeHtml(fmtShortDate(thisMonth.date))}` : `Due in ${escapeHtml(month)}`}</span>
+      <button type="button" class="btn ${thisMonth ? "ghost" : "gold"} sm" data-action="ws-open" data-id="${c.id}">${thisMonth ? "Open" : "Log workshop"}</button>
+    </div>`;
   }).join("");
   if (state.wsOpenId) renderWorkshopModal();
 }
@@ -10180,6 +10193,13 @@ function setupModals(){
   $("#vs-email-copy")?.addEventListener("click", async (e) => {
     try { await navigator.clipboard.writeText($("#vs-email-subject").value + "\n\n" + $("#vs-email-body").value); e.target.textContent = "Copied"; setTimeout(() => { e.target.textContent = "Copy email"; }, 1500); } catch(err){}
   });
+  $("#ws-board")?.addEventListener("change", async (e) => {
+    const sel = e.target.closest(".wsl-next-select");
+    if (!sel) return;
+    const c = state.clients.find(x => x.id === sel.dataset.id);
+    if (c) await saveWorkshopProgress(c, { workshop_next: sel.value || null });
+    if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
+  });
   $("#am-root")?.addEventListener("change", async (e) => {
     const inp = e.target.closest(".am-slot-title");
     if (!inp) return;
@@ -10617,6 +10637,7 @@ function setupModals(){
       if (next === "live"){ const r = btn.getBoundingClientRect(); if (typeof pbConfetti === "function") pbConfetti(r.left + r.width / 2, r.top, 22); }
       return;
     }
+    if (action === "toggle-closed-stage"){ state.closedOpen = state.closedOpen === btn.dataset.stage ? null : btn.dataset.stage; renderDealsList(); return; }
     if (action === "toggle-churned"){ state.showChurned = !state.showChurned; renderClients(); return; }
     if (action === "open-onboarding-board"){ const c = state.clients.find(x => normalizeClientStage(x.stage) === "onboarding"); if (c) openOnbModal(c.id); }
     if (action === "creatives-done"){
