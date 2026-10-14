@@ -1479,6 +1479,7 @@ const WORKSPACE_COPY = {
   delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients.", dashboardTitle: "Dashboard", dashboardSub: "Client health and delivery at a glance." },
 };
 function getWorkspace(){ return localStorage.getItem(WORKSPACE_KEY) || "sales"; }
+let workspaceLanded = false;
 function setWorkspace(w){
   try { localStorage.setItem(WORKSPACE_KEY, w); } catch(e){}
   applyWorkspace();
@@ -1516,15 +1517,51 @@ function applyWorkspace(){
   if (dashTitleEl) dashTitleEl.textContent = copy.dashboardTitle;
   if (dashSubEl) dashSubEl.textContent = copy.dashboardSub;
   // If the page we're on isn't part of this workspace, fall back to Dashboard.
+  // Each workspace opens on its main page: Meetings Booked, or Clients.
+  const landing = ws === "delivery" ? "clients" : "cold-calls";
   const pageBtns = $$(`.nav-item[data-page="${state.page}"]`);
-  if (pageBtns.length && !pageBtns.some(b => b.dataset.workspace === "both" || b.dataset.workspace === ws)){
-    $(`.nav-item[data-page="dashboard"][data-workspace="${ws}"]`)?.click();
+  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => b.dataset.workspace === "both" || b.dataset.workspace === ws))){
+    workspaceLanded = true;
+    $(`.nav-item[data-page="${landing}"]`)?.click();
   }
-  if (state.page === "lead-engine" && !canAccessLeadEngine()){
-    $('.nav-item[data-page="dashboard"]')?.click();
-  }
+  if (state.page === "lead-engine" && !canAccessLeadEngine()) goPage(landing);
+}
+// Pages that live together under one menu item, switched with tabs at the top.
+const PAGE_GROUPS = {
+  stats: [["dashboard", "Overview"], ["statistics", "Team"], ["commission", "Commission"]],
+  tasks: [["todo", "This week"], ["tasks", "All tasks"]],
+  library: [["playbooks", "Playbooks"], ["email-templates", "Email templates"], ["rules", "Rules"]],
+  finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
+  ads: [["ads-month", "This month"], ["content-library", "Video scripts"]],
+};
+const groupOfPage = (page) => Object.keys(PAGE_GROUPS).find(g => PAGE_GROUPS[g].some(([p]) => p === page)) || null;
+function goPage(page){ $(`.nav-item[data-page="${page}"]`)?.click(); }
+function lastTabOf(group){
+  let p = null; try { p = localStorage.getItem("mp_tab_" + group); } catch(e){}
+  return PAGE_GROUPS[group].some(([x]) => x === p) ? p : PAGE_GROUPS[group][0][0];
+}
+// Tabs on every page in a group, and the group's menu item lit up.
+function syncPageGroup(){
+  const g = groupOfPage(state.page);
+  $$(".nav-group-item").forEach(b => b.classList.toggle("active", b.dataset.group === g));
+  if (!g) return;
+  try { localStorage.setItem("mp_tab_" + g, state.page); } catch(e){}
+  $$(".page-tabs").forEach(t => t.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.goto === state.page)));
+}
+function setupPageGroups(){
+  Object.entries(PAGE_GROUPS).forEach(([g, pages]) => pages.forEach(([page]) => {
+    const sec = $("#page-" + page), head = sec?.querySelector(".page-header");
+    if (!sec || sec.querySelector(".page-tabs")) return;
+    const tabs = document.createElement("div");
+    tabs.className = "page-tabs country-toggle";
+    tabs.innerHTML = pages.map(([p, label]) => `<button type="button" data-goto="${p}">${escapeHtml(label)}</button>`).join("");
+    tabs.addEventListener("click", (e) => { const b = e.target.closest("[data-goto]"); if (b) goPage(b.dataset.goto); });
+    sec.insertBefore(tabs, head || sec.firstChild);
+  }));
+  $$(".nav-group-item").forEach(b => b.addEventListener("click", () => goPage(lastTabOf(b.dataset.group))));
 }
 function setupNav(){
+  setupPageGroups();
   $("#workspace-select")?.addEventListener("change", (e) => setWorkspace(e.target.value));
   $("#coverage-industry-select")?.addEventListener("change", (e) => { state.coverageIndustry = e.target.value; renderRegionCoverage(); });
   $$(".nav-item[data-page]").forEach(btn => {
@@ -1534,6 +1571,7 @@ function setupNav(){
       $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));
       $$(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + state.page));
       showJarvisFab();
+      syncPageGroup();
       $$(".nav-dropdown.open").forEach(d => d.classList.remove("open"));
     });
   });
