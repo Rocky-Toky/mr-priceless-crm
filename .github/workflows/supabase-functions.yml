@@ -27,6 +27,7 @@ on:
       - "sql/057_nurture_and_jarvis.sql"
       - "sql/058_client_industry.sql"
       - "sql/059_deal_date.sql"
+      - "sql/060_team_and_defaults.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
 
@@ -59,7 +60,7 @@ jobs:
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
