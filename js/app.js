@@ -1893,6 +1893,47 @@ const dealDate = (d) => String(d.deal_date || d.created_at || "").slice(0, 10);
 const dealsYm = () => state.dealsMonth || ymOf(localDayStr());
 // The pipeline shows deals dated in or before the month being viewed.
 const pipelineDeals = () => state.deals.filter(d => ymOf(dealDate(d)) <= dealsYm());
+// The calendar button on a deal card: pick a month and the deal moves there.
+let dmpDealId = null, dmpYear = null;
+function openDealMonthPicker(btn){
+  const d = state.deals.find(x => x.id === btn.dataset.id);
+  if (!d) return;
+  let pop = $("#deal-month-pop");
+  if (!pop){
+    pop = document.createElement("div");
+    pop.id = "deal-month-pop"; pop.className = "dmp";
+    document.body.appendChild(pop);
+    pop.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const yr = e.target.closest("[data-dmp-year]");
+      if (yr){ dmpYear += Number(yr.dataset.dmpYear); renderDealMonthPicker(); return; }
+      const m = e.target.closest("[data-dmp-month]");
+      if (!m || !dmpDealId) return;
+      const id = dmpDealId; closeDealMonthPicker();
+      await DataLayer.update("deals", id, { deal_date: `${dmpYear}-${m.dataset.dmpMonth}-01`, updated_at: new Date().toISOString() });
+      if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); } else renderDealsList();
+    });
+    document.addEventListener("click", (e) => { if (!e.target.closest("#deal-month-pop, .deal-month-btn")) closeDealMonthPicker(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDealMonthPicker(); });
+    window.addEventListener("scroll", closeDealMonthPicker, { passive: true });
+  }
+  if (dmpDealId === d.id && !pop.hidden){ closeDealMonthPicker(); return; }
+  dmpDealId = d.id; dmpYear = Number(dealDate(d).slice(0, 4)) || new Date().getFullYear();
+  renderDealMonthPicker();
+  pop.hidden = false;
+  const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + "px";
+  pop.style.top = (r.bottom + h + 8 < innerHeight ? r.bottom + 6 : r.top - h - 6) + "px";
+}
+function renderDealMonthPicker(){
+  const pop = $("#deal-month-pop"), d = state.deals.find(x => x.id === dmpDealId);
+  if (!pop || !d) return;
+  const cur = ymOf(dealDate(d)), now = ymOf(localDayStr());
+  pop.innerHTML = `<div class="dmp-head"><button type="button" data-dmp-year="-1" aria-label="Previous year">‹</button><b>${dmpYear}</b><button type="button" data-dmp-year="1" aria-label="Next year">›</button></div>
+    <div class="dmp-grid">${Array.from({ length: 12 }, (_, i) => { const mm = String(i + 1).padStart(2, "0"), ym = `${dmpYear}-${mm}`;
+      return `<button type="button" data-dmp-month="${mm}" class="${ym === cur ? "is-cur" : ""}${ym === now ? " is-now" : ""}">${new Date(2000, i, 1).toLocaleDateString("en-NZ", { month: "short" })}</button>`; }).join("")}</div>`;
+}
+function closeDealMonthPicker(){ const pop = $("#deal-month-pop"); if (pop) pop.hidden = true; dmpDealId = null; }
 function renderDealStageCol(stage){
   const deals = pipelineDeals().filter(d => d.stage === stage.key);
   const expanded = !!state.expandedStages[stage.key];
@@ -1914,13 +1955,13 @@ function renderDealStageCol(stage){
         return `
         <div class="deal-card" draggable="true" data-id="${d.id}" data-action="view-deal">
           <h5>${escapeHtml(d.title)}</h5>
-          <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}${d.deal_date ? ` · ${escapeHtml(new Date(d.deal_date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" }))}` : ""}</div>
+          <div class="deal-contact">${escapeHtml(d.contact_name||"No contact")}${d.deal_date ? ` · ${escapeHtml(new Date(d.deal_date + "T00:00:00").toLocaleDateString("en-NZ", { month: "short", year: "numeric" }))}` : ""}</div>
           ${extraContacts.length ? `<div class="deal-extra-contacts">${extraContacts.map(dc => `${escapeHtml(dc.role||"Contact")}: ${escapeHtml(dc.name)}`).join(", ")}</div>` : ""}
           <div class="deal-card-foot">
             <span class="deal-value">${dealValueLabel(d)}</span>
             ${d.assignee && ASSIGNEES[d.assignee] ? `<span class="badge ${ASSIGNEES[d.assignee].cls}">${ASSIGNEES[d.assignee].label}</span>` : ""}
             ${callButtonHtml(primaryContact?.phone, primaryContact?.name || d.contact_name)}
-            <button class="icon-btn" data-action="delete-deal" data-id="${d.id}" title="Delete">${ICONS.trash}</button>
+            <button class="icon-btn deal-month-btn" data-action="deal-month-pick" data-id="${d.id}" title="Move to a month">${ICONS.calendar}</button>
           </div>
           ${netValue != null ? `<div class="deal-net-value">Net ${fmtMoney(netValue)}/mo after ${fmtMoney(d.commission_initial_amount)} commission</div>` : ""}
         </div>
@@ -10656,6 +10697,7 @@ function setupModals(){
       if (next === "live"){ const r = btn.getBoundingClientRect(); if (typeof pbConfetti === "function") pbConfetti(r.left + r.width / 2, r.top, 22); }
       return;
     }
+    if (action === "deal-month-pick"){ e.stopPropagation(); openDealMonthPicker(btn); return; }
     if (action === "deals-month"){
       const base = new Date(dealsYm() + "-01T00:00:00"); base.setMonth(base.getMonth() + Number(btn.dataset.step));
       const ym = ymOf(localDayStr(base)); state.dealsMonth = ym <= ymOf(localDayStr()) ? null : ym;
