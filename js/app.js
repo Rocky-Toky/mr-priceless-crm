@@ -28,8 +28,9 @@ const STAGES = [
   { key: "closed_lost", label: "Closed Lost" },
   { key: "disqualified", label: "Disqualified" },
   { key: "ghosted", label: "Ghosted" },
+  { key: "churned", label: "Churned" },
 ];
-const CLOSED_STAGES = new Set(["closed_won", "closed_won_adhoc", "closed_lost", "disqualified", "ghosted"]);
+const CLOSED_STAGES = new Set(["closed_won", "closed_won_adhoc", "closed_lost", "disqualified", "ghosted", "churned"]);
 // Closed Won Adhoc = one-off jobs. They count as wins everywhere (win rate,
 // stats) but never as MRR, and stay out of Commission / auto-Client creation.
 const ADHOC_STAGE = "closed_won_adhoc";
