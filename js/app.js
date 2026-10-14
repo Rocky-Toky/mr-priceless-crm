@@ -4331,6 +4331,51 @@ function clientQuoteStats(c){
     since, lastPaid, hasReports: reps.length > 0 || allQuotes > 0 || allSpend > 0,
   };
 }
+// The top of a client's profile, kept to what matters: three big numbers,
+// one line of context, and this month's three jobs (ads, workshop, report).
+function renderClientProfileTop(c, qs){
+  const big = $("#cp-big"), sub = $("#cp-subline"), month = $("#cp-month");
+  if (!big) return;
+  const stage = normalizeClientStage(c.stage), isQG = stage === "quote_guarantee" && c.quote_target;
+  const perf = clientPerformance(c), x = perfRatios(perf);
+  const sent = Number(c.quotes_sent || 0);
+  big.innerHTML = `
+    <div class="cp-bigstat"><span>Cost per quote</span><b>${qs.cpq != null ? fmtMoney(qs.cpq) : "-"}</b><small>${qs.cpq != null ? `${qs.quotes} quote${qs.quotes === 1 ? "" : "s"} all-time` : escapeHtml(qs.missing || "")}</small></div>
+    <div class="cp-bigstat"><span>${isQG ? "Quote guarantee" : "Quotes"}</span>
+      <b>${isQG ? `${sent}<small>/${c.quote_target}</small>` : qs.quotes}</b>
+      <small class="cp-steps">${isQG ? `${Math.max(0, c.quote_target - sent)} to go` : `${qs.month} this month`}
+        <button type="button" class="cp-step" data-action="quote-decrement" title="Take one off">−</button><button type="button" class="cp-step" data-action="quote-increment" title="Add a quote">+</button></small></div>
+    <div class="cp-bigstat"><span>Cost per lead</span><b>${x.cpl != null ? fmtMoney(x.cpl) : (c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "-")}</b><small>${perf.leads ? `${perf.leads} leads` : "from Meta"}</small></div>`;
+  const live = runningCampaignsFor(c.id).length, total = campaignsFor(c.id).length;
+  sub.innerHTML = [
+    c.monthly_ad_spend ? `${fmtMoney(c.monthly_ad_spend)}/mo ad spend` : "",
+    total ? `${live} of ${total} campaigns live` : "",
+    perf.revenue ? `${fmtMoney(perf.revenue)} revenue won` : "",
+    x.roi ? `${fmtTimes(x.roi)} return` : "",
+  ].filter(Boolean).map(escapeHtml).join(" · ");
+  if (!month) return;
+  if (!["quote_guarantee", "live", "at_risk"].includes(stage)){ month.innerHTML = ""; return; }
+  const am = amClientProgress(c), wsDone = isWorkshopClient(c) ? doneThisMonth(c) : null, due = reportDueInfo(c);
+  const mName = monthNameOf(localDayStr());
+  month.innerHTML = `
+    <div class="cp-tile">
+      <div class="cp-tile-head"><span>Ads in ${escapeHtml(mName)}</span><b>${am.live}/3 live</b></div>
+      <div class="cp-tile-ads">${am.slots.map(s => { const look = AM_LOOK[s.status] || AM_LOOK[""]; return `<button type="button" class="am-box am-${look.cls}${s.late ? " is-late" : ""}" data-action="am-tap" data-id="${c.id}" data-slot="${s.key}" title="${escapeHtml(s.label)} - tap to change">${escapeHtml(s.kind === "video" ? "Video" : s.label.replace("Static ad ", "Static "))}</button>`; }).join("")}</div>
+    </div>
+    <div class="cp-tile">
+      <div class="cp-tile-head"><span>Workshop</span><b class="${wsDone ? "ok" : ""}">${wsDone ? `Done ${escapeHtml(fmtShortDate(wsDone.date))}` : "Due this month"}</b></div>
+      ${isWorkshopClient(c) ? `<button type="button" class="btn ${wsDone ? "ghost" : "gold"} sm" data-action="ws-open" data-id="${c.id}">${wsDone ? "Open" : "Log workshop"}</button>` : `<small class="cp-tile-note">No monthly workshop for this client</small>`}
+    </div>
+    <div class="cp-tile">
+      <div class="cp-tile-head"><span>Report</span><b class="${due.due ? "" : "ok"}">${escapeHtml(due.label)}</b></div>
+      <button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make report</button>
+    </div>`;
+}
+function setCpTab(tab){
+  state.cpTab = tab;
+  $$("#cp-tabs [data-cp-tab]").forEach(b => b.classList.toggle("active", b.dataset.cpTab === tab));
+  $$("[data-cp-pane]").forEach(p => { p.hidden = p.dataset.cpPane !== tab; });
+}
 function renderClientProfileExtras(c){
   const since = c.signed_at || (c.onboarding_progress || {}).signed_at || c.created_at;
   const sinceEl = $("#cp-since");
@@ -4399,6 +4444,7 @@ function renderClientProfileExtras(c){
   }
 
   // Reports and 90-day plan
+  renderClientProfileTop(c, qs);
   const repEl = $("#cp-reports");
   if (repEl){
     const due = reportDueInfo(c), plan = planInfo(c);
@@ -10259,6 +10305,7 @@ function setupModals(){
     if (c) await saveWorkshopProgress(c, { workshop_next: sel.value || null });
     if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
   });
+  $("#cp-tabs")?.addEventListener("click", (e) => { const b = e.target.closest("[data-cp-tab]"); if (b) setCpTab(b.dataset.cpTab); });
   $("#am-root")?.addEventListener("change", async (e) => {
     const inp = e.target.closest(".am-slot-title");
     if (!inp) return;
