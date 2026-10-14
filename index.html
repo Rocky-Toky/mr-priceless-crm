@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=208">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=208">
+<link rel="stylesheet" href="css/style.css?v=209">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=209">
 </head>
 <body>
 
@@ -195,9 +195,9 @@
         <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="6" cy="5" r="1.7"/><circle cx="12" cy="5" r="1.7"/><circle cx="18" cy="5" r="1.7"/><circle cx="6" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18" cy="12" r="1.7"/><circle cx="6" cy="19" r="1.7"/><circle cx="12" cy="19" r="1.7"/><circle cx="18" cy="19" r="1.7"/></svg>
         <span>Dialler</span>
       </button>
-      <button class="nav-item" data-page="deals" data-workspace="sales">
+      <button type="button" class="nav-item nav-group-item" data-group="deals" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-        <span>Deals</span>
+        <span>Deals</span><span class="nav-count" id="nav-nurture-count" hidden title="Nurture emails due"></span>
       </button>
       <button class="nav-item" data-page="lead-engine" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
@@ -295,6 +295,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg>
         <span>Content Library</span>
       </button>
+      <button class="nav-item nav-hidden" data-page="deals" data-workspace="sales">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        <span>Deals</span>
+      </button>
+      <button class="nav-item nav-hidden" data-page="nurture" data-workspace="sales"><span>Nurture</span></button>
     </nav>
     <div class="sidebar-footer">
       <div class="user-chip">
@@ -525,13 +530,6 @@
         <div class="kanban-closed-divider">Closed</div>
         <div class="kanban kanban-closed" id="kanban-board-closed"></div>
 
-        <section class="nr-section" id="nurture-section">
-          <header class="nr-head">
-            <div><h3>Nurture</h3><p>Every Closed Lost and Ghosted deal gets a 6-month email sequence, one every two weeks, then a re-engage call at six months.</p></div>
-            <div class="nr-kpis" id="nurture-kpis"></div>
-          </header>
-          <div class="nr-list" id="nurture-list"></div>
-        </section>
       </div>
 
       <div id="deal-detail-view" style="display:none;">
@@ -582,6 +580,19 @@
           <div class="card-body" id="deal-detail-activity" style="padding-bottom:16px;">-</div>
         </div>
       </div>
+    </section>
+
+    <!-- Nurture: lost and ghosted deals on their 6-month email sequence -->
+    <section class="page" id="page-nurture">
+      <div class="page-header">
+        <div><h2>Nurture</h2><p>Every Closed Lost and Ghosted deal gets an email every two weeks for six months, then a re-engage call.</p></div>
+      </div>
+      <section class="nr-section" id="nurture-section">
+          <header class="nr-head">
+            <div class="nr-kpis" id="nurture-kpis"></div>
+          </header>
+          <div class="nr-list" id="nurture-list"></div>
+        </section>
     </section>
 
     <!-- Commission -->
@@ -2603,17 +2614,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=208"></script>
-<script src="js/supabaseClient.js?v=208"></script>
-<script src="js/report-pdf.js?v=208"></script>
-<script src="js/plan-pdf.js?v=208"></script>
-<script src="js/workshop-pdf.js?v=208"></script>
-<script src="js/receipt-pdf.js?v=208"></script>
-<script src="js/welcome-pdf.js?v=208"></script>
-<script src="js/builtin-playbooks.js?v=208"></script>
-<script src="js/builtin-email-templates.js?v=208"></script>
-<script src="js/app.js?v=208"></script>
-<script src="js/meetings-tracker.js?v=208"></script>
-<script src="js/todo.js?v=208"></script>
+<script src="js/config.js?v=209"></script>
+<script src="js/supabaseClient.js?v=209"></script>
+<script src="js/report-pdf.js?v=209"></script>
+<script src="js/plan-pdf.js?v=209"></script>
+<script src="js/workshop-pdf.js?v=209"></script>
+<script src="js/receipt-pdf.js?v=209"></script>
+<script src="js/welcome-pdf.js?v=209"></script>
+<script src="js/builtin-playbooks.js?v=209"></script>
+<script src="js/builtin-email-templates.js?v=209"></script>
+<script src="js/app.js?v=209"></script>
+<script src="js/meetings-tracker.js?v=209"></script>
+<script src="js/todo.js?v=209"></script>
 </body>
 </html>

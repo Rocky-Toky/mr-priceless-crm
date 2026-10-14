@@ -2693,3 +2693,4 @@ body.jv-open .jv-fab{display:none;}
 .as-line .stat-label,.as-line .onb-kpi-label{order:1;font-size:14px !important;text-transform:lowercase !important;letter-spacing:0 !important;font-weight:500 !important;color:var(--text2) !important;margin:0 !important;white-space:nowrap;}
 .as-line .stat-sub,.as-line .onb-kpi-sub{display:none !important;}
 .as-line .stat-value small,.as-line .onb-kpi-value small{font-size:13px;}
+#page-nurture .nr-head{justify-content:flex-start;margin-top:0;}
