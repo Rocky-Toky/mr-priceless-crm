@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=212">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=212">
+<link rel="stylesheet" href="css/style.css?v=213">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=213">
 </head>
 <body>
 
@@ -2167,6 +2167,13 @@
       <button class="modal-close" data-close="report-modal" aria-label="Close">&times;</button>
     </div>
     <form class="modal-body rp-form" id="report-form">
+      <div class="rp-style">
+        <label for="rp-style">Report style</label>
+        <select id="rp-style">
+          <option value="results">Results - revenue, return and the quote guarantee</option>
+          <option value="early">Early days - no jobs yet: learning phase, brand awareness and the pipeline</option>
+        </select>
+      </div>
       <div class="rp-section">
         <div class="rp-section-head"><h4>Since the last report</h4><div class="rp-ghl" id="rp-ghl"></div></div>
         <p class="rp-since" id="rp-since-note"></p>
@@ -2625,17 +2632,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=212"></script>
-<script src="js/supabaseClient.js?v=212"></script>
-<script src="js/report-pdf.js?v=212"></script>
-<script src="js/plan-pdf.js?v=212"></script>
-<script src="js/workshop-pdf.js?v=212"></script>
-<script src="js/receipt-pdf.js?v=212"></script>
-<script src="js/welcome-pdf.js?v=212"></script>
-<script src="js/builtin-playbooks.js?v=212"></script>
-<script src="js/builtin-email-templates.js?v=212"></script>
-<script src="js/app.js?v=212"></script>
-<script src="js/meetings-tracker.js?v=212"></script>
-<script src="js/todo.js?v=212"></script>
+<script src="js/config.js?v=213"></script>
+<script src="js/supabaseClient.js?v=213"></script>
+<script src="js/report-pdf.js?v=213"></script>
+<script src="js/plan-pdf.js?v=213"></script>
+<script src="js/workshop-pdf.js?v=213"></script>
+<script src="js/receipt-pdf.js?v=213"></script>
+<script src="js/welcome-pdf.js?v=213"></script>
+<script src="js/builtin-playbooks.js?v=213"></script>
+<script src="js/builtin-email-templates.js?v=213"></script>
+<script src="js/app.js?v=213"></script>
+<script src="js/meetings-tracker.js?v=213"></script>
+<script src="js/todo.js?v=213"></script>
 </body>
 </html>

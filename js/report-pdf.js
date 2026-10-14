@@ -325,5 +325,154 @@ async function build(data){
   return pdf.save();
 }
 
-window.MPReportPDF = { build, makeKit, C, LIGHT, W, H, M, hex, has, money, num };
+/* ───────── Early days report ─────────
+   For clients who haven't won a job yet. Instead of leading with revenue and
+   return, it shows what's actually happening early on: Meta's learning
+   phase and how far through it they are, how many people have seen their
+   brand, and the enquiries and quotes building in the pipeline. */
+async function buildEarly(data){
+  const C = LIGHT;
+  const { pdf, F, width, text, label, wrap, box, hr, drawLogo } = await makeKit({ palette: LIGHT });
+  const newPage = (n) => {
+    const page = pdf.addPage([W, H]);
+    page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: hex(C.bg) });
+    drawLogo(page, M, H - 64, 34);
+    label(page, "Early results report", W - M, H - 44, { align: "right", color: C.gold, size: 7, ls: 1.6 });
+    text(page, `Report ${data.reportNumber} · ${data.periodLabel}`, W - M, H - 57, { align: "right", size: 8.5, color: C.muted });
+    hr(page, M, W - M, H - 70, C.gold2, 0.9);
+    hr(page, M, W - M, 42, C.line);
+    text(page, `Questions? ${[data.contactName, data.contactPhone].filter(Boolean).join(" · ") || "Your account manager"} · mrpriceless.com`, M, 28, { size: 7.5, color: C.dim, maxWidth: 400 });
+    text(page, `Confidential · Page ${n} of 2`, W - M, 28, { size: 7.5, color: C.dim, align: "right" });
+    return page;
+  };
+  const CW = W - 2 * M;
+  const p1 = newPage(1);
+  label(p1, "Prepared for", M, H - 96);
+  text(p1, data.clientName || "Client", M, H - 128, { f: F.d7, size: 28, maxWidth: CW });
+
+  // Hero: Meta's learning phase, and how far through it they are.
+  const LEARN = 50, results = Math.max(0, Number(data.leadsToDate) || 0), pctL = Math.min(1, results / LEARN);
+  const heroH = 178, heroY = H - 150 - heroH;
+  box(p1, M, heroY, CW, heroH, { fill: C.tint, stroke: C.gold3, bw: 1 });
+  label(p1, "Where we're at", M + 22, heroY + heroH - 28, { color: C.gold });
+  const stage = pctL >= 1 ? "Out of the learning phase" : pctL >= 0.5 ? "Learning phase - past halfway" : "Learning phase - early days";
+  text(p1, stage, M + 22, heroY + heroH - 56, { f: F.d7, size: 22 });
+  const blurb = pctL >= 1
+    ? "Meta has enough data now to find the right people for you. From here the focus is turning that attention into booked jobs, and costs should keep coming down."
+    : `Meta needs around ${LEARN} results to learn who your best customers are. Until then it's testing who to show your ads to, so costs swing around and come down as it learns. We're at ${results} of ${LEARN}.`;
+  wrap(F.r, blurb, 10, CW - 44).slice(0, 3).forEach((ln, i) => text(p1, ln, M + 22, heroY + heroH - 78 - i * 14, { size: 10, color: C.soft }));
+  // Learning bar with the three phases under it.
+  const bx = M + 22, bw = CW - 44, by = heroY + 44;
+  box(p1, bx, by, bw, 12, { fill: C.panel2, r: 6 });
+  if (pctL > 0) box(p1, bx, by, Math.max(12, bw * pctL), 12, { fill: C.gold, r: 6 });
+  [["Learning", 0], ["Optimising", 0.5], ["Scaling", 1]].forEach(([n, at], i) => {
+    const x = bx + bw * at;
+    text(p1, n, i === 0 ? x : i === 2 ? x : x, by - 16, { size: 8.5, f: F.sb, color: C.muted, align: i === 0 ? "left" : i === 2 ? "right" : "center" });
+  });
+  text(p1, `${results} / ${LEARN} results`, bx + bw, by + 20, { size: 8.5, f: F.b, color: C.gold, align: "right" });
+
+  // Brand awareness: people seeing and clicking.
+  let y = heroY - 30;
+  text(p1, "Your brand is getting seen", M, y, { f: F.d7, size: 16 });
+  text(p1, "All-time, from Meta", W - M, y + 2, { size: 8, color: C.muted, align: "right" });
+  y -= 16;
+  const imps = Number(data.impressions) || 0, clicks = Number(data.clicks) || 0, spend = Number(data.adSpendToDate) || 0;
+  const tiles = [
+    [num(imps), "times seen", "Every one of those is a local seeing your name and your work."],
+    [num(clicks), "clicks through", "People interested enough to look closer."],
+    [imps ? (clicks / imps * 100).toFixed(1) + "%" : "-", "click-through rate", "Above 1% means the ads are catching attention."],
+    [imps && spend ? money2(spend / imps * 1000) : "-", "per 1,000 views", "What it costs to put your brand in front of 1,000 people."],
+  ];
+  const tW = (CW - 36) / 4, tH = 104;
+  tiles.forEach(([v, l, s], i) => {
+    const x = M + i * (tW + 12);
+    box(p1, x, y - tH, tW, tH, { fill: C.panel, stroke: C.line });
+    text(p1, v, x + 14, y - 34, { f: F.d7, size: 20, color: i === 0 ? C.gold : C.text, maxWidth: tW - 24 });
+    text(p1, l, x + 14, y - 50, { f: F.sb, size: 8.8, color: C.text, maxWidth: tW - 24 });
+    wrap(F.r, s, 7.8, tW - 26).slice(0, 3).forEach((ln, j) => text(p1, ln, x + 14, y - 66 - j * 10.5, { size: 7.8, color: C.muted }));
+  });
+  y -= tH + 30;
+
+  // The pipeline building up.
+  text(p1, "The pipeline is building", M, y, { f: F.d7, size: 16 });
+  text(p1, `${data.monthName} so far`, W - M, y + 2, { size: 8, color: C.muted, align: "right" });
+  y -= 16;
+  const enq = Number(data.enquiries) || 0, qb = Number(data.quoteReady) || 0, qs = Number(data.quoted) || 0;
+  const pipe = [
+    [num(enq), "enquiries", data.adSpendMonth && enq ? `${money(Number(data.adSpendMonth) / enq)} each` : ""],
+    [num(qb), "quotes booked", "site visits and quotes in the calendar"],
+    [num(qs), "quotes sent", qs ? "waiting on a decision" : "on their way"],
+  ];
+  const pW = (CW - 24) / 3, pH = 76;
+  pipe.forEach(([v, l, s], i) => {
+    const x = M + i * (pW + 12);
+    box(p1, x, y - pH, pW, pH, { fill: i === 1 ? C.tint : C.panel, stroke: i === 1 ? C.gold3 : C.line });
+    text(p1, v, x + 16, y - 34, { f: F.d8, size: 24, color: i === 1 ? C.gold : C.text });
+    text(p1, l, x + 16, y - 50, { f: F.sb, size: 9.5 });
+    if (s) text(p1, s, x + 16, y - 63, { size: 8, color: C.muted, maxWidth: pW - 28 });
+  });
+  y -= pH + 18;
+  wrap(F.r, "Quotes turn into jobs over the following weeks. Most of the work won from these first months shows up a little later, once quotes come back and the ads are fully trained.", 8.8, CW).forEach((ln, i) => text(p1, ln, M, y - i * 12, { size: 8.8, color: C.muted }));
+
+  /* Page 2: the story, what's next, and why early results look like this */
+  const p2 = newPage(2);
+  y = H - 108;
+  text(p2, `${data.monthName} so far, in plain English`, M, y, { f: F.d7, size: 21 });
+  y -= 22;
+  if (data.summary){
+    const lines = wrap(F.r, data.summary, 10.5, CW);
+    lines.forEach((ln, i) => text(p2, ln, M, y - i * 15.5, { size: 10.5, color: C.soft }));
+    y -= lines.length * 15.5 + 12;
+  }
+  const did = (data.didList || []).filter(Boolean), next = (data.nextList || []).filter(Boolean);
+  if (did.length || next.length){
+    const colW = (CW - 24) / 2;
+    const col = (title, items, x) => {
+      label(p2, title, x, y, { color: C.gold });
+      hr(p2, x, x + colW, y - 8);
+      let cy = y - 26;
+      items.forEach((it, i) => {
+        text(p2, String(i + 1).padStart(2, "0"), x, cy, { f: F.d8, size: 11, color: C.gold });
+        const lines = wrap(F.r, it, 9.5, colW - 30);
+        lines.forEach((ln, j) => text(p2, ln, x + 28, cy - j * 13.5, { size: 9.5, color: C.soft }));
+        cy -= Math.max(1, lines.length) * 13.5 + 9;
+      });
+      return cy;
+    };
+    y = Math.min(col("What we did", did, M), col("What's next", next, M + colW + 24)) - 10;
+  }
+  if (data.topAd){
+    const aH = 92, aY = y - aH;
+    box(p2, M, aY, CW, aH, { fill: C.panel, stroke: C.line });
+    label(p2, "Your best ad so far", M + 18, aY + aH - 26, { color: C.gold });
+    text(p2, data.topAd.name || "", M + 18, aY + aH - 48, { f: F.d7, size: 15, maxWidth: CW * 0.55 });
+    const st = [[num(data.topAd.leads), "leads"], [money2(data.topAd.cpl), "per lead"]];
+    st.forEach(([v, l], i) => { const x = M + CW * 0.62 + i * CW * 0.19; text(p2, v, x, aY + 40, { f: F.d7, size: 19, color: C.gold }); text(p2, l, x, aY + 26, { size: 8.5, color: C.muted }); });
+    y = aY - 22;
+  }
+  // The honest bit, for the early months.
+  const honest = [
+    ["The first weeks are Meta learning.", "It tests your ads on different people to find who actually enquires. Costs are higher and results bounce around until it has enough data."],
+    ["Brand awareness compounds.", "People often see an ad several times before they reach out. Today's views are next month's enquiries, and they'll recognise your name when they do."],
+    ["Quotes take time to turn into jobs.", "Most people get a few quotes and take a week or two to decide. The jobs from this month's quotes land over the coming weeks."],
+    ["Speed and follow-up win it.", "Getting back to every enquiry fast, and following up quotes after a few days, is what turns this pipeline into work."],
+  ];
+  const rows = honest.map(([, b]) => Math.max(1, wrap(F.r, b, 9, CW - 196).length) * 13 + 10);
+  const hH = 60 + rows.reduce((a, b) => a + b, 0), hY = Math.max(56, y - hH);
+  box(p2, M, hY, CW, hH, { fill: "#0b0b0c", r: 12 });
+  label(p2, "What to expect", M + 20, hY + hH - 22, { color: "#e8c468" });
+  text(p2, "Why early results look like this", M + 20, hY + hH - 42, { f: F.d7, size: 15, color: "#ffffff" });
+  let rt = hY + hH - 64;
+  honest.forEach(([h, b], i) => {
+    text(p2, h, M + 20, rt, { f: F.b, size: 9.4, color: "#e8c468", maxWidth: 150 });
+    wrap(F.r, b, 9, CW - 196).forEach((ln, j) => text(p2, ln, M + 176, rt - j * 13, { size: 9, color: "#d9d3c5" }));
+    rt -= rows[i];
+  });
+
+  pdf.setTitle(`Mr Priceless Early Results Report - ${data.clientName || ""} - ${data.periodLabel}`);
+  pdf.setAuthor("Mr Priceless");
+  return pdf.save();
+}
+
+window.MPReportPDF = { build, buildEarly, makeKit, C, LIGHT, W, H, M, hex, has, money, num };
 })();
