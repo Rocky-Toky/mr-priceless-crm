@@ -104,18 +104,18 @@ async function build(values){
 
   // Lay the letter out first, so the black header is as tall as it needs to be.
   const LX = 66, LW = 405;
-  let noteSize = 10.4;
-  let note = wrap(F.r, v("why_excited"), noteSize, LW);
-  if (note.length > 8){ noteSize = 9.4; note = wrap(F.r, v("why_excited"), noteSize, LW); }
-  note = note.slice(0, 12);
-  const noteLh = noteSize * 1.55, bodySize = 10, bodyLh = 14.3, paraGap = 5;
+  // Your note opens the letter (say hey however you like) and reads exactly
+  // like the rest of it - same size, same colour.
+  let bodySize = 10, bodyLh = 14.3;
+  const paraGap = 5;
+  let note = wrap(F.r, v("why_excited"), bodySize, LW);
+  if (note.length > 10){ bodySize = 9.3; bodyLh = 13.2; note = wrap(F.r, v("why_excited"), bodySize, LW); }
+  note = note.slice(0, 16);
   const paras = copy.letter.map(p => wrap(F.r, p, bodySize, LW));
   const letterTop = 140;
-  let t = letterTop + 30;                                // "Kia ora" baseline
-  const greetT = t;
-  t += 22;
+  let t = letterTop + 32;
   const noteT = t;
-  if (note.length) t += note.length * noteLh + 6;
+  if (note.length) t += note.length * bodyLh + paraGap;
   const parasT = t;
   t += paras.reduce((n, p) => n + p.length * bodyLh + paraGap, 0);
   const cheersT = t + 8;
@@ -129,11 +129,10 @@ async function build(values){
   text(p1, "Mr Priceless!", M + w1, top(122), { f: F.d8, size: 35, color: P.goldLt });
   p1.drawLine({ start: { x: 52, y: top(letterTop) }, end: { x: 52, y: top(cheersT + 6) }, thickness: 1, color: hex(P.gold) });
   label(p1, "A personal letter from Rocky", LX, top(letterTop + 8), { color: P.goldLt, size: 7, ls: 1.7 });
-  text(p1, `Kia ora${v("client_first_name") ? " " + v("client_first_name") : ""}`, LX, top(greetT), { f: F.sb, size: 13.5, color: P.white });
-  note.forEach((ln, i) => text(p1, ln, LX, top(noteT + i * noteLh), { size: noteSize, color: P.white }));
+  note.forEach((ln, i) => text(p1, ln, LX, top(noteT + i * bodyLh), { size: bodySize, color: P.letter }));
   let pt = parasT;
   paras.forEach(lines => { lines.forEach((ln, i) => text(p1, ln, LX, top(pt + i * bodyLh), { size: bodySize, color: P.letter })); pt += lines.length * bodyLh + paraGap; });
-  const cw = text(p1, "Cheers, ", LX, top(cheersT), { size: 10, color: P.letter });
+  const cw = text(p1, "Cheers, ", LX, top(cheersT), { size: bodySize, color: P.letter });
   text(p1, "Rocky", LX + cw + 2, top(cheersT), { f: F.d7, size: 13, color: P.goldLt });
 
   // Everything under the header moves down with it.

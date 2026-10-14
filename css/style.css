@@ -2648,7 +2648,7 @@ body.jv-open .jv-fab{display:none;}
 
 /* Deals: closed stages as a slim row */
 #kanban-board-closed{display:block;}
-.dl-closed-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;}
+.dl-closed-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;}
 .kanban-col.dl-closed-chip{display:flex;flex-direction:row;align-items:center;gap:8px;min-height:0;padding:12px 14px;cursor:pointer;text-align:left;font:inherit;border-radius:14px;}
 .dl-closed-chip .dl-closed-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dl-closed-chip .dl-closed-val{font-size:12.5px;font-weight:700;color:var(--gold-deep);}
@@ -2745,3 +2745,10 @@ body.jv-open .jv-fab{display:none;}
 .rp-style{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border:1px solid var(--gold-border);background:var(--gold-soft);border-radius:14px;margin-bottom:16px;}
 .rp-style label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--gold-deep);}
 .rp-style select{font:inherit;font-size:13.5px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--white);}
+.kanban-col[data-stage="churned"]{background:linear-gradient(175deg,#f1ece9,#e9e2de);border-color:rgba(120,80,60,0.2);}
+.kanban-col[data-stage="churned"]::before{background:linear-gradient(90deg,#8a5a44,#b08066);opacity:1;}
+.kanban-col[data-stage="churned"] .kanban-col-head h4,.kanban-col[data-stage="churned"] .kanban-col-value{color:#7a5040;}
+@media (max-width:900px){ .dl-closed-row{grid-template-columns:1fr 1fr;} }
+.kanban-col.dl-closed-chip{flex-wrap:wrap;row-gap:4px;padding:10px 12px;}
+.dl-closed-chip .dl-closed-label{flex:1 0 100%;font-size:11px;}
+.dl-closed-chip .dl-closed-val{margin-left:auto;}
