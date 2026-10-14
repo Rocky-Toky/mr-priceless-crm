@@ -476,6 +476,7 @@ const state = {
   selectedRuleId: null,
   emailTemplates: [],
   selectedEmailTemplateId: null,
+  etSel: {},
   expenses: [],
   callActivity: [],
   archivedClients: [],
@@ -1532,7 +1533,7 @@ const PAGE_GROUPS = {
   deals: [["deals", "Pipeline"], ["nurture", "Nurture"]],
   stats: [["dashboard", "Overview"], ["statistics", "Team"], ["commission", "Commission"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
-  library: [["playbooks", "Playbooks"], ["email-templates", "Email templates"], ["rules", "Rules"]],
+  library: [["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
   ads: [["ads-month", "This month"], ["content-library", "Video scripts"]],
 };
@@ -1841,7 +1842,7 @@ async function bookMeeting(name, phone, person, extra={}){
     contact_id: contact.id,
     contact_name: name,
     contract_type: "retainer",
-    value: 0,
+    value: 1500,
     percentage: null,
     stage,
     assignee: person || null,
@@ -3708,7 +3709,7 @@ async function vsMakeEmail(){
   let tpl = d.templateId && state.emailTemplates.find(t => t.id === d.templateId);
   if (tpl) await DataLayer.update("email_templates", tpl.id, { title, subject: em.subject, body: em.body, updated_at: new Date().toISOString() });
   else {
-    tpl = await DataLayer.insert("email_templates", { title, subject: em.subject, body: em.body, sort_order: state.emailTemplates.length });
+    tpl = await DataLayer.insert("email_templates", { title, subject: em.subject, body: em.body, kind: "delivery", sort_order: state.emailTemplates.length });
     if (tpl?.id){ d.templateId = tpl.id; await DataLayer.update("client_content", row.id, { script: JSON.stringify(d) }); row.script = JSON.stringify(d); }
   }
   if (IS_CONFIGURED) await DataLayer.fetchAll();
@@ -5679,7 +5680,6 @@ function renderNurture(){
   const active = deals.filter(x => !x.s.stopped);
   const due = active.filter(x => x.s.next && x.s.nextDue <= today);
   const reengage = active.filter(x => x.s.reengage <= nurtureDay(today, 30));
-  const navCount = $("#nav-nurture-count"); if (navCount){ navCount.hidden = !due.length; navCount.textContent = due.length; }
   $("#nurture-kpis").innerHTML = [
     [due.length, "emails due"], [active.length, "in nurture"], [reengage.length, "re-engage within 30 days"],
   ].map(([v, l], i) => `<span class="nr-kpi ${i === 0 && v ? "is-due" : ""}"><b>${v}</b>${escapeHtml(l)}</span>`).join("");
@@ -8624,7 +8624,7 @@ const RENDERERS = [
   [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]], [renderAdsMonth, ["ads-month"]], [renderContentLibrary, ["content-library"]], [amNavCount, ["*"]],
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
-  [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
+  [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [fillContactDropdowns, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
@@ -9366,27 +9366,32 @@ async function ensureBuiltinEmailTemplates(){
 }
 // "Group · Name" titles are listed under a heading for the group.
 const etSplit = (title) => { const i = String(title || "").indexOf(" · "); return i > 0 ? [title.slice(0, i), title.slice(i + 3)] : ["", title || ""]; };
+// Sales emails win clients; delivery emails are for clients we already
+// have. Older templates without a section are sorted by their group.
+const ET_DELIVERY_GROUPS = /^(onboarding|client|filming brief|delivery|report|monthly report|fortnightly|welcome)/i;
+const etKind = (t) => t.kind === "sales" || t.kind === "delivery" ? t.kind : (ET_DELIVERY_GROUPS.test(t.title || "") ? "delivery" : "sales");
 function renderEmailTemplates(){
   ensureBuiltinEmailTemplates();
-  const listEl = $("#email-templates-list");
-  const viewer = $("#email-template-viewer");
+  renderEmailTemplateList("sales", $("#email-templates-list"), $("#email-template-viewer"));
+  renderEmailTemplateList("delivery", $("#delivery-emails-list"), $("#delivery-email-viewer"));
+}
+function renderEmailTemplateList(kind, listEl, viewer){
   if (!listEl || !viewer) return;
-  const list = [...state.emailTemplates].sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
+  const list = state.emailTemplates.filter(t => etKind(t) === kind).sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
   if (!list.length){
     listEl.innerHTML = "";
-    viewer.innerHTML = `<div class="playbook-empty"><div class="playbook-empty-icon">${ICONS.book}</div>No email templates yet.<br>Add your first one so the whole team sends the same message.</div>`;
+    viewer.innerHTML = `<div class="playbook-empty"><div class="playbook-empty-icon">${ICONS.book}</div>No ${kind} emails yet.<br>Add your first one so the whole team sends the same message.</div>`;
     return;
   }
-  if (!state.selectedEmailTemplateId || !list.find(p => p.id === state.selectedEmailTemplateId)){
-    state.selectedEmailTemplateId = list[0].id;
-  }
+  if (!state.etSel[kind] || !list.find(p => p.id === state.etSel[kind])) state.etSel[kind] = list[0].id;
+  const selId = state.etSel[kind];
   let lastGroup = null;
   listEl.innerHTML = list.map(t => {
     const [group, name] = etSplit(t.title);
     const head = group !== lastGroup ? `<div class="et-group-head">${escapeHtml(group || "Templates")}</div>` : "";
     lastGroup = group;
     return `${head}
-    <button type="button" class="playbook-list-item ${t.id === state.selectedEmailTemplateId ? "active" : ""}" data-action="select-email-template" data-id="${t.id}">
+    <button type="button" class="playbook-list-item ${t.id === selId ? "active" : ""}" data-action="select-email-template" data-id="${t.id}">
       <span class="playbook-list-item-icon">${ICONS.book}</span>
       <span class="playbook-list-item-text">
         <div class="playbook-list-item-title">${escapeHtml(name)}</div>
@@ -9394,7 +9399,7 @@ function renderEmailTemplates(){
       </span>
     </button>
   `;}).join("");
-  const t = list.find(x => x.id === state.selectedEmailTemplateId);
+  const t = list.find(x => x.id === selId);
   viewer.innerHTML = `
     <div class="playbook-viewer-head">
       <div class="playbook-viewer-head-title">
@@ -9954,10 +9959,11 @@ function setupModals(){
   });
   $("#rule-content")?.addEventListener("input", () => updateLivePreview("rule-content"));
 
-  $("#add-email-template-btn")?.addEventListener("click", () => {
+  $$("[data-add-et]").forEach(btn => btn.addEventListener("click", () => {
     $("#email-template-form").reset(); $("#email-template-form-id").value=""; $("#email-template-modal-title").textContent="Add Email Template";
+    $("#email-template-kind").value = btn.dataset.addEt;
     openModal("email-template-modal");
-  });
+  }));
   $("#email-template-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#email-template-form-id").value;
@@ -9965,13 +9971,14 @@ function setupModals(){
       title: $("#email-template-name").value.trim(),
       subject: $("#email-template-subject").value.trim(),
       body: $("#email-template-body").value.trim(),
+      kind: $("#email-template-kind").value,
     };
     if (!row.title) return;
     if (id) await DataLayer.update("email_templates", id, row);
     else {
       row.sort_order = state.emailTemplates.length;
       const created = await DataLayer.insert("email_templates", row);
-      if (created) state.selectedEmailTemplateId = created.id;
+      if (created) state.etSel[row.kind] = created.id;
     }
     closeModal("email-template-modal");
     if (!IS_CONFIGURED) return; renderAll();
@@ -10056,6 +10063,7 @@ function setupModals(){
     toggleDealCommissionFields();
     $("#deal-modal-title").textContent = "New Deal";
     $("#deal-date").value = localDayStr();
+    $("#deal-value").value = 1500;
     $("#deal-contacts-rows").innerHTML = "";
     addDealContactRow();
     openModal("deal-modal");
@@ -10519,7 +10527,7 @@ function setupModals(){
       if (state.selectedRuleId === id) state.selectedRuleId = null;
       await DataLayer.remove("rules", id);
     }
-    if (action === "select-email-template"){ state.selectedEmailTemplateId = id; renderEmailTemplates(); }
+    if (action === "select-email-template"){ const t = state.emailTemplates.find(x => x.id === id); if (t) state.etSel[etKind(t)] = id; renderEmailTemplates(); }
     if (action === "edit-email-template"){
       const t = state.emailTemplates.find(x => x.id === id);
       if (!t) return;
@@ -10527,11 +10535,11 @@ function setupModals(){
       $("#email-template-name").value = t.title||"";
       $("#email-template-subject").value = t.subject||"";
       $("#email-template-body").value = t.body||"";
+      $("#email-template-kind").value = etKind(t);
       $("#email-template-modal-title").textContent = "Edit Email Template";
       openModal("email-template-modal");
     }
     if (action === "delete-email-template" && confirm("Delete this email template?")){
-      if (state.selectedEmailTemplateId === id) state.selectedEmailTemplateId = null;
       await DataLayer.remove("email_templates", id);
     }
     if (action === "copy-email-subject"){
@@ -10689,7 +10697,6 @@ function setupModals(){
     if (action === "reactivate-vertical") { await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll(); }
     if (action === "complete-region"){
       const region = btn.dataset.region;
-      if (!confirm(`Mark ${region} as completed? Its prospects come off Prospecting for everyone until you reopen it.`)) return;
       const activePerson = window.getActivePerson ? window.getActivePerson() : null;
       await DataLayer.insert("completed_verticals", { region, industry: REGION_DONE, completed_at: new Date().toISOString(), completed_by: state.user?.email || activePerson || "demo" });
       if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
