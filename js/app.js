@@ -2307,7 +2307,6 @@ function openEditClientModal(c){
   $("#client-website").value = c.website||"";
   $("#client-industry").value = c.industry || "";
   $("#client-industry").placeholder = clientIndustry({ ...c, industry: "" }).name || "e.g. Plumbing";
-  $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
   $("#client-margin").value = clientMargin(c) ?? "";
   $("#client-monthly-ad-spend").value = c.monthly_ad_spend != null ? c.monthly_ad_spend : "";
   $("#client-notes").value = c.notes||"";
@@ -10571,7 +10570,6 @@ function setupModals(){
       website: $("#client-website").value.trim(),
       industry: $("#client-industry").value.trim() || null,
       margin: parseMargin($("#client-margin").value),
-      cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
       monthly_ad_spend: $("#client-monthly-ad-spend").value !== "" ? Number($("#client-monthly-ad-spend").value) : null,
       quote_target: $("#client-quote-target").value !== "" ? Number($("#client-quote-target").value) : null,
       notes: $("#client-notes").value.trim(),
