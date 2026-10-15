@@ -33,6 +33,11 @@ on:
       - "sql/062_scheduled_emails.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
+    inputs:
+      test_email:
+        description: "Send a test email to this address once everything's deployed (leave blank to skip)"
+        required: false
+        default: ""
 
 jobs:
   deploy:
@@ -98,3 +103,20 @@ jobs:
           for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails; do
             supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --no-verify-jwt
           done
+      # Run this workflow by hand with a test_email to check sending works.
+      - name: Send a test email
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.test_email != ''
+        env:
+          TEST_EMAIL: ${{ inputs.test_email }}
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          to=$(printf '%s' "$TEST_EMAIL" | tr -d "'\\")
+          q "insert into scheduled_emails (kind, to_email, subject, body, send_at, created_by) values ('test', '$to', 'Mr Priceless CRM - test email', 'Hey,' || chr(10) || chr(10) || 'This is a test from the Mr Priceless CRM. If you can read this, receipts will send themselves on the date you pick.' || chr(10) || chr(10) || 'Cheers,' || chr(10) || 'Mr Priceless', now(), 'workflow')" > /dev/null
+          secret=$(q "select value from app_secrets where name = 'email_cron_secret'" | jq -r '.[0].value')
+          echo "::add-mask::$secret"
+          sleep 5
+          curl -sS -X POST "https://$PROJECT_REF.supabase.co/functions/v1/send-scheduled-emails" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data '{}'
+          echo
+          q "select to_email, status, error, sent_at from scheduled_emails where kind = 'test' order by created_at desc limit 1"
