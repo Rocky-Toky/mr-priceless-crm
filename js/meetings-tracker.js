@@ -991,7 +991,7 @@ function renderAll(){
 // Decision Maker Unavailable).
 function counterValues(){
   const row = window.CRM_CALL_ACTIVITY?.today ? window.CRM_CALL_ACTIVITY.today(getActivePerson()) : null;
-  return row ? { calls: Number(row.calls || 0), convos: Number(row.conversations || 0) } : { calls: state.calls, convos: state.convos };
+  return row ? { calls: Number(row.calls || 0), convos: Number(row.conversations || 0) } : { calls: 0, convos: 0 };
 }
 function renderCounters(){
   const v = counterValues();
@@ -1003,7 +1003,7 @@ function renderCounters(){
   });
   // How many calls turned into a real conversation.
   const sub = document.getElementById('cnt-convos-sub');
-  if (sub) sub.textContent = v.calls > 0 && v.convos > 0 ? `${Math.round(Math.min(v.convos, v.calls) / v.calls * 100)}% of calls` : 'from call outcomes';
+  if (sub) sub.textContent = v.calls > 0 && v.convos > 0 ? `${Math.round(Math.min(v.convos, v.calls) / v.calls * 100)}% of dials` : 'from call outcomes';
 }
 window.renderCounters = renderCounters;
 
@@ -1038,8 +1038,9 @@ function playCounterTick(isConvo){
   osc2.start(t + 0.04); osc2.stop(t + 0.18);
 }
 
+// Both counters fill themselves from call outcomes now, so taps do nothing.
 function incCounter(key, e){
-  if (key !== 'calls') return;
+  return;
   state[key]++;
   save();
   syncCallActivity(key, 1);
@@ -1059,7 +1060,7 @@ function incCounter(key, e){
 }
 
 function decCounter(key){
-  if (key !== 'calls' || counterValues()[key] <= 0) return;
+  return;
   state[key] = Math.max(0, state[key] - 1);
   save();
   syncCallActivity(key, -1);

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=225">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=225">
+<link rel="stylesheet" href="css/style.css?v=226">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=226">
 </head>
 <body>
 
@@ -429,11 +429,10 @@
       </div>
 
       <div class="mb-counters">
-        <div class="mb-counter" id="cc-calls" role="button" tabindex="0" aria-label="Add one to calls" onclick="incCounter('calls', event)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();incCounter('calls', event)}">
+        <div class="mb-counter mb-counter-auto" id="cc-calls" title="Counted from every call you log an outcome for - No Answer included">
           <span class="mb-counter-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></span>
-          <span class="mb-counter-body"><span class="mb-counter-num" id="cnt-calls">0</span><span class="mb-counter-lbl">Calls</span><span class="mb-counter-sub" id="cnt-calls-sub">today</span></span>
-          <span class="mb-counter-tap">Tap +1</span>
-          <button type="button" class="mb-counter-undo" onclick="event.stopPropagation();decCounter('calls')" aria-label="Take one off calls" title="Undo">&minus;</button>
+          <span class="mb-counter-body"><span class="mb-counter-num" id="cnt-calls">0</span><span class="mb-counter-lbl">Dials</span><span class="mb-counter-sub" id="cnt-calls-sub">from call outcomes</span></span>
+          <span class="mb-counter-tap">Auto</span>
         </div>
         <div class="mb-counter mb-counter-auto" id="cc-convos" title="Counted from the outcome you pick for each call - anything except No Answer or Decision Maker Unavailable">
           <span class="mb-counter-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg></span>
@@ -2684,17 +2683,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=225"></script>
-<script src="js/supabaseClient.js?v=225"></script>
-<script src="js/report-pdf.js?v=225"></script>
-<script src="js/plan-pdf.js?v=225"></script>
-<script src="js/workshop-pdf.js?v=225"></script>
-<script src="js/receipt-pdf.js?v=225"></script>
-<script src="js/welcome-pdf.js?v=225"></script>
-<script src="js/builtin-playbooks.js?v=225"></script>
-<script src="js/builtin-email-templates.js?v=225"></script>
-<script src="js/app.js?v=225"></script>
-<script src="js/meetings-tracker.js?v=225"></script>
-<script src="js/todo.js?v=225"></script>
+<script src="js/config.js?v=226"></script>
+<script src="js/supabaseClient.js?v=226"></script>
+<script src="js/report-pdf.js?v=226"></script>
+<script src="js/plan-pdf.js?v=226"></script>
+<script src="js/workshop-pdf.js?v=226"></script>
+<script src="js/receipt-pdf.js?v=226"></script>
+<script src="js/welcome-pdf.js?v=226"></script>
+<script src="js/builtin-playbooks.js?v=226"></script>
+<script src="js/builtin-email-templates.js?v=226"></script>
+<script src="js/app.js?v=226"></script>
+<script src="js/meetings-tracker.js?v=226"></script>
+<script src="js/todo.js?v=226"></script>
 </body>
 </html>
