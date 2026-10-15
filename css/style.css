@@ -2914,3 +2914,17 @@ body.jv-open .jv-fab{display:none;}
 .ob-n{display:inline-block;min-width:22px;font-size:12px;font-weight:700;color:var(--gold-deep);}
 .ob-input{display:block;width:100%;margin-top:8px;font:inherit;font-size:13.5px;padding:8px 11px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--text);}
 .ob-input:focus{outline:none;border-color:var(--gold-border);box-shadow:0 0 0 3px var(--gold-soft);background:var(--white);}
+
+/* Onboarding checklist: bigger, easier-to-read text */
+.modal.onb-modal{max-width:820px;}
+.ob-progress-text{font-size:15.5px;}
+.ob-progress-text b{font-size:23px;}
+.ob-section{margin-top:24px;}
+.ob-section h4{font-size:19px;}
+.ob-section header span{font-size:13px;}
+.ob-step{gap:14px;padding:15px 16px;}
+.ob-tick{flex-basis:28px;width:28px;height:28px;}
+.ob-check svg{width:15px;height:15px;}
+.ob-step-main p{font-size:16.5px;line-height:1.55;}
+.ob-n{min-width:26px;font-size:14px;}
+.ob-input{font-size:15.5px;padding:10px 13px;}
