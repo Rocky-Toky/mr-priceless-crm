@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=218">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=218">
+<link rel="stylesheet" href="css/style.css?v=219">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=219">
 </head>
 <body>
 
@@ -1660,6 +1660,21 @@
         </div>
       </div>
       <div class="field"><label for="rc-notes">Note on the receipt <span class="rc-opt">optional</span></label><textarea id="rc-notes" rows="2" placeholder="e.g. Thanks for a massive first month!"></textarea></div>
+      <div class="rc-form-group rc-autosend">
+        <div class="rc-form-label">Send it</div>
+        <div class="rc-send-mode" role="group" aria-label="How to send">
+          <label><input type="radio" name="rc-send-mode" value="auto" checked> <span>Email it automatically</span></label>
+          <label><input type="radio" name="rc-send-mode" value="manual"> <span>I'll send it myself</span></label>
+        </div>
+        <div class="rc-send-when" id="rc-send-when">
+          <div class="rp-grid rp-grid-2">
+            <div class="field"><label for="rc-send-date">Send on</label><input type="date" id="rc-send-date"></div>
+            <div class="field"><label for="rc-send-time">at</label><input type="time" id="rc-send-time" value="09:00"></div>
+          </div>
+          <label class="rc-cc"><input type="checkbox" id="rc-send-cc"> Send me a copy</label>
+          <p class="rc-send-hint" id="rc-send-hint"></p>
+        </div>
+      </div>
       <div class="wp-status" id="rc-status" role="status"></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" id="rc-preview">Preview</button>
@@ -2667,17 +2682,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=218"></script>
-<script src="js/supabaseClient.js?v=218"></script>
-<script src="js/report-pdf.js?v=218"></script>
-<script src="js/plan-pdf.js?v=218"></script>
-<script src="js/workshop-pdf.js?v=218"></script>
-<script src="js/receipt-pdf.js?v=218"></script>
-<script src="js/welcome-pdf.js?v=218"></script>
-<script src="js/builtin-playbooks.js?v=218"></script>
-<script src="js/builtin-email-templates.js?v=218"></script>
-<script src="js/app.js?v=218"></script>
-<script src="js/meetings-tracker.js?v=218"></script>
-<script src="js/todo.js?v=218"></script>
+<script src="js/config.js?v=219"></script>
+<script src="js/supabaseClient.js?v=219"></script>
+<script src="js/report-pdf.js?v=219"></script>
+<script src="js/plan-pdf.js?v=219"></script>
+<script src="js/workshop-pdf.js?v=219"></script>
+<script src="js/receipt-pdf.js?v=219"></script>
+<script src="js/welcome-pdf.js?v=219"></script>
+<script src="js/builtin-playbooks.js?v=219"></script>
+<script src="js/builtin-email-templates.js?v=219"></script>
+<script src="js/app.js?v=219"></script>
+<script src="js/meetings-tracker.js?v=219"></script>
+<script src="js/todo.js?v=219"></script>
 </body>
 </html>

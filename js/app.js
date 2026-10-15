@@ -6571,6 +6571,7 @@ function renderReceipts(){
   const hero = $("#rc-hero-value");
   if (!hero) return;
   if (!rcSettingsLoaded) rcLoadSettings();
+  if (!rcScheduledLoaded) rcLoadScheduled();
   const today = localDayStr(), soon = rcAddDays(today, RC_SOON_DAYS);
   const clients = state.clients.filter(rcIsBillable).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const all = rcAll();
@@ -6637,7 +6638,13 @@ function renderReceipts(){
     return `<article class="rc-row ${ok ? "" : "is-unpaid"}">
       <span class="rc-row-icon">${ok ? RC_ICONS.tick : "!"}</span>
       <div class="rc-row-id"><b>${escapeHtml(c.name)}</b><span>${escapeHtml(rcNumberOf(r))}${r.from ? ` · ${escapeHtml(rcPeriodLabel(r.from, r.to))}` : ""}</span></div>
-      <div class="rc-row-meta">${ok ? `<b>${escapeHtml(rcShort(rcPaidDay(r)))}</b><span>${escapeHtml(r.paid_method || "Card")}</span>` : `<b>Not paid yet</b><span>from before receipts</span>`}</div>
+      <div class="rc-row-meta">${ok ? `<b>${escapeHtml(rcShort(rcPaidDay(r)))}</b><span>${escapeHtml(r.paid_method || "Card")}</span>` : `<b>Not paid yet</b><span>from before receipts</span>`}${(() => {
+        const em = rcEmailFor(r.id);
+        if (!em) return r.sent_at ? `<em class="rc-mail-chip sent">Emailed ${escapeHtml(rcShort(r.sent_at.slice(0, 10)))}</em>` : "";
+        if (em.status === "sent") return `<em class="rc-mail-chip sent">Emailed ${escapeHtml(rcWhenLabel(em.sent_at || em.send_at))}</em>`;
+        if (em.status === "failed") return `<em class="rc-mail-chip late" title="${escapeHtml(em.error || "")}">Email failed - open it to resend</em>`;
+        return `<em class="rc-mail-chip">Emails ${escapeHtml(rcWhenLabel(em.send_at))} <button type="button" data-action="rc-cancel-send" data-id="${em.id}" title="Cancel this email" aria-label="Cancel this email">&times;</button></em>`;
+      })()}</div>
       <div class="rc-row-amount">${rcMoney(rcTotal(r))}</div>
       <div class="rc-row-actions">
         ${ok ? `<button type="button" class="rc-icon-btn" data-action="rc-pdf" data-id="${r.id}" title="Download PDF" aria-label="Download PDF">${RC_ICONS.down}</button>
@@ -6723,8 +6730,17 @@ function openReceiptEditor(clientId, recId){
   $("#rc-notes").value = rec?.notes || "";
   $("#rc-items").innerHTML = (rec?.items?.length ? rec.items : c ? [rcFeeLine(c)] : [{}]).map(rcLineRow).join("");
   $("#rc-modal-title").textContent = rec ? `Edit ${rcNumberOf(rec)}` : c ? `Receipt for ${c.name}` : "New receipt";
-  $("#rc-save").textContent = rec && rcIsPaid(rec) ? "Save & send again" : "Save & send receipt";
+  // Email it on the day they pay (or straight away if that's already passed).
+  const pending = rec ? rcEmailFor(rec.id) : null;
+  const sendDay = pending?.status === "scheduled" ? localDayStr(new Date(pending.send_at)) : $("#rc-paid-date").value;
+  $("#rc-send-date").value = sendDay < localDayStr() ? localDayStr() : sendDay;
+  $("#rc-send-time").value = pending?.status === "scheduled" ? new Date(pending.send_at).toTimeString().slice(0, 5)
+    : sendDay <= localDayStr() ? new Date(Date.now() + 60e3).toTimeString().slice(0, 5) : "09:00";
+  const modeAuto = !(rec && rcIsPaid(rec) && pending?.status === "sent");
+  $$("input[name='rc-send-mode']").forEach(i => { i.checked = i.value === (modeAuto ? "auto" : "manual"); });
   rcStatusMsg("");
+  rcCheckMailStatus().then(rcSendModeUi);
+  rcSendModeUi();
   rcRenderIncluded(rcEditing.included);
   rcRenderTotals();
   openModal("rc-modal");
@@ -6822,6 +6838,92 @@ function openReceiptBilling(clientId){
   openModal("rc-billing-modal");
 }
 
+/* Receipts that email themselves: saved to scheduled_emails with the PDF,
+   sent by the send-scheduled-emails function when the time comes (it runs
+   every 5 minutes). */
+let rcScheduled = [], rcScheduledLoaded = false, rcMailStatus = null;
+async function rcLoadScheduled(){
+  rcScheduledLoaded = true;
+  if (!IS_CONFIGURED) return;
+  const { data, error } = await supabase.from("scheduled_emails").select("id,record_id,client_id,to_email,send_at,status,sent_at,error").order("send_at", { ascending: false }).limit(500);
+  if (!error) rcScheduled = data || [];
+  renderReceipts();
+}
+async function rcCheckMailStatus(){
+  if (rcMailStatus || !IS_CONFIGURED) return rcMailStatus;
+  try {
+    const { data } = await supabase.functions.invoke("send-scheduled-emails", { body: { action: "status" } });
+    rcMailStatus = data || { configured: false };
+  } catch(e){ rcMailStatus = { configured: false }; }
+  return rcMailStatus;
+}
+const rcEmailFor = (recId) => rcScheduled.filter(x => x.record_id === recId && x.status !== "cancelled").sort((a, b) => (b.send_at || "").localeCompare(a.send_at || ""))[0] || null;
+const rcWhenLabel = (iso) => new Date(iso).toLocaleString("en-NZ", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+function rcBytesToB64(bytes){
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+function rcToast(msg){
+  let el = $("#rc-toast");
+  if (!el){ el = document.createElement("div"); el.id = "rc-toast"; el.className = "rc-toast"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(rcToast.t); rcToast.t = setTimeout(() => el.classList.remove("show"), 5000);
+}
+function rcSendModeUi(){
+  const auto = ($("input[name='rc-send-mode']:checked")?.value || "auto") === "auto";
+  $("#rc-send-when").hidden = !auto;
+  const at = rcSendAt();
+  const now = at && at <= new Date(Date.now() + 60e3);
+  $("#rc-save").textContent = !auto ? "Save & send receipt" : now ? "Save & email it now" : "Save & schedule email";
+  const hint = $("#rc-send-hint");
+  if (hint){
+    const to = $("#rc-email").value.trim();
+    const off = rcMailStatus && !rcMailStatus.configured;
+    hint.classList.toggle("warn", !to || !!off);
+    hint.textContent = !to ? "Add their email above so it has somewhere to go."
+      : off ? "Automatic email isn't switched on yet - it'll be saved and go out as soon as it is."
+      : now ? `Goes to ${to} as soon as you save.` : at ? `Goes to ${to} on ${rcWhenLabel(at.toISOString())}, with the receipt PDF attached.` : "";
+  }
+}
+function rcSendAt(){
+  const d = $("#rc-send-date")?.value, t = $("#rc-send-time")?.value || "09:00";
+  return d ? new Date(`${d}T${t}:00`) : null;
+}
+async function rcQueueEmail(rec, c){
+  const at = rcSendAt() || new Date();
+  const mail = rcEmail(rec);
+  await wpLoadLibs();
+  const bytes = await window.MPReceiptPDF.build(rcPdfData(rec, c));
+  const name = `Mr Priceless Receipt ${rcNumberOf(rec)} - ${(c.name || "Client").replace(/[\\/:*?"<>|]+/g, "")}.pdf`;
+  const row = {
+    kind: "receipt", client_id: c.id, record_id: rec.id, to_email: rec.email,
+    cc_email: $("#rc-send-cc")?.checked ? (state.user?.email || null) : null,
+    subject: mail.subject, body: mail.body, attachment_name: name, attachment_b64: rcBytesToB64(bytes),
+    send_at: at.toISOString(), status: "scheduled", created_by: state.user?.email || "demo",
+  };
+  const sendNow = at <= new Date(Date.now() + 60e3);
+  if (!IS_CONFIGURED){
+    rcScheduled = rcScheduled.map(x => x.record_id === rec.id && x.status === "scheduled" ? { ...x, status: "cancelled" } : x);
+    rcScheduled.unshift({ ...row, id: uid(), status: sendNow ? "sent" : "scheduled", sent_at: sendNow ? new Date().toISOString() : null });
+    return sendNow ? "Demo mode - this would have been emailed now." : `Scheduled for ${rcWhenLabel(row.send_at)}.`;
+  }
+  // Editing a receipt replaces whatever was waiting to go for it.
+  await supabase.from("scheduled_emails").update({ status: "cancelled" }).eq("record_id", rec.id).eq("status", "scheduled");
+  const { data, error } = await supabase.from("scheduled_emails").insert(row).select("id").single();
+  if (error) throw new Error(error.message.includes("scheduled_emails") ? "The email table isn't set up yet - give it a minute after the update and try again." : error.message);
+  let msg = `Scheduled - emails ${rec.email} on ${rcWhenLabel(row.send_at)}.`;
+  if (sendNow){
+    const { data: res, error: sendErr } = await supabase.functions.invoke("send-scheduled-emails", { body: { action: "send_now", id: data.id } });
+    let why = res?.error || "";
+    if (sendErr){ try { why = (await sendErr.context?.json())?.error || sendErr.message; } catch(e){ why = sendErr.message; } }
+    msg = why ? `Saved, but it didn't send yet: ${why} It'll keep trying every 5 minutes.` : `Emailed to ${rec.email}.`;
+    if (why) await supabase.from("scheduled_emails").update({ status: "scheduled" }).eq("id", data.id).eq("status", "failed");
+  }
+  await rcLoadScheduled();
+  return msg;
+}
+
 function setupReceipts(){
   if (!$("#page-receipts")) return;
   document.addEventListener("click", async (e) => {
@@ -6834,6 +6936,12 @@ function setupReceipts(){
       else if (action === "rc-edit") openReceiptEditor(null, id);
       else if (action === "rc-billing") openReceiptBilling(id);
       else if (action === "rc-email") await openReceiptSend(id);
+      else if (action === "rc-cancel-send"){
+        if (!confirm("Cancel this scheduled email? The receipt stays as it is.")) return;
+        if (IS_CONFIGURED) await supabase.from("scheduled_emails").update({ status: "cancelled" }).eq("id", id).in("status", ["scheduled", "failed"]);
+        else rcScheduled = rcScheduled.map(x => x.id === id ? { ...x, status: "cancelled" } : x);
+        await rcLoadScheduled(); renderReceipts();
+      }
       else if (action === "rc-pdf"){ const f = rcFind(id); if (f) await rcMakePdf(f.r, f.c); }
       else if (action === "rc-delete"){
         const f = rcFind(id);
@@ -6874,6 +6982,7 @@ function setupReceipts(){
       $("#rc-modal-title").textContent = `Receipt for ${c.name}`;
       rcRenderTotals();
     }
+    if (["rc-send-date", "rc-send-time", "rc-email"].includes(e.target.id) || e.target.name === "rc-send-mode") rcSendModeUi();
     if (e.target.id === "rc-from" || e.target.id === "rc-to")
       $$("#rc-items .rc-line[data-auto] .rc-l-sub").forEach(i => { i.value = rcPeriodSub(); });
   });
@@ -6881,8 +6990,20 @@ function setupReceipts(){
     e.preventDefault();
     const btn = $("#rc-save"); btn.disabled = true;
     try {
+      const auto = ($("input[name='rc-send-mode']:checked")?.value || "auto") === "auto";
+      if (auto && !$("#rc-email").value.trim()) return rcStatusMsg("Add their email so the receipt has somewhere to go.", true);
+      if (auto && !$("#rc-send-date").value) return rcStatusMsg("Pick the day to send it.", true);
       const rec = await rcSaveForm();
       if (!rec) return;
+      if (auto){
+        rcStatusMsg("Saving and lining up the email…");
+        const c = state.clients.find(x => x.id === $("#rc-client").value);
+        const msg = await rcQueueEmail(rec, c);
+        closeModal("rc-modal");
+        renderReceipts();
+        rcToast(msg);
+        return;
+      }
       closeModal("rc-modal");
       await openReceiptSend(rec.id);
     } catch(err){ console.error(err); rcStatusMsg("Couldn't make the receipt: " + (err.message || err), true); }

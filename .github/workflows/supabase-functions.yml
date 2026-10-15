@@ -22,6 +22,7 @@ on:
       - "supabase/functions/sync-client-ads/**"
       - "supabase/functions/ghl-report-data/**"
       - "supabase/functions/jarvis/**"
+      - "supabase/functions/send-scheduled-emails/**"
       - "supabase/functions/_shared/**"
       - "sql/056_ghl_connections.sql"
       - "sql/057_nurture_and_jarvis.sql"
@@ -29,6 +30,7 @@ on:
       - "sql/059_deal_date.sql"
       - "sql/060_team_and_defaults.sql"
       - "sql/061_deal_source.sql"
+      - "sql/062_scheduled_emails.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
 
@@ -39,6 +41,9 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+      EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
       PROJECT_REF: chaexdenosljtdwuyjnw
     steps:
       - name: Check for the Supabase token
@@ -61,7 +66,7 @@ jobs:
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
@@ -78,9 +83,18 @@ jobs:
       - name: Pass Jarvis his Gemini key
         if: steps.token.outputs.ok == 'true' && env.GEMINI_API_KEY != ''
         run: supabase secrets set GEMINI_API_KEY="$GEMINI_API_KEY" --project-ref "$PROJECT_REF"
+      # Emails that send themselves (receipts): add RESEND_API_KEY (resend.com)
+      # and EMAIL_FROM (e.g. Mr Priceless <accounts@mrpriceless.com>) as repo
+      # secrets; EMAIL_REPLY_TO is optional.
+      - name: Pass the email sender its keys
+        if: steps.token.outputs.ok == 'true' && env.RESEND_API_KEY != ''
+        run: |
+          supabase secrets set RESEND_API_KEY="$RESEND_API_KEY" --project-ref "$PROJECT_REF"
+          if [ -n "$EMAIL_FROM" ]; then supabase secrets set EMAIL_FROM="$EMAIL_FROM" --project-ref "$PROJECT_REF"; fi
+          if [ -n "$EMAIL_REPLY_TO" ]; then supabase secrets set EMAIL_REPLY_TO="$EMAIL_REPLY_TO" --project-ref "$PROJECT_REF"; fi
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
-          for fn in sync-client-ads ghl-report-data jarvis; do
+          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails; do
             supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --no-verify-jwt
           done
