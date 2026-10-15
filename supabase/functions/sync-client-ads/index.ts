@@ -124,7 +124,7 @@ async function syncOneClient(admin: any, metaToken: string, clientId: string, ra
 
   // 3. Ads - light fields only, so every page comes back
   const ads = await graphAll(graphUrl(`${act}/ads`, {
-    fields: "id,name,effective_status,campaign_id,adset_id,creative{image_url,thumbnail_url}",
+    fields: "id,name,effective_status,campaign_id,adset_id,creative{image_url,thumbnail_url,video_id,object_type}",
     filtering: statusFilter(RELEVANT_STATUSES), limit: "200",
     // Ads built from a Page post only have thumbnail_url, which Meta defaults
     // to ~64px - ask for a full-size one so the library image isn't blurry.
@@ -151,6 +151,7 @@ async function syncOneClient(admin: any, metaToken: string, clientId: string, ra
   for (const row of existingCreatives ?? []) if (row?.meta_ad_id != null) creativeByMetaId.set(String(row.meta_ad_id), row);
 
   let campaignsCreated = 0, creativesCreated = 0, creativesUpdated = 0;
+  const saveErrors: string[] = [];
 
   // Campaign rows (matched by name, as before), with their live status.
   for (const c of campaigns) {
@@ -211,6 +212,10 @@ async function syncOneClient(admin: any, metaToken: string, clientId: string, ra
       Object.assign(patch, { impressions: 0, clicks: 0, spend: 0, results: null, cost_per_result: null, insights_updated_at: new Date().toISOString() });
     }
 
+    // Video ads have no image_url - their thumbnail (a still from the video)
+    // stands in, and media_type marks them as video in the library.
+    const isVideo = Boolean(ad?.creative?.video_id) || ad?.creative?.object_type === "VIDEO";
+    patch.media_type = isVideo ? "video" : "image";
     const creativeImageUrl: string | null = ad?.creative?.image_url || ad?.creative?.thumbnail_url || null;
     const existingCreative = ad?.id != null ? creativeByMetaId.get(String(ad.id)) : undefined;
     if (existingCreative) {
@@ -220,11 +225,12 @@ async function syncOneClient(admin: any, metaToken: string, clientId: string, ra
       const isOwnUpload = typeof existingCreative.image_url === "string" &&
         existingCreative.image_url.includes("/storage/v1/object/public/");
       if (creativeImageUrl && !isOwnUpload && creativeImageUrl !== existingCreative.image_url) updatePatch.image_url = creativeImageUrl;
-      await admin.from("client_ad_creatives").update(updatePatch).eq("id", existingCreative.id);
-      creativesUpdated += 1;
+      const { error } = await admin.from("client_ad_creatives").update(updatePatch).eq("id", existingCreative.id);
+      if (error) saveErrors.push(`${ad?.name || ad?.id}: ${error.message}`); else creativesUpdated += 1;
     } else {
       const insertPayload = { client_id: clientId, meta_ad_id: ad?.id, name: ad?.name, result: "testing", image_url: creativeImageUrl, ...patch };
-      await admin.from("client_ad_creatives").insert(insertPayload);
+      const { error } = await admin.from("client_ad_creatives").insert(insertPayload);
+      if (error) { saveErrors.push(`${ad?.name || ad?.id}: ${error.message}`); continue; }
       creativesCreated += 1;
       if (ad?.id != null) creativeByMetaId.set(String(ad.id), insertPayload);
     }
@@ -238,6 +244,8 @@ async function syncOneClient(admin: any, metaToken: string, clientId: string, ra
     creatives_created: creativesCreated,
     creatives_updated: creativesUpdated,
     stats_error: statsError,
+    save_errors: saveErrors.slice(0, 5),
+    save_error_count: saveErrors.length,
   };
 }
 
