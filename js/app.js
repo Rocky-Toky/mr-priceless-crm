@@ -5030,88 +5030,70 @@ function openOnbModal(id){
   renderOnbModal();
   openModal("onb-modal");
 }
+// The onboarding checklist: every step from ONBOARDING_SECTIONS, in order,
+// one clean list. Steps tied to a client field tick themselves once it's
+// filled in (and can be filled in right here); question steps take the
+// client's answer, which also feeds their qualified lead structure.
+const OB_FIELD_INPUT = { website: "text", phone: "tel", email: "email", meta_ad_account_id: "text", ad_start_date: "date" };
+function onbStepDone(c, s){
+  const p = c.onboarding_progress || {};
+  if (s.derivedFrom) return Boolean(String(c[s.derivedFrom] ?? "").trim());
+  if (s.answerable && String(p[s.key + ONBOARDING_ANSWER_SUFFIX] ?? "").trim()) return true;
+  return Boolean(p[s.key]);
+}
 function renderOnbModal(){
   const body = $("#onb-modal-body");
   const c = state.clients.find(x => x.id === state.onbOpenId);
   if (!body) return;
   if (!c || !isOnboardingClient(c)){ state.onbOpenId = null; closeModal("onb-modal"); return; }
-  const ls = launchState(c);
   const p = c.onboarding_progress || {};
+  const ls = launchState(c);
   // A realtime re-render mustn't throw away what someone is typing.
   const active = document.activeElement;
   const keep = active && body.contains(active) && active.dataset.onbField ? { field: active.dataset.onbField, value: active.value, s: active.selectionStart, e: active.selectionEnd } : null;
-  const openSections = new Set([...body.querySelectorAll("details.onb-group[open]")].map(d => d.dataset.stage));
-  const firstRender = body.dataset.client !== c.id;
-  body.dataset.client = c.id;
+  const scroll = body.scrollTop;
+  const done = ONBOARDING_STEPS.filter(s => onbStepDone(c, s)).length, total = ONBOARDING_STEPS.length;
+  const pct = Math.round(done / total * 100);
 
   $("#onb-modal-title").textContent = c.name;
-  $("#onb-modal-sub").innerHTML = `Signed ${ls.daysIn === 0 ? "today" : `${ls.daysIn} day${ls.daysIn === 1 ? "" : "s"} ago`}<span class="onb-status ${ls.status.key}">${escapeHtml(ls.status.label)}</span>`;
-  const taskRow = (t) => {
-    const done = launchTaskDone(c, t);
-    const tag = t.who === "client" ? `<span class="onb-tag">Client</span>` : "";
-    const dateInput = t.dateField ? `<input type="datetime-local" class="onb-inline-date" data-onb-field="${t.dateField}" value="${escapeHtml(p[t.dateField] || "")}" aria-label="Kickoff call time">` : "";
-    const hint = t.hint && !done ? `<span class="onb-task-hint">${escapeHtml(t.hint)}</span>` : "";
-    // Derived tasks tick themselves from the client's data, so they aren't buttons.
-    const inner = `<span class="task-check ${done ? "done" : ""}">${TASK_CHECK_SVG}</span><span class="onb-task-text">${escapeHtml(t.label)}${tag}${hint}</span>`;
-    return `
-      <div class="onb-task ${done ? "done" : ""} ${t.derived ? "auto" : ""}">
-        ${t.derived ? `<span class="onb-task-hit">${inner}</span>` : `<button type="button" class="onb-task-hit" data-action="onb-toggle" data-id="${c.id}" data-task="${t.key}" aria-pressed="${done}">${inner}</button>`}
-        ${dateInput}
-      </div>`;
+  $("#onb-modal-sub").innerHTML = `Onboarding · signed ${ls.daysIn === 0 ? "today" : `${ls.daysIn} day${ls.daysIn === 1 ? "" : "s"} ago`}`;
+  const stepRow = (s, n) => {
+    const isDone = onbStepDone(c, s);
+    let extra = "";
+    if (s.derivedFrom){
+      const type = OB_FIELD_INPUT[s.derivedFrom] || "text";
+      const val = type === "date" ? String(c[s.derivedFrom] || "").slice(0, 10) : (c[s.derivedFrom] || "");
+      extra = `<input class="ob-input" type="${type}" data-onb-field="client:${s.derivedFrom}" value="${escapeHtml(val)}" placeholder="${escapeHtml(s.derivedFrom === "meta_ad_account_id" ? "e.g. act_1234567890" : "Type it here")}">`;
+    } else if (s.answerable){
+      extra = `<input class="ob-input" type="text" data-onb-field="ess:${s.key}" value="${escapeHtml(p[s.key + ONBOARDING_ANSWER_SUFFIX] || "")}" placeholder="${escapeHtml(s.fieldLabel || "Their answer")}">`;
+    }
+    const check = `<span class="ob-check">${TASK_CHECK_SVG}</span>`;
+    return `<li class="ob-step ${isDone ? "done" : ""}">
+      ${s.derivedFrom ? `<span class="ob-tick auto" title="Ticks itself once this is filled in">${check}</span>`
+        : `<button type="button" class="ob-tick" data-action="onb-toggle" data-id="${c.id}" data-task="${s.key}" aria-pressed="${isDone}" aria-label="${isDone ? "Untick" : "Tick"} step ${n}">${check}</button>`}
+      <div class="ob-step-main"><p><span class="ob-n">${n}</span>${escapeHtml(s.label)}</p>${extra}</div>
+    </li>`;
   };
-  const asks = ls.clientAsks;
+  let n = 0;
   body.innerHTML = `
-    <div class="onb-seg" role="group" aria-label="Stage">
-      ${ls.milestones.map((m, i) => `<button type="button" class="onb-seg-btn ${i === ls.current ? "active" : ""} ${m.complete ? "past" : ""}" data-action="onb-move" data-id="${c.id}" data-stage="${m.key}" aria-pressed="${i === ls.current}"><span class="onb-seg-num">${m.complete ? TASK_CHECK_SVG : i + 1}</span>${escapeHtml(m.label)}<span class="onb-seg-count">${m.done}/${m.total}</span></button>`).join("")}
-    </div>
-    <div class="onb-m-grid">
-      <div class="onb-m-tasks">
-        ${ls.milestones.map((m, i) => {
-          const isOpen = firstRender ? i === ls.current : openSections.has(m.key);
-          return `
-          <details class="onb-group ${i === ls.current ? "current" : ""} ${m.complete ? "complete" : ""}" data-stage="${m.key}" ${isOpen ? "open" : ""}>
-            <summary><span class="onb-group-title">${escapeHtml(m.label)}</span>${i === ls.current ? `<span class="onb-here">Here now</span>` : ""}<span class="onb-group-count">${m.done}/${m.total}</span></summary>
-            <div class="onb-group-body">${m.tasks.map(taskRow).join("")}</div>
-          </details>`;
-        }).join("")}
+    <div class="ob-progress">
+      <div class="ob-progress-text"><b>${done} of ${total}</b> steps done<span>${pct}%</span></div>
+      <div class="ob-bar"><i style="width:${pct}%"></i></div>
+      <div class="ob-actions">
+        <button type="button" class="btn ghost sm" data-action="onb-pack" data-id="${c.id}">Welcome pack</button>
+        <button type="button" class="btn ghost sm" data-action="onb-client-page" data-id="${c.id}">Client page</button>
+        <button type="button" class="btn ${done === total ? "gold" : "ghost"} sm" data-action="onb-finish" data-id="${c.id}">Finish onboarding →</button>
       </div>
-      <aside class="onb-m-side">
-        <div class="onb-side-card onb-side-plan">
-          <label class="onb-m-field"><span>Ads due</span><input type="date" data-onb-field="target_live" value="${escapeHtml(ls.target)}"></label>
-          <label class="onb-m-field"><span>Owner</span>
-            <select data-onb-field="owner">
-              <option value="">No owner</option>
-              ${Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${ls.owner === k ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")}
-            </select>
-          </label>
-          <div class="onb-side-links">
-            <button type="button" class="btn ghost sm" data-action="onb-pack" data-id="${c.id}">Welcome pack</button>
-            <button type="button" class="btn ghost sm" data-action="onb-client-page" data-id="${c.id}">Client page</button>
-          </div>
-        </div>
-        <div class="onb-side-card ${asks.length ? "asks" : "asks-done"}">
-          <h4>Needed from the client</h4>
-          ${asks.length
-            ? `<ul>${asks.map(t => `<li>${escapeHtml(t.ask || t.label)}</li>`).join("")}</ul>
-               <button type="button" class="btn ghost sm" data-action="onb-copy-asks" data-id="${c.id}">Copy chase-up message</button>`
-            : `<p>Nothing outstanding from them.</p>`}
-        </div>
-        <div class="onb-side-card">
-          <h4>Lead essentials</h4>
-          <p>Four answers from the kickoff call. They become this client's qualified lead structure.</p>
-          ${LAUNCH_ESSENTIALS.map(e => `
-            <label class="onb-ess"><span>${escapeHtml(e.label)}</span>
-              <input type="text" data-onb-field="ess:${e.key}" value="${escapeHtml(p[e.key + ONBOARDING_ANSWER_SUFFIX] || "")}" placeholder="${escapeHtml(e.placeholder)}">
-            </label>`).join("")}
-        </div>
-      </aside>
     </div>
-    <div class="onb-m-foot">
-      <span>${ls.doneTasks} of ${ls.total} tasks done</span>
-      ${ls.launched
-        ? `<button type="button" class="btn gold" data-action="onb-finish" data-id="${c.id}">Finish onboarding → ${escapeHtml(CLIENT_STAGE_MAP[postOnboardingStage(c)].label)}</button>`
-        : `<button type="button" class="btn gold" data-action="onb-move" data-id="${c.id}" data-stage="${ONB_STAGE_KEYS[ls.current + 1]}">Move to ${escapeHtml(LAUNCH_MILESTONES[ls.current + 1].label)} →</button>`}
-    </div>`;
+    ${ONBOARDING_SECTIONS.map(sec => {
+      const steps = ONBOARDING_STEPS.filter(s => s.section === sec.section);
+      const secDone = steps.filter(s => onbStepDone(c, s)).length;
+      return `<section class="ob-section ${secDone === steps.length ? "complete" : ""}">
+        <header><h4>${escapeHtml(sec.section)}</h4><span>${secDone}/${steps.length}</span></header>
+        <ol class="ob-steps">${steps.map(s => stepRow(s, ++n)).join("")}</ol>
+      </section>`;
+    }).join("")}`;
+  body.scrollTop = scroll;
   if (keep){
     const el = body.querySelector(`[data-onb-field="${keep.field}"]`);
     if (el){ el.value = keep.value; el.focus(); try { if (keep.s != null) el.setSelectionRange(keep.s, keep.e); } catch(e){} }
@@ -5123,6 +5105,12 @@ async function saveOnbField(c, field, value){
   if (field.startsWith("ess:")){
     await saveOnboardingAnswer(c.id, field.slice(4), value);
     await saveLaunchProgress(c, {});
+    return;
+  }
+  if (field.startsWith("client:")){
+    const key = field.slice(7);
+    c[key] = value || null;
+    await DataLayer.update("clients", c.id, { [key]: value || null, updated_at: new Date().toISOString() });
     return;
   }
   if (field === "kickoff_at") return saveLaunchProgress(c, { kickoff_at: value || null, kickoff_booked: value ? true : (c.onboarding_progress || {}).kickoff_booked || null });
@@ -5188,18 +5176,18 @@ function renderClientOnboarding(c){
   if (!isOnboardingClient(c)){ card.hidden = true; return; }
   card.hidden = false;
   const ls = launchState(c);
+  const done = ONBOARDING_STEPS.filter(s => onbStepDone(c, s)).length, total = ONBOARDING_STEPS.length;
+  const next = ONBOARDING_STEPS.find(s => !onbStepDone(c, s));
   card.innerHTML = `
     <div class="cl-launch-head">
       <div>
-        <h3>Onboarding · ${escapeHtml(ls.stage.label)}</h3>
-        <p>${escapeHtml(ls.status.label)} · day ${ls.daysIn}${ls.target ? ` · ads due ${escapeHtml(fmtShortDate(ls.target))}` : ""}</p>
+        <h3>Onboarding · ${done} of ${total} steps done</h3>
+        <p>Day ${ls.daysIn}${ls.target ? ` · ads due ${escapeHtml(fmtShortDate(ls.target))}` : ""}</p>
       </div>
-      <button type="button" class="btn gold sm" data-action="onb-open" data-id="${c.id}">Open onboarding</button>
+      <button type="button" class="btn gold sm" data-action="onb-open" data-id="${c.id}">Open checklist</button>
     </div>
-    <div class="onb-seg compact">
-      ${ls.milestones.map((m, i) => `<span class="onb-seg-btn ${i === ls.current ? "active" : ""} ${m.complete ? "past" : ""}"><span class="onb-seg-num">${m.complete ? TASK_CHECK_SVG : i + 1}</span>${escapeHtml(m.label)}</span>`).join("")}
-    </div>
-    ${ls.nextTask && !ls.launched ? `<div class="onb-next"><span class="onb-next-label">Next</span>${ls.nextTask.who === "client" ? `<em>Client</em>` : ""}${escapeHtml(ls.nextTask.label)}</div>` : ""}`;
+    <div class="ob-bar"><i style="width:${Math.round(done / total * 100)}%"></i></div>
+    ${next ? `<div class="onb-next"><span class="onb-next-label">Next</span>${escapeHtml(next.label)}</div>` : ""}`;
   const main = $("#client-detail-main");
   if (main && main.firstElementChild !== card) main.prepend(card);
 }
