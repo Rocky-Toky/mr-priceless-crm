@@ -386,6 +386,7 @@ const ONBOARDING_SECTIONS = [
   { section: "Meta & CRM Access", items: [
     { key: "meta_partner_access", text: "Get full partner access on their Meta ad account." },
     { key: "fb_page_access", text: "On their Facebook Page, get access to Content, Ads, Insights, Leads, Creator Content, and Creator Management." },
+    { key: "meta_dataset_card", text: "Create a dataset in their Meta Events Manager, and have them add their card details to the ad account so the ads can run." },
     { key: "crm_login", text: "Send their login and confirm they can get in." },
     { key: "crm_auto_text", text: "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due." },
   ]},
