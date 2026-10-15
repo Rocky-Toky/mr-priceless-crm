@@ -386,8 +386,6 @@ const ONBOARDING_SECTIONS = [
   { section: "Meta & CRM Access", items: [
     { key: "meta_partner_access", text: "Get full partner access on their Meta ad account." },
     { key: "fb_page_access", text: "On their Facebook Page, get access to Content, Ads, Insights, Leads, Creator Content, and Creator Management." },
-    { key: "meta_ad_account_id", text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
-    { key: "ghl_report_connect", text: "Sync GHL with the CRM for reporting." },
     { key: "crm_login", text: "Send their login and confirm they can get in." },
     { key: "crm_auto_text", text: "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due." },
   ]},
@@ -409,6 +407,8 @@ const ONBOARDING_SECTIONS = [
     { key: "fb_lead_form", text: "Create a Facebook Lead Form based on their requirements." },
     { key: "zapier_setup", text: "Get Max to set up the Zapier integration, connecting the new lead form through to GHL." },
     { key: "ad_start_date", text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
+    { key: "meta_ad_account_id", text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
+    { key: "ghl_report_connect", text: "Sync GHL with the CRM for reporting." },
   ]},
 ];
 const ONBOARDING_ANSWER_SUFFIX = "_answer";
