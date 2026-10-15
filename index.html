@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mr Priceless - CRM</title>
-<link rel="stylesheet" href="css/style.css?v=219">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=219">
+<link rel="stylesheet" href="css/style.css?v=220">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=220">
 </head>
 <body>
 
@@ -933,6 +933,7 @@
               <div class="cp-meta">
                 <span id="client-detail-churn-risk"></span>
                 <span class="cp-meta-item"><span class="cp-meta-k">Ads live since</span><span id="client-detail-ad-start-date">-</span></span>
+                <span class="cp-meta-item"><span class="cp-meta-k">Rough margin</span><span id="client-detail-margin">-</span></span>
               </div>
             </div>
             <div class="cp-hero-actions">
@@ -2311,6 +2312,7 @@
         </div>
         <div class="field"><label>Cost Per Lead Target (NZD)</label><input type="number" id="client-cpl" min="0" step="0.01" placeholder="e.g. 25"></div>
       </div>
+      <div class="field"><label>Rough margin on a job (%)</label><input type="number" id="client-margin" min="0" max="100" step="0.5" placeholder="e.g. 35"><span class="field-hint">After materials and labour. Used for rough profit on their finance report.</span></div>
       <div class="field-row">
         <div class="field"><label>Churn Risk</label>
           <select id="client-churn-risk">
@@ -2422,9 +2424,10 @@
         </select>
       </div>
       <div class="field">
-        <label>Image</label>
+        <label>Image or video</label>
         <div id="ad-creative-current-image"></div>
-        <input type="file" id="ad-creative-image" accept="image/*">
+        <input type="file" id="ad-creative-image" accept="image/*,video/*">
+        <span class="field-hint">For a video, a still from it is saved and the creative is marked as Video.</span>
       </div>
       <div class="field"><label>Notes</label><textarea id="ad-creative-notes" placeholder="Performance notes, CPL, CTR..."></textarea></div>
       <div class="modal-actions">
@@ -2682,17 +2685,17 @@
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js"></script>
-<script src="js/config.js?v=219"></script>
-<script src="js/supabaseClient.js?v=219"></script>
-<script src="js/report-pdf.js?v=219"></script>
-<script src="js/plan-pdf.js?v=219"></script>
-<script src="js/workshop-pdf.js?v=219"></script>
-<script src="js/receipt-pdf.js?v=219"></script>
-<script src="js/welcome-pdf.js?v=219"></script>
-<script src="js/builtin-playbooks.js?v=219"></script>
-<script src="js/builtin-email-templates.js?v=219"></script>
-<script src="js/app.js?v=219"></script>
-<script src="js/meetings-tracker.js?v=219"></script>
-<script src="js/todo.js?v=219"></script>
+<script src="js/config.js?v=220"></script>
+<script src="js/supabaseClient.js?v=220"></script>
+<script src="js/report-pdf.js?v=220"></script>
+<script src="js/plan-pdf.js?v=220"></script>
+<script src="js/workshop-pdf.js?v=220"></script>
+<script src="js/receipt-pdf.js?v=220"></script>
+<script src="js/welcome-pdf.js?v=220"></script>
+<script src="js/builtin-playbooks.js?v=220"></script>
+<script src="js/builtin-email-templates.js?v=220"></script>
+<script src="js/app.js?v=220"></script>
+<script src="js/meetings-tracker.js?v=220"></script>
+<script src="js/todo.js?v=220"></script>
 </body>
 </html>

@@ -381,6 +381,7 @@ const ONBOARDING_SECTIONS = [
     { key: "good_lead_3", text: "Confirm their average job value.", answerable: true, fieldLabel: "Average Job Value" },
     { key: "good_lead_5", text: "Confirm how far out from their base they're willing to quote.", answerable: true, fieldLabel: "Service Radius" },
     { key: "good_lead_6", text: "Confirm whether they can quote after hours or on weekends.", answerable: true, fieldLabel: "After-Hours / Weekend Quoting" },
+    { key: "good_lead_margin", text: "Ask roughly what margin they make on a typical job, after materials and labour.", answerable: true, fieldLabel: "Rough Margin", targetField: "margin" },
   ]},
   { section: "Meta & CRM Access", items: [
     { key: "meta_partner_access", text: "Get full partner access on their Meta ad account." },
@@ -435,6 +436,15 @@ function composeQualifiedLeadStructure(progress){
     .filter(Boolean)
     .join("\n");
 }
+// A client's rough margin on a job, as a % (35 = 35%). Typed as "35",
+// "35%" or "0.35"; anything else counts as not known.
+function parseMargin(v){
+  const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g, ""));
+  if (!isFinite(n) || n <= 0) return null;
+  const pct = n < 1 ? n * 100 : n;
+  return pct > 100 ? null : Math.round(pct * 10) / 10;
+}
+const clientMargin = (c) => c?.margin != null && c.margin !== "" ? Number(c.margin) : parseMargin((c?.onboarding_progress || {})["good_lead_margin" + ONBOARDING_ANSWER_SUFFIX]);
 async function saveOnboardingAnswer(clientId, stepKey, value){
   const c = state.clients.find(x => x.id === clientId);
   if (!c) return;
@@ -444,8 +454,9 @@ async function saveOnboardingAnswer(clientId, stepKey, value){
   c.onboarding_progress = progress;
   const updates = { onboarding_progress: progress };
   if (step && step.targetField){
-    c[step.targetField] = value;
-    updates[step.targetField] = value;
+    const v = step.targetField === "margin" ? parseMargin(value) : value;
+    c[step.targetField] = v;
+    updates[step.targetField] = v;
   } else {
     const qualified_lead_structure = composeQualifiedLeadStructure(progress);
     c.qualified_lead_structure = qualified_lead_structure;
@@ -2297,6 +2308,7 @@ function openEditClientModal(c){
   $("#client-industry").value = c.industry || "";
   $("#client-industry").placeholder = clientIndustry({ ...c, industry: "" }).name || "e.g. Plumbing";
   $("#client-cpl").value = c.cost_per_lead != null ? c.cost_per_lead : "";
+  $("#client-margin").value = clientMargin(c) ?? "";
   $("#client-monthly-ad-spend").value = c.monthly_ad_spend != null ? c.monthly_ad_spend : "";
   $("#client-notes").value = c.notes||"";
   $("#client-meta-account").value = c.meta_ad_account_id||"";
@@ -3512,8 +3524,28 @@ function campaignAdStats(campaignId){
   const results = creatives.reduce((s,a) => s + Number(a.results||0), 0);
   return { spend, results, cpl: results > 0 ? spend / results : null, creativeCount: creatives.length };
 }
+// A still from part-way into a video, as a JPEG, so a video ad shows in the
+// library like any other creative.
+function videoStill(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+    const fail = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't read that video - try an MP4 or MOV.")); };
+    v.onerror = fail;
+    v.onloadedmetadata = () => { v.currentTime = Math.min(1, (v.duration || 2) / 3); };
+    v.onseeked = () => {
+      const scale = Math.min(1, 1080 / Math.max(v.videoWidth, v.videoHeight || 1));
+      const c = document.createElement("canvas");
+      c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+      c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+      c.toBlob((blob) => { URL.revokeObjectURL(url); blob ? resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" })) : fail(); }, "image/jpeg", 0.86);
+    };
+    setTimeout(() => { if (!v.videoWidth) fail(); }, 15000);
+  });
+}
 async function uploadAdCreativeImage(file){
   if (!file) return null;
+  if (file.type.startsWith("video/")) file = await videoStill(file);
   if (!IS_CONFIGURED) return URL.createObjectURL(file);
   const ext = (file.name.split(".").pop() || "png").toLowerCase();
   const path = `${uid()}.${ext}`;
@@ -4264,6 +4296,8 @@ function renderClientDetail(c){
   $("#client-detail-cpl").innerHTML = c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : notSet;
   const monthlySpendEl = $("#client-detail-monthly-spend");
   if (monthlySpendEl) monthlySpendEl.innerHTML = c.monthly_ad_spend != null ? fmtMoney(c.monthly_ad_spend) : notSet;
+  const marginEl = $("#client-detail-margin");
+  if (marginEl){ const m = clientMargin(c); marginEl.textContent = m != null ? `${m}%` : "Not set"; }
   const adStartEl = $("#client-detail-ad-start-date");
   if (adStartEl) adStartEl.innerHTML = c.ad_start_date ? fmtDate(c.ad_start_date) : notSet;
   const notesEl = $("#client-detail-notes");
@@ -4743,6 +4777,7 @@ const LAUNCH_ESSENTIALS = [
   { key: "good_lead_3", label: "Average job value", placeholder: "e.g. $18,000" },
   { key: "good_lead_5", label: "How far they'll travel", placeholder: "e.g. 40 minutes from Mt Maunganui" },
   { key: "good_lead_6", label: "After hours or weekend quotes", placeholder: "e.g. Saturday mornings only" },
+  { key: "good_lead_margin", label: "Rough margin on a job", placeholder: "e.g. 35%", optional: true },
 ];
 const LAUNCH_MILESTONES = [
   { key: "welcome", label: "Welcome", blurb: "Pack out, logins sent", tasks: [
@@ -4776,7 +4811,7 @@ const isOnboardingClient = (c) => (c.stage || "onboarding") === "onboarding";
 
 function launchEssentialsDone(c){
   const p = c.onboarding_progress || {};
-  return LAUNCH_ESSENTIALS.every(e => String(p[e.key + ONBOARDING_ANSWER_SUFFIX] || "").trim());
+  return LAUNCH_ESSENTIALS.filter(e => !e.optional).every(e => String(p[e.key + ONBOARDING_ANSWER_SUFFIX] || "").trim());
 }
 function launchTaskDone(c, t){
   if (t.derived === "essentials") return launchEssentialsDone(c);
@@ -5571,6 +5606,7 @@ function renderCreativeLibrary(){
     <div class="creative-card ${cardTierCls}${offCls}">
       <div class="creative-card-media">
         ${a.image_url ? `<img src="${escapeHtml(a.image_url)}" class="creative-card-img" data-action="view-creative-image" data-url="${escapeHtml(a.image_url)}">` : `<div class="creative-card-img-empty">${escapeHtml(initial)}</div>`}
+        ${a.media_type === "video" ? `<span class="creative-card-video" title="Video ad - this is a still from it"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Video</span>` : ""}
         ${delivery ? `<span class="badge creative-card-delivery ${delivery.cls}">${delivery.label}</span>` : ""}
         <span class="badge creative-card-badge ${AD_RESULTS[a.result]?.cls||'gray'}">${AD_RESULTS[a.result]?.label||a.result}</span>
         ${fatigue ? `<span class="badge creative-card-fatigue ${fatigue.cls}">${fatigue.label}</span>` : ""}
@@ -6229,7 +6265,12 @@ function rpTotals(c){
   const lastMonthYm = ymOf(addDays(monthStart(to), -1));
   const lastMonth = earlier.find(r => ymOf(r.period_end) === lastMonthYm);
   const reportNumber = monthReportsFor(c.id).filter(r => r.id !== rpExisting?.id && r.period_end < to).length + 1;
+  // Rough profit, from the margin they gave us at onboarding.
+  const margin = clientMargin(c);
+  const profitToDate = margin != null ? revenueToDate * margin / 100 : null;
   return { earlier, reportNumber, revenueToDate, adSpendToDate, mgmtToDate, investedToDate, lastMonth, month: mv,
+    margin, profitMonth: margin != null ? (rev || 0) * margin / 100 : null, profitToDate,
+    profitReturn: profitToDate != null && investedToDate ? profitToDate / investedToDate : null,
     roiMonth: spend + mgmt ? rev / (spend + mgmt) : null, roiToDate: investedToDate ? revenueToDate / investedToDate : null };
 }
 function rpRenderTotals(){
@@ -6249,7 +6290,8 @@ function rpRenderTotals(){
     <div><span>Revenue to date</span><b>${fmtMoney(t.revenueToDate)}</b></div>
     <div><span>Invested to date</span><b>${fmtMoney(t.investedToDate)}</b></div>
     <div><span>Return to date</span><b class="gold">${fmtTimes(t.roiToDate)}</b></div>
-    <div><span>Quote guarantee</span><b>${mv.quotesBooked} / ${target}</b></div>`;
+    <div><span>Quote guarantee</span><b>${mv.quotesBooked} / ${target}</b></div>
+    <div title="Revenue to date at their rough margin. Set the margin on the client (Edit Client) or in onboarding."><span>Rough profit${t.margin != null ? ` · ${t.margin}% margin` : ""}</span><b>${t.profitToDate != null ? fmtMoney(t.profitToDate) : "Add their margin"}</b></div>`;
   $("#rp-period-note").textContent = `Report ${t.reportNumber} · ${fmtReportPeriod(rpVal("from"), rpVal("to"))}`;
 }
 
@@ -6379,6 +6421,8 @@ async function makeReport(){
         ["Close rate", quoted && jobs != null ? Math.round(jobs / quoted * 100) + "%" : null, "Share of quotes sent that turned into signed jobs"],
         ["Average job value", jobs && rev ? fmtMoney(rev / jobs) : null, "Revenue won divided by jobs signed"],
         ["Return this month", t.roiMonth != null ? fmtTimes(t.roiMonth) : null, "Revenue won this month for every $1 invested this month"],
+        ["Rough profit to date", t.profitToDate != null ? fmtMoney(t.profitToDate) : null, `Revenue to date at your rough ${t.margin}% margin on a job`],
+        ["Profit return", t.profitReturn != null ? fmtTimes(t.profitReturn) : null, "Rough profit for every $1 invested with us"],
       ],
       contactName: am.account_manager || ASSIGNEES[deal?.assignee]?.label || "", contactPhone: am.phone || "",
     };
@@ -6397,6 +6441,7 @@ async function makeReport(){
       revenueMonth: rev, jobsMonth: jobs, adSpendMonth: spend, mgmtMonth: mv.mgmtMonth, enquiries: enq, quoteReady: ready, quoted, quotesBooked: ready,
       openQuotesCount: Math.max(0, (quoted || 0) - (jobs || 0)),
       report_number: data.reportNumber, revenueToDate: t.revenueToDate, investedToDate: t.investedToDate, roiToDate: t.roiToDate,
+      margin: t.margin, profitToDate: t.profitToDate,
       ad_lifetime_spend: state.adCreatives.filter(a => a.client_id === c.id).reduce((s, a) => s + (Number(a.spend) || 0), 0) };
     const row = { client_id: c.id, period_start: from, period_end: to, metrics, status: "made" };
     const same = rpExisting || monthReportsFor(c.id).find(r => r.period_start === from && r.period_end === to);
@@ -8418,7 +8463,7 @@ async function syncClientAds(clientId, btnEl){
   if (btn){ btn.disabled = false; btn.textContent = btnLabel; }
   if (error || data?.error){ alert("Couldn't sync the ad account: " + (data?.error || error.message)); return; }
   const pl = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
-  alert(`Synced ${client.name}: found ${pl(data.campaigns_found ?? 0, "campaign")}, ${pl(data.adsets_found ?? 0, "ad set")} and ${pl(data.ads_found, "ad")}.\n${data.creatives_created} new creative${data.creatives_created===1?"":"s"}, ${data.creatives_updated} updated, ${pl(data.campaigns_created, "new campaign")}.${data.stats_error ? `\n\nThe ads were saved, but Meta wouldn't send their stats this time (${data.stats_error}). They'll fill in on the next sync.` : ""}`);
+  alert(`Synced ${client.name}: found ${pl(data.campaigns_found ?? 0, "campaign")}, ${pl(data.adsets_found ?? 0, "ad set")} and ${pl(data.ads_found, "ad")}.\n${data.creatives_created} new creative${data.creatives_created===1?"":"s"}, ${data.creatives_updated} updated, ${pl(data.campaigns_created, "new campaign")}.${data.stats_error ? `\n\nThe ads were saved, but Meta wouldn't send their stats this time (${data.stats_error}). They'll fill in on the next sync.` : ""}${data.save_error_count ? `\n\n${pl(data.save_error_count, "ad")} couldn't be saved:\n${(data.save_errors || []).join("\n")}` : ""}`);
   await DataLayer.fetchAll(); renderAll();
 }
 function renderReportHistoryModal(clientId){
@@ -10537,6 +10582,7 @@ function setupModals(){
       email: $("#client-email").value.trim(),
       website: $("#client-website").value.trim(),
       industry: $("#client-industry").value.trim() || null,
+      margin: parseMargin($("#client-margin").value),
       cost_per_lead: $("#client-cpl").value !== "" ? Number($("#client-cpl").value) : null,
       monthly_ad_spend: $("#client-monthly-ad-spend").value !== "" ? Number($("#client-monthly-ad-spend").value) : null,
       quote_target: $("#client-quote-target").value !== "" ? Number($("#client-quote-target").value) : null,
@@ -10740,8 +10786,9 @@ function setupModals(){
     // New creatives need a client; an existing one from a deleted client can stay unlinked.
     if (!row.name || (!id && !row.client_id)) return;
     if (file){
-      const imageUrl = await uploadAdCreativeImage(file);
-      if (imageUrl) row.image_url = imageUrl;
+      let imageUrl = null;
+      try { imageUrl = await uploadAdCreativeImage(file); } catch(err){ alert(err.message); return; }
+      if (imageUrl){ row.image_url = imageUrl; row.media_type = file.type.startsWith("video/") ? "video" : "image"; }
     }
     // Picking a different performer tag by hand keeps it, even over the $50 rule.
     const before = id ? state.adCreatives.find(x => x.id === id) : null;
