@@ -2982,3 +2982,24 @@ body.jv-open .jv-fab{display:none;}
 .dl-recent[open] summary{border-radius:inherit;}
 .dl-recent[open] .dl-recent-list{position:absolute;left:0;right:0;bottom:calc(100% + 8px);max-height:min(60vh,520px);background:var(--white);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);z-index:30;}
 @media (max-width:820px){ .dl-recent[open] .dl-recent-list{position:static;max-height:none;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none;} }
+
+/* ───────── Every page: centred, and list pages fit the screen ───────── */
+@media (min-width:821px){
+  .main{margin-inline:auto;}
+}
+@media (min-width:821px) and (min-height:560px){
+  .page.fit-page.active{height:calc(100vh - 76px);display:flex;flex-direction:column;overflow-y:auto;}
+  .page.fit-page.active > *, .fit-box > *{flex-shrink:0;}
+  .fit-fill{flex:1 1 auto;min-height:0;overflow:auto;}
+  .fit-page > .page-tabs, .fit-box > .page-tabs{align-self:flex-start;}
+  .fit-box{display:flex;flex-direction:column;overflow:visible;}
+  .fit-fill > .page-header, .fit-box > .page-header{margin-bottom:16px;}
+  /* Side-by-side lists (playbooks, email templates, rules): each side scrolls on its own. */
+  .playbook-layout.fit-fill{overflow:hidden;align-items:stretch;}
+  .playbook-layout.fit-fill > .playbook-list,
+  .playbook-layout.fit-fill > .playbook-viewer{position:static;min-height:0;max-height:100%;overflow:auto;}
+  /* Kanban boards keep their columns' tops lined up while scrolling. */
+  #kanban-board.fit-fill{align-content:start;padding-bottom:4px;}
+  /* Tables: the header row stays visible while the rows scroll. */
+  .fit-fill table thead th{position:sticky;top:0;z-index:2;background:var(--white);}
+}

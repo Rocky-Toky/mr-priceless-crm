@@ -1650,7 +1650,46 @@ function setupPageGroups(){
   }));
   $$(".nav-group-item").forEach(b => b.addEventListener("click", () => goPage(lastTabOf(b.dataset.group))));
 }
+// Pages that fit the screen on desktop: the header stays put and only the
+// main list / board / table scrolls inside itself. Each entry is the chain
+// from the page down to the thing that should scroll.
+const FIT_PAGES = {
+  deals: ["#deals-list-view", "#kanban-board"],
+  nurture: ["#nurture-section"],
+  contacts: ["#page-contacts > .card"],
+  todo: ["#page-todo > .two-col"],
+  tasks: ["#page-tasks > .card:last-child"],
+  playbooks: ["#pbx"],
+  "email-templates": ["#page-email-templates .playbook-layout"],
+  "delivery-emails": ["#page-delivery-emails .playbook-layout"],
+  rules: ["#page-rules .playbook-layout"],
+  clients: ["#clients-list-view", "#clients-gallery"],
+  workshops: ["#ws-board-wrap"],
+  creative: ["#creative-lib-view", "#creative-library-grid"],
+  "ads-month": ["#am-root"],
+  "content-library": ["#vs-root"],
+  reporting: ["#rp-client-list"],
+  expenses: ["#page-expenses > .card:last-child"],
+  commission: ["#commission-groups"],
+  statistics: ["#page-statistics > .st-scroll"],
+  "lead-engine": ["#page-lead-engine > .le-scroll"],
+  receipts: ["#page-receipts > .rc-scroll"],
+};
+function setupFitPages(){
+  Object.entries(FIT_PAGES).forEach(([page, chain]) => {
+    const sec = $("#page-" + page);
+    if (!sec) return;
+    sec.classList.add("fit-page");
+    chain.forEach((sel, i) => {
+      const el = $(sel);
+      if (!el) return;
+      el.classList.add("fit-fill");
+      if (i < chain.length - 1) el.classList.add("fit-box");
+    });
+  });
+}
 function setupNav(){
+  setupFitPages();
   setupPageGroups();
   $("#workspace-select")?.addEventListener("change", (e) => setWorkspace(e.target.value));
   $("#coverage-industry-select")?.addEventListener("change", (e) => { state.coverageIndustry = e.target.value; renderRegionCoverage(); });
