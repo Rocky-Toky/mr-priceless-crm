@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=233">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=233">
+<link rel="stylesheet" href="css/style.css?v=235">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=235">
 </head>
 <body>
 
@@ -692,6 +692,7 @@
         <div class="card-body team-focus-grid" id="prospecting-team-focus"></div>
       </div>
 
+      <div class="le-scroll">
       <div class="card" style="margin-top:24px;">
         <div class="card-header"><h3>NZ Region Coverage</h3><span class="stat-sub">Pick an industry to see which regions already have prospects for it (green) and which don't (red). Tick a region once it's completed - it shows how many months it's been sitting there.</span></div>
         <div class="coverage-toolbar">
@@ -708,6 +709,7 @@
       <div class="card" style="margin-top:24px;">
         <div class="card-header"><h3>Vertical Coverage</h3><span class="stat-sub">Tick off a region + industry once it's fully worked - its prospects come off Prospecting for everyone, without deleting anything. Reactivate to bring them straight back.</span></div>
         <div class="vertical-coverage-body" id="vertical-coverage-body"></div>
+      </div>
       </div>
     </section>
 
@@ -1171,6 +1173,7 @@
       </div>
       <div class="rc-setup" id="rc-setup" hidden></div>
 
+      <div class="rc-scroll">
       <section class="rc-section">
         <header class="rc-section-head"><div><h3>Up next</h3><p>Monthly payments due in the next two weeks. The first is a month after they start, then every 30 days.</p></div></header>
         <div class="rc-next" id="rc-next"></div>
@@ -1190,6 +1193,7 @@
         <header class="rc-section-head"><div><h3>Clients &amp; billing</h3><p>Each client's monthly fee and when they started. This sets when their payments are due.</p></div></header>
         <div class="rc-clients" id="rc-clients"></div>
       </section>
+      </div>
     </section>
 
     <section class="page" id="page-reporting">
@@ -1410,6 +1414,7 @@
 
       <div class="stat-grid" id="stats-summary-grid" style="grid-template-columns:repeat(4,1fr);"></div>
 
+      <div class="st-scroll">
       <section class="card mtr-card-gap sf-card">
         <div class="card-header"><h3>Sales funnel</h3><span class="sf-note">Same person and time range as above</span></div>
         <div class="sf-body" id="stats-funnel"></div>
@@ -1423,6 +1428,7 @@
             <tbody id="stats-breakdown-tbody"></tbody>
           </table>
         </div>
+      </div>
       </div>
     </section>
   </main>
@@ -2661,17 +2667,17 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
-<script src="js/config.js?v=233"></script>
-<script src="js/supabaseClient.js?v=233"></script>
-<script src="js/report-pdf.js?v=233"></script>
-<script src="js/plan-pdf.js?v=233"></script>
-<script src="js/workshop-pdf.js?v=233"></script>
-<script src="js/receipt-pdf.js?v=233"></script>
-<script src="js/welcome-pdf.js?v=233"></script>
-<script src="js/builtin-playbooks.js?v=233"></script>
-<script src="js/builtin-email-templates.js?v=233"></script>
-<script src="js/app.js?v=233"></script>
-<script src="js/meetings-tracker.js?v=233"></script>
-<script src="js/todo.js?v=233"></script>
+<script src="js/config.js?v=235"></script>
+<script src="js/supabaseClient.js?v=235"></script>
+<script src="js/report-pdf.js?v=235"></script>
+<script src="js/plan-pdf.js?v=235"></script>
+<script src="js/workshop-pdf.js?v=235"></script>
+<script src="js/receipt-pdf.js?v=235"></script>
+<script src="js/welcome-pdf.js?v=235"></script>
+<script src="js/builtin-playbooks.js?v=235"></script>
+<script src="js/builtin-email-templates.js?v=235"></script>
+<script src="js/app.js?v=235"></script>
+<script src="js/meetings-tracker.js?v=235"></script>
+<script src="js/todo.js?v=235"></script>
 </body>
 </html>
