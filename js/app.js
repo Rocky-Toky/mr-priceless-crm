@@ -2896,7 +2896,9 @@ async function logDialOutcome(prospectId, outcome, note, region, followupDate, o
   const correcting = Boolean(opts.correct && p.last_called_at);
   const entry = `[${stamp} - ${who.split("@")[0]}] ${correcting ? `Changed to ${label}` : label}${note ? ": " + note : ""}`;
   const priorCallsMade = Number(p.calls_made||0);
-  const next = nextCallDate(outcome, correcting ? Math.max(0, priorCallsMade - 1) : priorCallsMade);
+  let next = nextCallDate(outcome, correcting ? Math.max(0, priorCallsMade - 1) : priorCallsMade);
+  // Decision maker unavailable with a date: they come back up that morning.
+  if (outcome === "dm_unavailable" && followupDate) next = new Date(followupDate + "T07:00:00");
   const before = p.last_outcome, beforeBy = p.last_called_by, beforeAt = p.last_called_at;
   const update = {
     calls_made: correcting ? priorCallsMade : priorCallsMade + 1,
@@ -2926,9 +2928,9 @@ async function logDialOutcome(prospectId, outcome, note, region, followupDate, o
   // A Call Back isn't just a cooldown any more - it has to leave behind an
   // actual task, since a follow-up you only remember by stumbling back onto
   // the Follow Up list is a follow-up that gets missed.
-  if (outcome === "call_back" && followupDate){
+  if ((outcome === "call_back" || outcome === "dm_unavailable") && followupDate){
     await DataLayer.insert("tasks", {
-      title: `Follow up with ${p.name || p.company || "prospect"}`,
+      title: outcome === "dm_unavailable" ? `Call ${p.name || p.company || "prospect"} - decision maker available` : `Follow up with ${p.name || p.company || "prospect"}`,
       notes: note || "",
       due_date: followupDate,
       priority: "medium",
@@ -2995,7 +2997,11 @@ function updateLogCallModalFields(){
   const hint = $("#log-call-hint");
   const isNotInterested = outcome === "not_interested";
   const isDisqualified = outcome === "disqualified";
-  const isCallBack = outcome === "call_back";
+  const isCallBack = outcome === "call_back" || outcome === "dm_unavailable";
+  const isDm = outcome === "dm_unavailable";
+  const fl = $("#log-call-followup-label"), fn = $("#log-call-followup-note");
+  if (fl) fl.textContent = isDm ? "When's the decision maker available?" : "Follow-up Date";
+  if (fn) fn.textContent = isDm ? "They come back up in the Dialler on this date, with a task to call them." : "A task gets created automatically for this date, and they'll sit in the Follow Up list until then.";
   if (notesInput) notesInput.required = isNotInterested;
   if (notesLabel) notesLabel.textContent = isNotInterested ? "Notes - why aren't they interested? (required)" : "Notes (optional)";
   if (followupField) followupField.style.display = isCallBack ? "" : "none";
@@ -3005,6 +3011,8 @@ function updateLogCallModalFields(){
     ? "This moves them into the Not Interested list - they won't show up to call again unless someone reactivates them."
     : isDisqualified
     ? "This moves them into the Disqualified list - they won't show up to call again unless someone reactivates them."
+    : isDm
+    ? "They're off the call list until that date, then they come straight back up."
     : isCallBack
     ? "This moves them into the Follow Up list until the task above is done."
     : "This drops them off the \"ready to call\" list for a few days so nobody calls them again too soon.";
@@ -11237,7 +11245,7 @@ function setupModals(){
       // supply, so those two route through the same modal Prospecting uses.
       // Disqualified is deliberately a single click straight to the next
       // prospect, same as No Answer / Booked Meeting - no reason required.
-      if (outcome === "call_back" || outcome === "not_interested"){
+      if (outcome === "call_back" || outcome === "not_interested" || outcome === "dm_unavailable"){
         openLogCallModal(state.prospects.find(x => x.id === id), outcome);
       } else {
         await logDialOutcome(id, outcome);
@@ -11527,7 +11535,7 @@ function setupDialerFilters(){
     const p = state.prospects.find(x => x.id === sel.dataset.recentOutcome);
     if (!p || sel.value === p.last_outcome) return;
     // These two need a date or a reason, same as when logging a call.
-    if (sel.value === "call_back" || sel.value === "not_interested"){ const v = sel.value; sel.value = p.last_outcome || ""; openLogCallModal(p, v, true); return; }
+    if (sel.value === "call_back" || sel.value === "not_interested" || sel.value === "dm_unavailable"){ const v = sel.value; sel.value = p.last_outcome || ""; openLogCallModal(p, v, true); return; }
     await logDialOutcome(p.id, sel.value, "", null, null, { correct: true });
     renderRecentCalls();
   });
