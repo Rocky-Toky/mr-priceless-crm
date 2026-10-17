@@ -2078,7 +2078,7 @@ function renderDealStageCol(stage){
   return `
     <div class="kanban-col" data-stage="${stage.key}">
       <div class="kanban-col-head">
-        <h4>${stage.label}</h4>
+        <h4>${stage.label}${winChanceChip(stage.key)}</h4>
         <span class="kanban-count">${deals.length}</span>
       </div>
       <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
@@ -5821,6 +5821,39 @@ function renderCreativeSegmentNav(groups){
    (deals.nurture, from sql/057); until that column exists, the sequence
    simply runs from when the deal was last updated. */
 const NURTURE_STAGES = new Set(["closed_lost", "ghosted"]);
+/* Chance a deal ends up Closed Won, by the stage it's in. Learned from
+   finished deals: of every deal that passed through a stage and has since
+   been won or lost, how many were won. Early on there's little to go on, so
+   each stage starts from a sensible guess that the real results take over
+   from as deals close (each finished deal counts the same as the guess's
+   weight / WIN_PRIOR_WEIGHT). */
+const WIN_STAGES = new Set(["closed_won", "closed_won_adhoc", "churned"]);
+const LOSS_STAGES = new Set(["closed_lost", "disqualified", "ghosted"]);
+const WIN_PRIORS = { qualified: 0.25, no_show: 0.1, proposal: 0.4, negotiation: 0.6, onboarding: 0.9, pending_results: 0.75 };
+const WIN_PRIOR_WEIGHT = 4;
+const dealStagesVisited = (d) => new Set(["qualified", d.stage, ...(Array.isArray(d.stage_history) ? d.stage_history.map(h => h.stage) : [])]);
+let winChanceCache = { key: "", map: {} };
+function stageWinChances(){
+  const key = state.deals.length + ":" + state.deals.reduce((t, d) => t + (d.stage || "").length + ((d.stage_history || []).length * 7), 0);
+  if (winChanceCache.key === key) return winChanceCache.map;
+  const finished = state.deals.filter(d => WIN_STAGES.has(d.stage) || LOSS_STAGES.has(d.stage));
+  const map = {};
+  Object.entries(WIN_PRIORS).forEach(([stage, prior]) => {
+    const seen = finished.filter(d => dealStagesVisited(d).has(stage));
+    const wins = seen.filter(d => WIN_STAGES.has(d.stage)).length;
+    map[stage] = { chance: (wins + prior * WIN_PRIOR_WEIGHT) / (seen.length + WIN_PRIOR_WEIGHT), finished: seen.length, wins };
+  });
+  winChanceCache = { key, map };
+  return map;
+}
+function winChanceChip(stageKey){
+  const w = stageWinChances()[stageKey];
+  if (!w) return "";
+  const pct = Math.round(w.chance * 100);
+  const tip = w.finished ? `About ${pct}% of deals here end up Closed Won - based on ${w.finished} finished deal${w.finished === 1 ? "" : "s"} that went through this stage (${w.wins} won).`
+    : `A starting estimate of ${pct}% - it sharpens as deals that went through this stage are won or lost.`;
+  return `<span class="win-chip ${pct >= 60 ? "hi" : pct >= 30 ? "mid" : "lo"}" title="${escapeHtml(tip)}">${w.finished ? "" : "~"}${pct}%</span>`;
+}
 const NURTURE_EVERY_DAYS = 14, NURTURE_REENGAGE_DAYS = 182;
 const nurtureOf = (d) => d.nurture || {};
 const nurtureStart = (d) => (nurtureOf(d).started_at || d.stage_changed_at || d.updated_at || d.created_at || "").slice(0, 10);
@@ -5867,8 +5900,15 @@ async function saveNurture(d, patch){
 async function onDealStageChanged(deal, before){
   if (!deal || deal.stage === before) return;
   const now = new Date().toISOString();
-  if (IS_CONFIGURED) supabase.from("deals").update({ stage_changed_at: now }).eq("id", deal.id).then(({ error }) => { if (error) console.warn(error.message); });
-  deal.stage_changed_at = now;
+  // Every stage a deal passes through, so the win chance per stage can be
+  // worked out from what actually happened.
+  const hist = Array.isArray(deal.stage_history) ? [...deal.stage_history] : [];
+  if (!hist.length && before) hist.push({ stage: before, at: deal.stage_changed_at || deal.created_at || now });
+  hist.push({ stage: deal.stage, at: now });
+  if (IS_CONFIGURED) supabase.from("deals").update({ stage_changed_at: now, stage_history: hist }).eq("id", deal.id).then(({ error }) => {
+    if (error) supabase.from("deals").update({ stage_changed_at: now }).eq("id", deal.id).then(() => {});
+  });
+  deal.stage_changed_at = now; deal.stage_history = hist;
   if (!NURTURE_STAGES.has(deal.stage) || NURTURE_STAGES.has(before)) return;
   await saveNurture(deal, { started_at: now, pos: 0, sent: [], stopped: false });
   // The six-month re-engage, as a task so it lands in Tasks too.
@@ -9142,6 +9182,32 @@ function funnelDeals(scope, bounds){
   };
   return { outbound: split(deals.filter(d => dealSource(d) === "outbound")), inbound: split(deals.filter(d => dealSource(d) === "inbound")), all: split(deals) };
 }
+// Each open stage's chance of ending Closed Won, and what the open pipeline
+// is worth once every deal is weighted by its stage's chance.
+function renderWinChances(){
+  const el = $("#stats-win-chance");
+  if (!el) return;
+  const chances = stageWinChances();
+  const open = state.deals.filter(d => chances[d.stage]);
+  const valueOf = (d) => { const net = dealNetValue(d); return net != null ? net : Number(d.value || 0); };
+  const total = open.reduce((t, d) => t + valueOf(d), 0);
+  const expected = open.reduce((t, d) => t + valueOf(d) * chances[d.stage].chance, 0);
+  const finished = state.deals.filter(d => WIN_STAGES.has(d.stage) || LOSS_STAGES.has(d.stage)).length;
+  el.innerHTML = `
+    <div class="wc-stages">${STAGES.filter(st => chances[st.key]).map(st => {
+      const w = chances[st.key], pct = Math.round(w.chance * 100), n = open.filter(d => d.stage === st.key).length;
+      return `<div class="wc-stage">
+        <div class="wc-top"><span>${escapeHtml(st.label)}</span>${winChanceChip(st.key)}</div>
+        <div class="wc-bar"><i style="width:${pct}%"></i></div>
+        <small>${w.finished ? `${w.wins} of ${w.finished} won` : "starting estimate"} · ${n} open now</small>
+      </div>`;
+    }).join("")}</div>
+    <div class="wc-forecast">
+      <div><span>Open pipeline</span><b>${fmtMoney(total)}</b><small>${open.length} open deal${open.length === 1 ? "" : "s"}</small></div>
+      <div class="gold"><span>Likely to close</span><b>${fmtMoney(expected)}</b><small>each deal × its stage's chance</small></div>
+    </div>
+    <p class="sf-foot">Based on ${finished} finished deal${finished === 1 ? "" : "s"}. Each stage starts from a sensible guess and moves towards your real results as more deals are won or lost - a ~ means there's no real data for that stage yet.</p>`;
+}
 function renderSalesFunnel(scope, bounds){
   const el = $("#stats-funnel");
   if (!el) return;
@@ -9203,6 +9269,7 @@ function renderStatistics(){
   `;
 
   renderSalesFunnel(scope, bounds);
+  renderWinChances();
 
   const tbody = $("#stats-breakdown-tbody");
   if (tbody){
