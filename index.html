@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=231">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=231">
+<link rel="stylesheet" href="css/style.css?v=233">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=233">
 </head>
 <body>
 
@@ -801,19 +801,9 @@
         </div>
       </div>
 
-      <details class="card dl-region">
-        <summary><span>Region breakdown</span> <span class="region-data-scope" id="region-data-scope"></span></summary>
-        <div class="dl-region-grid">
-          <div><b id="region-data-total">0</b><span>Prospects</span></div>
-          <div><b id="region-data-calls">0</b><span>Calls made</span></div>
-          <div><b id="region-data-bookings">0</b><span>Bookings</span></div>
-          <div><b id="region-data-nevercalled">0</b><span>Never called</span></div>
-          <div><b id="region-data-followups">0</b><span>Follow up</span></div>
-          <div><b id="region-data-noanswer">0</b><span>No answer</span></div>
-          <div><b id="region-data-returning">0</b><span>Returning</span></div>
-          <div><b id="region-data-notinterested">0</b><span>Not interested</span></div>
-          <div><b id="region-data-disqualified">0</b><span>Disqualified</span></div>
-        </div>
+      <details class="card dl-region dl-recent" id="dl-recent">
+        <summary><span>Recent calls</span> <span class="region-data-scope" id="dl-recent-scope"></span></summary>
+        <div class="dl-recent-list" id="dl-recent-list"></div>
       </details>
 
     </section>
@@ -1980,7 +1970,7 @@
   <div class="modal">
     <div class="modal-header"><h3 id="log-call-title">Log Call</h3><button class="modal-close" data-close="log-call-modal">&times;</button></div>
     <form id="log-call-form" class="modal-body">
-      <input type="hidden" id="log-call-prospect-id">
+      <input type="hidden" id="log-call-prospect-id"><input type="hidden" id="log-call-correct">
       <div class="field"><label>Outcome</label>
         <select id="log-call-outcome" required>
           <option value="no_answer">No Answer</option>
@@ -2671,17 +2661,17 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
-<script src="js/config.js?v=231"></script>
-<script src="js/supabaseClient.js?v=231"></script>
-<script src="js/report-pdf.js?v=231"></script>
-<script src="js/plan-pdf.js?v=231"></script>
-<script src="js/workshop-pdf.js?v=231"></script>
-<script src="js/receipt-pdf.js?v=231"></script>
-<script src="js/welcome-pdf.js?v=231"></script>
-<script src="js/builtin-playbooks.js?v=231"></script>
-<script src="js/builtin-email-templates.js?v=231"></script>
-<script src="js/app.js?v=231"></script>
-<script src="js/meetings-tracker.js?v=231"></script>
-<script src="js/todo.js?v=231"></script>
+<script src="js/config.js?v=233"></script>
+<script src="js/supabaseClient.js?v=233"></script>
+<script src="js/report-pdf.js?v=233"></script>
+<script src="js/plan-pdf.js?v=233"></script>
+<script src="js/workshop-pdf.js?v=233"></script>
+<script src="js/receipt-pdf.js?v=233"></script>
+<script src="js/welcome-pdf.js?v=233"></script>
+<script src="js/builtin-playbooks.js?v=233"></script>
+<script src="js/builtin-email-templates.js?v=233"></script>
+<script src="js/app.js?v=233"></script>
+<script src="js/meetings-tracker.js?v=233"></script>
+<script src="js/todo.js?v=233"></script>
 </body>
 </html>

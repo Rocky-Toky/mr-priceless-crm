@@ -2845,20 +2845,25 @@ function openBookMeetingModalFromProspect(p){
   if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
   openModal("book-meeting-modal");
 }
-async function logDialOutcome(prospectId, outcome, note, region, followupDate){
+// opts.correct: changing the outcome of the last call (picked the wrong one,
+// or they rang back) - it isn't a new dial, so the call count stays put and
+// only the conversation / meeting counts move to match.
+async function logDialOutcome(prospectId, outcome, note, region, followupDate, opts = {}){
   const p = state.prospects.find(x => x.id === prospectId);
   if (!p) return;
   const who = state.user ? state.user.email : "demo";
   const stamp = new Date().toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" });
   const label = OUTCOMES[outcome]?.label || outcome;
-  const entry = `[${stamp} - ${who.split("@")[0]}] ${label}${note ? ": " + note : ""}`;
+  const correcting = Boolean(opts.correct && p.last_called_at);
+  const entry = `[${stamp} - ${who.split("@")[0]}] ${correcting ? `Changed to ${label}` : label}${note ? ": " + note : ""}`;
   const priorCallsMade = Number(p.calls_made||0);
-  const next = nextCallDate(outcome, priorCallsMade);
+  const next = nextCallDate(outcome, correcting ? Math.max(0, priorCallsMade - 1) : priorCallsMade);
+  const before = p.last_outcome, beforeBy = p.last_called_by, beforeAt = p.last_called_at;
   const update = {
-    calls_made: priorCallsMade + 1,
-    last_called_at: new Date().toISOString(),
+    calls_made: correcting ? priorCallsMade : priorCallsMade + 1,
+    last_called_at: correcting ? p.last_called_at : new Date().toISOString(),
     last_outcome: outcome,
-    last_called_by: who,
+    last_called_by: correcting ? (p.last_called_by || who) : who,
     snoozed_until: next ? next.toISOString() : null,
     notes: [entry, p.notes].filter(Boolean).join("\n\n"),
     updated_at: new Date().toISOString(),
@@ -2870,7 +2875,15 @@ async function logDialOutcome(prospectId, outcome, note, region, followupDate){
   // dialer picking them up too.
   update.claimed_by = null; update.claimed_at = null;
   await DataLayer.update("dial_prospects", prospectId, update);
-  await bumpCallActivity(personKeyFromEmail(who), outcome);
+  if (correcting){
+    // Only today's counts can be moved - earlier days are already closed off.
+    const person = personKeyFromEmail(beforeBy || who);
+    if (person && String(beforeAt || "").slice(0, 10) && localDayStr(new Date(beforeAt)) === localDayStr()){
+      const convo = (o) => o && o !== "no_answer" && o !== "dm_unavailable" ? 1 : 0;
+      const deltas = { conversations: convo(outcome) - convo(before), meetings_booked: (outcome === "booked_meeting" ? 1 : 0) - (before === "booked_meeting" ? 1 : 0) };
+      if (deltas.conversations || deltas.meetings_booked) await window.CRM_CALL_ACTIVITY.bump(person, deltas);
+    }
+  } else await bumpCallActivity(personKeyFromEmail(who), outcome);
   // A Call Back isn't just a cooldown any more - it has to leave behind an
   // actual task, since a follow-up you only remember by stumbling back onto
   // the Follow Up list is a follow-up that gets missed.
@@ -2912,10 +2925,11 @@ async function reactivateProspect(id){
 // required field filled in (a follow-up date, or a reason why) before they
 // can be logged, so both entry points open this same modal instead of the
 // Dialer being able to fire them off with no note captured at all.
-function openLogCallModal(p, outcome){
+function openLogCallModal(p, outcome, correct){
   if (!p) return;
   $("#log-call-prospect-id").value = p.id;
-  $("#log-call-title").textContent = `Log Call - ${p.name || p.company || "Prospect"}`;
+  if ($("#log-call-correct")) $("#log-call-correct").value = correct ? "1" : "";
+  $("#log-call-title").textContent = `${correct ? "Change outcome" : "Log Call"} - ${p.name || p.company || "Prospect"}`;
   $("#log-call-outcome").value = outcome || "no_answer";
   $("#log-call-notes").value = "";
   const followupInput = $("#log-call-followup-date");
@@ -9006,7 +9020,7 @@ const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
   [renderRegionData, ["dialer", "lead-engine"]], [renderTeamFocusPanel, ["lead-engine"]], [renderRegionCoverage, ["lead-engine"]],
-  [renderVerticalCoverage, ["lead-engine"]], [renderProspectList, ["*"]], [renderDialer, ["dialer"]], [renderClients, ["clients"]],
+  [renderVerticalCoverage, ["lead-engine"]], [renderProspectList, ["*"]], [renderDialer, ["dialer"]], [renderRecentCalls, ["dialer"]], [renderClients, ["clients"]],
   [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]], [renderAdsMonth, ["ads-month"]], [renderContentLibrary, ["content-library"]], [amNavCount, ["*"]],
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
@@ -10635,8 +10649,9 @@ function setupModals(){
     const note = $("#log-call-notes").value.trim();
     const region = $("#log-call-region").value.trim();
     const followupDate = $("#log-call-followup-date").value || null;
+    const correct = $("#log-call-correct")?.value === "1";
     closeModal("log-call-modal");
-    await logDialOutcome(id, outcome, note, region, followupDate);
+    await logDialOutcome(id, outcome, note, region, followupDate, { correct });
   });
   $("#prospecting-view-select")?.addEventListener("change", (e) => {
     state.prospectingView = e.target.value;
@@ -11366,7 +11381,28 @@ function setupSearchFilters(){
 }
 // Dialer and Prospecting both read/filter the same shared prospect list, so
 // a filter changed on either page re-renders both.
-function renderProspectViews(){ renderDialer(); renderProspectList(); renderRegionData(); }
+function renderProspectViews(){ renderDialer(); renderProspectList(); renderRegionData(); renderRecentCalls(); }
+// The Dialler's Recent calls: the last people you rang, so a call back or a
+// wrong outcome can be fixed in a click.
+function renderRecentCalls(){
+  const list = $("#dl-recent-list");
+  if (!list) return;
+  const me = window.getActivePerson ? window.getActivePerson() : null;
+  const called = state.prospects.filter(p => p.last_called_at).sort((a, b) => new Date(b.last_called_at) - new Date(a.last_called_at));
+  const mine = me ? called.filter(p => personKeyFromEmail(p.last_called_by) === me) : [];
+  const rows = (mine.length ? mine : called).slice(0, 15);
+  const scope = $("#dl-recent-scope");
+  if (scope) scope.textContent = rows.length ? `${mine.length ? "Your" : "The team's"} last ${rows.length}` : "";
+  list.innerHTML = rows.length ? rows.map(p => `
+    <div class="dl-recent-row">
+      <div class="dl-recent-who"><b>${escapeHtml(p.name || p.company || "Prospect")}</b><small>${escapeHtml([p.company && p.company !== p.name ? p.company : "", p.region].filter(Boolean).join(" · "))}</small></div>
+      <div class="dl-recent-phone">${phoneHtml(p.phone)}${callButtonHtml(p.phone, p.name || p.company)}</div>
+      <div class="dl-recent-when">${escapeHtml(timeAgo(p.last_called_at))}</div>
+      <select class="dl-recent-outcome o-${escapeHtml(p.last_outcome || "none")}" data-recent-outcome="${p.id}" aria-label="Outcome">
+        ${Object.entries(OUTCOMES).map(([k, o]) => `<option value="${k}" ${k === p.last_outcome ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}
+      </select>
+    </div>`).join("") : `<p class="dl-recent-empty">No calls yet - they'll show here as you log them.</p>`;
+}
 function setupDialerFilters(){
   $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
   $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; state.dialerFilter.industry = ""; renderProspectViews(); });
@@ -11374,6 +11410,21 @@ function setupDialerFilters(){
   $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
   $("#dialer-filter-owner")?.addEventListener("change", (e) => { state.dialerOwnerFilter = e.target.value; renderProspectViews(); });
   $("#dialer-queue-view-select")?.addEventListener("change", (e) => { state.dialerQueueView = e.target.value; renderProspectViews(); });
+  // Recent calls pops up over the page - a click anywhere else closes it.
+  document.addEventListener("click", (e) => {
+    const box = $("#dl-recent");
+    if (box?.open && !box.contains(e.target) && !e.target.closest(".overlay")) box.open = false;
+  });
+  $("#dl-recent-list")?.addEventListener("change", async (e) => {
+    const sel = e.target.closest("[data-recent-outcome]");
+    if (!sel) return;
+    const p = state.prospects.find(x => x.id === sel.dataset.recentOutcome);
+    if (!p || sel.value === p.last_outcome) return;
+    // These two need a date or a reason, same as when logging a call.
+    if (sel.value === "call_back" || sel.value === "not_interested"){ const v = sel.value; sel.value = p.last_outcome || ""; openLogCallModal(p, v, true); return; }
+    await logDialOutcome(p.id, sel.value, "", null, null, { correct: true });
+    renderRecentCalls();
+  });
   // Switching who's dialing also re-scopes the leads filter to that
   // person's own leads, so switching "You are" from Rocky to Max shows
   // Max's leads instead of leaving Rocky's leads on screen under Max's name.
