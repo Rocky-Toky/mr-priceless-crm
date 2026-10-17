@@ -1069,6 +1069,45 @@ function autoLowPerformers(){
 // Reloads are shared: while one is running, every other caller waits on a
 // single follow-up that starts once it finishes (so it still sees their
 // write). A burst of saves or realtime events is a couple of reloads, not dozens.
+/* A copy of the last data load, kept in this browser (IndexedDB), so the
+   CRM opens straight away next time while the fresh data loads behind it.
+   One copy per signed-in person; cleared on sign out. */
+const CRM_CACHE_DB = "mp-crm-cache", CRM_CACHE_VERSION = 1;
+function crmCacheDb(){
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error("no indexedDB"));
+    const req = indexedDB.open(CRM_CACHE_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("snap");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+const crmCacheKey = () => state.user?.id ? "u:" + state.user.id : null;
+async function crmCacheSave(results){
+  const key = crmCacheKey();
+  if (!key || results.some(r => r?.error)) return;
+  try {
+    const db = await crmCacheDb();
+    const snap = { v: CRM_CACHE_VERSION, at: Date.now(), results: results.map(r => ({ data: r.data, error: null })) };
+    db.transaction("snap", "readwrite").objectStore("snap").put(snap, key);
+  } catch(e){ /* the cache is a nice-to-have */ }
+}
+async function crmCacheLoad(){
+  const key = crmCacheKey();
+  if (!key) return null;
+  try {
+    const db = await crmCacheDb();
+    const snap = await new Promise((resolve) => {
+      const req = db.transaction("snap").objectStore("snap").get(key);
+      req.onsuccess = () => resolve(req.result || null); req.onerror = () => resolve(null);
+    });
+    // Older than a week isn't worth showing, even for a moment.
+    return snap && snap.v === CRM_CACHE_VERSION && Date.now() - snap.at < 7 * 86400e3 ? snap.results : null;
+  } catch(e){ return null; }
+}
+async function crmCacheClear(){
+  try { const db = await crmCacheDb(); db.transaction("snap", "readwrite").objectStore("snap").clear(); } catch(e){}
+}
 let fetchRun = null, fetchQueued = null, fetchStartedAt = 0;
 const DataLayer = {
   fetchAll(){
@@ -1082,7 +1121,7 @@ const DataLayer = {
   },
   async _fetchAllNow(){
     if (!IS_CONFIGURED){ return; }
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv] = await Promise.all([
+    const results = await Promise.all([
       allRows(() => supabase.from("contacts").select("*").order("created_at",{ascending:false})),
       allRows(() => supabase.from("cold_calls").select("*").order("created_at",{ascending:false})),
       allRows(() => supabase.from("deals").select("*").order("created_at",{ascending:false})),
@@ -1112,6 +1151,13 @@ const DataLayer = {
       allRows(() => supabase.from("client_leads").select("*").order("created_at",{ascending:false})),
       allRows(() => supabase.from("completed_verticals").select("*").order("completed_at",{ascending:false})),
     ]);
+    DataLayer._apply(results);
+    crmCacheSave(results);
+  },
+  // Puts a fetch's results into state - from the live database, or from the
+  // copy saved in this browser last time (so the CRM opens instantly).
+  _apply(results){
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv] = results;
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
     state.deals = d.data || [];
@@ -1280,16 +1326,29 @@ async function initAuth(){
     if (event === "PASSWORD_RECOVERY"){
       showResetPassword();
     } else if (event === "SIGNED_IN" && session){
+      // Supabase repeats SIGNED_IN when the tab regains focus - same person,
+      // already loaded, so there's nothing to do.
+      if (state.user?.id === session.user.id && $("#app")?.classList.contains("visible")) return;
       try { await handleSignedIn(session, /*freshLogin*/ true); }
       catch (err){ console.error(err); authFailed("Signed in, but the CRM couldn't load: " + (err.message || err) + ". Refresh to try again."); }
     } else if (event === "SIGNED_OUT"){
       state.user = null;
+      await crmCacheClear();
       location.reload();
     }
   });
 }
 
-async function handleSignedIn(session, freshLogin){
+// The page-load session check and Supabase's own SIGNED_IN event can both
+// arrive at once - one load per person is enough.
+let signInRun = null, signInFor = null;
+function handleSignedIn(session, freshLogin){
+  if (signInRun && signInFor === session.user.id) return signInRun;
+  signInFor = session.user.id;
+  signInRun = handleSignedInNow(session, freshLogin).catch(e => { signInRun = null; throw e; });
+  return signInRun;
+}
+async function handleSignedInNow(session, freshLogin){
   state.user = session.user;
   state.googleAccessToken = session.provider_token || state.googleAccessToken;
 
@@ -1306,19 +1365,33 @@ async function handleSignedIn(session, freshLogin){
     console.warn("Google sign-in didn't return a refresh token - use the Calendar page's Connect button to retry.");
   }
 
-  const allowed = await isAllowlisted(session.user.email);
+  // The access check and the data load run side by side (the database
+  // won't hand data to anyone off the allowlist anyway), and last time's
+  // data shows straight away while today's loads.
+  const allowedP = isAllowlisted(session.user.email);
+  const fresh = DataLayer.fetchAll();
+  const cached = await crmCacheLoad();
+  let shown = false;
+  if (cached && await Promise.race([allowedP, new Promise(r => setTimeout(() => r("wait"), 1500))]) === true){
+    DataLayer._apply(cached);
+    window.CRM_TRACKER_DEFAULT_PERSON?.(personKeyFromEmail(session.user.email));
+    showApp(); shown = true;
+  }
+  const allowed = await allowedP;
   if (!allowed){
+    crmCacheClear();
     showUnauthorized(session.user.email);
     return;
   }
   window.CRM_TRACKER_DEFAULT_PERSON?.(personKeyFromEmail(session.user.email));
 
-  await DataLayer.fetchAll();
-  await repairNzProspectCountryCodes();
-  await fetchTeam();
+  await fresh;
+  if (shown) renderAll(); else showApp();
   subscribeRealtime();
-  showApp();
-  await checkPendingMeetingReviews();
+  // None of these need to hold the page up.
+  repairNzProspectCountryCodes().then(n => { if (n) renderAll(); }).catch(e => console.warn(e));
+  fetchTeam().catch(e => console.warn(e));
+  checkPendingMeetingReviews().catch(e => console.warn(e));
   checkOverdueTasksPopup();
   loadCalendarWeek();
 }
@@ -2894,9 +2967,25 @@ let incomingCall = null;
 // opening the Dialer page (so a teammate's browser can actually receive a
 // callback) - it should never pop an alert for someone who never intended to
 // place or take a call, unlike the explicit "Call" button path below.
+// Big libraries load only when they're first needed, not on every page load.
+const LAZY_LIBS = {
+  xlsx: "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+  twilio: "https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.18.3/dist/twilio.min.js",
+};
+const lazyLibLoads = {};
+function loadLib(name){
+  if (name === "xlsx" && window.XLSX) return Promise.resolve();
+  if (name === "twilio" && window.Twilio) return Promise.resolve();
+  return lazyLibLoads[name] ||= new Promise((resolve, reject) => {
+    const s = document.createElement("script"); s.src = LAZY_LIBS[name]; s.async = true;
+    s.onload = resolve; s.onerror = () => { delete lazyLibLoads[name]; reject(new Error(`Couldn't load ${name === "xlsx" ? "the spreadsheet reader" : "calling"} - check your connection and try again.`)); };
+    document.head.appendChild(s);
+  });
+}
 async function getVoiceDevice(silent = false){
   if (voiceDevice) return voiceDevice;
   if (!IS_CONFIGURED){ if (!silent) alert("Connect Supabase first (see README.md) to enable real calling."); return null; }
+  try { await loadLib("twilio"); } catch(e){}
   if (typeof Twilio === "undefined"){ if (!silent) alert("Calling isn't available: the Twilio Voice SDK failed to load."); return null; }
   const { data, error } = await supabase.functions.invoke("voice-token");
   if (error || !data?.token){ if (!silent) alert("Couldn't start the call: " + (error?.message || "no token returned.")); return null; }
@@ -3303,6 +3392,7 @@ function setupProspectFileImport(btnId, inputId){
     try {
       if (isExcel){
         const buf = await file.arrayBuffer();
+        await loadLib("xlsx");
         const wb = XLSX.read(buf, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
@@ -3451,6 +3541,7 @@ function setupLeadImport(){
       let rows;
       if (isExcel){
         const buf = await file.arrayBuffer();
+        await loadLib("xlsx");
         const wb = XLSX.read(buf, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
