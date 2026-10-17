@@ -333,3 +333,27 @@
 .mb-counter.mb-counter-auto{cursor:default;}
 .mb-counter.mb-counter-auto:hover{border-color:var(--line);box-shadow:var(--shadow);}
 .mb-counter-auto .mb-counter-tap{color:var(--text2);background:var(--paper);border-color:var(--line);}
+
+/* Desktop: the whole Meetings Booked page fits the screen, no scrolling.
+   Everything sizes off the window height so it fits short laptop screens
+   and big monitors alike. */
+@media (min-width:821px) and (min-height:560px){
+  #page-cold-calls.active{height:calc(100vh - 76px);display:flex;flex-direction:column;overflow:hidden;}
+  #page-cold-calls .mb-header{margin-bottom:clamp(10px,2vh,22px);flex-shrink:0;}
+  #page-cold-calls .mb-counters{margin-bottom:clamp(8px,1.6vh,16px);flex-shrink:0;}
+  #page-cold-calls .mb-counter{padding:clamp(10px,1.8vh,18px) 20px;}
+  #page-cold-calls .mb-counter-ico{flex-basis:clamp(38px,5.5vh,52px);height:clamp(38px,5.5vh,52px);}
+  #page-cold-calls .mb-counter-num{font-size:clamp(30px,5.5vh,48px);}
+  #page-cold-calls .mb-hero{flex:1 1 auto;min-height:0;padding:clamp(14px,3vh,40px) 32px clamp(12px,2.4vh,30px);gap:clamp(10px,2.4vh,28px);justify-content:center;}
+  #page-cold-calls .mb-count-num{font-size:clamp(56px,13vh,160px);}
+  #page-cold-calls .mb-count-label{font-size:clamp(12px,1.7vh,15px);}
+  #page-cold-calls .mb-goal-line{margin-top:2px;padding:3px 12px;font-size:13px;}
+  #page-cold-calls .mb-slot{gap:4px;padding:2px;}
+  #page-cold-calls .mb-slot-circle{width:clamp(52px,11vh,112px);height:clamp(52px,11vh,112px);min-width:0;min-height:0;}
+  #page-cold-calls .mb-slot-num{font-size:clamp(20px,3.6vh,38px);}
+  #page-cold-calls .mb-week{margin-top:clamp(8px,1.6vh,18px);padding:clamp(10px,1.6vh,16px) 22px;flex-shrink:0;}
+  #page-cold-calls .mb-week-head{margin-bottom:8px;}
+  #page-cold-calls .mtr-week-dow{margin-bottom:4px;}
+  #page-cold-calls .mtr-week-grid{margin-bottom:0;}
+  #page-cold-calls .mb-week .mtr-week-day{height:clamp(24px,3.6vh,40px);}
+}
