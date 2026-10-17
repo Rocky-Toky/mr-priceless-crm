@@ -1,5 +1,5 @@
 /* Meetings Booked - ported as-is from the standalone tracker tool.
-   Only tracks meetings booked: five big tick slots (2 for the goal, Cloud 9
+   Only tracks meetings booked: five big tick slots (Achievement at 2, the goal and Cloud 9
    at 3, bonus to 5), each one booked through the Book Meeting form so it
    lands in the Deals pipeline. Not wrapped in an IIFE: the markup's inline
    onclick handlers (resetDay, closeModal, closeMegaC9, closeMachine, closeInsane) call
@@ -167,51 +167,85 @@ function playGodmodeFanfare(){
   }, 750);
 }
 
+// Cloud 9: the same airy whoosh and rising sparkle as before, just fuller -
+// a softer, wider swoosh, a warm pad chord swelling underneath, a brighter
+// rising arpeggio, and a gentle shimmer that floats off at the end.
 function playSwoosh(){
   const ac = getAudio();
   if(ac.state==='suspended') ac.resume();
   const t = ac.currentTime;
-  // White noise burst - the "whoosh" body
+  const out = ac.createGain(); out.gain.value = 0.9;
+  // A short, soft room so it feels like open sky rather than a dry beep.
+  const verb = ac.createConvolver();
+  const irLen = Math.floor(ac.sampleRate * 2.2), ir = ac.createBuffer(2, irLen, ac.sampleRate);
+  for(let ch=0; ch<2; ch++){ const d = ir.getChannelData(ch); for(let i=0;i<irLen;i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/irLen, 3); }
+  verb.buffer = ir;
+  const wet = ac.createGain(); wet.gain.value = 0.35;
+  out.connect(ac.destination); out.connect(verb); verb.connect(wet); wet.connect(ac.destination);
+
+  // Whoosh: noise through a sweeping band, panned left to right as it passes.
   const buf = ac.createBuffer(1, ac.sampleRate * 2.5, ac.sampleRate);
   const data = buf.getChannelData(0);
   for(let i=0;i<data.length;i++) data[i] = Math.random()*2-1;
-  const noise = ac.createBufferSource();
-  noise.buffer = buf;
-  // Bandpass sweep: starts high, sweeps down - the "whoosh" character
-  const bp = ac.createBiquadFilter();
-  bp.type = 'bandpass'; bp.Q.value = 0.8;
-  bp.frequency.setValueAtTime(4000, t);
-  bp.frequency.exponentialRampToValueAtTime(280, t + 1.6);
-  const noiseGain = ac.createGain();
-  noiseGain.gain.setValueAtTime(0, t);
-  noiseGain.gain.linearRampToValueAtTime(0.55, t + 0.06);
-  noiseGain.gain.setValueAtTime(0.55, t + 0.5);
-  noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
-  noise.connect(bp); bp.connect(noiseGain); noiseGain.connect(ac.destination);
+  const noise = ac.createBufferSource(); noise.buffer = buf;
+  const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.7;
+  bp.frequency.setValueAtTime(3200, t);
+  bp.frequency.exponentialRampToValueAtTime(420, t + 1.7);
+  const nG = ac.createGain();
+  nG.gain.setValueAtTime(0, t);
+  nG.gain.linearRampToValueAtTime(0.38, t + 0.18);
+  nG.gain.setValueAtTime(0.38, t + 0.55);
+  nG.gain.exponentialRampToValueAtTime(0.001, t + 2.1);
+  const pan = ac.createStereoPanner ? ac.createStereoPanner() : null;
+  if (pan){ pan.pan.setValueAtTime(-0.7, t); pan.pan.linearRampToValueAtTime(0.7, t + 1.8); noise.connect(bp); bp.connect(nG); nG.connect(pan); pan.connect(out); }
+  else { noise.connect(bp); bp.connect(nG); nG.connect(out); }
   noise.start(t); noise.stop(t + 2.5);
-  // Low rumble underneath
-  const lp = ac.createBiquadFilter();
-  lp.type = 'lowpass'; lp.frequency.value = 140;
-  const rumble = ac.createBufferSource();
-  rumble.buffer = buf;
-  const rumbleGain = ac.createGain();
-  rumbleGain.gain.setValueAtTime(0, t);
-  rumbleGain.gain.linearRampToValueAtTime(0.3, t + 0.1);
-  rumbleGain.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
-  rumble.connect(lp); lp.connect(rumbleGain); rumbleGain.connect(ac.destination);
-  rumble.start(t); rumble.stop(t + 2.0);
-  // Rising shimmer tones for the "Cloud 9" magic
-  [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => {
-    const delay = 0.15 + i * 0.14;
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.connect(g); g.connect(ac.destination);
-    o.type = 'sine'; o.frequency.setValueAtTime(f, t+delay);
-    o.frequency.exponentialRampToValueAtTime(f*1.006, t+delay+0.5);
-    g.gain.setValueAtTime(0, t+delay);
-    g.gain.linearRampToValueAtTime(0.18, t+delay+0.04);
-    g.gain.exponentialRampToValueAtTime(0.001, t+delay+0.7);
-    o.start(t+delay); o.stop(t+delay+0.8);
+
+  // Soft low rumble, as before but rounder.
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160;
+  const rumble = ac.createBufferSource(); rumble.buffer = buf;
+  const rG = ac.createGain();
+  rG.gain.setValueAtTime(0, t); rG.gain.linearRampToValueAtTime(0.22, t + 0.15); rG.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+  rumble.connect(lp); lp.connect(rG); rG.connect(out); rumble.start(t); rumble.stop(t + 1.8);
+
+  // Warm pad: a C major 9 chord that swells in under the sparkle.
+  [130.81, 196.0, 261.63, 329.63, 392.0, 587.33].forEach((f, i) => {
+    [-6, 6].forEach(detune => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = i < 2 ? 'sine' : 'triangle'; o.frequency.setValueAtTime(f, t + 0.1); o.detune.value = detune;
+      g.gain.setValueAtTime(0, t + 0.1);
+      g.gain.linearRampToValueAtTime(i < 2 ? 0.06 : 0.035, t + 0.8);
+      g.gain.setValueAtTime(i < 2 ? 0.06 : 0.035, t + 1.6);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 3.2);
+      o.connect(g); g.connect(out); o.start(t + 0.1); o.stop(t + 3.3);
+    });
   });
+
+  // The rising sparkle - same idea, two more notes and a bell-like edge.
+  [523.25, 659.25, 783.99, 987.77, 1046.5, 1318.5, 1567.98].forEach((f, i) => {
+    const delay = 0.15 + i * 0.11;
+    [[1, 0.15], [2, 0.03]].forEach(([mult, vol]) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(f * mult, t + delay);
+      o.frequency.exponentialRampToValueAtTime(f * mult * 1.004, t + delay + 0.6);
+      g.gain.setValueAtTime(0, t + delay);
+      g.gain.linearRampToValueAtTime(vol, t + delay + 0.025);
+      g.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.9);
+      o.connect(g); g.connect(out); o.start(t + delay); o.stop(t + delay + 1.0);
+    });
+  });
+
+  // Shimmer floating off the top at the end.
+  for (let i = 0; i < 10; i++){
+    const delay = 1.0 + i * 0.07;
+    const f = 2093 + Math.random() * 1400;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(f, t + delay);
+    g.gain.setValueAtTime(0, t + delay);
+    g.gain.linearRampToValueAtTime(0.035, t + delay + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.5);
+    o.connect(g); g.connect(out); o.start(t + delay); o.stop(t + delay + 0.55);
+  }
 }
 
 const MEGA_CLOUDS = ['☁️','⛅','🌤️','☁️','🌥️','☁️','⛅','☁️','🌤️','☁️','⛅','🌥️'];
@@ -794,8 +828,8 @@ function calcStreak(){
   while(true){
     const key=localDateKey(d);
     const ct = key===today ? state.meetings.filter(m=>m.done).length : (state.history[key]??-1);
-    if(ct>=GOAL) streak++;
-    else if(key===today && ct<GOAL) break;
+    if(ct>=CLOUD9) streak++;
+    else if(key===today && ct<CLOUD9) break;
     else if(key!==today) break;
     d.setDate(d.getDate()-1);
   }
@@ -855,7 +889,8 @@ function updateStats(){
   const label=document.getElementById('mb-count-label');
   if (label) label.textContent = done===1 ? 'meeting booked today' : 'meetings booked today';
   const sub=document.getElementById('mb-goal-line');
-  if (sub) sub.textContent = done>=TOTAL ? 'Every slot filled. Absolute machine.' : done>=CLOUD9 ? '☁️ Cloud 9 - keep going' : goalDone>=GOAL ? '🏆 Goal hit - one more for Cloud 9' : `${GOAL-goalDone} to hit today's goal`;
+  // Today's goal is 3 (Cloud 9). Two is the Achievement on the way there.
+  if (sub) sub.textContent = done>=TOTAL ? 'Every slot filled. Absolute machine.' : done>=CLOUD9 ? '☁️ Goal hit - you\'re on Cloud 9' : goalDone>=GOAL ? '🏅 Achievement unlocked - 1 more hits the goal' : `${CLOUD9-done} to hit today's goal of ${CLOUD9}`;
   document.getElementById('mb-hero')?.classList.toggle('is-goal', goalDone>=GOAL);
   document.getElementById('mb-hero')?.classList.toggle('is-cloud9', done>=CLOUD9);
 
@@ -936,7 +971,7 @@ function toggle(idx, el, e){
 ══════════════════════════════════════════ */
 const MTR_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
 
-const SLOT_LABELS=['Goal','Goal','☁️ Cloud 9','⚙️ Machine','🦾 Terminator'];
+const SLOT_LABELS=['Booking','🏅 Achievement','☁️ Cloud 9 · Goal','⚙️ Machine','🦾 Terminator'];
 const isDefaultName = (n) => !n || /^Meeting( booked)? \d+$/.test(n);
 function renderItem(idx){
   const wrap=document.getElementById('mb-slots');

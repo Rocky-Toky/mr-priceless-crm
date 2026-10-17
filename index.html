@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=229">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=229">
+<link rel="stylesheet" href="css/style.css?v=230">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=230">
 </head>
 <body>
 
@@ -20,12 +20,12 @@
 
 <!-- Reward modals sit out here, not inside the Meetings Booked page, so
      they still show when a meeting is booked from the Dialler. -->
-<!-- MODAL: goal hit (2/2) -->
+<!-- MODAL: Achievement unlocked (2 booked) -->
 <div id="modal-goal" class="overlay mtr-reward">
   <div class="modal">
-    <span class="mtr-reward-icon">🏆</span>
-    <div class="mtr-reward-title">Goal Crushed.</div>
-    <div class="mtr-reward-sub">2/2 booked. You are an absolute machine.<br>One more and you're on Cloud 9. Go get it.</div>
+    <span class="mtr-reward-icon">🏅</span>
+    <div class="mtr-reward-title">Achievement Unlocked.</div>
+    <div class="mtr-reward-sub">2 booked. You're on a roll.<br>One more hits today's goal and puts you on Cloud 9.</div>
     <div class="mtr-reward-ring">
       <svg width="88" height="88" viewBox="0 0 88 88">
         <circle class="mtr-rr-track" cx="44" cy="44" r="37"/>
@@ -34,20 +34,20 @@
       <div class="mtr-rr-label" id="mg-pct">0%</div>
     </div>
     <div class="mtr-reward-pills">
-      <span class="badge gold">On fire</span>
-      <span class="badge gold">Overachiever</span>
-      <span class="badge gold">Legendary</span>
+      <span class="badge gold">On a roll</span>
+      <span class="badge gold">Momentum</span>
+      <span class="badge gold">1 to go</span>
     </div>
-    <button class="btn gold mtr-reward-btn" onclick="closeModal('modal-goal')">Chase Cloud 9 →</button>
+    <button class="btn gold mtr-reward-btn" onclick="closeModal('modal-goal')">Go get number 3 →</button>
   </div>
 </div>
 
-<!-- MODAL: Cloud 9 (3+) -->
+<!-- MODAL: Cloud 9 - today's goal of 3 hit -->
 <div id="modal-god" class="overlay mtr-reward">
   <div class="modal">
     <span class="mtr-reward-icon">☁️</span>
     <div class="mtr-reward-title">Cloud 9.</div>
-    <div class="mtr-reward-sub">3 meetings booked. You're floating.<br>This is what winning feels like.</div>
+    <div class="mtr-reward-sub">3 meetings booked. Today's goal, smashed.<br>You're floating - this is what winning feels like.</div>
     <div class="mtr-reward-ring">
       <svg width="88" height="88" viewBox="0 0 88 88">
         <circle class="mtr-rr-track" cx="44" cy="44" r="37"/>
@@ -56,7 +56,7 @@
       <div class="mtr-rr-label" id="mnuc-pct">0%</div>
     </div>
     <div class="mtr-reward-pills">
-      <span class="badge gold">☁️ Cloud 9</span>
+      <span class="badge gold">☁️ Goal hit</span>
       <span class="badge gold">Unstoppable</span>
       <span class="badge gold">Built different</span>
     </div>
@@ -68,7 +68,7 @@
 <div id="mega-c9" onclick="closeMegaC9()">
   <div id="mega-c9-bg"></div>
   <div id="mega-c9-text">☁️ CLOUD 9 ☁️</div>
-  <div id="mega-c9-sub">3 meetings · you are on cloud 9</div>
+  <div id="mega-c9-sub">3 meetings · goal hit · you're on cloud 9</div>
 </div>
 
 <!-- MACHINE OVERLAY (4 meetings) -->
@@ -458,7 +458,7 @@
             <div class="mtr-milestone" id="m3" style="left:40%;"></div>
             <div class="mtr-milestone" id="m5" style="left:60%;"></div>
           </div>
-          <div class="mb-progress-labels"><span>Goal · 2</span><span>Cloud 9 · 3</span><span>All 5</span></div>
+          <div class="mb-progress-labels"><span>Achievement · 2</span><span>Goal · Cloud 9 · 3</span><span>All 5</span></div>
         </div>
         <button type="button" class="mb-reset" onclick="if(confirm('Clear today\'s ticks and start fresh?')) resetDay()">Reset today</button>
       </div>
@@ -466,8 +466,8 @@
       <div class="card mb-week">
         <div class="mb-week-head"><h3>This week</h3>
           <div class="mtr-week-legend">
-            <span><i style="background:var(--gold-soft);border:1px solid var(--gold-border);"></i>Goal</span>
-            <span><i style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);"></i>Cloud 9</span>
+            <span><i style="background:var(--gold-soft);border:1px solid var(--gold-border);"></i>Achievement · 2</span>
+            <span><i style="background:linear-gradient(135deg,#38bdf8,#0ea5e9);"></i>Goal · Cloud 9 · 3</span>
             <span><i style="background:#faf9f5;border:1px solid var(--line);"></i>Missed</span>
           </div>
         </div>
@@ -2671,17 +2671,17 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
-<script src="js/config.js?v=229"></script>
-<script src="js/supabaseClient.js?v=229"></script>
-<script src="js/report-pdf.js?v=229"></script>
-<script src="js/plan-pdf.js?v=229"></script>
-<script src="js/workshop-pdf.js?v=229"></script>
-<script src="js/receipt-pdf.js?v=229"></script>
-<script src="js/welcome-pdf.js?v=229"></script>
-<script src="js/builtin-playbooks.js?v=229"></script>
-<script src="js/builtin-email-templates.js?v=229"></script>
-<script src="js/app.js?v=229"></script>
-<script src="js/meetings-tracker.js?v=229"></script>
-<script src="js/todo.js?v=229"></script>
+<script src="js/config.js?v=230"></script>
+<script src="js/supabaseClient.js?v=230"></script>
+<script src="js/report-pdf.js?v=230"></script>
+<script src="js/plan-pdf.js?v=230"></script>
+<script src="js/workshop-pdf.js?v=230"></script>
+<script src="js/receipt-pdf.js?v=230"></script>
+<script src="js/welcome-pdf.js?v=230"></script>
+<script src="js/builtin-playbooks.js?v=230"></script>
+<script src="js/builtin-email-templates.js?v=230"></script>
+<script src="js/app.js?v=230"></script>
+<script src="js/meetings-tracker.js?v=230"></script>
+<script src="js/todo.js?v=230"></script>
 </body>
 </html>
