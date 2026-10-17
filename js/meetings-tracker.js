@@ -828,6 +828,9 @@ function calcStreak(){
   while(true){
     const key=localDateKey(d);
     const ct = key===today ? state.meetings.filter(m=>m.done).length : (state.history[key]??-1);
+    // Weekends never break a streak (but a weekend goal still counts).
+    const wkend = d.getDay()===0 || d.getDay()===6;
+    if(wkend && ct<CLOUD9){ d.setDate(d.getDate()-1); continue; }
     if(ct>=CLOUD9) streak++;
     else if(key===today && ct<CLOUD9) break;
     else if(key!==today) break;
@@ -839,7 +842,8 @@ function renderWeekGrid(){
   const grid=document.getElementById('week-grid'); grid.innerHTML='';
   const today=new Date(); const dw=today.getDay();
   const monday=new Date(today); monday.setDate(today.getDate()-(dw===0?6:dw-1));
-  for(let i=0;i<7;i++){
+  // Working week only - Monday to Friday.
+  for(let i=0;i<5;i++){
     const d=new Date(monday); d.setDate(monday.getDate()+i);
     const key=localDateKey(d); const todayKey=getToday();
     const el=document.createElement('div'); el.className='mtr-week-day'; el.textContent=d.getDate();
