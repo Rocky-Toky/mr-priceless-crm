@@ -3000,7 +3000,6 @@ body.jv-open .jv-fab{display:none;}
   .playbook-layout.fit-fill > .playbook-list,
   .playbook-layout.fit-fill > .playbook-viewer{position:static;min-height:0;max-height:100%;overflow:auto;}
   /* Kanban boards keep their columns' tops lined up while scrolling. */
-  #kanban-board.fit-fill{align-content:start;padding-bottom:4px;}
   /* Tables: the header row stays visible while the rows scroll. */
   .fit-fill table thead th{position:sticky;top:0;z-index:2;background:var(--white);}
 }

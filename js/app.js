@@ -1654,7 +1654,6 @@ function setupPageGroups(){
 // main list / board / table scrolls inside itself. Each entry is the chain
 // from the page down to the thing that should scroll.
 const FIT_PAGES = {
-  deals: ["#deals-list-view", "#kanban-board"],
   nurture: ["#nurture-section"],
   contacts: ["#page-contacts > .card"],
   todo: ["#page-todo > .two-col"],
