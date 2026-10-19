@@ -2857,13 +2857,16 @@ function personKeyFromEmail(email){
 // Every logged call is a call for analytics purposes; a "Booked Meeting"
 // outcome additionally counts as a meeting - same shared counter the
 // Meetings Booked page's own tap counters feed into.
+// Outcomes that don't count as a real conversation: nobody picked up, the
+// decision maker wasn't there, or the business was never a fit.
+const NOT_A_CONVERSATION = new Set(["no_answer", "dm_unavailable", "disqualified"]);
 async function bumpCallActivity(personKey, outcome){
   if (!personKey) return;
   const deltas = { calls: 1 };
   // A "conversation" is any call where we actually spoke to someone who
-  // counts - every outcome except No Answer and Decision Maker Unavailable.
+  // counts - every outcome except No Answer, Decision Maker Unavailable and Disqualified.
   // The Meetings Booked counter and the Stats funnel both read this.
-  if (outcome !== "no_answer" && outcome !== "dm_unavailable") deltas.conversations = 1;
+  if (!NOT_A_CONVERSATION.has(outcome)) deltas.conversations = 1;
   if (outcome === "booked_meeting") deltas.meetings_booked = 1;
   await window.CRM_CALL_ACTIVITY.bump(personKey, deltas);
 }
@@ -2920,7 +2923,7 @@ async function logDialOutcome(prospectId, outcome, note, region, followupDate, o
     // Only today's counts can be moved - earlier days are already closed off.
     const person = personKeyFromEmail(beforeBy || who);
     if (person && String(beforeAt || "").slice(0, 10) && localDayStr(new Date(beforeAt)) === localDayStr()){
-      const convo = (o) => o && o !== "no_answer" && o !== "dm_unavailable" ? 1 : 0;
+      const convo = (o) => o && !NOT_A_CONVERSATION.has(o) ? 1 : 0;
       const deltas = { conversations: convo(outcome) - convo(before), meetings_booked: (outcome === "booked_meeting" ? 1 : 0) - (before === "booked_meeting" ? 1 : 0) };
       if (deltas.conversations || deltas.meetings_booked) await window.CRM_CALL_ACTIVITY.bump(person, deltas);
     }

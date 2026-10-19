@@ -1026,8 +1026,8 @@ function renderAll(){
 ══════════════════════════════════════════ */
 // Both numbers come from today's shared call_activity row, so calls logged
 // in the Dialer show here too. Conversations are never tapped: they're
-// added by the outcome picked for each call (anything but No Answer or
-// Decision Maker Unavailable).
+// added by the outcome picked for each call (anything but No Answer,
+// Decision Maker Unavailable or Disqualified).
 function counterValues(){
   const row = window.CRM_CALL_ACTIVITY?.today ? window.CRM_CALL_ACTIVITY.today(getActivePerson()) : null;
   return row ? { calls: Number(row.calls || 0), convos: Number(row.conversations || 0) } : { calls: 0, convos: 0 };
