@@ -364,3 +364,7 @@
 
 /* This week: Monday to Friday. */
 .mtr-week-dow,.mtr-week-grid{grid-template-columns:repeat(5,1fr);}
+
+/* The drifting Cloud 9 clouds only float over Meetings Booked - every
+   other page stays calm. */
+body:not(:has(#page-cold-calls.active)) #clouds{display:none;}
