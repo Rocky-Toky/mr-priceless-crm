@@ -2991,6 +2991,7 @@ body.jv-open .jv-fab{display:none;}
   .page.fit-page.active{height:calc(100vh - 76px);display:flex;flex-direction:column;overflow-y:auto;}
   .page.fit-page.active > *, .fit-box > *{flex-shrink:0;}
   .fit-fill{flex:1 1 auto;min-height:0;overflow:auto;}
+  .page.fit-page.active > .fit-fill, .page.fit-page.active .fit-box > .fit-fill{flex:1 1 auto;min-height:0;}
   .fit-page > .page-tabs, .fit-box > .page-tabs{align-self:flex-start;}
   .fit-box{display:flex;flex-direction:column;overflow:visible;}
   .fit-fill > .page-header, .fit-box > .page-header{margin-bottom:16px;}

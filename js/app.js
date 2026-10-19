@@ -1690,6 +1690,7 @@ function setupFitPages(){
 }
 function setupNav(){
   setupFitPages();
+  setupDragDrop(); // wires drag edge-scrolling for every board from the start
   setupPageGroups();
   $("#workspace-select")?.addEventListener("change", (e) => setWorkspace(e.target.value));
   $("#coverage-industry-select")?.addEventListener("change", (e) => { state.coverageIndustry = e.target.value; renderRegionCoverage(); });
@@ -2340,12 +2341,31 @@ function setupDragDrop(){
   if (!dealDragAutoScrollWired){
     dealDragAutoScrollWired = true;
     const EDGE = 90, MAX_SPEED = 22;
+    // The board scrolls inside itself on desktop (the page doesn't), so
+    // scroll whichever is actually scrolling: the board, or the window.
+    const scrollerFor = () => {
+      const board = $("#kanban-board");
+      if (board && board.scrollHeight > board.clientHeight + 2 && getComputedStyle(board).overflowY !== "visible") return board;
+      const page = $("#page-deals");
+      if (page && page.scrollHeight > page.clientHeight + 2 && getComputedStyle(page).overflowY !== "visible") return page;
+      return null;
+    };
+    // Any drag on a page whose board scrolls inside itself (Clients,
+    // Workshops) gets the same edge-scrolling as Deals.
+    let anyDrag = false;
+    document.addEventListener("dragstart", () => { anyDrag = true; }, true);
+    document.addEventListener("dragend", () => { anyDrag = false; }, true);
+    document.addEventListener("drop", () => { anyDrag = false; }, true);
     document.addEventListener("dragover", (e) => {
-      if (!dealDragId) return;
-      const y = e.clientY;
-      const vh = window.innerHeight;
-      if (y < EDGE) window.scrollBy(0, -Math.ceil((EDGE - y) / EDGE * MAX_SPEED));
-      else if (y > vh - EDGE) window.scrollBy(0, Math.ceil((EDGE - (vh - y)) / EDGE * MAX_SPEED));
+      if (!dealDragId && !anyDrag) return;
+      const box = e.target?.closest?.(".fit-fill");
+      const own = box && box.scrollHeight > box.clientHeight + 2 && getComputedStyle(box).overflowY !== "visible" ? box : null;
+      const y = e.clientY, el = dealDragId ? scrollerFor() : own;
+      const r = el ? el.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const top = Math.max(0, r.top), bottom = Math.min(window.innerHeight, r.bottom);
+      const by = (d) => el ? el.scrollBy(0, d) : window.scrollBy(0, d);
+      if (y < top + EDGE) by(-Math.ceil((top + EDGE - y) / EDGE * MAX_SPEED));
+      else if (y > bottom - EDGE) by(Math.ceil((y - (bottom - EDGE)) / EDGE * MAX_SPEED));
     });
   }
   boards.forEach(board => {
