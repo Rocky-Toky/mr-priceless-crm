@@ -1351,6 +1351,13 @@ function handleSignedIn(session, freshLogin){
   return signInRun;
 }
 async function handleSignedInNow(session, freshLogin){
+  // A saved session from a browser nobody has used for 12+ hours: sign out.
+  if (!freshLogin && idleTooLong()){
+    try { localStorage.removeItem(IDLE_KEY); } catch(e){}
+    await supabase.auth.signOut();
+    try { sessionStorage.setItem("mp_idle_out", "1"); } catch(e){}
+    return;
+  }
   state.user = session.user;
   state.googleAccessToken = session.provider_token || state.googleAccessToken;
 
@@ -1404,6 +1411,14 @@ async function isAllowlisted(email){
 }
 
 function showAuth(){
+  // Say why, after an idle sign-out (the page reloads on sign-out).
+  try {
+    if (sessionStorage.getItem("mp_idle_out")){
+      sessionStorage.removeItem("mp_idle_out");
+      const msg = $("#auth-message");
+      if (msg){ msg.textContent = "You were signed out after 12 hours without use. Sign in again to carry on."; msg.classList.add("visible"); }
+    }
+  } catch(e){}
   $("#auth-screen").style.display = "flex";
   $("#unauthorized-screen").style.display = "none";
   $("#reset-password-screen").style.display = "none";
@@ -1467,6 +1482,31 @@ function setupGoogleAuth(){
   });
 }
 
+/* ───────── Idle sign-out ─────────
+   Signs a browser out after 12 hours with nobody using the CRM, so a laptop
+   left open (or a shared computer) doesn't stay logged in for good. */
+const IDLE_SIGNOUT_MS = 12 * 3600e3, IDLE_KEY = "mp_last_active";
+// When this browser was last used, read before this visit counts as use.
+const IDLE_PREV = (() => { try { return Number(localStorage.getItem(IDLE_KEY)) || 0; } catch(e){ return 0; } })();
+const idleTooLong = () => Boolean(IDLE_PREV) && Date.now() - IDLE_PREV > IDLE_SIGNOUT_MS;
+function setupIdleSignOut(){
+  if (!IS_CONFIGURED) return;
+  let last = 0;
+  const touch = () => { const now = Date.now(); if (now - last < 60e3) return; last = now; try { localStorage.setItem(IDLE_KEY, String(now)); } catch(e){} };
+  ["pointerdown", "keydown", "scroll", "visibilitychange"].forEach(ev => document.addEventListener(ev, touch, { passive: true }));
+  const check = async () => {
+    if (!state.user) return;
+    let seen = 0; try { seen = Number(localStorage.getItem(IDLE_KEY)) || 0; } catch(e){}
+    if (seen && Date.now() - seen > IDLE_SIGNOUT_MS){
+      try { localStorage.removeItem(IDLE_KEY); } catch(e){}
+      await supabase.auth.signOut();
+      try { sessionStorage.setItem("mp_idle_out", "1"); } catch(e){}
+    }
+  };
+  setInterval(check, 5 * 60e3);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+}
+
 /* ───────── Auth (email/password - quick-start alternative to Google) ───────── */
 function setupEmailAuth(){
   let mode = "signin";
@@ -1496,6 +1536,8 @@ function setupEmailAuth(){
         btn.textContent = "Loading your CRM…";
         clearTimeout(slow);
       } else {
+        // Accounts are made by invitation only (Team page), never self sign-up.
+        throw new Error("Accounts are invite-only - ask a teammate to invite you from the Team page.");
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         errBox.textContent = "Account created. Check your email if confirmation is required, then sign in.";
@@ -12009,6 +12051,7 @@ function setupQualifyModal(){
 document.addEventListener("DOMContentLoaded", () => {
   setupGoogleAuth();
   setupEmailAuth();
+  setupIdleSignOut();
   setupNav();
   setupModals();
   setupWelcomePack();
