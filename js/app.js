@@ -6449,7 +6449,7 @@ async function rpRemember(c, key, value){
   if (key === "adSpend"){ patch.monthly_ad_spend = v; c.monthly_ad_spend = v; }
   await DataLayer.update("clients", c.id, patch);
 }
-const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "adMonth", "adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "did4", "did5", "next1", "next2", "next3", "topAdId"];
+const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "adMonth", "adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "didText", "did1", "did2", "did3", "did4", "did5", "next1", "next2", "next3", "topAdId"];
 let rpClientId = null, rpLastUrl = null, rpLastName = "", rpExisting = null;
 function rpVal(k){ return $("#rp-" + k)?.value ?? ""; }
 function rpSet(k, v){ const el = $("#rp-" + k); if (el) el.value = v ?? ""; }
@@ -6543,6 +6543,8 @@ function openReportModal(clientId, existingId){
     REPORT_DELTAS.forEach(d => rpSet(d.key, m[d.key] ?? ((toNum(m[d.month]) ?? 0) - (toNum(base[d.month]) || 0) || "")));
     rpSet("adMonth", m.adMonth ?? m.adSpendMonth ?? "");
     ["adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "did4", "did5", "next1", "next2", "next3", "topAdId"].forEach(k => rpSet(k, m[k] ?? ""));
+    // Older reports kept "what we did" as separate lines.
+    rpSet("didText", m.didText ?? ["did1", "did2", "did3", "did4", "did5"].map(k => m[k]).filter(Boolean).join("\n"));
   } else {
     const to = localDayStr();
     rpSet("to", to); rpSet("from", reportFrom(c.id, to));
@@ -6595,11 +6597,22 @@ function rpFillStory(){
   }
   const story = {
     summary,
-    did1: `Wrote fresh ad copy for ${monthName} and tested dozens of variations of headlines, hooks and opening lines to find what makes locals stop scrolling`,
-    did2: live ? `Launched ${plural(live, "new ad creative")} this month across static and video, and rotated out any that were starting to tire` : "Refreshed your ad creatives across static and video, and rotated out any that were starting to tire",
-    did3: best ? `Found your top performer - "${best.name}" is bringing leads in at ${fmtMoney(best.cost_per_result)} each - and moved more budget behind it` : "Shifted budget daily onto the ads and audiences bringing in the best enquiries",
-    did4: "Refined your audience targeting and placements, cutting spend on anything not bringing in quality local enquiries",
-    did5: `Called every new enquiry within minutes, qualified them and booked ${ready ? plural(ready, "quote") : "the quotes"} straight into your calendar, then fed the results back into Meta so it keeps finding more people like your best customers`,
+    // Everything a good media buyer and agency does in a fortnight, one per line.
+    didText: [
+      `Wrote fresh ad copy for ${monthName} and tested dozens of variations of headlines, hooks and opening lines to find what makes locals stop scrolling`,
+      "Kept creative testing running every week - new angles, formats and visuals - to stay ahead of creative fatigue before your results dip",
+      live ? `Launched ${plural(live, "new ad creative")} this month across static and video, and rotated out any that were starting to tire` : "Refreshed your ad creatives across static and video, and rotated out any that were starting to tire",
+      best ? `Found your top performer - "${best.name}" is bringing leads in at ${fmtMoney(best.cost_per_result)} each - and moved more budget behind it` : "Found the ads bringing in the cheapest quality enquiries and moved more budget behind them",
+      "Watched ad frequency daily so the same people aren't seeing the same ad too often, and refreshed it before they tune out",
+      "Refined your audience targeting, lookalike audiences and placements, cutting spend on anything not bringing in quality local enquiries",
+      "Adjusted budgets and bidding daily to keep your cost per lead down while scaling up what's working",
+      "Tuned your lead form questions to filter out tyre-kickers and bring in better-qualified enquiries",
+      "Kept your Meta dataset and conversion tracking healthy, so Meta optimises for real enquiries, not just clicks",
+      "Checked what competitors in your area are running, to keep your offer and messaging a step ahead of theirs",
+      `Called every new enquiry within minutes, qualified them and booked ${ready ? plural(ready, "quote") : "the quotes"} straight into your calendar`,
+      "Sent automatic reminders before every quote visit to cut down no-shows",
+      "Fed your GHL pipeline results - quotes booked and jobs won - back into Meta, so it keeps finding more people like your best customers",
+    ].join("\n"),
     next1: best ? `Put more budget behind "${best.name}"` : "Move budget onto the best performing ad",
     next2: "Launch a fresh test ad for next month",
     next3: waiting ? `Follow up the ${plural(waiting, "quote")} still waiting on a decision` : "Keep following up every quote after a few days",
@@ -6753,15 +6766,44 @@ async function rpGhlConnect(){
 }
 
 /* Making the PDF */
-async function loadImageBytes(url){
-  if (!url) return null;
-  try {
-    const res = await fetch(url, { mode: "cors" });
-    if (!res.ok) return null;
-    const ct = res.headers.get("content-type") || "image/jpeg";
-    if (!/png|jpe?g/i.test(ct)) return null;
-    return { bytes: await res.arrayBuffer(), type: /png/i.test(ct) ? "png" : "jpg" };
-  } catch(e){ return null; }
+// Any picture (jpg, png, webp...) turned into JPEG bytes the PDF can embed.
+function toJpegBytes(src){
+  return new Promise((resolve) => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const max = 1200, k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+        const cv = document.createElement("canvas");
+        cv.width = Math.max(1, Math.round(im.naturalWidth * k)); cv.height = Math.max(1, Math.round(im.naturalHeight * k));
+        const cx = cv.getContext("2d"); cx.fillStyle = "#ffffff"; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(im, 0, 0, cv.width, cv.height);
+        cv.toBlob(async (b) => resolve(b ? { bytes: await b.arrayBuffer(), type: "jpg" } : null), "image/jpeg", 0.9);
+      } catch(e){ resolve(null); }
+    };
+    im.onerror = () => resolve(null);
+    im.src = src;
+  });
+}
+// The top ad's picture for the report: straight from its link when the
+// browser is allowed to read it, otherwise fetched through our Meta function
+// (which also grabs a fresh link when Meta's has expired).
+async function loadImageBytes(url, creative){
+  if (url){
+    try {
+      const res = await fetch(url, { mode: "cors" });
+      if (res.ok && /^image\//i.test(res.headers.get("content-type") || "")){
+        const blobUrl = URL.createObjectURL(await res.blob());
+        const out = await toJpegBytes(blobUrl); URL.revokeObjectURL(blobUrl);
+        if (out) return out;
+      }
+    } catch(e){}
+  }
+  if (IS_CONFIGURED && creative?.id && creative?.client_id){
+    try {
+      const { data } = await supabase.functions.invoke("sync-client-ads", { body: { client_id: creative.client_id, action: "ad_image", creative_id: creative.id } });
+      if (data?.data) return await toJpegBytes(`data:${data.type || "image/jpeg"};base64,${data.data}`);
+    } catch(e){}
+  }
+  return null;
 }
 async function makeReport(){
   const c = state.clients.find(x => x.id === rpClientId);
@@ -6776,7 +6818,7 @@ async function makeReport(){
     const n = (k) => toNum(form[k]);
     const ad = state.adCreatives.find(a => a.id === form.topAdId);
     const clientResults = state.adCreatives.filter(a => a.client_id === c.id).reduce((s, a) => s + (Number(a.results) || 0), 0);
-    const img = ad ? await loadImageBytes(ad.image_url) : null;
+    const img = ad ? await loadImageBytes(ad.image_url, ad) : null;
     const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
     const person = window.getActivePerson ? window.getActivePerson() : null;
     let am = {}; try { am = JSON.parse(localStorage.getItem(wpAmKey(person)) || "{}"); } catch(e){}
@@ -6797,7 +6839,7 @@ async function makeReport(){
       quotesBooked: ready || 0, quoteTarget: n("quoteTarget") || c.quote_target || 10,
       // The quote guarantee only runs for their first month (or while they're still on it).
       showGuarantee: normalizeClientStage(c.stage) === "quote_guarantee" || ymOf(to) === ymOf(rpStartDate(c, to)),
-      summary: form.summary, didList: [form.did1, form.did2, form.did3, form.did4, form.did5], nextList: [form.next1, form.next2, form.next3],
+      summary: form.summary, didList: form.didText ? form.didText.split("\n").map(x => x.trim()).filter(Boolean) : [form.did1, form.did2, form.did3, form.did4, form.did5], nextList: [form.next1, form.next2, form.next3],
       topAd: ad ? { name: ad.name, leads: ad.results, cpl: ad.cost_per_result, share: clientResults ? Math.round((Number(ad.results) || 0) / clientResults * 100) : null, imageBytes: img?.bytes, imageType: img?.type } : null,
       hood: [
         ["Cost per enquiry", spend && enq ? fmtMoney(spend / enq) : null, "Ad spend divided by every enquiry, qualified or not"],

@@ -109,6 +109,36 @@ async function makeKit(opts = {}){
   return { pdf, F, runs, width, text, label, wrap, box, hr, vr, tick, drawLogo };
 }
 
+// "What we did" and "What's next" for page 2: long lists go two to a row,
+// and anything that won't fit above the footer carries on onto a new page.
+function drawStoryLists(k, page, y, did, next){
+  const { text, label, hr, wrap, F, C, more } = k, CW = W - 2 * M, FOOT = 56;
+  const ensure = (h) => { if (y - h < FOOT){ page = more(); y = H - 108; } };
+  const block = (title, items) => {
+    if (!items.length) return;
+    const cols = items.length > 4 ? 2 : 1, colW = cols === 2 ? (CW - 24) / 2 : CW;
+    const hOf = (it) => Math.max(1, wrap(F.r, it, 9.5, colW - 30).length) * 13.5 + 10;
+    ensure(26 + hOf(items[0]));
+    label(page, title, M, y, { color: C.gold });
+    hr(page, M, M + CW, y - 8);
+    y -= 26;
+    for (let i = 0; i < items.length; i += cols){
+      const row = items.slice(i, i + cols), h = Math.max(...row.map(hOf));
+      ensure(h);
+      row.forEach((it, j) => {
+        const x = M + j * (colW + 24);
+        text(page, String(i + j + 1).padStart(2, "0"), x, y, { f: F.d8, size: 11, color: C.gold });
+        wrap(F.r, it, 9.5, colW - 30).forEach((ln, l) => text(page, ln, x + 28, y - l * 13.5, { size: 9.5, color: C.soft }));
+      });
+      y -= h;
+    }
+    y -= 10;
+  };
+  block("What we did", did);
+  block("What's next", next);
+  return { page, y };
+}
+
 async function build(data){
   const C = LIGHT;
   const { pdf, F, width, text, label, wrap, box, hr, vr, tick, drawLogo } = await makeKit({ palette: LIGHT });
@@ -262,36 +292,22 @@ async function build(data){
   wrap(F.r, note, 8.8, CW).forEach((ln, i) => text(p1, ln, M, y - i * 12, { size: 8.8, color: C.muted }));
 
   /* ───────── Page 2: the story ───────── */
-  const p2 = newPage(2);
+  let pg = newPage(2);
   y = H - 108;
-  text(p2, `${data.monthName} so far, in plain English`, M, y, { f: F.d7, size: 21 });
+  text(pg, `${data.monthName} so far, in plain English`, M, y, { f: F.d7, size: 21 });
   y -= 22;
   if (data.summary){
     const lines = wrap(F.r, data.summary, 10.5, CW);
-    lines.forEach((ln, i) => text(p2, ln, M, y - i * 15.5, { size: 10.5, color: C.soft }));
+    lines.forEach((ln, i) => text(pg, ln, M, y - i * 15.5, { size: 10.5, color: C.soft }));
     y -= lines.length * 15.5 + 12;
   }
   const did = (data.didList || []).filter(Boolean), next = (data.nextList || []).filter(Boolean);
-  if (did.length || next.length){
-    const colW = (CW - 24) / 2;
-    const col = (title, items, x) => {
-      label(p2, title, x, y, { color: C.gold });
-      hr(p2, x, x + colW, y - 8);
-      let cy = y - 26;
-      items.forEach((it, i) => {
-        text(p2, String(i + 1).padStart(2, "0"), x, cy, { f: F.d8, size: 11, color: C.gold });
-        const lines = wrap(F.r, it, 9.5, colW - 30);
-        lines.forEach((ln, j) => text(p2, ln, x + 28, cy - j * 13.5, { size: 9.5, color: C.soft }));
-        cy -= Math.max(1, lines.length) * 13.5 + 9;
-      });
-      return cy;
-    };
-    y = Math.min(col("What we did", did, M), col("What's next", next, M + colW + 24)) - 6;
-  }
-
+  ({ page: pg, y } = drawStoryLists({ text, label, hr, wrap, F, C, more: () => newPage(pages.length + 1) }, pg, y, did, next));
   if (data.topAd){
-    const aH = 170, aY = y - aH;
-    box(p2, M, aY, CW, aH, { fill: C.panel, stroke: C.line });
+    const aH = 170;
+    if (y - aH < 56){ pg = newPage(pages.length + 1); y = H - 108; }
+    const aY = y - aH;
+    box(pg, M, aY, CW, aH, { fill: C.panel, stroke: C.line });
     const imgS = aH - 32, ix = M + 16, iy = aY + 16;
     let drew = false;
     if (data.topAd.imageBytes){
@@ -299,29 +315,29 @@ async function build(data){
         const L = window.PDFLib;
         const img = data.topAd.imageType === "png" ? await pdf.embedPng(data.topAd.imageBytes) : await pdf.embedJpg(data.topAd.imageBytes);
         const scale = Math.max(imgS / img.width, imgS / img.height), dw = img.width * scale, dh = img.height * scale;
-        p2.pushOperators(L.pushGraphicsState(), L.rectangle(ix, iy, imgS, imgS), L.clip(), L.endPath());
-        p2.drawImage(img, { x: ix + (imgS - dw) / 2, y: iy + (imgS - dh) / 2, width: dw, height: dh });
-        p2.pushOperators(L.popGraphicsState());
+        pg.pushOperators(L.pushGraphicsState(), L.rectangle(ix, iy, imgS, imgS), L.clip(), L.endPath());
+        pg.drawImage(img, { x: ix + (imgS - dw) / 2, y: iy + (imgS - dh) / 2, width: dw, height: dh });
+        pg.pushOperators(L.popGraphicsState());
         drew = true;
       } catch(e){}
     }
-    if (!drew){ box(p2, ix, iy, imgS, imgS, { fill: C.panel2, r: 6 }); text(p2, "Ad creative", ix + imgS / 2, iy + imgS / 2 - 3, { size: 8.5, color: C.dim, align: "center" }); }
+    if (!drew){ box(pg, ix, iy, imgS, imgS, { fill: C.panel2, r: 6 }); text(pg, "Ad creative", ix + imgS / 2, iy + imgS / 2 - 3, { size: 8.5, color: C.dim, align: "center" }); }
     const tx = ix + imgS + 22, tw = W - M - 22 - tx;
-    label(p2, "Top performing ad", tx, aY + aH - 30, { color: C.gold });
-    wrap(F.d7, data.topAd.name || "", 17, tw).slice(0, 2).forEach((ln, i) => text(p2, ln, tx, aY + aH - 54 - i * 20, { f: F.d7, size: 17 }));
+    label(pg, "Top performing ad", tx, aY + aH - 30, { color: C.gold });
+    wrap(F.d7, data.topAd.name || "", 17, tw).slice(0, 2).forEach((ln, i) => text(pg, ln, tx, aY + aH - 54 - i * 20, { f: F.d7, size: 17 }));
     const stats = [[num(data.topAd.leads), "leads"], [money2(data.topAd.cpl), "per lead"], [has(data.topAd.share) ? data.topAd.share + "%" : "-", "of all leads"]];
     const sw = tw / 3;
     stats.forEach(([v, l], i) => {
-      text(p2, v, tx + i * sw, aY + 40, { f: F.d7, size: 19, color: C.gold });
-      text(p2, l, tx + i * sw, aY + 26, { size: 8.5, color: C.muted });
+      text(pg, v, tx + i * sw, aY + 40, { f: F.d7, size: 19, color: C.gold });
+      text(pg, l, tx + i * sw, aY + 26, { size: 8.5, color: C.muted });
     });
     y = aY - 22;
   }
 
   const hood = (data.hood || []).filter(r => r[1] != null && r[1] !== "-" && r[1] !== "");
-  let hp = p2;
+  let hp = pg;
   // Not enough room left above the footer? The numbers table gets its own page.
-  if (hood.length && y - (38 + hood.length * 26) < 56){ hp = newPage(3); y = H - 108; }
+  if (hood.length && y - (38 + hood.length * 26) < 56){ hp = newPage(pages.length + 1); y = H - 108; }
   if (hood.length){
     text(hp, "Under the hood", M, y - 8, { f: F.d7, size: 16 });
     text(hp, "The numbers, explained", W - M, y - 6, { size: 8.5, color: C.muted, align: "right" });
@@ -435,39 +451,45 @@ async function buildEarly(data){
   wrap(F.r, "Quotes turn into jobs over the following weeks. Most of the work won from these first months shows up a little later, once quotes come back and the ads are fully trained.", 8.8, CW).forEach((ln, i) => text(p1, ln, M, y - i * 12, { size: 8.8, color: C.muted }));
 
   /* Page 2: the story, what's next, and why early results look like this */
-  const p2 = newPage(2);
+  let pg = newPage(2);
   y = H - 108;
-  text(p2, `${data.monthName} so far, in plain English`, M, y, { f: F.d7, size: 21 });
+  text(pg, `${data.monthName} so far, in plain English`, M, y, { f: F.d7, size: 21 });
   y -= 22;
   if (data.summary){
     const lines = wrap(F.r, data.summary, 10.5, CW);
-    lines.forEach((ln, i) => text(p2, ln, M, y - i * 15.5, { size: 10.5, color: C.soft }));
+    lines.forEach((ln, i) => text(pg, ln, M, y - i * 15.5, { size: 10.5, color: C.soft }));
     y -= lines.length * 15.5 + 12;
   }
   const did = (data.didList || []).filter(Boolean), next = (data.nextList || []).filter(Boolean);
-  if (did.length || next.length){
-    const colW = (CW - 24) / 2;
-    const col = (title, items, x) => {
-      label(p2, title, x, y, { color: C.gold });
-      hr(p2, x, x + colW, y - 8);
-      let cy = y - 26;
-      items.forEach((it, i) => {
-        text(p2, String(i + 1).padStart(2, "0"), x, cy, { f: F.d8, size: 11, color: C.gold });
-        const lines = wrap(F.r, it, 9.5, colW - 30);
-        lines.forEach((ln, j) => text(p2, ln, x + 28, cy - j * 13.5, { size: 9.5, color: C.soft }));
-        cy -= Math.max(1, lines.length) * 13.5 + 9;
-      });
-      return cy;
-    };
-    y = Math.min(col("What we did", did, M), col("What's next", next, M + colW + 24)) - 10;
-  }
+  ({ page: pg, y } = drawStoryLists({ text, label, hr, wrap, F, C, more: () => newPage(pages.length + 1) }, pg, y, did, next));
   if (data.topAd){
-    const aH = 92, aY = y - aH;
-    box(p2, M, aY, CW, aH, { fill: C.panel, stroke: C.line });
-    label(p2, "Your best ad so far", M + 18, aY + aH - 26, { color: C.gold });
-    text(p2, data.topAd.name || "", M + 18, aY + aH - 48, { f: F.d7, size: 15, maxWidth: CW * 0.55 });
-    const st = [[num(data.topAd.leads), "leads"], [money2(data.topAd.cpl), "per lead"]];
-    st.forEach(([v, l], i) => { const x = M + CW * 0.62 + i * CW * 0.19; text(p2, v, x, aY + 40, { f: F.d7, size: 19, color: C.gold }); text(p2, l, x, aY + 26, { size: 8.5, color: C.muted }); });
+    const aH = 170;
+    if (y - aH < 56){ pg = newPage(pages.length + 1); y = H - 108; }
+    const aY = y - aH;
+    box(pg, M, aY, CW, aH, { fill: C.panel, stroke: C.line });
+    const imgS = aH - 32, ix = M + 16, iy = aY + 16;
+    let drew = false;
+    if (data.topAd.imageBytes){
+      try {
+        const L = window.PDFLib;
+        const img = data.topAd.imageType === "png" ? await pdf.embedPng(data.topAd.imageBytes) : await pdf.embedJpg(data.topAd.imageBytes);
+        const scale = Math.max(imgS / img.width, imgS / img.height), dw = img.width * scale, dh = img.height * scale;
+        pg.pushOperators(L.pushGraphicsState(), L.rectangle(ix, iy, imgS, imgS), L.clip(), L.endPath());
+        pg.drawImage(img, { x: ix + (imgS - dw) / 2, y: iy + (imgS - dh) / 2, width: dw, height: dh });
+        pg.pushOperators(L.popGraphicsState());
+        drew = true;
+      } catch(e){}
+    }
+    if (!drew){ box(pg, ix, iy, imgS, imgS, { fill: C.panel2, r: 6 }); text(pg, "Ad creative", ix + imgS / 2, iy + imgS / 2 - 3, { size: 8.5, color: C.dim, align: "center" }); }
+    const tx = ix + imgS + 22, tw = W - M - 22 - tx;
+    label(pg, "Your best ad so far", tx, aY + aH - 30, { color: C.gold });
+    wrap(F.d7, data.topAd.name || "", 17, tw).slice(0, 2).forEach((ln, i) => text(pg, ln, tx, aY + aH - 54 - i * 20, { f: F.d7, size: 17 }));
+    const stats = [[num(data.topAd.leads), "leads"], [money2(data.topAd.cpl), "per lead"], [has(data.topAd.share) ? data.topAd.share + "%" : "-", "of all leads"]];
+    const sw = tw / 3;
+    stats.forEach(([v, l], i) => {
+      text(pg, v, tx + i * sw, aY + 40, { f: F.d7, size: 19, color: C.gold });
+      text(pg, l, tx + i * sw, aY + 26, { size: 8.5, color: C.muted });
+    });
     y = aY - 22;
   }
   // The honest bit, for the early months.
@@ -480,8 +502,8 @@ async function buildEarly(data){
   ];
   const rows = honest.map(([, b]) => Math.max(1, wrap(F.r, b, 9, CW - 196).length) * 13 + 10);
   const hH = 60 + rows.reduce((a, b) => a + b, 0);
-  let hp = p2;
-  if (y - hH < 56){ hp = newPage(3); y = H - 100; }
+  let hp = pg;
+  if (y - hH < 56){ hp = newPage(pages.length + 1); y = H - 100; }
   const hY = y - hH;
   box(hp, M, hY, CW, hH, { fill: "#0b0b0c", r: 12 });
   label(hp, "What to expect", M + 20, hY + hH - 22, { color: "#e8c468" });
