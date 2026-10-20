@@ -400,6 +400,10 @@ const ONBOARDING_SECTIONS = [
   { section: "Lock In The Ongoing Cadence", items: [
     { key: "cadence_catchup", text: "Set up a recurring fortnightly catch-up to go through progress, goals, and the pipeline together." },
   ]},
+  { section: "Set Honest Expectations", items: [
+    { key: "honest_expect_1", text: "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill." },
+    { key: "honest_expect_2", text: "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that." },
+  ]},
   { section: "Launch Prep", items: [
     { key: "launch_creatives", text: "Add 2 proven High Performer ad creatives, plus 1 new Test creative, into their ad account." },
     { key: "fb_lead_form", text: "Create a Facebook Lead Form based on their requirements." },
@@ -407,10 +411,6 @@ const ONBOARDING_SECTIONS = [
     { key: "ad_start_date", text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
     { key: "meta_ad_account_id", text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
     { key: "ghl_report_connect", text: "Sync GHL with the CRM for reporting." },
-  ]},
-  { section: "Set Honest Expectations", items: [
-    { key: "honest_expect_1", text: "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill." },
-    { key: "honest_expect_2", text: "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that." },
   ]},
 ];
 const ONBOARDING_ANSWER_SUFFIX = "_answer";
