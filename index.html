@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=242">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=242">
+<link rel="stylesheet" href="css/style.css?v=243">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=243">
 </head>
 <body>
 
@@ -255,6 +255,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
             <span>Dashboard</span>
           </button>
+      <button class="nav-item nav-hidden" data-page="rates" data-workspace="sales">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="13" width="3" height="5"/><rect x="12" y="9" width="3" height="9"/><rect x="17" y="5" width="3" height="13"/></svg>
+        <span>Rates</span>
+      </button>
       <button class="nav-item nav-hidden" data-page="statistics" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="13" width="3" height="5"/><rect x="12" y="9" width="3" height="9"/><rect x="17" y="5" width="3" height="13"/></svg>
         <span>Statistics</span>
@@ -1367,6 +1371,22 @@
     </section>
 
     <!-- Statistics (long-term activity data, any person, any time range) -->
+    <!-- Rates: sit rate and conversation rate at a glance -->
+    <section class="page" id="page-rates">
+      <div class="page-header">
+        <div><h2>Rates</h2><p>How the calls are turning into meetings.</p></div>
+        <div class="rt-filters">
+          <div class="country-toggle" id="rates-range" role="group" aria-label="Time range">
+            <button type="button" data-range="week">This week</button>
+            <button type="button" data-range="month">This month</button>
+            <button type="button" data-range="all">All time</button>
+          </div>
+          <div class="country-toggle" id="rates-person" role="group" aria-label="Person"></div>
+        </div>
+      </div>
+      <div id="rates-root"></div>
+    </section>
+
     <section class="page" id="page-statistics">
       <div class="page-header">
         <div><h2>Statistics</h2><p>Calls, meetings, and conversion rates for the whole team - filter by person and time range.</p></div>
@@ -2671,17 +2691,17 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
-<script src="js/config.js?v=242"></script>
-<script src="js/supabaseClient.js?v=242"></script>
-<script src="js/report-pdf.js?v=242"></script>
-<script src="js/plan-pdf.js?v=242"></script>
-<script src="js/workshop-pdf.js?v=242"></script>
-<script src="js/receipt-pdf.js?v=242"></script>
-<script src="js/welcome-pdf.js?v=242"></script>
-<script src="js/builtin-playbooks.js?v=242"></script>
-<script src="js/builtin-email-templates.js?v=242"></script>
-<script src="js/app.js?v=242"></script>
-<script src="js/meetings-tracker.js?v=242"></script>
-<script src="js/todo.js?v=242"></script>
+<script src="js/config.js?v=243"></script>
+<script src="js/supabaseClient.js?v=243"></script>
+<script src="js/report-pdf.js?v=243"></script>
+<script src="js/plan-pdf.js?v=243"></script>
+<script src="js/workshop-pdf.js?v=243"></script>
+<script src="js/receipt-pdf.js?v=243"></script>
+<script src="js/welcome-pdf.js?v=243"></script>
+<script src="js/builtin-playbooks.js?v=243"></script>
+<script src="js/builtin-email-templates.js?v=243"></script>
+<script src="js/app.js?v=243"></script>
+<script src="js/meetings-tracker.js?v=243"></script>
+<script src="js/todo.js?v=243"></script>
 </body>
 </html>

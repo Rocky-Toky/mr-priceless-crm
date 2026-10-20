@@ -1618,7 +1618,7 @@ function applyWorkspace(){
 // Pages that live together under one menu item, switched with tabs at the top.
 const PAGE_GROUPS = {
   deals: [["deals", "Pipeline"], ["nurture", "Nurture"]],
-  stats: [["dashboard", "Overview"], ["statistics", "Team"], ["commission", "Commission"]],
+  stats: [["rates", "Rates"], ["dashboard", "Overview"], ["statistics", "Team"], ["commission", "Commission"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
   library: [["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
@@ -9132,7 +9132,7 @@ const RENDERERS = [
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
-  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [fillContactDropdowns, ["*"]],
+  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -9269,6 +9269,61 @@ function renderSalesFunnel(scope, bounds){
       <tbody>${srcRow("Outbound", f.outbound)}${srcRow("Inbound", f.inbound)}${srcRow("All meetings", f.all, "sf-total")}</tbody>
     </table></div>
     <p class="sf-foot">Sit rate = meetings sat ÷ meetings that have happened (sat + no shows). Close rate = clients won ÷ meetings sat. Set a deal's source to Inbound or Outbound on the deal itself.</p>`;
+}
+// Rates tab: the two numbers the team checks most, big and plain, plus the
+// dials-to-won path underneath. Same counting as the Team stats funnel.
+const RATES_PEOPLE = ["rocky", "max"];
+function ratesBounds(range){
+  if (range === "all") return statsRangeBounds("all");
+  if (range === "month") return statsRangeBounds("month");
+  const d = new Date(), mon = new Date(d);
+  mon.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  return { from: localDayStr(mon), to: localDayStr(sun) };
+}
+function renderRates(){
+  const root = $("#rates-root");
+  if (!root) return;
+  const f = state.ratesFilter || (state.ratesFilter = { range: "month", person: "" });
+  const rangeEl = $("#rates-range"), personEl = $("#rates-person");
+  if (!personEl.dataset.wired){
+    personEl.dataset.wired = "1";
+    personEl.innerHTML = `<button type="button" data-person="">Team</button>` + RATES_PEOPLE.map(p => `<button type="button" data-person="${p}">${escapeHtml(ASSIGNEES[p].label)}</button>`).join("");
+    rangeEl.addEventListener("click", (e) => { const b = e.target.closest("[data-range]"); if (b){ f.range = b.dataset.range; renderRates(); } });
+    personEl.addEventListener("click", (e) => { const b = e.target.closest("[data-person]"); if (b){ f.person = b.dataset.person; renderRates(); } });
+  }
+  rangeEl.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.range === f.range));
+  personEl.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.person === f.person));
+  const bounds = ratesBounds(f.range);
+  const scope = f.person ? [f.person] : [...Object.keys(ASSIGNEES), null];
+  const calls = state.callActivity.filter(r => scope.includes(r.person) && inStatsRange(r.activity_date, bounds));
+  const dials = calls.reduce((t, r) => t + (r.calls || 0), 0);
+  const convos = calls.reduce((t, r) => t + (r.conversations || 0), 0);
+  const m = funnelDeals(scope, bounds).all;
+  const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
+  const num = (n) => Number(n).toLocaleString();
+  root.innerHTML = `
+    <div class="rt-hero">
+      <div class="rt-big">
+        <span class="rt-label">Sit rate</span>
+        <b>${pct(m.sat, m.sat + m.noShow)}</b>
+        <span class="rt-sub">${m.sat + m.noShow ? `${num(m.sat)} of ${num(m.sat + m.noShow)} meetings showed up` : "No meetings have happened yet"}</span>
+        <span class="rt-note">${num(m.noShow)} no show${m.noShow === 1 ? "" : "s"} · ${num(m.upcoming)} still to come</span>
+      </div>
+      <div class="rt-big">
+        <span class="rt-label">Conversation rate</span>
+        <b>${pct(convos, dials)}</b>
+        <span class="rt-sub">${dials ? `${num(convos)} conversations from ${num(dials)} dials` : "No dials logged yet"}</span>
+        <span class="rt-note">${pct(m.booked, convos)} of conversations booked a meeting</span>
+      </div>
+    </div>
+    <ol class="rt-path">
+      <li><b>${num(dials)}</b><span>Dials</span></li>
+      <li><b>${num(convos)}</b><span>Conversations</span></li>
+      <li><b>${num(m.booked)}</b><span>Booked</span></li>
+      <li><b>${num(m.sat)}</b><span>Sat</span></li>
+      <li class="gold"><b>${num(m.closed)}</b><span>Won</span></li>
+    </ol>`;
 }
 function renderStatistics(){
   const grid = $("#stats-summary-grid");
