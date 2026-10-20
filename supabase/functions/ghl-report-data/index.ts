@@ -13,7 +13,8 @@
 // What "pull" works out, from every opportunity in the sub-account, for the
 // period asked for (the CRM asks for the month so far and works out what's new
 // since the last report itself):
-//   revenue_won / jobs_won   status "won" with the win landing in the period
+//   revenue_won / jobs_won   won (status "won", or sitting in a Won / Closed Won stage)
+//                            with the win landing in the period, using the job value
 //   enquiries                opportunities created in the period
 //   quote_ready              created in the period and at or past the "quote booked" stage
 //   quoted                   created in the period and at or past the "quote sent" stage
@@ -107,9 +108,18 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
   }
   const value = (o: any) => Number(o.monetaryValue) || 0;
   const status = (o: any) => String(o.status || "").toLowerCase();
-  const wonAt = (o: any) => o.lastStatusChangeAt || o.updatedAt || o.createdAt;
-  const reached = (o: any, which: "booked" | "sent") => {
+  // A job is won when GHL marks it won, or it's been dragged into a Won /
+  // Closed Won / Sold stage (teams often move the card and leave it "open").
+  const WON_STAGE = /\bwon\b|closed\s*won|\bsold\b|job\s*won|signed/i;
+  const isWon = (o: any) => {
     if (status(o) === "won") return true;
+    if (status(o) === "lost" || status(o) === "abandoned") return false;
+    const name = stageAt.get(o.pipelineStageId)?.name || "";
+    return WON_STAGE.test(name) && !NOT_A_QUOTE.test(name);
+  };
+  const wonAt = (o: any) => (status(o) === "won" ? o.lastStatusChangeAt : o.lastStageChangeAt) || o.lastStageChangeAt || o.lastStatusChangeAt || o.updatedAt || o.createdAt;
+  const reached = (o: any, which: "booked" | "sent") => {
+    if (isWon(o)) return true;
     const at = stageAt.get(o.pipelineStageId), m = at && marks.get(at.pipeline);
     // Past Disqualified = a quote, wherever it's got to since (lost included).
     if (which === "booked" && at && m && m.afterDisq) return at.index >= m.booked && !PRE_QUOTE.test(at.name);
@@ -117,7 +127,7 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
     if (at && NOT_A_QUOTE.test(at.name)) return false;
     return Boolean(at && m && at.index >= m[which]);
   };
-  const won = opps.filter((o) => status(o) === "won");
+  const won = opps.filter(isWon);
   const wonInPeriod = won.filter((o) => inPeriod(wonAt(o)));
   const created = opps.filter((o) => inPeriod(o.createdAt || o.dateAdded));
   const firstMarks = [...marks.values()][0];

@@ -6474,12 +6474,53 @@ function openReportModal(clientId, existingId){
   const perf = clientPerformance(c);
   const style = (rpExisting?.metrics || {}).style || (!perf.jobs && !perf.revenue ? "early" : "results");
   $("#rp-style").value = style;
+  rpAuto = {};
   if (existingId && style === "early" && !rpVal("summary")) rpSet("summary", RP_EARLY_SUMMARY);
+  if (!existingId) rpFillStory();
   document.querySelectorAll("#rp-choose [data-action=rp-pick]").forEach(b => b.classList.toggle("is-suggested", b.dataset.id === style));
   rpStatus("");
   rpRenderTotals();
   rpRenderGhl(c);
   openModal("report-modal");
+}
+// Writes the report's words from the numbers (GHL, Meta, the ads), so nobody
+// has to. Only fills boxes that are empty or still hold earlier auto text.
+let rpAuto = {};
+function rpFillStory(){
+  const c = state.clients.find(x => x.id === rpClientId);
+  if (!c) return;
+  const style = $("#rp-style")?.value || "results";
+  const t = rpTotals(c), mv = t.month;
+  const monthName = monthNameOf(rpVal("to") || localDayStr());
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const enq = mv.enquiries || 0, ready = mv.quoteReady || 0, jobs = mv.jobsMonth || 0, rev = mv.revenueMonth || 0;
+  const waiting = Math.max(0, (mv.quoted || 0) - jobs);
+  const ads = state.adCreatives.filter(a => a.client_id === c.id && a.result !== "engagement");
+  const best = [...ads].filter(a => Number(a.results) > 0 && a.cost_per_result != null).sort((a, b) => a.cost_per_result - b.cost_per_result)[0];
+  const live = amClientProgress(c).live;
+  let summary;
+  if (style === "early") summary = RP_EARLY_SUMMARY;
+  else {
+    const parts = [`Your ads brought in ${plural(enq, "enquiry").replace("enquirys", "enquiries")} in ${monthName} so far, and ${ready} ${ready === 1 ? "has" : "have"} booked a quote with you.`];
+    parts.push(jobs ? `${plural(jobs, "job")} signed this month, worth ${fmtMoney(rev)}${jobs > 1 ? ` - an average of ${fmtMoney(rev / jobs)} a job` : ""}.` : "No new jobs signed yet this month - the quotes are still coming back.");
+    if (waiting) parts.push(`${plural(waiting, "quote")} ${waiting === 1 ? "is" : "are"} out waiting on a decision.`);
+    if (t.revenueToDate) parts.push(`Since we started you've won ${fmtMoney(t.revenueToDate)} in work${t.roiToDate ? `, ${fmtTimes(t.roiToDate)} what you've invested with us` : ""}.`);
+    summary = parts.join(" ");
+  }
+  const story = {
+    summary,
+    did1: live ? `Had ${plural(live, "new ad")} live for ${monthName}` : "Kept your ads running and optimised",
+    did2: best ? `"${best.name}" brought in leads at ${fmtMoney(best.cost_per_result)} each` : "Tested new audiences and headlines",
+    did3: "Called every new enquiry and booked the quotes in",
+    next1: best ? `Put more budget behind "${best.name}"` : "Move budget onto the best performing ad",
+    next2: "Launch a fresh test ad for next month",
+    next3: waiting ? `Follow up the ${plural(waiting, "quote")} still waiting on a decision` : "Keep following up every quote after a few days",
+  };
+  Object.entries(story).forEach(([k, v]) => {
+    const cur = rpVal(k);
+    if (!cur || cur === rpAuto[k] || (k === "summary" && cur === RP_EARLY_SUMMARY)) rpSet(k, v);
+  });
+  rpAuto = story;
 }
 function rpApplyPrefill(c){
   const pre = reportPrefill(c, rpVal("from"), rpVal("to"), rpExisting?.id);
@@ -6590,8 +6631,11 @@ async function rpGhlPull(){
   set("dRevenue", since(m.revenue_won, "revenueMonth")); set("dJobs", since(m.jobs_won, "jobsMonth"));
   set("dEnquiries", since(m.enquiries, "enquiries")); set("dBooked", since(m.quote_ready, "quoteReady")); set("dQuoted", since(m.quoted, "quoted"));
   rpRenderTotals();
+  // Suggest a style from GHL: any job won means the results report.
+  if (!rpExisting && (m.jobs_won || m.revenue_won_to_date)) $$("#rp-choose [data-action=rp-pick]").forEach(b => b.classList.toggle("is-suggested", b.dataset.id === "results"));
+  rpFillStory();
   const warn = m.won_missing_value ? ` ${m.won_missing_value} won job${m.won_missing_value === 1 ? " has" : "s have"} no $ value in GHL, so revenue may be low.` : "";
-  rpStatus(`Filled from GHL (${m.opportunities_checked ?? 0} opportunities). Quotes counted from "${m.booked_stage || "?"}" (site visit / to be quoted / quote) onwards, quotes sent = "${m.sent_stage || "?"}" or later. Ad spend comes from Meta.${warn} Check the numbers, then make the report.`, Boolean(warn));
+  rpStatus(`Filled from GHL (${m.opportunities_checked ?? 0} opportunities): jobs won and their values from the Won stage, quotes from "${m.booked_stage || "?"}" onwards. Ad spend comes from Meta, and the story is written for you.${warn} Check it over, then make the report.`, Boolean(warn));
 }
 async function rpGhlConnect(){
   const c = state.clients.find(x => x.id === rpClientId);
@@ -7608,7 +7652,10 @@ function setupReporting(){
   $("#report-form")?.addEventListener("input", (e) => {
     if (e.target.closest("#rp-ghl-connect")) return;
     rpRenderTotals();
+    // Numbers changed by hand: the auto-written story keeps up (typed words are left alone).
+    if (e.target.matches("input[type=number]")) rpFillStory();
   });
+  $("#rp-style")?.addEventListener("change", () => rpFillStory());
   $("#report-form")?.addEventListener("change", (e) => {
     if (e.target.id === "rp-to" && rpVal("to")){
       // The period always starts the day after the last report (or the start of the month).
@@ -7646,8 +7693,7 @@ async function handleReportAction(action, id){
   if (action === "make-plan"){ openPlanModal(id); return true; }
   if (action === "rp-pick"){
     $("#rp-style").value = id;
-    if (id === "early" && !rpVal("summary")) rpSet("summary", RP_EARLY_SUMMARY);
-    if (id === "results" && rpVal("summary") === RP_EARLY_SUMMARY) rpSet("summary", "");
+    rpFillStory();
     $("#rp-choose").hidden = true; $("#report-form").hidden = false;
     return true;
   }
