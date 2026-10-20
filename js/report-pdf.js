@@ -177,7 +177,7 @@ async function build(data){
   if (profitNet != null && profitNet > 0){
     label(p1, "Profit in your pocket", rx, heroY + heroH - 30, { color: "#8fe0b0" });
     text(p1, money(profitNet), rx, heroY + heroH - 84, { f: F.d8, size: 40, color: "#8fe0b0", maxWidth: halfW });
-    wrap(F.r, `after everything you've invested with us - ad spend and our fees - at your ${data.margin}% margin`, 10, halfW).slice(0, 2).forEach((ln, i) => text(p1, ln, rx, heroY + heroH - 104 - i * 13, { size: 10, color: "#d9d3c5" }));
+    wrap(F.r, `after paying for your ad spend and our fees, at your ${data.margin}% margin`, 10, halfW).slice(0, 2).forEach((ln, i) => text(p1, ln, rx, heroY + heroH - 104 - i * 13, { size: 10, color: "#d9d3c5" }));
   } else {
     label(p1, "Return on your investment", rx, heroY + heroH - 30, { color: "#e8c468" });
     text(p1, times(data.roiToDate), rx, heroY + heroH - 84, { f: F.d8, size: 40, color: "#f3cf6a", maxWidth: halfW });
