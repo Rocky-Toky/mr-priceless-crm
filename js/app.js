@@ -4603,6 +4603,7 @@ async function cpPullGhl(c){
     ]);
     csGhl[c.id] = all.error ? { at: Date.now(), error: all.error } : { at: Date.now(), metrics: all.metrics || {} };
     cpGhlMonth[c.id] = { at: Date.now(), ym, metrics: month.error ? {} : month.metrics || {} };
+    await pullMetaSince(c).catch(() => {});
   } finally { cpGhlPulling.delete(c.id); }
   if (state.selectedClientId === c.id){
     const cur = state.clients.find(x => x.id === c.id);
@@ -5514,6 +5515,7 @@ async function csPullGhl(force){
       const from = rpStartDate(c, today);
       const r = await ghlCall({ action: "pull", client_id: c.id, from, to: today, stages: ghlStagesOf(c) });
       csGhl[c.id] = r.error ? { at: Date.now(), error: r.error } : { at: Date.now(), metrics: r.metrics || {} };
+      await pullMetaSince(c).catch(() => {});
     }
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
@@ -5542,7 +5544,10 @@ function clientPerformance(c){
     ["Imported leads", imported.filter(l => classifyLeadStatus(l.status) === "Qualified").length],
   ].sort((a, b) => b[1] - a[1]);
   const quotes = quoteSources[0][1];
-  let spend = metaSpend, spendSource = "Meta";
+  // Meta spend only counts from their go-live date: the account's lifetime
+  // total can include years of spend from before they were with us.
+  const goLiveSpend = metaSince[c.id] && !metaSince[c.id].error ? metaSince[c.id].toDate : null;
+  let spend = goLiveSpend != null ? goLiveSpend : c.ad_start_date ? 0 : metaSpend, spendSource = "Meta";
   if (!spend && rep("adSpendMonth")){ spend = rep("adSpendMonth"); spendSource = "Reports"; }
   if (!spend && Number(c.monthly_ad_spend) && c.ad_start_date){
     const m = Math.max(0, daysSince(c.ad_start_date) / 30.4);
@@ -6449,14 +6454,67 @@ let rpClientId = null, rpLastUrl = null, rpLastName = "", rpExisting = null;
 function rpVal(k){ return $("#rp-" + k)?.value ?? ""; }
 function rpSet(k, v){ const el = $("#rp-" + k); if (el) el.value = v ?? ""; }
 // Month-so-far values: the base plus what's been typed in since the last report.
+// Ad spend for a fortnightly report. Real spend from Meta when their ad
+// account is synced; otherwise the monthly budget spread evenly over the days
+// that have passed (half way through a 30-day month = half the budget), so
+// each report compares results with the money spent over the same stretch.
+const rpDaysInMonth = (day) => localDateOnly(monthEnd(day)).getDate();
+function rpBudgetSpent(budget, from, to){
+  // Budget spread per day across every month between from and to (inclusive).
+  let total = 0, d = from;
+  while (d <= to){
+    const end = monthEnd(d) < to ? monthEnd(d) : to;
+    const days = Math.round((localDateOnly(end) - localDateOnly(d)) / 864e5) + 1;
+    total += budget * days / rpDaysInMonth(d);
+    d = addDays(end, 1);
+  }
+  return Math.round(total);
+}
+// Meta spend since go-live, per client, for the client page and stats.
+const metaSince = {}; // client id -> { at, since, toDate } or { at, error }
+async function pullMetaSince(c){
+  const goLive = c.ad_start_date ? String(c.ad_start_date).slice(0, 10) : null, today = localDayStr();
+  if (!IS_CONFIGURED || !c.meta_ad_account_id || !goLive || goLive > today) return false;
+  const cur = metaSince[c.id];
+  if (cur && cur.since === goLive && Date.now() - cur.at < 15 * 60e3) return false;
+  const { data, error } = await supabase.functions.invoke("sync-client-ads", { body: { client_id: c.id, action: "spend", since: goLive, until: today } });
+  metaSince[c.id] = error || data?.error ? { at: Date.now(), since: goLive, error: data?.error || error.message } : { at: Date.now(), since: goLive, toDate: Number(data.to_date) || 0 };
+  return true;
+}
+// Real spend from Meta, only from their go-live (Ad Start) date - an ad
+// account can carry years of spend from before they were with us.
+let rpMeta = null; // { clientId, since, until, toDate, month } or { clientId, error }
+async function rpLoadMetaSpend(c){
+  const to = rpVal("to") || localDayStr();
+  const goLive = c.ad_start_date ? String(c.ad_start_date).slice(0, 10) : null;
+  if (!IS_CONFIGURED || !c.meta_ad_account_id || !goLive || goLive > to){ rpMeta = null; rpRenderTotals(); return; }
+  if (rpMeta && rpMeta.clientId === c.id && rpMeta.until === to && rpMeta.since === goLive) return;
+  const monthSince = monthStart(to) > goLive ? monthStart(to) : goLive;
+  const { data, error } = await supabase.functions.invoke("sync-client-ads", { body: { client_id: c.id, action: "spend", since: goLive, until: to, month_since: monthSince } });
+  if (rpClientId !== c.id) return;
+  rpMeta = error || data?.error ? { clientId: c.id, error: data?.error || error.message } : { clientId: c.id, since: goLive, until: to, toDate: Number(data.to_date) || 0, month: Number(data.month) || 0 };
+  rpRenderTotals(); rpFillStory();
+}
+function rpAdSpend(c, to){
+  const budget = toNum(rpVal("adMonth")) ?? (rpDefaults(c).adSpend ?? (toNum(c.monthly_ad_spend) || RP_DEFAULT_AD));
+  const goLive = c.ad_start_date ? String(c.ad_start_date).slice(0, 10) : null;
+  const start = goLive && goLive <= to ? goLive : rpStartDate(c, to), mStart = monthStart(to) > start ? monthStart(to) : start;
+  const days = Math.round((localDateOnly(to) - localDateOnly(mStart)) / 864e5) + 1;
+  const meta = rpMeta && rpMeta.clientId === c.id && !rpMeta.error && rpMeta.until === to ? rpMeta : null;
+  if (meta) return { month: Math.round(meta.month), toDate: Math.round(meta.toDate), source: "meta", budget, days, since: meta.since };
+  return { month: rpBudgetSpent(budget, mStart, to), toDate: rpBudgetSpent(budget, start, to), source: "budget", budget, days, since: start,
+    why: !c.ad_start_date ? "noGoLive" : !c.meta_ad_account_id ? "noMeta" : rpMeta?.clientId === c.id && rpMeta.error ? "metaError" : "loading" };
+}
 function rpMonthValues(c){
   const to = rpVal("to") || localDayStr();
   const base = monthBase(c.id, to, rpExisting?.id);
   const out = {};
   REPORT_DELTAS.forEach(d => { out[d.month] = (toNum(base[d.month]) || 0) + (toNum(rpVal(d.key)) || 0); });
-  // Ad spend is the month's total, typed (or remembered) in Investment.
-  const adMonth = toNum(rpVal("adMonth"));
-  if (adMonth != null){ out.adSpendMonth = adMonth; rpSet("dAdSpend", Math.max(0, Math.round(adMonth - (toNum(base.adSpendMonth) || 0)))); }
+  // Ad spend actually spent this month: real from Meta, else the monthly
+  // budget spread over the days gone (see rpAdSpend).
+  const ad = rpAdSpend(c, to);
+  out.adSpendMonth = ad.month; out.adSpend = ad;
+  rpSet("dAdSpend", Math.max(0, Math.round(ad.month - (toNum(base.adSpendMonth) || 0))));
   out.mgmtMonth = toNum(rpVal("mgmtMonth")) || 0;
   out.quotesBooked = out.quoteReady;
   out.base = base;
@@ -6501,6 +6559,7 @@ function openReportModal(clientId, existingId){
   rpStatus("");
   rpRenderTotals();
   rpRenderGhl(c);
+  rpLoadMetaSpend(c);
   openModal("report-modal");
 }
 // Writes the report's words from the numbers (GHL, Meta, the ads), so nobody
@@ -6560,7 +6619,7 @@ function rpTotals(c){
   const revenueToDate = toNum(rpVal("revenueToDateOverride")) ?? Math.max(stacked, ghlToDate?.revenue || 0);
   const jobsToDate = Math.max(sum("jobsMonth") + (mv.jobsMonth || 0), ghlToDate?.jobs || 0);
   // Ad spend to date can be corrected by hand, in case a month was missed.
-  const adSpendToDate = toNum(rpVal("adSpendToDateOverride")) ?? (sum("adSpendMonth") + spend), mgmtToDate = sum("mgmtMonth") + mgmt;
+  const adSpendToDate = toNum(rpVal("adSpendToDateOverride")) ?? mv.adSpend.toDate, mgmtToDate = sum("mgmtMonth") + mgmt;
   const investedToDate = adSpendToDate + mgmtToDate;
   const lastMonthYm = ymOf(addDays(monthStart(to), -1));
   const lastMonth = earlier.find(r => ymOf(r.period_end) === lastMonthYm);
@@ -6585,6 +6644,12 @@ function rpRenderTotals(){
   const d = (x) => localDateOnly(x).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
   const note = $("#rp-since-note");
   if (note && rpVal("from") && rpVal("to")) note.textContent = `${d(rpVal("from"))} to ${d(rpVal("to"))}${prev ? ` · since report ${prev.metrics?.report_number || ""}` : " · first report"}${Object.keys(mv.base).length ? ` · adding to ${monthName} so far` : ` · ${monthName} starts fresh`}`;
+  const ad = mv.adSpend;
+  const adNote = $("#rp-ad-note");
+  const why = { noGoLive: "Add their Ad Start Date on the client for the real figure from Meta.", noMeta: "Add their Meta Ad Account ID on the client for the real figure.", metaError: "Couldn't reach Meta, so it's worked out from the budget.", loading: IS_CONFIGURED ? "Checking Meta…" : "" }[ad.why] || "";
+  if (adNote) adNote.textContent = ad.source === "meta"
+    ? `Ad spend so far this month: ${fmtMoney(ad.month)}, from Meta. ${fmtMoney(ad.toDate)} since they went live on ${fmtShortDate(ad.since)}.`
+    : `Ad spend so far this month: ${fmtMoney(ad.month)} (${ad.days} of ${rpDaysInMonth(rpVal("to") || localDayStr())} days of the ${fmtMoney(ad.budget)} budget). ${why}`;
   el.innerHTML = `
     <div><span>Revenue to date</span><b>${fmtMoney(t.revenueToDate)}</b></div>
     <div><span>Invested to date</span><b>${fmtMoney(t.investedToDate)}</b></div>
@@ -7687,6 +7752,7 @@ function setupReporting(){
     if (e.target.matches("input[type=number]")) rpFillStory();
   });
   $("#rp-style")?.addEventListener("change", () => rpFillStory());
+  $("#rp-to")?.addEventListener("change", () => { const c = state.clients.find(x => x.id === rpClientId); if (c) rpLoadMetaSpend(c); });
   // Ad spend and the fee stick for this client once changed.
   $("#rp-adMonth")?.addEventListener("change", (e) => { const c = state.clients.find(x => x.id === rpClientId); if (c) rpRemember(c, "adSpend", e.target.value); });
   $("#rp-mgmtMonth")?.addEventListener("change", (e) => { const c = state.clients.find(x => x.id === rpClientId); if (c) rpRemember(c, "mgmt", e.target.value); });
