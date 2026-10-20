@@ -10164,41 +10164,99 @@ function pbGoto(i){
 }
 
 /* ───────── Meeting structure ─────────
-   The first-meeting playbook as its own page: the steps across the top with
-   how long each should take, every part of the meeting down the side (the
-   discovery questions sit under Discovery), and the part you're on shown big
-   with the lines to say. "Start meeting" runs a timer so you can see if a
-   step is running long. Content comes from the "Meeting Structure" playbook,
-   so editing that playbook changes this page. */
-let mtgSel = 0, mtgRun = null, mtgTick = null;
+   Built to be read mid-meeting, at a glance. One step at a time: what to
+   say in big type, the questions to ask as big rows you tick off as you go,
+   yes / no answers side by side. Discovery splits into its trust layers as
+   tabs. Everything that's background reading (the mindset, reading the
+   room, red flags, don'ts, after the meeting) lives in the Cheat sheet, out
+   of the way. The content comes from the "Meeting Structure" playbook, so
+   editing that playbook changes this page. */
+let mtgStep = 0, mtgTab = 0, mtgRun = null, mtgTick = null, mtgSheet = null;
+const mtgAsked = new Set();
 const MTG_AFTER_RE = /^(red flags|don'?ts|after the meeting)/i;
+const MTG_SHEET_SUB_RE = /reading the room/i;
+const MTG_LEADIN_RE = /lines to give context/i;
 function mtgDoc(){
   const p = state.playbooks.find(x => PB_PINNED_RE.test(x.title || "")) || (window.MP_BUILTIN_PLAYBOOKS || []).find(x => PB_PINNED_RE.test(x.title || ""));
   if (!p) return null;
   const doc = pbParse(p);
-  const items = [];
-  let curStep = null;
-  // Times from "The flow at a glance" fill in any step heading without one.
   const flowTimes = {};
   (doc.chapters.find(c => /^the flow at a glance$/i.test(c.title))?.body || "").split("\n").forEach(l => {
     const m = l.match(/^\s*(\d+)\.\s.*\(([^)]*min[^)]*)\)/i); if (m) flowTimes[+m[1]] = m[2];
   });
-  doc.chapters.forEach((c, i) => {
+  const steps = [], sheet = [];
+  let cur = null;
+  doc.chapters.forEach(c => {
     if (/^the flow at a glance$/i.test(c.title)) return;
     const m = c.title.match(/^(\d+)\.\s*(.+?)\s*(?:\(([^)]+)\))?$/);
     if (m){
       const dur = m[3] || flowTimes[+m[1]] || "";
       const mins = dur.match(/(\d+)(?:\s*-\s*(\d+))?\s*min/i);
-      curStep = { kind: "step", n: +m[1], title: m[2], dur, target: mins ? +(mins[2] || mins[1]) : 0, ch: c, subs: [] };
-      items.push(curStep);
-    } else if (MTG_AFTER_RE.test(c.title)){
-      items.push({ kind: "after", title: c.title, ch: c }); curStep = null;
-    } else if (curStep){
-      const sub = { kind: "sub", title: c.title, ch: c, parent: curStep };
-      curStep.subs.push(sub); items.push(sub);
-    } else items.push({ kind: "before", title: c.title, ch: c });
+      cur = { n: +m[1], title: m[2], dur, target: mins ? +(mins[2] || mins[1]) : 0, body: c.body, tabs: [], leadins: null };
+      steps.push(cur);
+    } else if (MTG_AFTER_RE.test(c.title) || !cur){
+      sheet.push({ title: c.title, body: c.body });
+    } else if (MTG_SHEET_SUB_RE.test(c.title)){
+      sheet.push({ title: c.title, body: c.body });
+    } else if (MTG_LEADIN_RE.test(c.title)){
+      cur.leadins = c.body;
+    } else {
+      const short = c.title.replace(/\s*\((.*)\)\s*$/, "").replace(/^the\s+/i, "").replace(/\s+-\s+.*$/, (m) => /trust/i.test(c.title) ? "" : m);
+      cur.tabs.push({ title: short.charAt(0).toUpperCase() + short.slice(1), full: c.title, body: c.body });
+    }
   });
-  return { p, doc, items, steps: items.filter(x => x.kind === "step") };
+  return { p, doc, steps, sheet };
+}
+// Inline text: **bold**, and [placeholders] to fill in highlighted.
+const mtgInline = (t) => escapeHtml(t).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/\[([^\]\n]{1,60})\]/g, '<mark>[$1]</mark>');
+const mtgStrip = (t) => String(t).trim().replace(/^["“]|["”]$/g, "");
+// A section's text as blocks: guidance, lines to say, questions, tips, yes/no branches.
+function mtgBlocks(body){
+  const out = [];
+  let branch = null;
+  const push = (b) => (branch ? branch.items : out).push(b);
+  String(body || "").split("\n").forEach(raw => {
+    const line = raw.trim();
+    if (!line) return;
+    let m;
+    if ((m = line.match(/^\*\*([^*]+?):?\*\*:?\s*$/))){ branch = { t: "branch", label: m[1].replace(/:$/, ""), items: [] }; out.push(branch); return; }
+    if ((m = line.match(/^>\s*(.*)$/))) return push({ t: "say", text: mtgStrip(m[1]) });
+    if ((m = line.match(/^[-*•]\s*\[[ xX]?\]\s*(.*)$/))) return push({ t: "check", text: m[1] });
+    if ((m = line.match(/^(?:[-*•]|\d+\.)\s+(.*)$/))){
+      const txt = m[1];
+      if (/^["“].*["”]$/.test(txt)) return push({ t: "say", text: mtgStrip(txt), small: true });
+      if (/^\*\*/.test(txt)) return push({ t: "tip", text: txt });
+      return push({ t: /\?\s*(\(.*\))?$/.test(txt) ? "q" : "point", text: txt });
+    }
+    branch = null;
+    out.push({ t: "note", text: line });
+  });
+  return out;
+}
+function mtgBlocksHtml(blocks, keyBase){
+  let html = "", i = 0;
+  const qKey = (t) => keyBase + "|" + t;
+  while (i < blocks.length){
+    const b = blocks[i];
+    if (b.t === "q"){
+      const qs = [];
+      while (i < blocks.length && blocks[i].t === "q") qs.push(blocks[i++]);
+      html += `<div class="mtg-qs${qs.length > 6 ? " two" : ""}">${qs.map(q => { const asked = mtgAsked.has(qKey(q.text)); return `<button type="button" class="mtg-q${asked ? " asked" : ""}" data-mtg-q="${escapeHtml(qKey(q.text))}"><i>${asked ? "✓" : ""}</i><span>${mtgInline(q.text)}</span></button>`; }).join("")}</div>`;
+      continue;
+    }
+    if (b.t === "branch"){
+      const group = [];
+      while (i < blocks.length && blocks[i].t === "branch") group.push(blocks[i++]);
+      html += `<div class="mtg-branches${group.length > 1 ? " cols" : ""}">${group.map(g => `<div class="mtg-branch"><span class="mtg-branch-label">${mtgInline(g.label)}</span>${mtgBlocksHtml(g.items, keyBase + "|" + g.label)}</div>`).join("")}</div>`;
+      continue;
+    }
+    if (b.t === "say") html += `<blockquote class="mtg-say${b.small ? " small" : ""}"><span>Say</span><p>${mtgInline(b.text)}</p></blockquote>`;
+    else if (b.t === "tip" || b.t === "point") html += `<p class="mtg-point">${mtgInline(b.text)}</p>`;
+    else if (b.t === "check") html += `<p class="mtg-point mtg-check">☐ ${mtgInline(b.text)}</p>`;
+    else html += `<p class="mtg-note">${mtgInline(b.text)}</p>`;
+    i++;
+  }
+  return html;
 }
 const mtgClock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 function renderMeetingStructure(){
@@ -10206,89 +10264,116 @@ function renderMeetingStructure(){
   if (!root) return;
   ensureBuiltinPlaybooks();
   const d = mtgDoc();
-  if (!d){ root.innerHTML = `<div class="etx-empty"><h3>No meeting structure yet</h3><p>Add a playbook called "Meeting Structure" and it shows up here.</p></div>`; return; }
-  if (mtgSel >= d.items.length) mtgSel = 0;
-  const sel = d.items[mtgSel];
-  const curStep = sel.kind === "step" ? sel : sel.kind === "sub" ? sel.parent : null;
+  if (!d || !d.steps.length){ root.innerHTML = `<div class="etx-empty"><h3>No meeting structure yet</h3><p>Add a playbook called "Meeting Structure" with numbered steps and it shows up here.</p></div>`; return; }
+  const last = d.steps.length; // one extra "into the offer" step at the end
+  if (mtgStep > last) mtgStep = 0;
+  const step = d.steps[mtgStep];
+  if (step && mtgTab >= step.tabs.length) mtgTab = 0;
   const totalTarget = d.steps.reduce((t, s) => t + s.target, 0);
-  const itemIdx = (it) => d.items.indexOf(it);
-  const rail = (title, list) => list.length ? `<div class="mtg-rail-group"><span class="mtg-k">${title}</span>${list.map(it => `<button type="button" class="mtg-rail-item${it === sel ? " active" : ""}" data-mtg="${itemIdx(it)}">${escapeHtml(it.title)}</button>`).join("")}</div>` : "";
-  const r = renderPlaybookMarkdown(sel.ch.body, {}, { plainChecks: true });
-  const prev = d.items[mtgSel - 1], next = d.items[mtgSel + 1];
-  const persistable = state.playbooks.find(x => PB_PINNED_RE.test(x.title || ""));
+  const persisted = state.playbooks.find(x => PB_PINNED_RE.test(x.title || ""));
+  let main;
+  if (!step){
+    main = `<div class="mtg-main-head"><span class="mtg-k">Last step</span><h2>Into the offer</h2></div>
+      <div class="mtg-content"><p class="mtg-lead">You've summed it back and they've agreed it makes sense. Now walk them through how we'd do it.</p>
+      <button type="button" class="btn gold mtg-big-btn" data-mtg-act="close-playbook">Open Meetings to Close →</button></div>`;
+  } else {
+    const blocks = mtgBlocks(step.body);
+    // The step's opening guidance sits under the title as one quiet line.
+    const leadIdx = blocks.findIndex(b => b.t === "note");
+    const lead = leadIdx === 0 ? blocks.shift().text : "";
+    const tab = step.tabs[mtgTab];
+    const over = mtgRun && step.target && mtgRun.stepStart && (Date.now() - mtgRun.stepStart) / 60000 > step.target;
+    main = `
+      <div class="mtg-main-head">
+        <div class="mtg-main-k"><span class="mtg-k">Step ${step.n} of ${d.steps.length}</span>${step.dur ? `<span class="mtg-time${over ? " over" : ""}" id="mtg-step-time">⏱ ${escapeHtml(step.dur)}</span>` : ""}</div>
+        <h2>${escapeHtml(step.title)}</h2>
+        ${lead ? `<p class="mtg-lead${step.tabs.length ? " short" : ""}">${mtgInline(lead)}</p>` : ""}
+      </div>
+      ${step.tabs.length ? `<div class="mtg-tabs" role="tablist">${step.tabs.map((t, i) => `<button type="button" class="${i === mtgTab ? "active" : ""}" data-mtg-tab="${i}">${escapeHtml(t.title)}</button>`).join("")}</div>` : ""}
+      <div class="mtg-content">
+        ${blocks.length ? mtgBlocksHtml(blocks, `s${step.n}`) : ""}
+        ${tab ? mtgBlocksHtml(mtgBlocks(tab.body), `s${step.n}|${tab.title}`) : ""}
+      </div>
+      ${step.leadins ? `<div class="mtg-leadins"><span class="mtg-k">Lead-ins</span>${mtgBlocks(step.leadins).map(b => `<span class="mtg-leadin">${mtgInline(b.text)}</span>`).join("")}</div>` : ""}`;
+  }
+  const prevLabel = mtgStep > 0 ? d.steps[mtgStep - 1].title : "";
+  const nextLabel = mtgStep < last - 1 ? d.steps[mtgStep + 1].title : mtgStep === last - 1 ? "Into the offer" : "";
   root.innerHTML = `
     <div class="mtg">
-      <header class="mtg-head">
-        <div>
-          <h2>Meeting structure</h2>
-          <p>${escapeHtml(d.doc.lead || "How every first meeting runs - from hello to the offer.")}</p>
+      <aside class="mtg-rail">
+        <div class="mtg-rail-top">
+          ${mtgRun ? `<div class="mtg-clock"><span class="mtg-k">In the meeting</span><b id="mtg-elapsed">${mtgClock(Date.now() - mtgRun.start)}</b><small>aim ~${totalTarget} min to the offer</small></div>`
+            : `<button type="button" class="btn gold mtg-start" data-mtg-act="start">▶ Start meeting</button>`}
         </div>
-        <div class="mtg-head-actions">
-          ${mtgRun ? `<div class="mtg-timer"><span class="mtg-k">Meeting time</span><b id="mtg-elapsed">${mtgClock(Date.now() - mtgRun.start)}</b><small>aim ${totalTarget ? `about ${totalTarget} min` : ""} to the offer</small></div>
-            <button type="button" class="btn ghost" data-mtg-act="stop">End meeting</button>`
-          : `<button type="button" class="btn gold" data-mtg-act="start">▶ Start meeting</button>`}
-          ${persistable ? `<button class="icon-btn" data-action="edit-playbook" data-id="${persistable.id}" title="Edit the meeting structure">${ICONS.edit}</button>` : ""}
+        <nav class="mtg-rail-steps">
+          ${d.steps.map((s, i) => `<button type="button" class="mtg-rail-step${i === mtgStep ? " active" : ""}${mtgRun && mtgRun.done.includes(i) ? " done" : ""}" data-mtg-step="${i}">
+            <i>${mtgRun && mtgRun.done.includes(i) ? "✓" : s.n}</i><span><b>${escapeHtml(s.title)}</b>${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</span></button>`).join("")}
+          <button type="button" class="mtg-rail-step${mtgStep === last ? " active" : ""}" data-mtg-step="${last}"><i>→</i><span><b>Into the offer</b><small>Meetings to Close</small></span></button>
+        </nav>
+        <div class="mtg-rail-foot">
+          <button type="button" class="btn ghost mtg-sheet-btn" data-mtg-act="sheet">Cheat sheet</button>
+          <div>${mtgRun ? `<button type="button" class="mtg-end" data-mtg-act="stop">End meeting</button>` : ""}
+          ${persisted ? `<button type="button" class="mtg-edit" data-action="edit-playbook" data-id="${persisted.id}">Edit</button>` : ""}</div>
         </div>
-      </header>
-      <nav class="mtg-steps" aria-label="Meeting steps">
-        ${d.steps.map(s => `<button type="button" class="mtg-step${s === curStep ? " active" : ""}${mtgRun && mtgRun.done.includes(s.n) ? " done" : ""}" data-mtg="${itemIdx(s)}">
-          <span class="mtg-step-n">${mtgRun && mtgRun.done.includes(s.n) ? "✓" : s.n}</span>
-          <span class="mtg-step-t"><b>${escapeHtml(s.title)}</b>${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</span>
-        </button>`).join("")}
-        <div class="mtg-step mtg-step-end"><span class="mtg-step-n">→</span><span class="mtg-step-t"><b>Into the offer</b><small>Meetings to Close</small></span></div>
-      </nav>
-      <div class="mtg-body">
-        <aside class="mtg-rail">
-          ${rail("Before the call", d.items.filter(x => x.kind === "before"))}
-          <div class="mtg-rail-group"><span class="mtg-k">The meeting</span>
-            ${d.steps.map(s => `<button type="button" class="mtg-rail-item mtg-rail-step${s === sel ? " active" : ""}" data-mtg="${itemIdx(s)}"><i>${s.n}</i>${escapeHtml(s.title)}${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</button>
-              ${s.subs.map(sub => `<button type="button" class="mtg-rail-item mtg-rail-sub${sub === sel ? " active" : ""}" data-mtg="${itemIdx(sub)}">${escapeHtml(sub.title)}</button>`).join("")}`).join("")}
-          </div>
-          ${rail("Before you hang up", d.items.filter(x => x.kind === "after"))}
-        </aside>
-        <main class="mtg-card">
-          <header class="mtg-card-head">
-            <span class="mtg-k">${sel.kind === "step" ? `Step ${sel.n} of ${d.steps.length}` : sel.kind === "sub" ? `Step ${sel.parent.n} · ${escapeHtml(sel.parent.title)}` : sel.kind === "after" ? "Before you hang up" : "Before the call"}</span>
-            <h3>${escapeHtml(sel.kind === "step" ? sel.title : sel.title)}</h3>
-            ${sel.kind === "step" && sel.dur ? `<span class="mtg-pill">⏱ ${escapeHtml(sel.dur)}</span>` : ""}
-          </header>
-          <div class="mtg-card-body playbook-content">${r.html || `<p class="pbx-muted">Nothing here yet.</p>`}</div>
-          <footer class="mtg-card-foot">
-            ${prev ? `<button type="button" class="btn ghost" data-mtg="${mtgSel - 1}">← ${escapeHtml(prev.title)}</button>` : "<span></span>"}
-            ${next ? `<button type="button" class="btn gold" data-mtg="${mtgSel + 1}">${escapeHtml(next.title)} →</button>` : ""}
-          </footer>
-        </main>
-      </div>
+      </aside>
+      <section class="mtg-main">
+        ${main}
+        <footer class="mtg-nav">
+          ${mtgStep > 0 ? `<button type="button" class="btn ghost" data-mtg-step="${mtgStep - 1}">← ${escapeHtml(prevLabel)}</button>` : "<span></span>"}
+          ${nextLabel ? `<button type="button" class="btn gold" data-mtg-step="${mtgStep + 1}">${escapeHtml(nextLabel)} →</button>` : ""}
+        </footer>
+      </section>
+      ${mtgSheet != null ? `<div class="mtg-sheet-back" data-mtg-act="sheet-close"></div>
+      <aside class="mtg-sheet" role="dialog" aria-label="Cheat sheet">
+        <header><h3>Cheat sheet</h3><button type="button" class="modal-close" data-mtg-act="sheet-close" aria-label="Close">&times;</button></header>
+        <div class="mtg-sheet-tabs">${d.sheet.map((x, i) => `<button type="button" class="${i === mtgSheet ? "active" : ""}" data-mtg-sheet="${i}">${escapeHtml(x.title.replace(/\s*-.*$/, ""))}</button>`).join("")}</div>
+        <div class="mtg-sheet-body">${d.sheet[mtgSheet] ? mtgBlocksHtml(mtgBlocks(d.sheet[mtgSheet].body), "sheet" + mtgSheet) : ""}</div>
+      </aside>` : ""}
     </div>`;
+}
+function mtgGo(i){
+  const d = mtgDoc(); if (!d) return;
+  if (mtgRun && i > mtgStep && !mtgRun.done.includes(mtgStep)) mtgRun.done.push(mtgStep);
+  if (mtgRun && i !== mtgStep) mtgRun.stepStart = Date.now();
+  mtgStep = Math.max(0, Math.min(d.steps.length, i)); mtgTab = 0;
+  renderMeetingStructure();
+  $("#mtg-root .mtg-content")?.scrollTo({ top: 0 });
 }
 function setupMeetingStructure(){
   const root = $("#mtg-root");
   if (!root) return;
   root.addEventListener("click", (e) => {
-    const go = e.target.closest("[data-mtg]");
-    if (go){
-      const d = mtgDoc(), i = +go.dataset.mtg;
-      // Moving on during a meeting ticks off the step you were on.
-      if (mtgRun && d){ const cur = d.items[mtgSel]; const st = cur?.kind === "step" ? cur : cur?.parent; const to = d.items[i]; const toStep = to?.kind === "step" ? to : to?.parent; if (st && toStep && toStep.n > st.n && !mtgRun.done.includes(st.n)) mtgRun.done.push(st.n); }
-      mtgSel = i; renderMeetingStructure();
-      root.querySelector(".mtg-card-body")?.scrollTo({ top: 0 });
-      return;
-    }
-    const act = e.target.closest("[data-mtg-act]")?.dataset.mtgAct;
+    const t = e.target;
+    const st = t.closest("[data-mtg-step]"); if (st){ mtgGo(+st.dataset.mtgStep); return; }
+    const tb = t.closest("[data-mtg-tab]"); if (tb){ mtgTab = +tb.dataset.mtgTab; renderMeetingStructure(); return; }
+    const q = t.closest("[data-mtg-q]"); if (q){ const k = q.dataset.mtgQ; mtgAsked.has(k) ? mtgAsked.delete(k) : mtgAsked.add(k); q.classList.toggle("asked"); q.querySelector("i").textContent = mtgAsked.has(k) ? "✓" : ""; return; }
+    const sh = t.closest("[data-mtg-sheet]"); if (sh){ mtgSheet = +sh.dataset.mtgSheet; renderMeetingStructure(); return; }
+    const act = t.closest("[data-mtg-act]")?.dataset.mtgAct;
     if (act === "start"){
-      mtgRun = { start: Date.now(), done: [] };
-      const d = mtgDoc(); if (d && d.steps[0]) mtgSel = d.items.indexOf(d.steps[0]);
+      mtgRun = { start: Date.now(), stepStart: Date.now(), done: [] }; mtgAsked.clear(); mtgStep = 0; mtgTab = 0;
       clearInterval(mtgTick);
-      mtgTick = setInterval(() => { const el = $("#mtg-elapsed"); if (el && mtgRun) el.textContent = mtgClock(Date.now() - mtgRun.start); }, 1000);
+      mtgTick = setInterval(() => {
+        const el = $("#mtg-elapsed"); if (!el || !mtgRun) return;
+        el.textContent = mtgClock(Date.now() - mtgRun.start);
+        const d = mtgDoc(), s = d?.steps[mtgStep], tEl = $("#mtg-step-time");
+        if (s && tEl && s.target) tEl.classList.toggle("over", (Date.now() - mtgRun.stepStart) / 60000 > s.target);
+      }, 1000);
       renderMeetingStructure();
     }
     if (act === "stop"){ mtgRun = null; clearInterval(mtgTick); renderMeetingStructure(); }
+    if (act === "sheet"){ mtgSheet = 0; renderMeetingStructure(); }
+    if (act === "sheet-close"){ mtgSheet = null; renderMeetingStructure(); }
+    if (act === "close-playbook"){
+      const pb = state.playbooks.find(x => /meetings? to close/i.test(x.title || ""));
+      if (pb){ state.selectedPlaybookId = pb.id; goPage("playbooks"); renderPlaybooks(); }
+      else goPage("playbooks");
+    }
   });
   document.addEventListener("keydown", (e) => {
     if (state.page !== "meeting" || /input|textarea|select/i.test(document.activeElement?.tagName || "")) return;
-    const d = mtgDoc(); if (!d) return;
-    if (e.key === "ArrowRight" && mtgSel < d.items.length - 1){ root.querySelector(`.mtg-card-foot [data-mtg="${mtgSel + 1}"]`)?.click(); }
-    if (e.key === "ArrowLeft" && mtgSel > 0){ mtgSel--; renderMeetingStructure(); }
+    if (e.key === "Escape" && mtgSheet != null){ mtgSheet = null; renderMeetingStructure(); return; }
+    if (e.key === "ArrowRight") mtgGo(mtgStep + 1);
+    if (e.key === "ArrowLeft") mtgGo(mtgStep - 1);
   });
 }
 
