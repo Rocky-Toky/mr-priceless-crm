@@ -1669,7 +1669,7 @@ const PAGE_GROUPS = {
   prospects: [["lead-engine", "Add prospects"], ["contacts", "Contacts"]],
   stats: [["rates", "Rates"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
-  library: [["meeting", "Meeting structure"], ["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
+  library: [["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
   ads: [["ads-month", "This month"], ["content-library", "Video scripts"]],
 };
@@ -9483,7 +9483,7 @@ const RENDERERS = [
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
-  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
+  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -10163,135 +10163,6 @@ function pbWireReader(p){
 function pbGoto(i){
   const el = $(`#pbx-ch-${i}`);
   if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - 90, behavior: "smooth" });
-}
-
-/* ───────── Meeting structure ─────────
-   The first-meeting playbook as its own page: the steps across the top with
-   how long each should take, every part of the meeting down the side (the
-   discovery questions sit under Discovery), and the part you're on shown big
-   with the lines to say. "Start meeting" runs a timer so you can see if a
-   step is running long. Content comes from the "Meeting Structure" playbook,
-   so editing that playbook changes this page. */
-let mtgSel = 0, mtgRun = null, mtgTick = null;
-const MTG_AFTER_RE = /^(red flags|don'?ts|after the meeting)/i;
-function mtgDoc(){
-  const p = state.playbooks.find(x => PB_PINNED_RE.test(x.title || "")) || (window.MP_BUILTIN_PLAYBOOKS || []).find(x => PB_PINNED_RE.test(x.title || ""));
-  if (!p) return null;
-  const doc = pbParse(p);
-  const items = [];
-  let curStep = null;
-  // Times from "The flow at a glance" fill in any step heading without one.
-  const flowTimes = {};
-  (doc.chapters.find(c => /^the flow at a glance$/i.test(c.title))?.body || "").split("\n").forEach(l => {
-    const m = l.match(/^\s*(\d+)\.\s.*\(([^)]*min[^)]*)\)/i); if (m) flowTimes[+m[1]] = m[2];
-  });
-  doc.chapters.forEach((c, i) => {
-    if (/^the flow at a glance$/i.test(c.title)) return;
-    const m = c.title.match(/^(\d+)\.\s*(.+?)\s*(?:\(([^)]+)\))?$/);
-    if (m){
-      const dur = m[3] || flowTimes[+m[1]] || "";
-      const mins = dur.match(/(\d+)(?:\s*-\s*(\d+))?\s*min/i);
-      curStep = { kind: "step", n: +m[1], title: m[2], dur, target: mins ? +(mins[2] || mins[1]) : 0, ch: c, subs: [] };
-      items.push(curStep);
-    } else if (MTG_AFTER_RE.test(c.title)){
-      items.push({ kind: "after", title: c.title, ch: c }); curStep = null;
-    } else if (curStep){
-      const sub = { kind: "sub", title: c.title, ch: c, parent: curStep };
-      curStep.subs.push(sub); items.push(sub);
-    } else items.push({ kind: "before", title: c.title, ch: c });
-  });
-  return { p, doc, items, steps: items.filter(x => x.kind === "step") };
-}
-const mtgClock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
-function renderMeetingStructure(){
-  const root = $("#mtg-root");
-  if (!root) return;
-  ensureBuiltinPlaybooks();
-  const d = mtgDoc();
-  if (!d){ root.innerHTML = `<div class="etx-empty"><h3>No meeting structure yet</h3><p>Add a playbook called "Meeting Structure" and it shows up here.</p></div>`; return; }
-  if (mtgSel >= d.items.length) mtgSel = 0;
-  const sel = d.items[mtgSel];
-  const curStep = sel.kind === "step" ? sel : sel.kind === "sub" ? sel.parent : null;
-  const totalTarget = d.steps.reduce((t, s) => t + s.target, 0);
-  const itemIdx = (it) => d.items.indexOf(it);
-  const rail = (title, list) => list.length ? `<div class="mtg-rail-group"><span class="mtg-k">${title}</span>${list.map(it => `<button type="button" class="mtg-rail-item${it === sel ? " active" : ""}" data-mtg="${itemIdx(it)}">${escapeHtml(it.title)}</button>`).join("")}</div>` : "";
-  const r = renderPlaybookMarkdown(sel.ch.body, {}, { plainChecks: true });
-  const prev = d.items[mtgSel - 1], next = d.items[mtgSel + 1];
-  const persistable = state.playbooks.find(x => PB_PINNED_RE.test(x.title || ""));
-  root.innerHTML = `
-    <div class="mtg">
-      <header class="mtg-head">
-        <div>
-          <h2>Meeting structure</h2>
-          <p>${escapeHtml(d.doc.lead || "How every first meeting runs - from hello to the offer.")}</p>
-        </div>
-        <div class="mtg-head-actions">
-          ${mtgRun ? `<div class="mtg-timer"><span class="mtg-k">Meeting time</span><b id="mtg-elapsed">${mtgClock(Date.now() - mtgRun.start)}</b><small>aim ${totalTarget ? `about ${totalTarget} min` : ""} to the offer</small></div>
-            <button type="button" class="btn ghost" data-mtg-act="stop">End meeting</button>`
-          : `<button type="button" class="btn gold" data-mtg-act="start">▶ Start meeting</button>`}
-          ${persistable ? `<button class="icon-btn" data-action="edit-playbook" data-id="${persistable.id}" title="Edit the meeting structure">${ICONS.edit}</button>` : ""}
-        </div>
-      </header>
-      <nav class="mtg-steps" aria-label="Meeting steps">
-        ${d.steps.map(s => `<button type="button" class="mtg-step${s === curStep ? " active" : ""}${mtgRun && mtgRun.done.includes(s.n) ? " done" : ""}" data-mtg="${itemIdx(s)}">
-          <span class="mtg-step-n">${mtgRun && mtgRun.done.includes(s.n) ? "✓" : s.n}</span>
-          <span class="mtg-step-t"><b>${escapeHtml(s.title)}</b>${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</span>
-        </button>`).join("")}
-        <div class="mtg-step mtg-step-end"><span class="mtg-step-n">→</span><span class="mtg-step-t"><b>Into the offer</b><small>Meetings to Close</small></span></div>
-      </nav>
-      <div class="mtg-body">
-        <aside class="mtg-rail">
-          ${rail("Before the call", d.items.filter(x => x.kind === "before"))}
-          <div class="mtg-rail-group"><span class="mtg-k">The meeting</span>
-            ${d.steps.map(s => `<button type="button" class="mtg-rail-item mtg-rail-step${s === sel ? " active" : ""}" data-mtg="${itemIdx(s)}"><i>${s.n}</i>${escapeHtml(s.title)}${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</button>
-              ${s.subs.map(sub => `<button type="button" class="mtg-rail-item mtg-rail-sub${sub === sel ? " active" : ""}" data-mtg="${itemIdx(sub)}">${escapeHtml(sub.title)}</button>`).join("")}`).join("")}
-          </div>
-          ${rail("Before you hang up", d.items.filter(x => x.kind === "after"))}
-        </aside>
-        <main class="mtg-card">
-          <header class="mtg-card-head">
-            <span class="mtg-k">${sel.kind === "step" ? `Step ${sel.n} of ${d.steps.length}` : sel.kind === "sub" ? `Step ${sel.parent.n} · ${escapeHtml(sel.parent.title)}` : sel.kind === "after" ? "Before you hang up" : "Before the call"}</span>
-            <h3>${escapeHtml(sel.kind === "step" ? sel.title : sel.title)}</h3>
-            ${sel.kind === "step" && sel.dur ? `<span class="mtg-pill">⏱ ${escapeHtml(sel.dur)}</span>` : ""}
-          </header>
-          <div class="mtg-card-body playbook-content">${r.html || `<p class="pbx-muted">Nothing here yet.</p>`}</div>
-          <footer class="mtg-card-foot">
-            ${prev ? `<button type="button" class="btn ghost" data-mtg="${mtgSel - 1}">← ${escapeHtml(prev.title)}</button>` : "<span></span>"}
-            ${next ? `<button type="button" class="btn gold" data-mtg="${mtgSel + 1}">${escapeHtml(next.title)} →</button>` : ""}
-          </footer>
-        </main>
-      </div>
-    </div>`;
-}
-function setupMeetingStructure(){
-  const root = $("#mtg-root");
-  if (!root) return;
-  root.addEventListener("click", (e) => {
-    const go = e.target.closest("[data-mtg]");
-    if (go){
-      const d = mtgDoc(), i = +go.dataset.mtg;
-      // Moving on during a meeting ticks off the step you were on.
-      if (mtgRun && d){ const cur = d.items[mtgSel]; const st = cur?.kind === "step" ? cur : cur?.parent; const to = d.items[i]; const toStep = to?.kind === "step" ? to : to?.parent; if (st && toStep && toStep.n > st.n && !mtgRun.done.includes(st.n)) mtgRun.done.push(st.n); }
-      mtgSel = i; renderMeetingStructure();
-      root.querySelector(".mtg-card-body")?.scrollTo({ top: 0 });
-      return;
-    }
-    const act = e.target.closest("[data-mtg-act]")?.dataset.mtgAct;
-    if (act === "start"){
-      mtgRun = { start: Date.now(), done: [] };
-      const d = mtgDoc(); if (d && d.steps[0]) mtgSel = d.items.indexOf(d.steps[0]);
-      clearInterval(mtgTick);
-      mtgTick = setInterval(() => { const el = $("#mtg-elapsed"); if (el && mtgRun) el.textContent = mtgClock(Date.now() - mtgRun.start); }, 1000);
-      renderMeetingStructure();
-    }
-    if (act === "stop"){ mtgRun = null; clearInterval(mtgTick); renderMeetingStructure(); }
-  });
-  document.addEventListener("keydown", (e) => {
-    if (state.page !== "meeting" || /input|textarea|select/i.test(document.activeElement?.tagName || "")) return;
-    const d = mtgDoc(); if (!d) return;
-    if (e.key === "ArrowRight" && mtgSel < d.items.length - 1){ root.querySelector(`.mtg-card-foot [data-mtg="${mtgSel + 1}"]`)?.click(); }
-    if (e.key === "ArrowLeft" && mtgSel > 0){ mtgSel--; renderMeetingStructure(); }
-  });
 }
 
 /* ───────── Rules (per-channel standards, shared with the whole team) ─────────
@@ -12305,7 +12176,6 @@ document.addEventListener("DOMContentLoaded", () => {
   setupIdleSignOut();
   setupLostReason();
   setupEmailLibrary();
-  setupMeetingStructure();
   setupNav();
   setupModals();
   setupWelcomePack();
