@@ -17,8 +17,13 @@
 //   enquiries                opportunities created in the period
 //   quote_ready              created in the period and at or past the "quote booked" stage
 //   quoted                   created in the period and at or past the "quote sent" stage
-// Which stages count as "quote booked" and "quote sent" is picked per client in
-// the CRM (body.stages = { booked, sent }, stage ids). Without a pick, a quote
+// Our clients' pipelines run: Rep to contact, Stuck, Disqualified, then the
+// quote stages (site visit arranged, to be quoted, quote sent, lost, won).
+// So when a pipeline has a Disqualified stage, any opportunity sitting in a
+// stage after it counts as a quote - lost and won included - and Rep to
+// contact, Stuck and Disqualified never do.
+// For a pipeline without a Disqualified stage, "quote booked" can be picked
+// per client in the CRM (body.stages = { booked }, a stage id). Without a pick, a quote
 // counts from the first stage that's a site visit, "to be quoted" or any quote
 // stage; "sent"/"proposal" stages (or a plain "Quote") count as quoted; and
 // opportunities sitting in a lost / not interested stage never count.
@@ -75,7 +80,8 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
   // For each pipeline: where every stage sits, and the booked and sent points.
   const stageAt = new Map<string, { pipeline: string; index: number; name: string }>();
   const NOT_A_QUOTE = /lost|dead|not interested|disqual|junk|spam|no show|cancel/i;
-  const marks = new Map<string, { booked: number; sent: number; bookedName: string; sentName: string }>();
+  const marks = new Map<string, { booked: number; sent: number; bookedName: string; sentName: string; afterDisq: boolean }>();
+  const PRE_QUOTE = /rep\s*to\s*contact|stuck|disqual/i;
   for (const p of pipelines || []) {
     const stages = p.stages || [];
     stages.forEach((s: any, i: number) => stageAt.set(s.id, { pipeline: p.id, index: i, name: s.name || "" }));
@@ -85,7 +91,8 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
     // pipeline. Stages that are about losing the job never count.
     const QUOTE_STAGE = /site\s*visit|visit|to\s*be\s*quoted|quot|book|appoint|measure/i;
     const SENT_STAGE = /sent|proposal|submitted|quoted$|^quoted|delivered/i;
-    let booked = stages.findIndex((s: any) => s.id === picked.booked);
+    const disq = stages.findIndex((s: any) => /disqual/i.test(s.name || ""));
+    let booked = disq >= 0 ? (disq + 1 < stages.length ? disq + 1 : stages.length) : stages.findIndex((s: any) => s.id === picked.booked);
     if (booked < 0) booked = stages.findIndex((s: any) => QUOTE_STAGE.test(s.name || "") && !NOT_A_QUOTE.test(s.name || "") && !/to\s*be\s*booked/i.test(s.name || ""));
     if (booked < 0) booked = Math.min(1, stages.length - 1);
     let sent = stages.findIndex((s: any) => s.id === picked.sent);
@@ -96,7 +103,7 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
     if (sent < 0 && /^\s*quotes?\s*$/i.test(stages[booked]?.name || "")) sent = booked;
     if (sent < 0) sent = find(/quot/i, booked);
     if (sent < 0) sent = stages.length; // no sent stage: only won counts as quoted
-    marks.set(p.id, { booked, sent, bookedName: stages[booked]?.name || "", sentName: stages[sent]?.name || "Won" });
+    marks.set(p.id, { booked, sent, bookedName: stages[booked]?.name || "", sentName: stages[sent]?.name || "Won", afterDisq: disq >= 0 });
   }
   const value = (o: any) => Number(o.monetaryValue) || 0;
   const status = (o: any) => String(o.status || "").toLowerCase();
@@ -104,6 +111,8 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
   const reached = (o: any, which: "booked" | "sent") => {
     if (status(o) === "won") return true;
     const at = stageAt.get(o.pipelineStageId), m = at && marks.get(at.pipeline);
+    // Past Disqualified = a quote, wherever it's got to since (lost included).
+    if (which === "booked" && at && m && m.afterDisq) return at.index >= m.booked && !PRE_QUOTE.test(at.name);
     // Sitting in a lost / not-interested stage says nothing about a quote.
     if (at && NOT_A_QUOTE.test(at.name)) return false;
     return Boolean(at && m && at.index >= m[which]);
