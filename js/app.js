@@ -1669,7 +1669,7 @@ const PAGE_GROUPS = {
   prospects: [["lead-engine", "Add prospects"], ["contacts", "Contacts"]],
   stats: [["rates", "Rates"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
-  library: [["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
+  library: [["meeting", "Meeting structure"], ["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
   ads: [["ads-month", "This month"], ["content-library", "Video scripts"]],
 };
@@ -9483,7 +9483,7 @@ const RENDERERS = [
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
-  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
+  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -10165,6 +10165,135 @@ function pbGoto(i){
   if (el) window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - 90, behavior: "smooth" });
 }
 
+/* ───────── Meeting structure ─────────
+   The first-meeting playbook as its own page: the steps across the top with
+   how long each should take, every part of the meeting down the side (the
+   discovery questions sit under Discovery), and the part you're on shown big
+   with the lines to say. "Start meeting" runs a timer so you can see if a
+   step is running long. Content comes from the "Meeting Structure" playbook,
+   so editing that playbook changes this page. */
+let mtgSel = 0, mtgRun = null, mtgTick = null;
+const MTG_AFTER_RE = /^(red flags|don'?ts|after the meeting)/i;
+function mtgDoc(){
+  const p = state.playbooks.find(x => PB_PINNED_RE.test(x.title || "")) || (window.MP_BUILTIN_PLAYBOOKS || []).find(x => PB_PINNED_RE.test(x.title || ""));
+  if (!p) return null;
+  const doc = pbParse(p);
+  const items = [];
+  let curStep = null;
+  // Times from "The flow at a glance" fill in any step heading without one.
+  const flowTimes = {};
+  (doc.chapters.find(c => /^the flow at a glance$/i.test(c.title))?.body || "").split("\n").forEach(l => {
+    const m = l.match(/^\s*(\d+)\.\s.*\(([^)]*min[^)]*)\)/i); if (m) flowTimes[+m[1]] = m[2];
+  });
+  doc.chapters.forEach((c, i) => {
+    if (/^the flow at a glance$/i.test(c.title)) return;
+    const m = c.title.match(/^(\d+)\.\s*(.+?)\s*(?:\(([^)]+)\))?$/);
+    if (m){
+      const dur = m[3] || flowTimes[+m[1]] || "";
+      const mins = dur.match(/(\d+)(?:\s*-\s*(\d+))?\s*min/i);
+      curStep = { kind: "step", n: +m[1], title: m[2], dur, target: mins ? +(mins[2] || mins[1]) : 0, ch: c, subs: [] };
+      items.push(curStep);
+    } else if (MTG_AFTER_RE.test(c.title)){
+      items.push({ kind: "after", title: c.title, ch: c }); curStep = null;
+    } else if (curStep){
+      const sub = { kind: "sub", title: c.title, ch: c, parent: curStep };
+      curStep.subs.push(sub); items.push(sub);
+    } else items.push({ kind: "before", title: c.title, ch: c });
+  });
+  return { p, doc, items, steps: items.filter(x => x.kind === "step") };
+}
+const mtgClock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+function renderMeetingStructure(){
+  const root = $("#mtg-root");
+  if (!root) return;
+  ensureBuiltinPlaybooks();
+  const d = mtgDoc();
+  if (!d){ root.innerHTML = `<div class="etx-empty"><h3>No meeting structure yet</h3><p>Add a playbook called "Meeting Structure" and it shows up here.</p></div>`; return; }
+  if (mtgSel >= d.items.length) mtgSel = 0;
+  const sel = d.items[mtgSel];
+  const curStep = sel.kind === "step" ? sel : sel.kind === "sub" ? sel.parent : null;
+  const totalTarget = d.steps.reduce((t, s) => t + s.target, 0);
+  const itemIdx = (it) => d.items.indexOf(it);
+  const rail = (title, list) => list.length ? `<div class="mtg-rail-group"><span class="mtg-k">${title}</span>${list.map(it => `<button type="button" class="mtg-rail-item${it === sel ? " active" : ""}" data-mtg="${itemIdx(it)}">${escapeHtml(it.title)}</button>`).join("")}</div>` : "";
+  const r = renderPlaybookMarkdown(sel.ch.body, {}, { plainChecks: true });
+  const prev = d.items[mtgSel - 1], next = d.items[mtgSel + 1];
+  const persistable = state.playbooks.find(x => PB_PINNED_RE.test(x.title || ""));
+  root.innerHTML = `
+    <div class="mtg">
+      <header class="mtg-head">
+        <div>
+          <h2>Meeting structure</h2>
+          <p>${escapeHtml(d.doc.lead || "How every first meeting runs - from hello to the offer.")}</p>
+        </div>
+        <div class="mtg-head-actions">
+          ${mtgRun ? `<div class="mtg-timer"><span class="mtg-k">Meeting time</span><b id="mtg-elapsed">${mtgClock(Date.now() - mtgRun.start)}</b><small>aim ${totalTarget ? `about ${totalTarget} min` : ""} to the offer</small></div>
+            <button type="button" class="btn ghost" data-mtg-act="stop">End meeting</button>`
+          : `<button type="button" class="btn gold" data-mtg-act="start">▶ Start meeting</button>`}
+          ${persistable ? `<button class="icon-btn" data-action="edit-playbook" data-id="${persistable.id}" title="Edit the meeting structure">${ICONS.edit}</button>` : ""}
+        </div>
+      </header>
+      <nav class="mtg-steps" aria-label="Meeting steps">
+        ${d.steps.map(s => `<button type="button" class="mtg-step${s === curStep ? " active" : ""}${mtgRun && mtgRun.done.includes(s.n) ? " done" : ""}" data-mtg="${itemIdx(s)}">
+          <span class="mtg-step-n">${mtgRun && mtgRun.done.includes(s.n) ? "✓" : s.n}</span>
+          <span class="mtg-step-t"><b>${escapeHtml(s.title)}</b>${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</span>
+        </button>`).join("")}
+        <div class="mtg-step mtg-step-end"><span class="mtg-step-n">→</span><span class="mtg-step-t"><b>Into the offer</b><small>Meetings to Close</small></span></div>
+      </nav>
+      <div class="mtg-body">
+        <aside class="mtg-rail">
+          ${rail("Before the call", d.items.filter(x => x.kind === "before"))}
+          <div class="mtg-rail-group"><span class="mtg-k">The meeting</span>
+            ${d.steps.map(s => `<button type="button" class="mtg-rail-item mtg-rail-step${s === sel ? " active" : ""}" data-mtg="${itemIdx(s)}"><i>${s.n}</i>${escapeHtml(s.title)}${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</button>
+              ${s.subs.map(sub => `<button type="button" class="mtg-rail-item mtg-rail-sub${sub === sel ? " active" : ""}" data-mtg="${itemIdx(sub)}">${escapeHtml(sub.title)}</button>`).join("")}`).join("")}
+          </div>
+          ${rail("Before you hang up", d.items.filter(x => x.kind === "after"))}
+        </aside>
+        <main class="mtg-card">
+          <header class="mtg-card-head">
+            <span class="mtg-k">${sel.kind === "step" ? `Step ${sel.n} of ${d.steps.length}` : sel.kind === "sub" ? `Step ${sel.parent.n} · ${escapeHtml(sel.parent.title)}` : sel.kind === "after" ? "Before you hang up" : "Before the call"}</span>
+            <h3>${escapeHtml(sel.kind === "step" ? sel.title : sel.title)}</h3>
+            ${sel.kind === "step" && sel.dur ? `<span class="mtg-pill">⏱ ${escapeHtml(sel.dur)}</span>` : ""}
+          </header>
+          <div class="mtg-card-body playbook-content">${r.html || `<p class="pbx-muted">Nothing here yet.</p>`}</div>
+          <footer class="mtg-card-foot">
+            ${prev ? `<button type="button" class="btn ghost" data-mtg="${mtgSel - 1}">← ${escapeHtml(prev.title)}</button>` : "<span></span>"}
+            ${next ? `<button type="button" class="btn gold" data-mtg="${mtgSel + 1}">${escapeHtml(next.title)} →</button>` : ""}
+          </footer>
+        </main>
+      </div>
+    </div>`;
+}
+function setupMeetingStructure(){
+  const root = $("#mtg-root");
+  if (!root) return;
+  root.addEventListener("click", (e) => {
+    const go = e.target.closest("[data-mtg]");
+    if (go){
+      const d = mtgDoc(), i = +go.dataset.mtg;
+      // Moving on during a meeting ticks off the step you were on.
+      if (mtgRun && d){ const cur = d.items[mtgSel]; const st = cur?.kind === "step" ? cur : cur?.parent; const to = d.items[i]; const toStep = to?.kind === "step" ? to : to?.parent; if (st && toStep && toStep.n > st.n && !mtgRun.done.includes(st.n)) mtgRun.done.push(st.n); }
+      mtgSel = i; renderMeetingStructure();
+      root.querySelector(".mtg-card-body")?.scrollTo({ top: 0 });
+      return;
+    }
+    const act = e.target.closest("[data-mtg-act]")?.dataset.mtgAct;
+    if (act === "start"){
+      mtgRun = { start: Date.now(), done: [] };
+      const d = mtgDoc(); if (d && d.steps[0]) mtgSel = d.items.indexOf(d.steps[0]);
+      clearInterval(mtgTick);
+      mtgTick = setInterval(() => { const el = $("#mtg-elapsed"); if (el && mtgRun) el.textContent = mtgClock(Date.now() - mtgRun.start); }, 1000);
+      renderMeetingStructure();
+    }
+    if (act === "stop"){ mtgRun = null; clearInterval(mtgTick); renderMeetingStructure(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (state.page !== "meeting" || /input|textarea|select/i.test(document.activeElement?.tagName || "")) return;
+    const d = mtgDoc(); if (!d) return;
+    if (e.key === "ArrowRight" && mtgSel < d.items.length - 1){ root.querySelector(`.mtg-card-foot [data-mtg="${mtgSel + 1}"]`)?.click(); }
+    if (e.key === "ArrowLeft" && mtgSel > 0){ mtgSel--; renderMeetingStructure(); }
+  });
+}
+
 /* ───────── Rules (per-channel standards, shared with the whole team) ─────────
    Rendered as a numbered rulebook rather than a stack of collapsed cards:
    every rule is visible without clicking, each gets a reference number
@@ -10416,51 +10545,101 @@ function renderEmailTemplates(){
   renderEmailTemplateList("sales", $("#email-templates-list"), $("#email-template-viewer"));
   renderEmailTemplateList("delivery", $("#delivery-emails-list"), $("#delivery-email-viewer"));
 }
+// The email library: a searchable list on the left; on the right the email
+// as it'll actually read - a "writing to" name fills in X / [Name], and it
+// copies or opens in Gmail ready to send.
+const etSearch = { sales: "", delivery: "" }, etName = { sales: "", delivery: "" };
+const ET_GROUP_COLORS = ["#b8912c", "#3f7d55", "#3d6b96", "#6e5096", "#b4532a", "#5b7a25", "#8a6a1a"];
+const etGroupColor = (g) => { let h = 0; for (const ch of String(g || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return ET_GROUP_COLORS[h % ET_GROUP_COLORS.length]; };
+// Placeholders a template uses for the person's name.
+const ET_NAME_RE = /\[(first name|name|client name|their name)\]|\bX\b(?=[,!.\s])/gi;
+function etFill(text, name){ return name ? String(text || "").replace(ET_NAME_RE, name) : String(text || ""); }
+function etBodyHtml(text, name){
+  // Paragraphs, with any [placeholder] left to fill highlighted.
+  const filled = etFill(text, name);
+  return escapeHtml(filled).split(/\n{2,}/).map(par => `<p>${par.replace(/\n/g, "<br>")
+    .replace(/\[([^\]\n]{1,40})\]/g, '<mark class="etx-ph">[$1]</mark>')
+    .replace(/(^|[\s(])X(?=[,!.\s])/g, '$1<mark class="etx-ph">X</mark>')}</p>`).join("");
+}
+function etListHtml(kind, list, selId){
+  const q = etSearch[kind].trim().toLowerCase();
+  const shown = q ? list.filter(t => `${t.title} ${t.subject} ${t.body}`.toLowerCase().includes(q)) : list;
+  if (!shown.length) return `<p class="etx-none">No emails match "${escapeHtml(etSearch[kind])}".</p>`;
+  let lastGroup = null;
+  return shown.map(t => {
+    const [group, name] = etSplit(t.title);
+    const head = group !== lastGroup ? `<div class="etx-group"><i style="background:${etGroupColor(group)}"></i>${escapeHtml(group || "Templates")}</div>` : "";
+    lastGroup = group;
+    return `${head}<button type="button" class="etx-item${t.id === selId ? " active" : ""}" data-action="select-email-template" data-id="${t.id}" style="--etc:${etGroupColor(group)}">
+      <b>${escapeHtml(name)}</b><span>${escapeHtml(t.subject || "No subject yet")}</span></button>`;
+  }).join("");
+}
 function renderEmailTemplateList(kind, listEl, viewer){
   if (!listEl || !viewer) return;
   const list = state.emailTemplates.filter(t => etKind(t) === kind).sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
   if (!list.length){
     listEl.innerHTML = "";
-    viewer.innerHTML = `<div class="playbook-empty"><div class="playbook-empty-icon">${ICONS.book}</div>No ${kind} emails yet.<br>Add your first one so the whole team sends the same message.</div>`;
+    viewer.innerHTML = `<div class="etx-empty"><div class="etx-empty-icon">✉</div><h3>No ${kind} emails yet</h3><p>Add your first one so the whole team sends the same message.</p><button class="btn gold" data-add-et="${kind}">+ Add email</button></div>`;
     return;
   }
   if (!state.etSel[kind] || !list.find(p => p.id === state.etSel[kind])) state.etSel[kind] = list[0].id;
   const selId = state.etSel[kind];
-  let lastGroup = null;
-  listEl.innerHTML = list.map(t => {
-    const [group, name] = etSplit(t.title);
-    const head = group !== lastGroup ? `<div class="et-group-head">${escapeHtml(group || "Templates")}</div>` : "";
-    lastGroup = group;
-    return `${head}
-    <button type="button" class="playbook-list-item ${t.id === selId ? "active" : ""}" data-action="select-email-template" data-id="${t.id}">
-      <span class="playbook-list-item-icon">${ICONS.book}</span>
-      <span class="playbook-list-item-text">
-        <div class="playbook-list-item-title">${escapeHtml(name)}</div>
-        <div class="playbook-list-item-sub">${escapeHtml(t.subject || "No subject set")}</div>
-      </span>
-    </button>
-  `;}).join("");
+  if (!listEl.querySelector(".etx-search")){
+    listEl.innerHTML = `<div class="etx-search-wrap"><input type="search" class="etx-search" data-kind="${kind}" placeholder="Search ${list.length} emails…" aria-label="Search emails"></div><div class="etx-list"></div>`;
+  }
+  listEl.querySelector(".etx-search").value = etSearch[kind];
+  listEl.querySelector(".etx-list").innerHTML = etListHtml(kind, list, selId);
   const t = list.find(x => x.id === selId);
+  const [group, name] = etSplit(t.title);
+  const usesName = ET_NAME_RE.test(`${t.subject} ${t.body}`); ET_NAME_RE.lastIndex = 0;
+  const words = (String(t.body || "").match(/\S+/g) || []).length;
   viewer.innerHTML = `
-    <div class="playbook-viewer-head">
-      <div class="playbook-viewer-head-title">
-        <span class="playbook-viewer-icon">${ICONS.book}</span>
-        <div><h3>${escapeHtml(t.title)}</h3><p>Updated ${fmtDate(t.updated_at||t.created_at)}</p></div>
-      </div>
-      <div class="playbook-viewer-actions">
-        <button class="icon-btn" data-action="edit-email-template" data-id="${t.id}" title="Edit">${ICONS.edit}</button>
-        <button class="icon-btn" data-action="delete-email-template" data-id="${t.id}" title="Delete">${ICONS.trash}</button>
-      </div>
-    </div>
-    <div class="email-template-field">
-      <div class="email-template-field-head"><span>Subject</span><button type="button" class="btn ghost sm" data-action="copy-email-subject" data-id="${t.id}">Copy Subject</button></div>
-      <div class="email-template-subject">${t.subject ? escapeHtml(t.subject) : `<span style="color:var(--text2);font-style:italic;">No subject set</span>`}</div>
-    </div>
-    <div class="email-template-field">
-      <div class="email-template-field-head"><span>Body</span><button type="button" class="btn gold sm" data-action="copy-email-body" data-id="${t.id}">Copy Body</button></div>
-      <div class="email-template-body">${t.body ? escapeHtml(t.body) : `<span style="color:var(--text2);font-style:italic;">No content yet - click the edit icon to write it.</span>`}</div>
-    </div>
-  `;
+    <div class="etx-view">
+      <header class="etx-head">
+        <div class="etx-head-text">
+          <span class="etx-chip" style="--etc:${etGroupColor(group)}"><i></i>${escapeHtml(group || "Template")}</span>
+          <h3>${escapeHtml(name)}</h3>
+          <p>${words} words · about ${Math.max(1, Math.round(words / 200))} min to read · updated ${fmtDate(t.updated_at || t.created_at)}</p>
+        </div>
+        <div class="etx-head-actions">
+          <button class="icon-btn" data-action="edit-email-template" data-id="${t.id}" title="Edit">${ICONS.edit}</button>
+          <button class="icon-btn" data-action="delete-email-template" data-id="${t.id}" title="Delete">${ICONS.trash}</button>
+        </div>
+      </header>
+      ${usesName ? `<label class="etx-to"><span>Writing to</span><input type="text" class="etx-name" data-kind="${kind}" placeholder="Their first name - fills in the X" value="${escapeHtml(etName[kind])}"></label>` : ""}
+      <article class="etx-mail">
+        <div class="etx-mail-row"><span>Subject</span><b class="etx-subject">${t.subject ? escapeHtml(etFill(t.subject, etName[kind])) : `<em>No subject yet</em>`}</b></div>
+        <div class="etx-mail-body" data-id="${t.id}">${t.body ? etBodyHtml(t.body, etName[kind]) : `<p class="etx-muted">Nothing written yet - click the pencil to write it.</p>`}</div>
+      </article>
+      <footer class="etx-actions">
+        <button type="button" class="btn ghost" data-action="etx-copy" data-what="subject" data-id="${t.id}" data-kind="${kind}">Copy subject</button>
+        <button type="button" class="btn ghost" data-action="etx-gmail" data-id="${t.id}" data-kind="${kind}">Open in Gmail</button>
+        <button type="button" class="btn gold" data-action="etx-copy" data-what="body" data-id="${t.id}" data-kind="${kind}">Copy email</button>
+      </footer>
+    </div>`;
+}
+function setupEmailLibrary(){
+  document.addEventListener("input", (e) => {
+    const k = e.target.dataset?.kind;
+    if (e.target.matches?.(".etx-search")){ etSearch[k] = e.target.value; const list = state.emailTemplates.filter(t => etKind(t) === k).sort((a,b) => (a.sort_order||0) - (b.sort_order||0)); e.target.closest(".playbook-list").querySelector(".etx-list").innerHTML = etListHtml(k, list, state.etSel[k]); }
+    if (e.target.matches?.(".etx-name")){
+      etName[k] = e.target.value.trim();
+      const t = state.emailTemplates.find(x => x.id === state.etSel[k]); if (!t) return;
+      const view = e.target.closest(".etx-view");
+      view.querySelector(".etx-subject").textContent = etFill(t.subject, etName[k]);
+      view.querySelector(".etx-mail-body").innerHTML = etBodyHtml(t.body, etName[k]);
+    }
+  });
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest?.("[data-action=etx-copy], [data-action=etx-gmail]"); if (!b) return;
+    const t = state.emailTemplates.find(x => x.id === b.dataset.id); if (!t) return;
+    const name = etName[b.dataset.kind] || "";
+    if (b.dataset.action === "etx-gmail"){
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(etFill(t.subject, name))}&body=${encodeURIComponent(etFill(t.body, name))}`, "_blank", "noopener");
+      return;
+    }
+    copyToClipboard(b.dataset.what === "subject" ? etFill(t.subject, name) : etFill(t.body, name), b);
+  });
 }
 async function copyToClipboard(text, btn){
   try {
@@ -12125,6 +12304,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupEmailAuth();
   setupIdleSignOut();
   setupLostReason();
+  setupEmailLibrary();
+  setupMeetingStructure();
   setupNav();
   setupModals();
   setupWelcomePack();
