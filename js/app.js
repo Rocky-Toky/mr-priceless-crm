@@ -6423,12 +6423,27 @@ function reportPrefill(c, from, to, excludeId){
   return {
     dAdSpend, dEnquiries: leads.length || "",
     dBooked: leads.filter(l => classifyLeadStatus(l.status) === "Qualified").length || "",
-    mgmtMonth: toNum(base.mgmtMonth) ?? (retainer != null ? Math.round(retainer) : ""),
+    mgmtMonth: rpDefaults(c).mgmt ?? toNum(base.mgmtMonth) ?? (retainer != null ? Math.round(retainer) : RP_DEFAULT_MGMT),
+    adMonth: rpDefaults(c).adSpend ?? (toNum(c.monthly_ad_spend) || RP_DEFAULT_AD),
     quoteTarget: toNum(base.quoteTarget) || c.quote_target || 10,
     topAdId: best?.id || "",
   };
 }
-const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"];
+// Most clients: $1,250 a month on ads and a $1,500 retainer. Change either on a
+// report once and that client's later reports keep the new amount.
+const RP_DEFAULT_AD = 1250, RP_DEFAULT_MGMT = 1500;
+const rpDefaults = (c) => (c.onboarding_progress || {}).report_defaults || {};
+async function rpRemember(c, key, value){
+  const v = toNum(value);
+  if (v == null) return;
+  const progress = { ...(c.onboarding_progress || {}) };
+  progress.report_defaults = { ...(progress.report_defaults || {}), [key]: v };
+  c.onboarding_progress = progress;
+  const patch = { onboarding_progress: progress };
+  if (key === "adSpend"){ patch.monthly_ad_spend = v; c.monthly_ad_spend = v; }
+  await DataLayer.update("clients", c.id, patch);
+}
+const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "adMonth", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"];
 let rpClientId = null, rpLastUrl = null, rpLastName = "", rpExisting = null;
 function rpVal(k){ return $("#rp-" + k)?.value ?? ""; }
 function rpSet(k, v){ const el = $("#rp-" + k); if (el) el.value = v ?? ""; }
@@ -6438,6 +6453,9 @@ function rpMonthValues(c){
   const base = monthBase(c.id, to, rpExisting?.id);
   const out = {};
   REPORT_DELTAS.forEach(d => { out[d.month] = (toNum(base[d.month]) || 0) + (toNum(rpVal(d.key)) || 0); });
+  // Ad spend is the month's total, typed (or remembered) in Investment.
+  const adMonth = toNum(rpVal("adMonth"));
+  if (adMonth != null){ out.adSpendMonth = adMonth; rpSet("dAdSpend", Math.max(0, Math.round(adMonth - (toNum(base.adSpendMonth) || 0)))); }
   out.mgmtMonth = toNum(rpVal("mgmtMonth")) || 0;
   out.quotesBooked = out.quoteReady;
   out.base = base;
@@ -6464,6 +6482,7 @@ function openReportModal(clientId, existingId){
     // Reports made before the stacking change only have month totals: work the change out.
     const base = monthBase(c.id, rpExisting.period_end, rpExisting.id);
     REPORT_DELTAS.forEach(d => rpSet(d.key, m[d.key] ?? ((toNum(m[d.month]) ?? 0) - (toNum(base[d.month]) || 0) || "")));
+    rpSet("adMonth", m.adMonth ?? m.adSpendMonth ?? "");
     ["revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"].forEach(k => rpSet(k, m[k] ?? ""));
   } else {
     const to = localDayStr();
@@ -6566,7 +6585,7 @@ function rpRenderTotals(){
     <div><span>Invested to date</span><b>${fmtMoney(t.investedToDate)}</b></div>
     <div><span>Return to date</span><b class="gold">${fmtTimes(t.roiToDate)}</b></div>
     <div><span>Quote guarantee</span><b>${mv.quotesBooked} / ${target}</b></div>
-    <div title="Revenue to date at their rough margin. Set the margin on the client (Edit Client) or in onboarding."><span>Rough profit${t.margin != null ? ` · ${t.margin}% margin` : ""}</span><b>${t.profitToDate != null ? fmtMoney(t.profitToDate) : "Add their margin"}</b></div>`;
+    <div title="Revenue to date at their rough margin. Set the margin on the client (Edit Client) or in onboarding."><span>Rough profit${t.margin != null ? ` · ${t.margin}% margin` : ""}</span>${t.profitToDate != null ? `<b>${fmtMoney(t.profitToDate)}</b>` : `<b class="rp-na">Add their margin on the client</b>`}</div>`;
   $("#rp-period-note").textContent = `Report ${t.reportNumber} · ${fmtReportPeriod(rpVal("from"), rpVal("to"))}`;
 }
 
@@ -7648,6 +7667,9 @@ function setupReporting(){
     if (e.target.matches("input[type=number]")) rpFillStory();
   });
   $("#rp-style")?.addEventListener("change", () => rpFillStory());
+  // Ad spend and the fee stick for this client once changed.
+  $("#rp-adMonth")?.addEventListener("change", (e) => { const c = state.clients.find(x => x.id === rpClientId); if (c) rpRemember(c, "adSpend", e.target.value); });
+  $("#rp-mgmtMonth")?.addEventListener("change", (e) => { const c = state.clients.find(x => x.id === rpClientId); if (c) rpRemember(c, "mgmt", e.target.value); });
   $("#report-form")?.addEventListener("change", (e) => {
     if (e.target.id === "rp-to" && rpVal("to")){
       // The period always starts the day after the last report (or the start of the month).
