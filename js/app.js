@@ -6543,6 +6543,13 @@ function openReportModal(clientId, existingId){
     REPORT_DELTAS.forEach(d => rpSet(d.key, m[d.key] ?? ((toNum(m[d.month]) ?? 0) - (toNum(base[d.month]) || 0) || "")));
     rpSet("adMonth", m.adMonth ?? m.adSpendMonth ?? "");
     ["adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "did4", "did5", "next1", "next2", "next3", "topAdId"].forEach(k => rpSet(k, m[k] ?? ""));
+    // Older summaries said "after marketing", which reads like "after doing
+    // marketing" - spell out that it's after paying for the ads and our fees.
+    const oldSum = rpVal("summary");
+    if (/after (your )?marketing|and that's after your ad spend and our fees/i.test(oldSum)) rpSet("summary", oldSum
+      .replace(/profit in your pocket after marketing\./i, "profit in your pocket - that's after paying for your ad spend and our fees.")
+      .replace(/- and that's after your ad spend and our fees\./i, "- that's after paying for your ad spend and our fees.")
+      .replace(/after your (\$[\d,]+) marketing investment/i, "after paying $1 for your ad spend and our fees"));
     // Older reports kept "what we did" as separate lines.
     rpSet("didText", m.didText ?? ["did1", "did2", "did3", "did4", "did5"].map(k => m[k]).filter(Boolean).join("\n"));
   } else {
@@ -6588,7 +6595,7 @@ function rpFillStory(){
     parts.push(`Your ads brought in ${plural(enq, "enquiry").replace("enquirys", "enquiries")} and ${plural(ready, "booked quote")}${waiting ? `, with ${plural(waiting, "quote")} out waiting on a decision` : ""}.`);
     if (t.revenueToDate > rev) parts.push(`That takes you to ${fmtMoney(t.revenueToDate)} in work won since we started${t.jobsToDate > 1 ? `, across ${t.jobsToDate} jobs` : ""}.`);
     const net = t.margin != null && t.profitToDate != null ? Math.round(t.profitToDate - t.investedToDate) : null;
-    if (t.revenueToDate && net != null && net > 0) parts.push(`At your ${t.margin}% margin, that's about ${fmtMoney(net)} profit in your pocket - and that's after your ad spend and our fees.`);
+    if (t.revenueToDate && net != null && net > 0) parts.push(`At your ${t.margin}% margin, that's about ${fmtMoney(net)} profit in your pocket - that's after paying for your ad spend and our fees.`);
     if (jobs) parts.push("Every job won brings word of mouth on top of the ads, so the business keeps growing from here.");
     summary = parts.join(" ");
   }
