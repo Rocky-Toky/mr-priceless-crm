@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=268">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=268">
+<link rel="stylesheet" href="css/style.css?v=270">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=270">
 </head>
 <body>
 
@@ -200,11 +200,15 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         <span>Deals</span>
       </button>
-      <button class="nav-item" data-page="lead-engine" data-workspace="sales">
+      <button type="button" class="nav-item nav-group-item" data-group="prospects" data-workspace="sales">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+        <span class="nav-prospects-label">Add Prospects</span>
+      </button>
+      <button class="nav-item nav-hidden" data-page="lead-engine" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
         <span>Add Prospects</span>
       </button>
-      <button class="nav-item" data-page="contacts" data-workspace="sales">
+      <button class="nav-item nav-hidden" data-page="contacts" data-workspace="sales">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
             <span>Contacts</span>
           </button>
@@ -693,24 +697,19 @@
         <div class="card-body team-focus-grid" id="prospecting-team-focus"></div>
       </div>
 
-      <div class="le-scroll">
-      <div class="card" style="margin-top:24px;">
-        <div class="card-header"><h3>NZ Region Coverage</h3><span class="stat-sub">Pick an industry to see which regions already have prospects for it (green) and which don't (red). Tick a region once it's completed - it shows how many months it's been sitting there.</span></div>
-        <div class="coverage-toolbar">
+      <div class="card le-coverage">
+        <div class="le-cov-head">
+          <h3>NZ Region Coverage</h3>
           <select id="coverage-industry-select" aria-label="Industry"></select>
+          <div class="coverage-summary">
+            <span class="coverage-summary-item"><span class="coverage-summary-dot empty" id="coverage-dot-empty"></span><span id="coverage-count-empty">0</span> <span id="coverage-label-empty">not started</span></span>
+            <span class="coverage-summary-item"><span class="coverage-summary-dot filling"></span><span id="coverage-count-filling">0</span> <span id="coverage-label-filling">have prospects</span></span>
+            <span class="coverage-summary-item"><span class="coverage-summary-dot done"></span><span id="coverage-count-done">0</span> completed</span>
+          </div>
+          <button type="button" class="btn ghost sm le-vcov-btn" id="vertical-coverage-btn">Worked verticals</button>
         </div>
-        <div class="coverage-summary">
-          <span class="coverage-summary-item"><span class="coverage-summary-dot empty" id="coverage-dot-empty"></span><span id="coverage-count-empty">0</span> <span id="coverage-label-empty">not started</span></span>
-          <span class="coverage-summary-item"><span class="coverage-summary-dot filling"></span><span id="coverage-count-filling">0</span> <span id="coverage-label-filling">have prospects</span></span>
-          <span class="coverage-summary-item"><span class="coverage-summary-dot done"></span><span id="coverage-count-done">0</span> completed</span>
-        </div>
+        <p class="le-cov-hint">Green = has prospects, red = none yet. Tick a region once it's done - with an industry picked, the tick is for that industry only.</p>
         <div class="coverage-grid" id="coverage-grid"></div>
-      </div>
-
-      <div class="card" style="margin-top:24px;">
-        <div class="card-header"><h3>Vertical Coverage</h3><span class="stat-sub">Tick off a region + industry once it's fully worked - its prospects come off Prospecting for everyone, without deleting anything. Reactivate to bring them straight back.</span></div>
-        <div class="vertical-coverage-body" id="vertical-coverage-body"></div>
-      </div>
       </div>
     </section>
 
@@ -2059,6 +2058,12 @@
 </div>
 
 <!-- ───────── Modal: Region / Industry Coverage ───────── -->
+<div class="overlay" id="vcov-modal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header"><div><h3>Worked verticals</h3><div class="onb-modal-sub">Tick off a region + industry once it's fully worked - its prospects come off Prospecting for everyone, without deleting anything. Reactivate to bring them straight back.</div></div><button class="modal-close" data-close="vcov-modal" aria-label="Close">&times;</button></div>
+    <div class="modal-body"><div class="vertical-coverage-body" id="vertical-coverage-body"></div></div>
+  </div>
+</div>
 <div class="overlay" id="coverage-modal">
   <div class="modal" style="max-width:600px;">
     <div class="modal-header"><h3>NZ Region &amp; Industry Coverage</h3><button class="modal-close" data-close="coverage-modal">&times;</button></div>
@@ -2722,17 +2727,17 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
-<script src="js/config.js?v=268"></script>
-<script src="js/supabaseClient.js?v=268"></script>
-<script src="js/report-pdf.js?v=268"></script>
-<script src="js/plan-pdf.js?v=268"></script>
-<script src="js/workshop-pdf.js?v=268"></script>
-<script src="js/receipt-pdf.js?v=268"></script>
-<script src="js/welcome-pdf.js?v=268"></script>
-<script src="js/builtin-playbooks.js?v=268"></script>
-<script src="js/builtin-email-templates.js?v=268"></script>
-<script src="js/app.js?v=268"></script>
-<script src="js/meetings-tracker.js?v=268"></script>
-<script src="js/todo.js?v=268"></script>
+<script src="js/config.js?v=270"></script>
+<script src="js/supabaseClient.js?v=270"></script>
+<script src="js/report-pdf.js?v=270"></script>
+<script src="js/plan-pdf.js?v=270"></script>
+<script src="js/workshop-pdf.js?v=270"></script>
+<script src="js/receipt-pdf.js?v=270"></script>
+<script src="js/welcome-pdf.js?v=270"></script>
+<script src="js/builtin-playbooks.js?v=270"></script>
+<script src="js/builtin-email-templates.js?v=270"></script>
+<script src="js/app.js?v=270"></script>
+<script src="js/meetings-tracker.js?v=270"></script>
+<script src="js/todo.js?v=270"></script>
 </body>
 </html>
