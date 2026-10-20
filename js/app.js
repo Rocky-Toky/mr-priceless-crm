@@ -8779,7 +8779,10 @@ function renderRegionCoverage(){
   const emptyStatus = industry ? "missing" : "empty";
   const rows = NZ_REGIONS.map(region => {
     const count = counts[region] || 0;
-    const done = regionCompletion(region);
+    // With an industry picked, a tick is for that industry in this region only.
+    // A whole-region tick (made under All industries) still counts for every industry.
+    const own = industry ? state.completedVerticals.find(v => v.region === region && v.industry === industry) || null : null;
+    const done = own || regionCompletion(region);
     return { region, count, done, status: done ? "done" : count === 0 ? emptyStatus : "filling" };
   });
 
@@ -8806,8 +8809,8 @@ function renderRegionCoverage(){
         <span class="coverage-chip-count">${escapeHtml(countText)}</span>
         ${since && since.months >= 6 ? `<span class="coverage-chip-revisit">Time to revisit</span>` : ""}
       </button>
-      <button type="button" class="coverage-tick ${r.done ? "checked" : ""}" data-action="${r.done ? "reopen-region" : "complete-region"}" data-region="${escapeHtml(r.region)}" ${r.done ? `data-id="${r.done.id}"` : ""}
-        title="${r.done ? `Completed ${fmtDate(r.done.completed_at)}${r.done.completed_by ? " by " + escapeHtml(prospectCallerLabel(r.done.completed_by)) : ""} - click to reopen` : `Mark ${escapeHtml(r.region)} as completed`}"
+      <button type="button" class="coverage-tick ${r.done ? "checked" : ""}" data-action="${r.done ? "reopen-region" : "complete-region"}" data-region="${escapeHtml(r.region)}" data-industry="${escapeHtml(r.done ? r.done.industry : industry || REGION_DONE)}" ${r.done ? `data-id="${r.done.id}"` : ""}
+        title="${r.done ? `Completed${r.done.industry === REGION_DONE ? " for all industries" : ""} ${fmtDate(r.done.completed_at)}${r.done.completed_by ? " by " + escapeHtml(prospectCallerLabel(r.done.completed_by)) : ""} - click to reopen` : `Mark ${escapeHtml(r.region)} as completed${industry ? ` for ${escapeHtml(industry)}` : " for all industries"}`}"
         aria-label="${r.done ? "Reopen" : "Mark completed"} ${escapeHtml(r.region)}">${r.done ? TASK_CHECK_SVG : ""}</button>
     </div>`;
   }).join("");
@@ -11431,11 +11434,14 @@ function setupModals(){
     if (action === "complete-region"){
       const region = btn.dataset.region;
       const activePerson = window.getActivePerson ? window.getActivePerson() : null;
-      await DataLayer.insert("completed_verticals", { region, industry: REGION_DONE, completed_at: new Date().toISOString(), completed_by: state.user?.email || activePerson || "demo" });
+      const industry = btn.dataset.industry || REGION_DONE;
+      if (state.completedVerticals.some(v => v.region === region && v.industry === industry)) return;
+      await DataLayer.insert("completed_verticals", { region, industry, completed_at: new Date().toISOString(), completed_by: state.user?.email || activePerson || "demo" });
       if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
     if (action === "reopen-region"){
-      if (!confirm(`Reopen ${btn.dataset.region}? Its prospects come back into Prospecting.`)) return;
+      const what = btn.dataset.industry && btn.dataset.industry !== REGION_DONE ? `${btn.dataset.region} for ${btn.dataset.industry}` : `${btn.dataset.region} for all industries`;
+      if (!confirm(`Reopen ${what}? Its prospects come back into Prospecting.`)) return;
       await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
