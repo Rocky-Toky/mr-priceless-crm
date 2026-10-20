@@ -3177,3 +3177,14 @@ body.jv-open .jv-fab{display:none;}
   #page-deals.deals-board #kanban-board .deal-card{padding:10px 12px;}
   #page-deals.deals-board #kanban-board .kanban-cards{gap:8px;}
 }
+.lr-modal{max-width:460px;}
+.lr-q{font-family:var(--font-display);font-size:21px;font-weight:700;margin:4px 0 4px;}
+.lr-deal{color:var(--text2);font-size:14px;margin:0 0 14px;}
+.lr-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+.lr-chips button{border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:7px 13px;font:inherit;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;}
+.lr-chips button.active{background:var(--black);color:var(--gold-bright);border-color:var(--black);}
+.lr-label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;}
+.lr-label span{font-weight:500;color:var(--danger);margin-left:4px;}
+#lost-details{width:100%;padding:10px 13px;border-radius:10px;border:1px solid var(--line);background:var(--paper);font:inherit;font-size:14px;resize:vertical;}
+.lr-err{min-height:18px;margin:6px 0 4px;font-size:12.5px;color:var(--danger);}
+.lr-btns{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;}
