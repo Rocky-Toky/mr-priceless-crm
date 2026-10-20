@@ -1399,7 +1399,7 @@ async function handleSignedInNow(session, freshLogin){
   subscribeRealtime();
   // None of these need to hold the page up.
   repairNzProspectCountryCodes().then(n => { if (n) renderAll(); }).catch(e => console.warn(e));
-  fetchTeam().catch(e => console.warn(e));
+  fetchTeam().then(() => { if (state.page === "lead-engine") renderTeamFocusPanel(); }).catch(e => console.warn(e));
   checkPendingMeetingReviews().catch(e => console.warn(e));
   checkOverdueTasksPopup();
   loadCalendarWeek();
@@ -1640,6 +1640,8 @@ function applyWorkspace(){
   $$('.nav-item[data-page="lead-engine"]').forEach(el => {
     if (!canAccessLeadEngine()) el.style.display = "none";
   });
+  // Contacts lives under Add prospects; without Add prospects it's just Contacts.
+  $$(".nav-prospects-label").forEach(el => { el.textContent = canAccessLeadEngine() ? "Add Prospects" : "Contacts"; });
   const copy = WORKSPACE_COPY[ws] || WORKSPACE_COPY.sales;
   const titleEl = $("#workspace-banner-title");
   const subEl = $("#workspace-banner-sub");
@@ -1662,6 +1664,7 @@ function applyWorkspace(){
 // Pages that live together under one menu item, switched with tabs at the top.
 const PAGE_GROUPS = {
   deals: [["deals", "Pipeline"], ["nurture", "Nurture"]],
+  prospects: [["lead-engine", "Add prospects"], ["contacts", "Contacts"]],
   stats: [["rates", "Rates"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
   library: [["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
@@ -1670,9 +1673,12 @@ const PAGE_GROUPS = {
 };
 const groupOfPage = (page) => Object.keys(PAGE_GROUPS).find(g => PAGE_GROUPS[g].some(([p]) => p === page)) || null;
 function goPage(page){ $(`.nav-item[data-page="${page}"]`)?.click(); }
+// Tabs someone can actually open (Add prospects is Rocky and Max only).
+const groupPages = (group) => PAGE_GROUPS[group].filter(([p]) => p !== "lead-engine" || canAccessLeadEngine());
 function lastTabOf(group){
   let p = null; try { p = localStorage.getItem("mp_tab_" + group); } catch(e){}
-  return PAGE_GROUPS[group].some(([x]) => x === p) ? p : PAGE_GROUPS[group][0][0];
+  const pages = groupPages(group);
+  return pages.some(([x]) => x === p) ? p : (pages[0] || PAGE_GROUPS[group][0])[0];
 }
 // Tabs on every page in a group, and the group's menu item lit up.
 function syncPageGroup(){
@@ -1680,7 +1686,13 @@ function syncPageGroup(){
   $$(".nav-group-item").forEach(b => b.classList.toggle("active", b.dataset.group === g));
   if (!g) return;
   try { localStorage.setItem("mp_tab_" + g, state.page); } catch(e){}
-  $$(".page-tabs").forEach(t => t.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.goto === state.page)));
+  $$(".page-tabs").forEach(t => {
+    t.querySelectorAll("button").forEach(b => {
+      b.classList.toggle("active", b.dataset.goto === state.page);
+      b.hidden = b.dataset.goto === "lead-engine" && !canAccessLeadEngine();
+    });
+    t.hidden = [...t.querySelectorAll("button")].filter(b => !b.hidden).length < 2;
+  });
 }
 function setupPageGroups(){
   Object.entries(PAGE_GROUPS).forEach(([g, pages]) => pages.forEach(([page]) => {
@@ -1713,7 +1725,6 @@ const FIT_PAGES = {
   expenses: ["#page-expenses > .card:last-child"],
   commission: ["#commission-groups"],
   statistics: ["#page-statistics > .st-scroll"],
-  "lead-engine": ["#page-lead-engine > .le-scroll"],
   receipts: ["#page-receipts > .rc-scroll"],
 };
 function setupFitPages(){
@@ -2052,6 +2063,7 @@ function renderDeals(){
   if (!listView || !detailView) return;
 
   const selected = state.deals.find(d => d.id === state.selectedDealId);
+  $("#page-deals")?.classList.toggle("deals-board", !selected);
   if (!selected){
     state.selectedDealId = null;
     listView.style.display = "";
@@ -2110,9 +2122,20 @@ function renderDealMonthPicker(){
       return `<button type="button" data-dmp-month="${mm}" class="${ym === cur ? "is-cur" : ""}${ym === now ? " is-now" : ""}">${new Date(2000, i, 1).toLocaleDateString("en-NZ", { month: "short" })}</button>`; }).join("")}</div>`;
 }
 function closeDealMonthPicker(){ const pop = $("#deal-month-pop"); if (pop) pop.hidden = true; dmpDealId = null; }
+// On a desktop screen the Deals board fits the screen: every stage shows all
+// its deals and scrolls inside itself, so the page never needs scrolling.
+const DEALS_FIT_MQ = window.matchMedia ? window.matchMedia("(min-width:821px) and (min-height:560px)") : null;
+const dealsFit = () => Boolean(DEALS_FIT_MQ?.matches);
+DEALS_FIT_MQ?.addEventListener?.("change", () => { if (state.page === "deals") renderDeals(); });
+// The opened closed stage is a pop-up over the board there: a click anywhere else closes it.
+document.addEventListener("pointerdown", (e) => {
+  if (!state.closedOpen || !dealsFit() || e.target.closest?.("#kanban-board-closed, .overlay, #deal-month-pop")) return;
+  state.closedOpen = null; renderDealsList();
+});
 function renderDealStageCol(stage){
   const deals = pipelineDeals().filter(d => d.stage === stage.key);
-  const expanded = !!state.expandedStages[stage.key];
+  const fit = dealsFit();
+  const expanded = fit || !!state.expandedStages[stage.key];
   // Net of rep commission where it's known, same as the pipeline total above
   // the board - a column footer that only ever showed gross was overstating
   // what actually lands once commission's paid out.
@@ -2124,6 +2147,7 @@ function renderDealStageCol(stage){
         <span class="kanban-count">${deals.length}</span>
       </div>
       <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
+      <div class="kanban-cards">
       ${(expanded ? deals : deals.slice(0, KANBAN_PREVIEW_COUNT)).map(d => {
         const extraContacts = dealContactsFor(d.id);
         const primaryContact = d.contact_id ? state.contacts.find(c => c.id === d.contact_id) : null;
@@ -2142,7 +2166,8 @@ function renderDealStageCol(stage){
           ${netValue != null ? `<div class="deal-net-value">Net ${fmtMoney(netValue)}/mo after ${fmtMoney(d.commission_initial_amount)} commission</div>` : ""}
         </div>
       `;}).join("")}
-      ${deals.length > KANBAN_PREVIEW_COUNT ? `<button type="button" class="kanban-more" data-action="toggle-stage-expand" data-stage="${stage.key}">${expanded ? "Show less" : `Show ${deals.length - KANBAN_PREVIEW_COUNT} more`}</button>` : ""}
+      </div>
+      ${!fit && deals.length > KANBAN_PREVIEW_COUNT ? `<button type="button" class="kanban-more" data-action="toggle-stage-expand" data-stage="${stage.key}">${expanded ? "Show less" : `Show ${deals.length - KANBAN_PREVIEW_COUNT} more`}</button>` : ""}
     </div>
   `;
 }
@@ -2399,9 +2424,9 @@ function setupDragDrop(){
     document.addEventListener("drop", () => { anyDrag = false; }, true);
     document.addEventListener("dragover", (e) => {
       if (!dealDragId && !anyDrag) return;
-      const box = e.target?.closest?.(".fit-fill");
+      const box = e.target?.closest?.(".kanban-cards") || e.target?.closest?.(".fit-fill");
       const own = box && box.scrollHeight > box.clientHeight + 2 && getComputedStyle(box).overflowY !== "visible" ? box : null;
-      const y = e.clientY, el = dealDragId ? scrollerFor() : own;
+      const y = e.clientY, el = own || (dealDragId ? scrollerFor() : null);
       const r = el ? el.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
       const top = Math.max(0, r.top), bottom = Math.min(window.innerHeight, r.bottom);
       const by = (d) => el ? el.scrollBy(0, d) : window.scrollBy(0, d);
@@ -9392,7 +9417,9 @@ function renderTeamFocusPanel(){
   const wrap = $("#prospecting-team-focus");
   if (!wrap) return;
   const industries = dialerDistinctValues("industry");
-  const people = Object.keys(ASSIGNEES);
+  // Only people who can still sign in (on the allowlist); everyone if the team hasn't loaded.
+  const onTeam = new Set((state.team || []).map(t => EMAIL_TO_ASSIGNEE[String(t.email || "").toLowerCase()]).filter(Boolean));
+  const people = Object.keys(ASSIGNEES).filter(p => !onTeam.size || onTeam.has(p));
   wrap.innerHTML = people.map(p => {
     const options = `<option value="">No focus - see everything</option>` + industries.map(i => `<option value="${escapeHtml(i)}" ${state.teamFocus[p]===i?"selected":""}>${escapeHtml(i)}</option>`).join("");
     const a = ASSIGNEES[p];
@@ -11112,6 +11139,7 @@ function setupModals(){
     renderRegionData();
   });
 
+  $("#vertical-coverage-btn")?.addEventListener("click", () => { renderVerticalCoverage(); openModal("vcov-modal"); });
   $("#prospecting-coverage-btn")?.addEventListener("click", () => {
     renderCoverageMap();
     openModal("coverage-modal");
