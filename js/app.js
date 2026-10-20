@@ -382,7 +382,8 @@ const ONBOARDING_SECTIONS = [
   { section: "Meta & CRM Access", items: [
     { key: "meta_partner_access", text: "Get full partner access on their Meta ad account." },
     { key: "fb_page_access", text: "On their Facebook Page, get access to Content, Ads, Insights, Leads, Creator Content, and Creator Management." },
-    { key: "meta_dataset_card", text: "Create a dataset in their Meta Events Manager, and have them add their card details to the ad account so the ads can run." },
+    { key: "meta_dataset_card", text: "Create a dataset in their Meta Events Manager." },
+    { key: "meta_card_details", text: "Have them add their card details to the ad account so the ads can run." },
     { key: "crm_login", text: "Send their login and confirm they can get in." },
     { key: "crm_auto_text", text: "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due." },
   ]},
@@ -390,11 +391,11 @@ const ONBOARDING_SECTIONS = [
     { key: "demo_2", text: "Walk them through Opportunities - the leads that sync straight in from Meta." },
     { key: "demo_3", text: "Show them where to add notes, and stress how important it is to drag leads through the stages - that feedback is what we use to optimise targeting back on Meta." },
     { key: "demo_5", text: "Walk through Document Storage - this is where they upload before/after job photos for us, plus a photo of themselves and one of the whole team, to use in ads." },
+    { key: "cal_sync_ghl", text: "Set up 2-way calendar sync with GHL, so bookings and their calendar stay lined up on both sides." },
   ]},
   { section: "Set Up Their Calendar", items: [
     { key: "cal_block_slots", text: "Explain that quotes get booked straight into whatever shows as free, so every slot they're not available - including travel to and from quotes - needs to be blocked off, and they can set this up as recurring events for their regular hours." },
     { key: "cal_share_max", text: "Share their calendar access with Max." },
-    { key: "cal_sync_ghl", text: "Set up 2-way calendar sync with GHL, so bookings and their calendar stay lined up on both sides." },
   ]},
   { section: "Lock In The Ongoing Cadence", items: [
     { key: "cadence_catchup", text: "Set up a recurring fortnightly catch-up to go through progress, goals, and the pipeline together." },
@@ -6443,14 +6444,16 @@ function rpMonthValues(c){
   return out;
 }
 
-const RP_EARLY_SUMMARY = "Your ads are still in Meta's learning phase, where it works out exactly who your best customers are. In the meantime your brand is getting in front of a lot of local people, the enquiries are coming in, and quotes are building in the pipeline. These first weeks lay the groundwork - the jobs from them land over the coming weeks as quotes come back and the ads keep getting sharper.";
+const RP_EARLY_SUMMARY = "No jobs signed off the ads just yet - and that's normal this early. Your brand is getting in front of a lot of local people, so when they're ready to go ahead you're the name they already know. Enquiries are coming in and quotes are building in the pipeline, and with quotes often taking weeks to decide on, the work from them lands over the coming weeks. The first job won is just the start - every happy customer tells others, and that word of mouth stacks on top of the ads.";
 function openReportModal(clientId, existingId){
   const c = state.clients.find(x => x.id === clientId);
   if (!c) return;
   rpClientId = c.id;
   rpExisting = existingId ? state.clientReports.find(r => r.id === existingId) : null;
   $("#rp-title").textContent = `Report · ${c.name}`;
-  $("#report-form").hidden = false; $("#rp-done").hidden = true;
+  // A new report starts by asking which kind: results, or building the pipeline.
+  $("#report-form").hidden = !!existingId ? false : true; $("#rp-done").hidden = true;
+  $("#rp-choose").hidden = !!existingId;
   $("#rp-ghl-connect").hidden = true;
   REPORT_FIELDS.forEach(k => rpSet(k, ""));
   const creatives = state.adCreatives.filter(a => a.client_id === c.id);
@@ -6471,7 +6474,8 @@ function openReportModal(clientId, existingId){
   const perf = clientPerformance(c);
   const style = (rpExisting?.metrics || {}).style || (!perf.jobs && !perf.revenue ? "early" : "results");
   $("#rp-style").value = style;
-  if (style === "early" && !rpVal("summary")) rpSet("summary", RP_EARLY_SUMMARY);
+  if (existingId && style === "early" && !rpVal("summary")) rpSet("summary", RP_EARLY_SUMMARY);
+  document.querySelectorAll("#rp-choose [data-action=rp-pick]").forEach(b => b.classList.toggle("is-suggested", b.dataset.id === style));
   rpStatus("");
   rpRenderTotals();
   rpRenderGhl(c);
@@ -7638,6 +7642,13 @@ function setupReporting(){
 async function handleReportAction(action, id){
   if (action === "make-report"){ openReportModal(id); return true; }
   if (action === "make-plan"){ openPlanModal(id); return true; }
+  if (action === "rp-pick"){
+    $("#rp-style").value = id;
+    if (id === "early" && !rpVal("summary")) rpSet("summary", RP_EARLY_SUMMARY);
+    if (id === "results" && rpVal("summary") === RP_EARLY_SUMMARY) rpSet("summary", "");
+    $("#rp-choose").hidden = true; $("#report-form").hidden = false;
+    return true;
+  }
   if (action === "rp-ghl-pull"){ await rpGhlPull(); return true; }
   if (action === "rp-ghl-connect-show"){ $("#rp-ghl-connect").hidden = false; $("#rp-ghl-location")?.focus(); return true; }
   if (action === "rp-ghl-connect"){ await rpGhlConnect(); return true; }

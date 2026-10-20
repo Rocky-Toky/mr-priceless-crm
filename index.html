@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=248">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=248">
+<link rel="stylesheet" href="css/style.css?v=249">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=249">
 </head>
 <body>
 
@@ -2240,12 +2240,20 @@
       <div><h3 id="rp-title">Fortnightly report</h3><div class="onb-modal-sub" id="rp-period-note"></div></div>
       <button class="modal-close" data-close="report-modal" aria-label="Close">&times;</button>
     </div>
+    <div class="modal-body rp-choose" id="rp-choose" hidden>
+      <p class="rp-choose-q">Which finance report?</p>
+      <div class="rp-choose-opts">
+        <button type="button" class="rp-choose-opt" data-action="rp-pick" data-id="results"><b>Results</b><span>They've won jobs. Revenue, return on investment and the quote guarantee.</span></button>
+        <button type="button" class="rp-choose-opt" data-action="rp-pick" data-id="early"><b>Building the pipeline</b><span>Nothing closed yet. Brand awareness, the pipeline building, word of mouth and why sales take time.</span></button>
+      </div>
+      <p class="rp-choose-hint">The suggested one is highlighted.</p>
+    </div>
     <form class="modal-body rp-form" id="report-form">
       <div class="rp-style">
         <label for="rp-style">Report style</label>
         <select id="rp-style">
           <option value="results">Results - revenue, return and the quote guarantee</option>
-          <option value="early">Early days - no jobs yet: learning phase, brand awareness and the pipeline</option>
+          <option value="early">Building the pipeline - nothing closed yet: brand awareness, pipeline and word of mouth</option>
         </select>
       </div>
       <div class="rp-section">
@@ -2705,17 +2713,17 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
-<script src="js/config.js?v=248"></script>
-<script src="js/supabaseClient.js?v=248"></script>
-<script src="js/report-pdf.js?v=248"></script>
-<script src="js/plan-pdf.js?v=248"></script>
-<script src="js/workshop-pdf.js?v=248"></script>
-<script src="js/receipt-pdf.js?v=248"></script>
-<script src="js/welcome-pdf.js?v=248"></script>
-<script src="js/builtin-playbooks.js?v=248"></script>
-<script src="js/builtin-email-templates.js?v=248"></script>
-<script src="js/app.js?v=248"></script>
-<script src="js/meetings-tracker.js?v=248"></script>
-<script src="js/todo.js?v=248"></script>
+<script src="js/config.js?v=249"></script>
+<script src="js/supabaseClient.js?v=249"></script>
+<script src="js/report-pdf.js?v=249"></script>
+<script src="js/plan-pdf.js?v=249"></script>
+<script src="js/workshop-pdf.js?v=249"></script>
+<script src="js/receipt-pdf.js?v=249"></script>
+<script src="js/welcome-pdf.js?v=249"></script>
+<script src="js/builtin-playbooks.js?v=249"></script>
+<script src="js/builtin-email-templates.js?v=249"></script>
+<script src="js/app.js?v=249"></script>
+<script src="js/meetings-tracker.js?v=249"></script>
+<script src="js/todo.js?v=249"></script>
 </body>
 </html>

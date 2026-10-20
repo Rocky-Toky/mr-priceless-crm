@@ -453,8 +453,9 @@ async function buildEarly(data){
   // The honest bit, for the early months.
   const honest = [
     ["The first weeks are Meta learning.", "It tests your ads on different people to find who actually enquires. Costs are higher and results bounce around until it has enough data."],
-    ["Brand awareness compounds.", "People often see an ad several times before they reach out. Today's views are next month's enquiries, and they'll recognise your name when they do."],
-    ["Quotes take time to turn into jobs.", "Most people get a few quotes and take a week or two to decide. The jobs from this month's quotes land over the coming weeks."],
+    ["People buy when they're ready.", "Most people aren't ready the day they first see an ad. Seeing your name again and again means that when they are, you're the one they already know and call."],
+    ["Sales cycles take time.", "Most people get a few quotes and take weeks to decide, and bigger jobs can take months. The pipeline building now is the work that lands over the coming weeks."],
+    ["One job leads to more.", "Every job won gets talked about. Neighbours see the work, friends ask who did it, reviews build. Even one signed job starts word of mouth on top of the ads."],
     ["Follow-up wins it.", "We call every enquiry within minutes and book the quotes in. Following each quote up after a few days is what turns this pipeline into work."],
   ];
   const rows = honest.map(([, b]) => Math.max(1, wrap(F.r, b, 9, CW - 196).length) * 13 + 10);
