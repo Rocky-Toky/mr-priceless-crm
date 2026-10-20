@@ -1618,7 +1618,7 @@ function applyWorkspace(){
 // Pages that live together under one menu item, switched with tabs at the top.
 const PAGE_GROUPS = {
   deals: [["deals", "Pipeline"], ["nurture", "Nurture"]],
-  stats: [["rates", "Rates"], ["dashboard", "Overview"], ["statistics", "Team"], ["commission", "Commission"]],
+  stats: [["rates", "Rates"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
   library: [["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
@@ -1641,7 +1641,7 @@ function syncPageGroup(){
 function setupPageGroups(){
   Object.entries(PAGE_GROUPS).forEach(([g, pages]) => pages.forEach(([page]) => {
     const sec = $("#page-" + page), head = sec?.querySelector(".page-header");
-    if (!sec || sec.querySelector(".page-tabs")) return;
+    if (!sec || sec.querySelector(".page-tabs") || pages.length < 2) return;
     const tabs = document.createElement("div");
     tabs.className = "page-tabs country-toggle";
     tabs.innerHTML = pages.map(([p, label]) => `<button type="button" data-goto="${p}">${escapeHtml(label)}</button>`).join("");
@@ -5966,6 +5966,7 @@ async function onDealStageChanged(deal, before){
     if (error) supabase.from("deals").update({ stage_changed_at: now }).eq("id", deal.id).then(() => {});
   });
   deal.stage_changed_at = now; deal.stage_history = hist;
+  if (ATTEND_ASK_STAGES.has(deal.stage) && deal.attended_meeting == null && !dealSatBefore(deal)) askAttended([deal]);
   if (!NURTURE_STAGES.has(deal.stage) || NURTURE_STAGES.has(before)) return;
   await saveNurture(deal, { started_at: now, pos: 0, sent: [], stopped: false });
   // The six-month re-engage, as a task so it lands in Tasks too.
@@ -9227,14 +9228,53 @@ function statsForPerson(p, bounds){
 // From dial to signed client. A meeting has "sat" once its deal moves past
 // Meeting Booked to anything but No Show; sit rate only counts meetings that
 // have happened (sat or no-show), so ones still coming up don't drag it down.
+// Did a deal's first meeting happen? No Show = no. Meeting Booked = still to
+// come. Disqualified / Ghosted / Closed Lost = whatever was answered in the
+// "did they attend?" popup (or yes if it went past a meeting stage first).
+// Every other stage = they sat.
+const ATTEND_ASK_STAGES = new Set(["disqualified", "ghosted", "closed_lost"]);
+const NOT_SAT_STAGES = new Set(["qualified", "no_show", ...ATTEND_ASK_STAGES]);
+const dealSatBefore = (d) => (Array.isArray(d.stage_history) ? d.stage_history : []).some(h => h && !NOT_SAT_STAGES.has(h.stage));
+function dealSat(d){
+  if (d.stage === "qualified") return "upcoming";
+  if (d.stage === "no_show") return "no";
+  if (!ATTEND_ASK_STAGES.has(d.stage)) return "sat";
+  if (d.attended_meeting === true) return "sat";
+  if (d.attended_meeting === false) return "no";
+  return dealSatBefore(d) ? "sat" : "unknown";
+}
+// The yes / no popup. Asks about one deal, or works through a list.
+let attendQueue = [];
+function askAttended(deals){
+  attendQueue.push(...deals.filter(d => d && !attendQueue.some(q => q.id === d.id)));
+  showNextAttend();
+}
+function showNextAttend(){
+  const d = attendQueue[0];
+  if (!d){ closeModal("attend-modal"); return; }
+  $("#attend-deal").textContent = d.title || d.contact_name || "This deal";
+  $("#attend-left").textContent = attendQueue.length > 1 ? `${attendQueue.length - 1} more after this` : "";
+  openModal("attend-modal");
+}
+async function answerAttended(yes){
+  const d = attendQueue.shift();
+  if (d){
+    const updated = await DataLayer.update("deals", d.id, { attended_meeting: yes });
+    const local = state.deals.find(x => x.id === d.id);
+    if (local) local.attended_meeting = yes;
+    if (!updated && IS_CONFIGURED) alert("Couldn't save that answer - try again.");
+  }
+  showNextAttend();
+  if (state.page === "rates") renderRates();
+}
 function funnelDeals(scope, bounds){
   const inScope = (d) => scope.some(p => p ? d.assignee === p : !ASSIGNEES[d.assignee]);
   const deals = state.deals.filter(d => inScope(d) && inStatsRange(d.created_at, bounds));
   const split = (list) => {
-    const sat = list.filter(d => d.stage !== "qualified" && d.stage !== "no_show").length;
-    const noShow = list.filter(d => d.stage === "no_show").length;
+    const sat = list.filter(d => dealSat(d) === "sat").length;
+    const noShow = list.filter(d => dealSat(d) === "no").length;
     const closed = list.filter(d => STATS_CLOSED_MEETING_STAGES.has(d.stage) || d.stage === "churned").length;
-    return { booked: list.length, upcoming: list.filter(d => d.stage === "qualified").length, sat, noShow, closed,
+    return { booked: list.length, upcoming: list.filter(d => d.stage === "qualified").length, unknown: list.filter(d => dealSat(d) === "unknown").length, sat, noShow, closed,
       sitRate: sat + noShow ? sat / (sat + noShow) : null, closeRate: sat ? closed / sat : null };
   };
   return { outbound: split(deals.filter(d => dealSource(d) === "outbound")), inbound: split(deals.filter(d => dealSource(d) === "inbound")), all: split(deals) };
@@ -9331,13 +9371,21 @@ function renderRates(){
   const m = funnelDeals(scope, bounds).all;
   const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
   const num = (n) => Number(n).toLocaleString();
+  const happened = m.sat + m.noShow;
+  const ask = state.deals.filter(d => scope.some(p => p ? d.assignee === p : !ASSIGNEES[d.assignee]) && inStatsRange(d.created_at, bounds) && dealSat(d) === "unknown");
   root.innerHTML = `
     <div class="rt-hero">
       <div class="rt-big">
-        <span class="rt-label">Sit rate</span>
-        <b>${pct(m.sat, m.sat + m.noShow)}</b>
-        <span class="rt-sub">${m.sat + m.noShow ? `${num(m.sat)} of ${num(m.sat + m.noShow)} meetings showed up` : "No meetings have happened yet"}</span>
-        <span class="rt-note">${num(m.noShow)} no show${m.noShow === 1 ? "" : "s"} · ${num(m.upcoming)} still to come</span>
+        <span class="rt-label">Meetings sat rate</span>
+        <b>${pct(m.sat, happened)}</b>
+        <span class="rt-sub">${happened ? `${num(m.sat)} of ${num(happened)} meetings sat` : "No meetings have happened yet"}</span>
+        <span class="rt-note">${num(m.noShow)} didn't show · ${num(m.upcoming)} still to come</span>
+      </div>
+      <div class="rt-big">
+        <span class="rt-label">Close won rate</span>
+        <b>${pct(m.closed, m.sat)}</b>
+        <span class="rt-sub">${m.sat ? `${num(m.closed)} won from ${num(m.sat)} sat meetings` : "No sat meetings yet"}</span>
+        <span class="rt-note">${pct(m.closed, m.booked)} of all booked meetings</span>
       </div>
       <div class="rt-big">
         <span class="rt-label">Conversation rate</span>
@@ -9352,8 +9400,11 @@ function renderRates(){
       <li><b>${num(m.booked)}</b><span>Booked</span></li>
       <li><b>${num(m.sat)}</b><span>Sat</span></li>
       <li class="gold"><b>${num(m.closed)}</b><span>Won</span></li>
-    </ol>`;
+    </ol>
+    ${ask.length ? `<button type="button" class="rt-ask" data-action="rates-ask-attended">${num(ask.length)} lost, ghosted or disqualified deal${ask.length === 1 ? "" : "s"} not counted yet - did they attend? <b>Answer</b></button>` : ""}`;
+  rtAskList = ask;
 }
+let rtAskList = [];
 function renderStatistics(){
   const grid = $("#stats-summary-grid");
   if (!grid) return;
@@ -11501,6 +11552,9 @@ function setupModals(){
       const c = state.clients.find(x => x.id === state.selectedClientId);
       if (c && confirm(DELETE_CLIENT_CONFIRM(c.name))) await deleteClientKeepingCreatives(c);
     }
+    if (action === "rates-ask-attended") askAttended(rtAskList);
+    if (action === "attend-yes" || action === "attend-no") await answerAttended(action === "attend-yes");
+    if (action === "attend-later"){ attendQueue = []; closeModal("attend-modal"); }
     if (action === "quote-increment" || action === "quote-decrement"){
       const client = state.clients.find(x => x.id === state.selectedClientId);
       if (client){
