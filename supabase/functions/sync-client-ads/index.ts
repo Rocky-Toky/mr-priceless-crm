@@ -323,7 +323,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Unauthorized." }, 401);
   }
 
-  let body: { client_id?: string } = {};
+  let body: { client_id?: string; action?: string; since?: string; until?: string; month_since?: string } = {};
   try {
     body = (await req.json()) ?? {};
   } catch {
@@ -348,6 +348,29 @@ Deno.serve(async (req: Request) => {
   const rawMetaAdAccountId = clientRow?.meta_ad_account_id;
   if (!rawMetaAdAccountId) {
     return json({ error: "This client has no Meta Ad Account ID set." }, 400);
+  }
+
+  // Spend only: what the account actually spent between two dates (the
+  // finance report asks from the client's go-live date, so older ad spend on
+  // the account from before they were with us never counts).
+  if (body.action === "spend") {
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    if (!day.test(body.since || "") || !day.test(body.until || "")) return json({ error: "since and until dates are needed." }, 400);
+    const act = String(rawMetaAdAccountId).trim().startsWith("act_") ? String(rawMetaAdAccountId).trim() : `act_${String(rawMetaAdAccountId).trim()}`;
+    const spendBetween = async (since: string, until: string) => {
+      if (since > until) return 0;
+      const rows = await graphAll(graphUrl(`${act}/insights`, { level: "account", fields: "spend", time_range: JSON.stringify({ since, until }), limit: "50" }, META_SYSTEM_USER_TOKEN));
+      return rows.reduce((s: number, r: any) => s + (Number(r.spend) || 0), 0);
+    };
+    try {
+      const [toDate, month] = await Promise.all([
+        spendBetween(body.since!, body.until!),
+        day.test(body.month_since || "") ? spendBetween(body.month_since!, body.until!) : Promise.resolve(null),
+      ]);
+      return json({ ok: true, since: body.since, until: body.until, to_date: Math.round(toDate * 100) / 100, month: month == null ? null : Math.round(month * 100) / 100 });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    }
   }
 
   try {

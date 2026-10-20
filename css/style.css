@@ -3121,3 +3121,4 @@ body.jv-open .jv-fab{display:none;}
 .rp-row3 input[type=date]{min-width:0;max-width:100%;}
 @media (max-width:640px){.rp-lists{grid-template-columns:1fr;}}
 .rp-row2{grid-template-columns:repeat(2,minmax(0,1fr));}.rp-totals{grid-template-columns:repeat(4,minmax(0,1fr));}@media (max-width:640px){.rp-row2{grid-template-columns:1fr 1fr;}.rp-totals{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.rp-ad-note{margin:-4px 0 0;font-size:13px;color:var(--text2);line-height:1.45;}
