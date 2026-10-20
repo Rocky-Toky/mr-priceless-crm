@@ -6588,7 +6588,7 @@ function rpFillStory(){
     parts.push(`Your ads brought in ${plural(enq, "enquiry").replace("enquirys", "enquiries")} and ${plural(ready, "booked quote")}${waiting ? `, with ${plural(waiting, "quote")} out waiting on a decision` : ""}.`);
     if (t.revenueToDate > rev) parts.push(`That takes you to ${fmtMoney(t.revenueToDate)} in work won since we started${t.jobsToDate > 1 ? `, across ${t.jobsToDate} jobs` : ""}.`);
     const net = t.margin != null && t.profitToDate != null ? Math.round(t.profitToDate - t.investedToDate) : null;
-    if (t.revenueToDate && net != null && net > 0) parts.push(`At your ${t.margin}% margin, that's about ${fmtMoney(net)} profit in your pocket after marketing.`);
+    if (t.revenueToDate && net != null && net > 0) parts.push(`At your ${t.margin}% margin, that's about ${fmtMoney(net)} profit in your pocket - and that's after your ad spend and our fees.`);
     if (jobs) parts.push("Every job won brings word of mouth on top of the ads, so the business keeps growing from here.");
     summary = parts.join(" ");
   }

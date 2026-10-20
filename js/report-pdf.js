@@ -165,7 +165,7 @@ async function build(data){
 
   // Centrepiece: the work won and the profit it's made them, big and bright.
   // What they've spent sits underneath, small and quiet.
-  const heroH = 186, heroY = H - 146 - heroH;
+  const heroH = 206, heroY = H - 146 - heroH;
   box(p1, M, heroY, CW, heroH, { fill: "#0e0d0b", r: 14 });
   const halfW = (CW - 44) / 2, lx = M + 24, rx = M + 24 + halfW + 22;
   label(p1, `Work won since we started${data.since ? ` · ${data.since}` : ""}`, lx, heroY + heroH - 30, { color: "#e8c468" });
@@ -177,15 +177,22 @@ async function build(data){
   if (profitNet != null && profitNet > 0){
     label(p1, "Profit in your pocket", rx, heroY + heroH - 30, { color: "#8fe0b0" });
     text(p1, money(profitNet), rx, heroY + heroH - 84, { f: F.d8, size: 40, color: "#8fe0b0", maxWidth: halfW });
-    text(p1, `after marketing, at your ${data.margin}% margin`, rx, heroY + heroH - 104, { size: 10, color: "#d9d3c5", maxWidth: halfW });
+    wrap(F.r, `after everything you've invested with us - ad spend and our fees - at your ${data.margin}% margin`, 10, halfW).slice(0, 2).forEach((ln, i) => text(p1, ln, rx, heroY + heroH - 104 - i * 13, { size: 10, color: "#d9d3c5" }));
   } else {
     label(p1, "Return on your investment", rx, heroY + heroH - 30, { color: "#e8c468" });
     text(p1, times(data.roiToDate), rx, heroY + heroH - 84, { f: F.d8, size: 40, color: "#f3cf6a", maxWidth: halfW });
     text(p1, "back in work for every $1 invested", rx, heroY + heroH - 104, { size: 10, color: "#d9d3c5", maxWidth: halfW });
   }
-  // The quiet line: what's gone in.
-  hr(p1, lx, M + CW - 24, heroY + 48, "#2e2b25", 0.6);
-  text(p1, `Invested with us so far ${money(data.investedToDate)}  ·  ${money(data.adSpendToDate)} ads + ${money(data.mgmtToDate)} management${has(data.roiToDate) && data.roiToDate > 0 ? `  ·  ${times(data.roiToDate)} return` : ""}`, lx, heroY + 26, { size: 8.4, color: "#8d887c", maxWidth: CW - 48 });
+  // What they've invested with us: clear, just second to the wins.
+  hr(p1, lx, M + CW - 24, heroY + 62, "#2e2b25", 0.6);
+  label(p1, "Invested with us so far", lx, heroY + 42, { color: "#a8a293" });
+  const invW = text(p1, money(data.investedToDate), lx, heroY + 20, { f: F.d7, size: 18, color: "#ece6d8" });
+  text(p1, `${money(data.adSpendToDate)} ad spend  +  ${money(data.mgmtToDate)} our fees`, lx + invW + 12, heroY + 23, { size: 9.5, color: "#a8a293" });
+  if (has(data.roiToDate) && data.roiToDate > 0){
+    label(p1, "Return", rx, heroY + 42, { color: "#a8a293" });
+    const rw = text(p1, times(data.roiToDate), rx, heroY + 20, { f: F.d7, size: 18, color: "#f3cf6a" });
+    text(p1, "back in work for every $1 invested", rx + rw + 10, heroY + 23, { size: 9.5, color: "#a8a293", maxWidth: halfW - rw - 10 });
+  }
 
   // This month at a glance: the wins, in three clean tiles.
   const tileH = 88, tileY = heroY - 14 - tileH, tileW = (CW - 24) / 3;
