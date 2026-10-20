@@ -23,8 +23,9 @@ We're not here to pitch. We're here to work out, together, whether we'd actually
 2. Set expectations (1 min)
 3. Quick intro on us (1 min)
 4. Discovery - low, mid, then high trust (15-20 min)
-5. Sum it back and decide if it's a fit (2 min)
-6. Into the offer - see the Meetings to Close playbook
+5. Demo - a relevant ad account, then the CRM (5-8 min)
+6. Sum it back and decide if it's a fit (2 min)
+7. Into the offer - see the Meetings to Close playbook
 
 ## 1. Intro and light rapport (2-3 min)
 Keep it light and genuine. Match their energy - a laid-back tradie doesn't want corporate talk.
@@ -132,7 +133,23 @@ They'll jump in: "No, no, 25%!" Now they're the one making the case for why it w
 - **They ask about price early?** "Happy to get to that - I just want to make sure it'd actually make sense for you first, otherwise any number's the wrong number."
 - **They're sceptical about marketing?** Agree with them. "Yeah, fair - most of it's rubbish. That's honestly why we're quite picky about who we work with."
 
-## 5. Sum it back and decide
+## 5. Demo - their kind of ads, then the CRM (5-8 min)
+Show, don't tell. Pull up a client in their trade (or the closest one), then the CRM their leads would land in. Keep it about them - "this is what yours would look like."
+**Show a relevant ad account:**
+> "Let me quickly show you one of our [trade] guys, so you can see what this actually looks like."
+- Open a client's ad account in the same trade - the ads running, the cost per lead, the leads coming in.
+- Point at one ad that's working and why it works - the hook, the photo, the offer.
+- Keep the numbers simple: enquiries this month and what each one cost.
+> "So that's [X] enquiries this month at about $[Y] each, for a [trade] in [area]."
+**Demo the CRM:**
+> "And this is where every one of those leads lands - the bit most agencies don't give you."
+- A new lead comes in, they get a text straight away, and we call the lead within minutes.
+- Drag leads through the stages - site visit, quoted, won - so we can see which ads bring real jobs.
+- Quotes book straight into their calendar, with a reminder text an hour before.
+- Every quote that goes quiet gets followed up.
+> "How would something like that fit with how you're handling enquiries at the moment?"
+
+## 6. Sum it back and decide
 > "So if I've got this right - you're doing about [X], want to get to [Y], your average job's around [Z], and the main thing holding you back is [their words]. Is that about it?"
 > "From what you've told me, I think this could actually make a lot of sense - want me to walk you through how we'd go about it?"
 If it's not a fit, say that instead and point them in the right direction.
