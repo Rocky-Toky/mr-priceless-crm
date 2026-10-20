@@ -110,7 +110,7 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
   const status = (o: any) => String(o.status || "").toLowerCase();
   // A job is won when GHL marks it won, or it's been dragged into a Won /
   // Closed Won / Sold stage (teams often move the card and leave it "open").
-  const WON_STAGE = /\bwon\b|closed\s*won|\bsold\b|job\s*won|signed/i;
+  const WON_STAGE = /\bwon\b|\bsold\b|signed|job\s*booked|booked\s*job|completed?|\bpaid\b|invoiced|closed(?!\s*[-–]?\s*lost)/i;
   const isWon = (o: any) => {
     if (status(o) === "won") return true;
     if (status(o) === "lost" || status(o) === "abandoned") return false;
@@ -135,10 +135,14 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
     revenue_won: Math.round(wonInPeriod.reduce((s, o) => s + value(o), 0)),
     jobs_won: wonInPeriod.length,
     revenue_won_to_date: Math.round(won.reduce((s, o) => s + value(o), 0)),
+    jobs_won_to_date: won.length,
+    won_list_to_date: won.map((o) => ({ name: String(o.name || o.contact?.name || "Job"), value: value(o), at: String(wonAt(o) || "").slice(0, 10), stage: stageAt.get(o.pipelineStageId)?.name || "" })),
     enquiries: created.length,
     quote_ready: created.filter((o) => reached(o, "booked")).length,
     quoted: created.filter((o) => reached(o, "sent")).length,
     won_missing_value: wonInPeriod.filter((o) => !value(o)).length,
+    // The won jobs themselves, so the CRM can show exactly what was counted.
+    won_list: wonInPeriod.map((o) => ({ name: String(o.name || o.contact?.name || "Job"), value: value(o), at: String(wonAt(o) || "").slice(0, 10), stage: stageAt.get(o.pipelineStageId)?.name || "" })),
     opportunities_checked: opps.length,
     booked_stage: firstMarks?.bookedName || "",
     sent_stage: firstMarks?.sentName || "",

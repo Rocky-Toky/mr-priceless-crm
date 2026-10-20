@@ -4596,7 +4596,7 @@ async function cpPullGhl(c){
   cpGhlPulling.add(c.id);
   try {
     const stages = ghlStagesOf(c);
-    const from = String(c.ad_start_date || c.created_at || today).slice(0, 10);
+    const from = rpStartDate(c, today);
     const [all, month] = await Promise.all([
       ghlCall({ action: "pull", client_id: c.id, from, to: today, stages }),
       ghlCall({ action: "pull", client_id: c.id, from: monthStart(today), to: today, stages }),
@@ -5511,7 +5511,7 @@ async function csPullGhl(force){
   const worker = async () => {
     while (queue.length){
       const c = queue.shift();
-      const from = String(c.ad_start_date || c.created_at || today).slice(0, 10);
+      const from = rpStartDate(c, today);
       const r = await ghlCall({ action: "pull", client_id: c.id, from, to: today, stages: ghlStagesOf(c) });
       csGhl[c.id] = r.error ? { at: Date.now(), error: r.error } : { at: Date.now(), metrics: r.metrics || {} };
     }
@@ -5552,8 +5552,9 @@ function clientPerformance(c){
   const source = { "GHL live": "ghl", "Reports": "reports", "Quote counter": "counter", "Imported leads": "leads" }[quoteSource] || (metaSpend ? "meta" : "none");
   const leads = metaLeads || (g ? toNum(g.enquiries) : null) || rep("enquiries") || imported.length;
   const quoted = g ? toNum(g.quoted) || 0 : rep("quoted");
-  const jobs = g ? toNum(g.jobs_won) || 0 : rep("jobsMonth");
-  const revenue = g ? toNum(g.revenue_won) || 0 : rep("revenueMonth");
+  // All-time from GHL when it's there, so no won job is missed; else the reports.
+  const jobs = g ? Math.max(toNum(g.jobs_won_to_date ?? g.jobs_won) || 0, rep("jobsMonth")) : rep("jobsMonth");
+  const revenue = g ? Math.max(toNum(g.revenue_won_to_date ?? g.revenue_won) || 0, rep("revenueMonth")) : rep("revenueMonth");
   const fees = rcRecordsOf(c).filter(rcIsPaid).reduce((s, r) => s + rcTotal(r), 0) || rep("mgmtMonth");
   // Why there's no cost per quote, if there isn't one.
   const missing = !spend && !quotes ? "No ad spend or quotes yet" : !spend ? "No ad spend synced" : !quotes ? "No quotes logged yet" : "";
@@ -6523,7 +6524,7 @@ function rpFillStory(){
     const parts = [`Your ads brought in ${plural(enq, "enquiry").replace("enquirys", "enquiries")} in ${monthName} so far, and ${ready} ${ready === 1 ? "has" : "have"} booked a quote with you.`];
     parts.push(jobs ? `${plural(jobs, "job")} signed this month, worth ${fmtMoney(rev)}${jobs > 1 ? ` - an average of ${fmtMoney(rev / jobs)} a job` : ""}.` : "No new jobs signed yet this month - the quotes are still coming back.");
     if (waiting) parts.push(`${plural(waiting, "quote")} ${waiting === 1 ? "is" : "are"} out waiting on a decision.`);
-    if (t.revenueToDate) parts.push(`Since we started you've won ${fmtMoney(t.revenueToDate)} in work${t.roiToDate ? `, ${fmtTimes(t.roiToDate)} what you've invested with us` : ""}.`);
+    if (t.revenueToDate) parts.push(`Since we started you've won ${t.jobsToDate > jobs ? `${plural(t.jobsToDate, "job")} worth ` : ""}${fmtMoney(t.revenueToDate)} in work${t.roiToDate ? `, ${fmtTimes(t.roiToDate)} what you've invested with us` : ""}.`);
     summary = parts.join(" ");
   }
   const story = {
@@ -6553,7 +6554,11 @@ function rpTotals(c){
   const sum = (k) => earlier.reduce((s, r) => s + (Number(r.metrics?.[k]) || 0), 0);
   const mv = rpMonthValues(c);
   const rev = mv.revenueMonth, spend = mv.adSpendMonth, mgmt = mv.mgmtMonth;
-  const revenueToDate = toNum(rpVal("revenueToDateOverride")) ?? (sum("revenueMonth") + rev);
+  const stacked = sum("revenueMonth") + rev;
+  // GHL since they started catches wins the reports never saw.
+  const ghlToDate = rpGhlToDate && rpGhlToDate.clientId === c.id ? rpGhlToDate : null;
+  const revenueToDate = toNum(rpVal("revenueToDateOverride")) ?? Math.max(stacked, ghlToDate?.revenue || 0);
+  const jobsToDate = Math.max(sum("jobsMonth") + (mv.jobsMonth || 0), ghlToDate?.jobs || 0);
   const adSpendToDate = sum("adSpendMonth") + spend, mgmtToDate = sum("mgmtMonth") + mgmt;
   const investedToDate = adSpendToDate + mgmtToDate;
   const lastMonthYm = ymOf(addDays(monthStart(to), -1));
@@ -6562,7 +6567,7 @@ function rpTotals(c){
   // Rough profit, from the margin they gave us at onboarding.
   const margin = clientMargin(c);
   const profitToDate = margin != null ? revenueToDate * margin / 100 : null;
-  return { earlier, reportNumber, revenueToDate, adSpendToDate, mgmtToDate, investedToDate, lastMonth, month: mv,
+  return { earlier, reportNumber, revenueToDate, jobsToDate, adSpendToDate, mgmtToDate, investedToDate, lastMonth, month: mv,
     margin, profitMonth: margin != null ? (rev || 0) * margin / 100 : null, profitToDate,
     profitReturn: profitToDate != null && investedToDate ? profitToDate / investedToDate : null,
     roiMonth: spend + mgmt ? rev / (spend + mgmt) : null, roiToDate: investedToDate ? revenueToDate / investedToDate : null };
@@ -6624,6 +6629,13 @@ async function rpRenderGhl(c){
   // A new report fills itself straight away.
   if (!rpExisting) rpGhlPull();
 }
+// When a client's results start counting: the earliest of their ad start,
+// their first report and when they became a client.
+let rpGhlToDate = null;
+function rpStartDate(c, to){
+  const first = monthReportsFor(c.id)[0];
+  return [c.ad_start_date, first?.period_start, c.created_at].filter(Boolean).map(d => String(d).slice(0, 10)).filter(d => d <= to).sort()[0] || monthStart(to);
+}
 async function rpGhlPull(){
   const c = state.clients.find(x => x.id === rpClientId);
   if (!c) return;
@@ -6636,6 +6648,10 @@ async function rpGhlPull(){
   if (rpClientId !== c.id) return;
   if (r.error){ rpStatus(`Couldn't pull from GHL: ${r.error}`, true); return; }
   const m = r.metrics || {};
+  // Every job ever won in their GHL (the pipeline we built for their ad
+  // leads), so totals to date never miss one won before the first report or
+  // in a month that had no report.
+  rpGhlToDate = m.revenue_won_to_date != null ? { clientId: c.id, revenue: toNum(m.revenue_won_to_date) || 0, jobs: toNum(m.jobs_won_to_date) || 0, list: m.won_list_to_date || [] } : null;
   const base = monthBase(c.id, to, rpExisting?.id);
   const since = (metric, month) => metric == null ? null : Math.max(0, Math.round(metric - (toNum(base[month]) || 0)));
   const set = (k, v) => { if (v != null) rpSet(k, v); };
@@ -6646,7 +6662,9 @@ async function rpGhlPull(){
   if (!rpExisting && (m.jobs_won || m.revenue_won_to_date)) $$("#rp-choose [data-action=rp-pick]").forEach(b => b.classList.toggle("is-suggested", b.dataset.id === "results"));
   rpFillStory();
   const warn = m.won_missing_value ? ` ${m.won_missing_value} won job${m.won_missing_value === 1 ? " has" : "s have"} no $ value in GHL, so revenue may be low.` : "";
-  rpStatus(`Filled from GHL (${m.opportunities_checked ?? 0} opportunities): jobs won and their values from the Won stage, quotes from "${m.booked_stage || "?"}" onwards. Ad spend comes from Meta, and the story is written for you.${warn} Check it over, then make the report.`, Boolean(warn));
+  const g = rpGhlToDate;
+  const toDate = g ? ` All time: ${g.jobs} job${g.jobs === 1 ? "" : "s"} won worth ${fmtMoney(g.revenue)}${g.list.length ? ` (${g.list.map(j => `${j.name} ${fmtMoney(j.value)}`).join(", ")})` : ""}.` : "";
+  rpStatus(`Filled from GHL (${m.opportunities_checked ?? 0} opportunities): jobs won and their values from the Won stage, quotes from "${m.booked_stage || "?"}" onwards.${toDate}${warn} Check it over, then make the report.`, Boolean(warn));
 }
 async function rpGhlConnect(){
   const c = state.clients.find(x => x.id === rpClientId);
