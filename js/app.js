@@ -6582,17 +6582,14 @@ function rpFillStory(){
   let summary;
   if (style === "early") summary = RP_EARLY_SUMMARY;
   else {
-    const parts = [`Your ads brought in ${plural(enq, "enquiry").replace("enquirys", "enquiries")} in ${monthName} so far, and ${ready} ${ready === 1 ? "has" : "have"} booked a quote with you.`];
-    parts.push(jobs ? `${plural(jobs, "job")} signed this month, worth ${fmtMoney(rev)}${jobs > 1 ? ` - an average of ${fmtMoney(rev / jobs)} a job` : ""}.` : "No new jobs signed yet this month - the quotes are still coming back.");
-    if (waiting) parts.push(`${plural(waiting, "quote")} ${waiting === 1 ? "is" : "are"} out waiting on a decision.`);
-    if (t.revenueToDate) parts.push(`Since we started you've won ${t.jobsToDate > jobs ? `${plural(t.jobsToDate, "job")} worth ` : ""}${fmtMoney(t.revenueToDate)} in work.`);
-    // The bit that matters to them: rough profit after what they've spent with us.
-    if (t.revenueToDate && t.margin != null && t.profitToDate != null){
-      const net = Math.round(t.profitToDate - t.investedToDate);
-      parts.push(net >= 0
-        ? `Assuming your ${t.margin}% margin, that's roughly ${fmtMoney(t.profitToDate)} in profit - and after your ${fmtMoney(t.investedToDate)} marketing investment, you're left with about ${fmtMoney(net)} profit in your pocket.`
-        : `Assuming your ${t.margin}% margin, that's roughly ${fmtMoney(t.profitToDate)} in profit so far - ${fmtMoney(-net)} off covering your ${fmtMoney(t.investedToDate)} marketing investment, with the quotes still out to come.`);
-    } else if (t.roiToDate) parts.push(`That's ${fmtTimes(t.roiToDate)} what you've invested with us.`);
+    // Lead with the win, keep it warm and short, and leave the spend out of it.
+    const parts = [];
+    parts.push(jobs ? `A great ${monthName} so far - ${plural(jobs, "new job")} signed, worth ${fmtMoney(rev)}.` : `${monthName} is building nicely - no new jobs signed just yet, but the pipeline is filling up.`);
+    parts.push(`Your ads brought in ${plural(enq, "enquiry").replace("enquirys", "enquiries")} and ${plural(ready, "booked quote")}${waiting ? `, with ${plural(waiting, "quote")} out waiting on a decision` : ""}.`);
+    if (t.revenueToDate > rev) parts.push(`That takes you to ${fmtMoney(t.revenueToDate)} in work won since we started${t.jobsToDate > 1 ? `, across ${t.jobsToDate} jobs` : ""}.`);
+    const net = t.margin != null && t.profitToDate != null ? Math.round(t.profitToDate - t.investedToDate) : null;
+    if (t.revenueToDate && net != null && net > 0) parts.push(`At your ${t.margin}% margin, that's about ${fmtMoney(net)} profit in your pocket after marketing.`);
+    if (jobs) parts.push("Every job won brings word of mouth on top of the ads, so the business keeps growing from here.");
     summary = parts.join(" ");
   }
   const story = {
@@ -6737,7 +6734,7 @@ async function rpGhlPull(){
   // Every job ever won in their GHL (the pipeline we built for their ad
   // leads), so totals to date never miss one won before the first report or
   // in a month that had no report.
-  rpGhlToDate = m.revenue_won_to_date != null ? { clientId: c.id, revenue: toNum(m.revenue_won_to_date) || 0, jobs: toNum(m.jobs_won_to_date) || 0, list: m.won_list_to_date || [] } : null;
+  rpGhlToDate = m.revenue_won_to_date != null ? { clientId: c.id, revenue: toNum(m.revenue_won_to_date) || 0, jobs: toNum(m.jobs_won_to_date) || 0, quoted: toNum(m.quoted_to_date), list: m.won_list_to_date || [] } : null;
   const base = monthBase(c.id, to, rpExisting?.id);
   const since = (metric, month) => metric == null ? null : Math.max(0, Math.round(metric - (toNum(base[month]) || 0)));
   const set = (k, v) => { if (v != null) rpSet(k, v); };
@@ -6827,7 +6824,10 @@ async function makeReport(){
     const mv = t.month;
     const spend = mv.adSpendMonth, enq = mv.enquiries, ready = mv.quoteReady, quoted = mv.quoted, jobs = mv.jobsMonth, rev = mv.revenueMonth;
     const lm = t.lastMonth?.metrics || null;
+    const g = rpGhlToDate && rpGhlToDate.clientId === c.id ? rpGhlToDate : null;
+    const closeRate = g && g.quoted && g.jobs <= g.quoted ? g.jobs / g.quoted : (quoted && jobs != null && jobs <= quoted ? jobs / quoted : null);
     const data = {
+      jobsToDate: t.jobsToDate, margin: t.margin, profitToDate: t.profitToDate,
       clientName: c.name, reportNumber: t.reportNumber, periodLabel: fmtReportPeriod(from, to),
       monthName: monthNameOf(to), since: localDateOnly(sinceDate).toLocaleDateString("en-NZ", { month: "long", year: "numeric" }),
       revenueMonth: rev ?? 0, jobsMonth: jobs ?? 0, revenueToDate: t.revenueToDate,
@@ -6843,12 +6843,14 @@ async function makeReport(){
       topAd: ad ? { name: ad.name, leads: ad.results, cpl: ad.cost_per_result, share: clientResults ? Math.round((Number(ad.results) || 0) / clientResults * 100) : null, imageBytes: img?.bytes, imageType: img?.type } : null,
       hood: [
         ["Cost per enquiry", spend && enq ? fmtMoney(spend / enq) : null, "Ad spend divided by every enquiry, qualified or not"],
-        ["Quoted so far", ready && quoted != null ? Math.round(quoted / ready * 100) + "%" : null, "Share of quotes booked that have been quoted (the rest are still to come)"],
-        ["Close rate", quoted && jobs != null ? Math.round(jobs / quoted * 100) + "%" : null, "Share of quotes sent that turned into signed jobs"],
+        ["Cost per quote booked", spend && ready ? fmtMoney(spend / ready) : null, "Ad spend divided by quotes booked this month"],
+        ["Quoted so far", ready && quoted != null ? Math.min(100, Math.round(quoted / ready * 100)) + "%" : null, "Quotes booked that have been quoted so far"],
+        // All-time, from GHL: jobs won out of every quote sent. A month on its own
+        // can show jobs won from last month's quotes, which reads as over 100%.
+        ["Close rate", closeRate != null ? Math.round(closeRate * 100) + "%" : null, "Share of all quotes sent that turned into signed jobs"],
         ["Average job value", jobs && rev ? fmtMoney(rev / jobs) : null, "Revenue won divided by jobs signed"],
         ["Return this month", t.roiMonth != null ? fmtTimes(t.roiMonth) : null, "Revenue won this month for every $1 invested this month"],
         ["Rough profit to date", t.profitToDate != null ? fmtMoney(t.profitToDate) : null, `Revenue to date at your rough ${t.margin}% margin on a job`],
-        ["Profit return", t.profitReturn != null ? fmtTimes(t.profitReturn) : null, "Rough profit for every $1 invested with us"],
       ],
       contactName: am.account_manager || ASSIGNEES[deal?.assignee]?.label || "", contactPhone: am.phone || "",
     };

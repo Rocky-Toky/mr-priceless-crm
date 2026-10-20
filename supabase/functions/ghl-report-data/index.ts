@@ -136,6 +136,9 @@ export function summarise(opps: any[], pipelines: any[], from: string, to: strin
     jobs_won: wonInPeriod.length,
     revenue_won_to_date: Math.round(won.reduce((s, o) => s + value(o), 0)),
     jobs_won_to_date: won.length,
+    // Every quote ever sent (won jobs included), so the close rate can be
+    // all-time won / all-time quoted - never over 100%.
+    quoted_to_date: opps.filter((o) => reached(o, "sent")).length,
     won_list_to_date: won.map((o) => ({ name: String(o.name || o.contact?.name || "Job"), value: value(o), at: String(wonAt(o) || "").slice(0, 10), stage: stageAt.get(o.pipelineStageId)?.name || "" })),
     enquiries: created.length,
     quote_ready: created.filter((o) => reached(o, "booked")).length,
