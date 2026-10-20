@@ -323,7 +323,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Unauthorized." }, 401);
   }
 
-  let body: { client_id?: string; action?: string; since?: string; until?: string; month_since?: string } = {};
+  let body: { client_id?: string; action?: string; since?: string; until?: string; month_since?: string; creative_id?: string } = {};
   try {
     body = (await req.json()) ?? {};
   } catch {
@@ -343,6 +343,38 @@ Deno.serve(async (req: Request) => {
 
   if (clientError || !clientRow) {
     return json({ error: "Client not found." }, 404);
+  }
+
+  // One ad's picture for the finance report PDF. Browsers can't read Meta's
+  // image links directly (and they expire), so fetch it here, getting a fresh
+  // link from Meta if the saved one no longer works.
+  if (body.action === "ad_image") {
+    const { data: cr } = await supabaseAdmin.from("client_ad_creatives").select("id, client_id, image_url, meta_ad_id").eq("id", body.creative_id || "").eq("client_id", clientId).maybeSingle();
+    if (!cr) return json({ error: "Creative not found." }, 404);
+    const tryUrl = async (url?: string | null) => {
+      if (!url || !/^https:\/\//.test(url)) return null;
+      try {
+        const r = await fetch(url);
+        const type = r.headers.get("content-type") || "";
+        if (!r.ok || !type.startsWith("image/")) return null;
+        const buf = new Uint8Array(await r.arrayBuffer());
+        if (!buf.length || buf.length > 8_000_000) return null;
+        let bin = "";
+        for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+        return { data: btoa(bin), type };
+      } catch { return null; }
+    };
+    let img = await tryUrl(cr.image_url);
+    if (!img && cr.meta_ad_id) {
+      try {
+        const r = await fetch(graphUrl(String(cr.meta_ad_id), { fields: "creative{image_url,thumbnail_url}", thumbnail_width: "1080", thumbnail_height: "1080" }, META_SYSTEM_USER_TOKEN));
+        const b = await r.json();
+        const fresh = b?.creative?.image_url || b?.creative?.thumbnail_url || null;
+        img = await tryUrl(fresh);
+        if (img && fresh) await supabaseAdmin.from("client_ad_creatives").update({ image_url: fresh }).eq("id", cr.id);
+      } catch { /* no picture then */ }
+    }
+    return img ? json({ ok: true, ...img }) : json({ error: "No picture available for this ad." }, 404);
   }
 
   const rawMetaAdAccountId = clientRow?.meta_ad_account_id;
