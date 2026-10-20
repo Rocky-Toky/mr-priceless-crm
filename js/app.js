@@ -375,6 +375,7 @@ const ONBOARDING_SECTIONS = [
     { key: "good_lead_1", text: "Ask what they consider a job they're happy to quote for.", answerable: true, fieldLabel: "What Counts As A Good Lead" },
     { key: "good_lead_2", text: "Confirm their budget and timeline expectations.", answerable: true, fieldLabel: "Budget & Timeline Expectations" },
     { key: "good_lead_3", text: "Confirm their average job value.", answerable: true, fieldLabel: "Average Job Value" },
+    { key: "good_lead_sqm", text: "If it applies to their trade, ask their price per square metre (SQM).", answerable: true, fieldLabel: "Price Per SQM" },
     { key: "good_lead_5", text: "Confirm how far out from their base they're willing to quote.", answerable: true, fieldLabel: "Service Radius" },
     { key: "good_lead_6", text: "Confirm whether they can quote after hours or on weekends.", answerable: true, fieldLabel: "After-Hours / Weekend Quoting" },
     { key: "good_lead_margin", text: "Ask roughly what margin they make on a typical job, after materials and labour.", answerable: true, fieldLabel: "Rough Margin", targetField: "margin" },
