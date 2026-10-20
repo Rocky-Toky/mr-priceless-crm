@@ -5671,7 +5671,7 @@ function renderCreativeStats(){
       </table></div>
     </div>`).join("")}`}
     ${idle ? `<p class="cs-foot">Not counted yet (no ad spend, leads or quotes in the CRM): ${idleList.map(c => `<button type="button" class="cs-client cs-idle" data-action="view-client" data-id="${c.id}">${escapeHtml(c.name)}</button>`).join(", ")}. Sync their Meta ads, connect GHL or log quotes on their profile and they'll show up.</p>` : ""}
-    <p class="cs-foot">Cost per quote = all-time Meta ad spend ÷ quotes booked (site visit arranged, to be quoted or any quote stage in GHL). Return = revenue won ÷ (ad spend + our fees paid).</p>`;
+    <p class="cs-foot">Cost per quote = all-time Meta ad spend ÷ quotes booked (any GHL stage past Disqualified - site visit, to be quoted, quote sent, lost or won). Return = revenue won ÷ (ad spend + our fees paid).</p>`;
 }
 function setCreativeView(view){
   crView = view;
