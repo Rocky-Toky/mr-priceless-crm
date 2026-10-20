@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=271">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=271">
+<link rel="stylesheet" href="css/style.css?v=273">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=273">
 </head>
 <body>
 
@@ -692,10 +692,6 @@
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header"><h3>Vertical Assignments</h3><span class="stat-sub">Point someone at a vertical and Prospecting narrows to just that industry for them - leave your own blank to keep seeing everything.</span></div>
-        <div class="card-body team-focus-grid" id="prospecting-team-focus"></div>
-      </div>
 
       <div class="card le-coverage">
         <div class="le-cov-head">
@@ -706,7 +702,8 @@
             <span class="coverage-summary-item"><span class="coverage-summary-dot filling"></span><span id="coverage-count-filling">0</span> <span id="coverage-label-filling">have prospects</span></span>
             <span class="coverage-summary-item"><span class="coverage-summary-dot done"></span><span id="coverage-count-done">0</span> completed</span>
           </div>
-          <button type="button" class="btn ghost sm le-vcov-btn" id="vertical-coverage-btn">Worked verticals</button>
+          <button type="button" class="btn ghost sm le-vcov-btn" id="team-focus-btn">Vertical assignments</button>
+          <button type="button" class="btn ghost sm" id="vertical-coverage-btn">Worked verticals</button>
         </div>
         <p class="le-cov-hint">Green = has prospects, red = none yet. Tick a region once it's done - with an industry picked, the tick is for that industry only.</p>
         <div class="coverage-grid" id="coverage-grid"></div>
@@ -2059,6 +2056,12 @@
 </div>
 
 <!-- ───────── Modal: Region / Industry Coverage ───────── -->
+<div class="overlay" id="team-focus-modal">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-header"><div><h3>Vertical assignments</h3><div class="onb-modal-sub">Point someone at a vertical and Prospecting narrows to just that industry for them - leave your own blank to keep seeing everything.</div></div><button class="modal-close" data-close="team-focus-modal" aria-label="Close">&times;</button></div>
+    <div class="modal-body"><div class="team-focus-grid" id="prospecting-team-focus"></div></div>
+  </div>
+</div>
 <div class="overlay" id="vcov-modal">
   <div class="modal" style="max-width:720px;">
     <div class="modal-header"><div><h3>Worked verticals</h3><div class="onb-modal-sub">Tick off a region + industry once it's fully worked - its prospects come off Prospecting for everyone, without deleting anything. Reactivate to bring them straight back.</div></div><button class="modal-close" data-close="vcov-modal" aria-label="Close">&times;</button></div>
@@ -2753,17 +2756,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=271"></script>
-<script src="js/supabaseClient.js?v=271"></script>
-<script src="js/report-pdf.js?v=271"></script>
-<script src="js/plan-pdf.js?v=271"></script>
-<script src="js/workshop-pdf.js?v=271"></script>
-<script src="js/receipt-pdf.js?v=271"></script>
-<script src="js/welcome-pdf.js?v=271"></script>
-<script src="js/builtin-playbooks.js?v=271"></script>
-<script src="js/builtin-email-templates.js?v=271"></script>
-<script src="js/app.js?v=271"></script>
-<script src="js/meetings-tracker.js?v=271"></script>
-<script src="js/todo.js?v=271"></script>
+<script src="js/config.js?v=273"></script>
+<script src="js/supabaseClient.js?v=273"></script>
+<script src="js/report-pdf.js?v=273"></script>
+<script src="js/plan-pdf.js?v=273"></script>
+<script src="js/workshop-pdf.js?v=273"></script>
+<script src="js/receipt-pdf.js?v=273"></script>
+<script src="js/welcome-pdf.js?v=273"></script>
+<script src="js/builtin-playbooks.js?v=273"></script>
+<script src="js/builtin-email-templates.js?v=273"></script>
+<script src="js/app.js?v=273"></script>
+<script src="js/meetings-tracker.js?v=273"></script>
+<script src="js/todo.js?v=273"></script>
 </body>
 </html>
