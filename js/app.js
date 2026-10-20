@@ -371,10 +371,6 @@ const ONBOARDING_SECTIONS = [
     { key: "client_email", text: "Add their email address.", derivedFrom: "email" },
     { key: "ghl_template", text: "Set up their GHL CRM pipeline template ahead of time, so it's ready to demo." },
   ]},
-  { section: "Set Honest Expectations", items: [
-    { key: "honest_expect_1", text: "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill." },
-    { key: "honest_expect_2", text: "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that." },
-  ]},
   { section: "Define What A Good Lead Looks Like For Them", items: [
     { key: "good_lead_1", text: "Ask what they consider a job they're happy to quote for.", answerable: true, fieldLabel: "What Counts As A Good Lead" },
     { key: "good_lead_2", text: "Confirm their budget and timeline expectations.", answerable: true, fieldLabel: "Budget & Timeline Expectations" },
@@ -410,6 +406,10 @@ const ONBOARDING_SECTIONS = [
     { key: "ad_start_date", text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
     { key: "meta_ad_account_id", text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
     { key: "ghl_report_connect", text: "Sync GHL with the CRM for reporting." },
+  ]},
+  { section: "Set Honest Expectations", items: [
+    { key: "honest_expect_1", text: "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill." },
+    { key: "honest_expect_2", text: "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that." },
   ]},
 ];
 const ONBOARDING_ANSWER_SUFFIX = "_answer";
