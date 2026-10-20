@@ -4576,9 +4576,37 @@ function clientQuoteStats(c){
   return {
     quotes: allQuotes, spend: allSpend, cpq: allQuotes && allSpend ? allSpend / allQuotes : null, missing: perf.missing,
     open: last ? toNum(last.metrics.openQuotesCount) : null,
-    month: byMonth.get(thisYm) ? toNum(byMonth.get(thisYm).metrics.quoteReady) || 0 : 0,
+    month: Math.max(byMonth.get(thisYm) ? toNum(byMonth.get(thisYm).metrics.quoteReady) || 0 : 0,
+      toNum(cpGhlMonth[c.id]?.ym === thisYm ? cpGhlMonth[c.id].metrics?.quote_ready : 0) || 0,
+      Number(((c.onboarding_progress || {}).quote_log || {})[thisYm]) || 0),
     since, lastPaid, hasReports: reps.length > 0 || allQuotes > 0 || allSpend > 0,
   };
+}
+// A client's profile pulls their quotes straight from GHL when it opens (all
+// time, plus this month), so the Quotes box counts up on its own. Clients with
+// no GHL connected just get an error back and keep the counter/report figures.
+const cpGhlMonth = {};     // client id -> { at, ym, metrics }
+const cpGhlPulling = new Set();
+async function cpPullGhl(c){
+  if (!IS_CONFIGURED || cpGhlPulling.has(c.id)) return;
+  const fresh = (x) => x && Date.now() - x.at < 15 * 60e3;
+  const today = localDayStr(), ym = ymOf(today);
+  if (fresh(csGhl[c.id]) && fresh(cpGhlMonth[c.id]) && cpGhlMonth[c.id].ym === ym) return;
+  cpGhlPulling.add(c.id);
+  try {
+    const stages = (c.onboarding_progress || {}).ghl_stages || {};
+    const from = String(c.ad_start_date || c.created_at || today).slice(0, 10);
+    const [all, month] = await Promise.all([
+      ghlCall({ action: "pull", client_id: c.id, from, to: today, stages }),
+      ghlCall({ action: "pull", client_id: c.id, from: monthStart(today), to: today, stages }),
+    ]);
+    csGhl[c.id] = all.error ? { at: Date.now(), error: all.error } : { at: Date.now(), metrics: all.metrics || {} };
+    cpGhlMonth[c.id] = { at: Date.now(), ym, metrics: month.error ? {} : month.metrics || {} };
+  } finally { cpGhlPulling.delete(c.id); }
+  if (state.selectedClientId === c.id){
+    const cur = state.clients.find(x => x.id === c.id);
+    if (cur) renderClientProfileTop(cur, clientQuoteStats(cur));
+  }
 }
 // The top of a client's profile, kept to what matters: three big numbers,
 // one line of context, and this month's three jobs (ads, workshop, report).
@@ -4694,6 +4722,7 @@ function renderClientProfileExtras(c){
 
   // Reports and 90-day plan
   renderClientProfileTop(c, qs);
+  cpPullGhl(c);
   const repEl = $("#cp-reports");
   if (repEl){
     const due = reportDueInfo(c), plan = planInfo(c);
@@ -5857,7 +5886,7 @@ const NURTURE_STAGES = new Set(["closed_lost", "ghosted"]);
    weight / WIN_PRIOR_WEIGHT). */
 const WIN_STAGES = new Set(["closed_won", "closed_won_adhoc", "churned"]);
 const LOSS_STAGES = new Set(["closed_lost", "disqualified", "ghosted"]);
-const WIN_PRIORS = { qualified: 0.25, no_show: 0.1, proposal: 0.4, negotiation: 0.6, onboarding: 0.9, pending_results: 0.75 };
+const WIN_PRIORS = { qualified: 0.25, no_show: 0.1, proposal: 0.4, negotiation: 0.6, onboarding: 0.6, pending_results: 0.75 };
 const WIN_PRIOR_WEIGHT = 4;
 const dealStagesVisited = (d) => new Set(["qualified", d.stage, ...(Array.isArray(d.stage_history) ? d.stage_history.map(h => h.stage) : [])]);
 let winChanceCache = { key: "", map: {} };
@@ -11475,8 +11504,14 @@ function setupModals(){
     if (action === "quote-increment" || action === "quote-decrement"){
       const client = state.clients.find(x => x.id === state.selectedClientId);
       if (client){
-        const next = Math.max(0, Number(client.quotes_sent||0) + (action === "quote-increment" ? 1 : -1));
-        await DataLayer.update("clients", client.id, { quotes_sent: next });
+        const step = action === "quote-increment" ? 1 : -1;
+        const next = Math.max(0, Number(client.quotes_sent||0) + step);
+        // Taps are also kept per month, so "this month" counts them too.
+        const ym = ymOf(localDayStr()), progress = { ...(client.onboarding_progress || {}) };
+        const log = { ...(progress.quote_log || {}) };
+        log[ym] = Math.max(0, (Number(log[ym]) || 0) + step);
+        progress.quote_log = log;
+        await DataLayer.update("clients", client.id, { quotes_sent: next, onboarding_progress: progress });
         if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
       }
     }
