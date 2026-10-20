@@ -6551,7 +6551,7 @@ function openReportModal(clientId, existingId){
       .replace(/- and that's after your ad spend and our fees\./i, "- that's after paying for your ad spend and our fees.")
       .replace(/after your (\$[\d,]+) marketing investment/i, "after paying $1 for your ad spend and our fees"));
     // Older reports kept "what we did" as separate lines.
-    rpSet("didText", m.didText ?? ["did1", "did2", "did3", "did4", "did5"].map(k => m[k]).filter(Boolean).join("\n"));
+    rpSet("didText", String(m.didText ?? ["did1", "did2", "did3", "did4", "did5"].map(k => m[k]).filter(Boolean).join("\n")).replace("to find what makes locals stop scrolling", "to increase scroll stoppage"));
   } else {
     const to = localDayStr();
     rpSet("to", to); rpSet("from", reportFrom(c.id, to));
@@ -6603,7 +6603,7 @@ function rpFillStory(){
     summary,
     // Everything a good media buyer and agency does in a fortnight, one per line.
     didText: [
-      `Wrote fresh ad copy for ${monthName} and tested dozens of variations of headlines, hooks and opening lines to find what makes locals stop scrolling`,
+      `Wrote fresh ad copy for ${monthName} and tested dozens of variations of headlines, hooks and opening lines to increase scroll stoppage`,
       "Kept creative testing running every week - new angles, formats and visuals - to stay ahead of creative fatigue before your results dip",
       live ? `Launched ${plural(live, "new ad creative")} this month across static and video, and rotated out any that were starting to tire` : "Refreshed your ad creatives across static and video, and rotated out any that were starting to tire",
       best ? `Found your top performer - "${best.name}" is bringing leads in at ${fmtMoney(best.cost_per_result)} each - and moved more budget behind it` : "Found the ads bringing in the cheapest quality enquiries and moved more budget behind them",
@@ -6831,8 +6831,6 @@ async function makeReport(){
     const mv = t.month;
     const spend = mv.adSpendMonth, enq = mv.enquiries, ready = mv.quoteReady, quoted = mv.quoted, jobs = mv.jobsMonth, rev = mv.revenueMonth;
     const lm = t.lastMonth?.metrics || null;
-    const g = rpGhlToDate && rpGhlToDate.clientId === c.id ? rpGhlToDate : null;
-    const closeRate = g && g.quoted && g.jobs <= g.quoted ? g.jobs / g.quoted : (quoted && jobs != null && jobs <= quoted ? jobs / quoted : null);
     const data = {
       jobsToDate: t.jobsToDate, margin: t.margin, profitToDate: t.profitToDate,
       clientName: c.name, reportNumber: t.reportNumber, periodLabel: fmtReportPeriod(from, to),
@@ -6851,12 +6849,7 @@ async function makeReport(){
       hood: [
         ["Cost per enquiry", spend && enq ? fmtMoney(spend / enq) : null, "Ad spend divided by every enquiry, qualified or not"],
         ["Cost per quote booked", spend && ready ? fmtMoney(spend / ready) : null, "Ad spend divided by quotes booked this month"],
-        ["Quoted so far", ready && quoted != null ? Math.min(100, Math.round(quoted / ready * 100)) + "%" : null, "Quotes booked that have been quoted so far"],
-        // All-time, from GHL: jobs won out of every quote sent. A month on its own
-        // can show jobs won from last month's quotes, which reads as over 100%.
-        ["Close rate", closeRate != null ? Math.round(closeRate * 100) + "%" : null, "Share of all quotes sent that turned into signed jobs"],
         ["Average job value", jobs && rev ? fmtMoney(rev / jobs) : null, "Revenue won divided by jobs signed"],
-        ["Return this month", t.roiMonth != null ? fmtTimes(t.roiMonth) : null, "Revenue won this month for every $1 invested this month"],
         ["Rough profit to date", t.profitToDate != null ? fmtMoney(t.profitToDate) : null, `Revenue to date at your rough ${t.margin}% margin on a job`],
       ],
       contactName: am.account_manager || ASSIGNEES[deal?.assignee]?.label || "", contactPhone: am.phone || "",
