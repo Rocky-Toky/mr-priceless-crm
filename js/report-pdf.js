@@ -122,9 +122,10 @@ async function build(data){
     hr(page, M, W - M, H - 70, C.gold2, 0.9);
     hr(page, M, W - M, 42, C.line);
     text(page, n === 1 ? "mrpriceless.com" : `Questions? ${[data.contactName, data.contactPhone].filter(Boolean).join(" · ") || "Your account manager"} · mrpriceless.com`, M, 28, { size: 7.5, color: C.dim, maxWidth: 400 });
-    text(page, `Confidential · Page ${n} of 2`, W - M, 28, { size: 7.5, color: C.dim, align: "right" });
+    pages.push([page, n]);
     return page;
   };
+  const pages = [];
   const CW = W - 2 * M;
 
   /* ───────── Page 1: the month so far ───────── */
@@ -318,22 +319,26 @@ async function build(data){
   }
 
   const hood = (data.hood || []).filter(r => r[1] != null && r[1] !== "-" && r[1] !== "");
+  let hp = p2;
+  // Not enough room left above the footer? The numbers table gets its own page.
+  if (hood.length && y - (38 + hood.length * 26) < 56){ hp = newPage(3); y = H - 108; }
   if (hood.length){
-    text(p2, "Under the hood", M, y - 8, { f: F.d7, size: 16 });
-    text(p2, "The numbers, explained", W - M, y - 6, { size: 8.5, color: C.muted, align: "right" });
+    text(hp, "Under the hood", M, y - 8, { f: F.d7, size: 16 });
+    text(hp, "The numbers, explained", W - M, y - 6, { size: 8.5, color: C.muted, align: "right" });
     y -= 30;
-    label(p2, "Metric", M, y); label(p2, "Result", M + 200, y, { align: "right" }); label(p2, "What it means", M + 224, y);
+    label(hp, "Metric", M, y); label(hp, "Result", M + 200, y, { align: "right" }); label(hp, "What it means", M + 224, y);
     y -= 8;
     hood.forEach(([name, val, means]) => {
-      hr(p2, M, W - M, y, C.line, 0.5);
+      hr(hp, M, W - M, y, C.line, 0.5);
       y -= 18;
-      text(p2, name, M, y, { f: F.sb, size: 9.5 });
-      text(p2, val, M + 200, y, { f: F.b, size: 9.5, align: "right" });
-      text(p2, means, M + 224, y, { size: 9, color: C.muted, maxWidth: W - M - (M + 224) });
+      text(hp, name, M, y, { f: F.sb, size: 9.5 });
+      text(hp, val, M + 200, y, { f: F.b, size: 9.5, align: "right" });
+      text(hp, means, M + 224, y, { size: 9, color: C.muted, maxWidth: W - M - (M + 224) });
       y -= 8;
     });
   }
 
+  pages.forEach(([page, n]) => text(page, `Confidential · Page ${n} of ${pages.length}`, W - M, 28, { size: 7.5, color: C.dim, align: "right" }));
   pdf.setTitle(`Mr Priceless Report - ${data.clientName || ""} - ${data.periodLabel}`);
   pdf.setAuthor("Mr Priceless");
   return pdf.save();
@@ -347,6 +352,7 @@ async function build(data){
 async function buildEarly(data){
   const C = LIGHT;
   const { pdf, F, width, text, label, wrap, box, hr, drawLogo } = await makeKit({ palette: LIGHT });
+  const pages = [];
   const newPage = (n) => {
     const page = pdf.addPage([W, H]);
     page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: hex(C.bg) });
@@ -356,7 +362,7 @@ async function buildEarly(data){
     hr(page, M, W - M, H - 70, C.gold2, 0.9);
     hr(page, M, W - M, 42, C.line);
     text(page, `Questions? ${[data.contactName, data.contactPhone].filter(Boolean).join(" · ") || "Your account manager"} · mrpriceless.com`, M, 28, { size: 7.5, color: C.dim, maxWidth: 400 });
-    text(page, `Confidential · Page ${n} of 2`, W - M, 28, { size: 7.5, color: C.dim, align: "right" });
+    pages.push([page, n]);
     return page;
   };
   const CW = W - 2 * M;
@@ -473,17 +479,21 @@ async function buildEarly(data){
     ["Follow-up wins it.", "We call every enquiry within minutes and book the quotes in. Following each quote up after a few days is what turns this pipeline into work."],
   ];
   const rows = honest.map(([, b]) => Math.max(1, wrap(F.r, b, 9, CW - 196).length) * 13 + 10);
-  const hH = 60 + rows.reduce((a, b) => a + b, 0), hY = Math.max(56, y - hH);
-  box(p2, M, hY, CW, hH, { fill: "#0b0b0c", r: 12 });
-  label(p2, "What to expect", M + 20, hY + hH - 22, { color: "#e8c468" });
-  text(p2, "Why early results look like this", M + 20, hY + hH - 42, { f: F.d7, size: 15, color: "#ffffff" });
+  const hH = 60 + rows.reduce((a, b) => a + b, 0);
+  let hp = p2;
+  if (y - hH < 56){ hp = newPage(3); y = H - 100; }
+  const hY = y - hH;
+  box(hp, M, hY, CW, hH, { fill: "#0b0b0c", r: 12 });
+  label(hp, "What to expect", M + 20, hY + hH - 22, { color: "#e8c468" });
+  text(hp, "Why early results look like this", M + 20, hY + hH - 42, { f: F.d7, size: 15, color: "#ffffff" });
   let rt = hY + hH - 64;
   honest.forEach(([h, b], i) => {
-    text(p2, h, M + 20, rt, { f: F.b, size: 9.4, color: "#e8c468", maxWidth: 150 });
-    wrap(F.r, b, 9, CW - 196).forEach((ln, j) => text(p2, ln, M + 176, rt - j * 13, { size: 9, color: "#d9d3c5" }));
+    text(hp, h, M + 20, rt, { f: F.b, size: 9.4, color: "#e8c468", maxWidth: 150 });
+    wrap(F.r, b, 9, CW - 196).forEach((ln, j) => text(hp, ln, M + 176, rt - j * 13, { size: 9, color: "#d9d3c5" }));
     rt -= rows[i];
   });
 
+  pages.forEach(([page, n]) => text(page, `Confidential · Page ${n} of ${pages.length}`, W - M, 28, { size: 7.5, color: C.dim, align: "right" }));
   pdf.setTitle(`Mr Priceless Early Results Report - ${data.clientName || ""} - ${data.periodLabel}`);
   pdf.setAuthor("Mr Priceless");
   return pdf.save();
