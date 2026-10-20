@@ -6600,16 +6600,8 @@ async function rpRenderGhl(c){
     return;
   }
   box.innerHTML = `<span class="rp-ghl-ok">GHL connected${s.location_name ? ` · ${escapeHtml(s.location_name)}` : ""}</span><button type="button" class="btn gold sm" data-action="rp-ghl-pull">Pull from GHL</button><button type="button" class="btn ghost sm" data-action="rp-ghl-connect-show">Change</button>`;
-  // Which stage counts as "quote booked" in their pipeline. Quotes sent are
-  // worked out from the stage names - no need to pick one.
-  const stages = (s.pipelines || []).flatMap(p => (p.stages || []).map(st => ({ id: st.id, name: (s.pipelines.length > 1 ? p.name + " · " : "") + st.name })));
-  const pick = ghlStagesOf(c);
-  if (stagesBox && stages.length){
-    const opts = (sel) => `<option value="">Work it out from the names</option>` + stages.map(st => `<option value="${escapeHtml(st.id)}" ${st.id === sel ? "selected" : ""}>${escapeHtml(st.name)}</option>`).join("");
-    stagesBox.innerHTML = `
-      <div class="field"><label for="rp-ghl-booked">"Quote booked" is their stage</label><select id="rp-ghl-booked">${opts(pick.booked)}</select></div>`;
-    stagesBox.hidden = false;
-  }
+  // No stages to pick: quotes are anything past Disqualified, jobs won are the
+  // Won stage - the GHL function works both out itself.
   // A new report fills itself straight away.
   if (!rpExisting) rpGhlPull();
 }
