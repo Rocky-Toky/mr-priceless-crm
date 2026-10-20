@@ -3124,23 +3124,7 @@ body.jv-open .jv-fab{display:none;}
 .rp-ad-note{margin:-4px 0 0;font-size:13px;color:var(--text2);line-height:1.45;}
 .rp-did textarea{min-height:260px;}.rp-sub{font-weight:500;color:var(--text2);margin-left:4px;}
 .auth-invite-note{font-size:13px;color:var(--text2);text-align:center;margin:0 0 14px;}
-/* Deals board fits the screen on desktop: two rows of stages, each scrolling inside itself. */
 .kanban-cards{display:flex;flex-direction:column;gap:10px;}
-@media (min-width:821px) and (min-height:560px){
-  #page-deals.active.deals-board{height:calc(100vh - 76px);display:flex;flex-direction:column;overflow:hidden;}
-  #page-deals.deals-board > *{flex-shrink:0;}
-  #page-deals.deals-board > #deals-list-view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
-  #page-deals.deals-board #deals-list-view > *{flex-shrink:0;}
-  #page-deals.deals-board #deals-list-view > .page-header{margin-bottom:14px;}
-  #page-deals.deals-board #kanban-board{flex:1 1 auto;min-height:0;grid-template-rows:repeat(2,minmax(0,1fr));align-items:stretch;gap:14px;}
-  #page-deals.deals-board #kanban-board .kanban-col{min-height:0;overflow:hidden;padding-bottom:10px;}
-  #page-deals.deals-board #kanban-board .kanban-cards{flex:1 1 auto;min-height:0;overflow-y:auto;margin:0 -6px;padding:2px 6px 4px;}
-  #page-deals.deals-board .kanban-closed-divider{margin:12px 0 10px;padding-top:12px;}
-  /* An opened closed stage pops up over the board instead of pushing the page down. */
-  #page-deals.deals-board #kanban-board-closed{position:relative;}
-  #page-deals.deals-board .dl-closed-open{position:absolute;left:0;right:0;bottom:calc(100% + 8px);max-height:58vh;overflow-y:auto;z-index:20;border-radius:var(--r);box-shadow:0 18px 48px rgba(20,15,5,.18);}
-}
-@media (min-width:821px) and (min-height:560px){#page-deals.deals-board > .page-tabs{align-self:flex-start;}}
 .page-tabs[hidden],.page-tabs button[hidden]{display:none !important;}
 /* Add prospects: compact coverage header, regions in a tight grid. */
 .le-coverage{margin-top:18px;}
@@ -3171,12 +3155,6 @@ body.jv-open .jv-fab{display:none;}
   #page-lead-engine > .page-header > div:last-child{flex-wrap:nowrap !important;flex-shrink:0;}
   #page-lead-engine .team-focus-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
 }
-@media (min-width:821px) and (min-height:560px){
-  #page-deals.deals-board #kanban-board .kanban-col{padding:12px 12px 8px;gap:6px;}
-  #page-deals.deals-board #kanban-board .kanban-col-value{padding-bottom:2px;}
-  #page-deals.deals-board #kanban-board .deal-card{padding:10px 12px;}
-  #page-deals.deals-board #kanban-board .kanban-cards{gap:8px;}
-}
 .lr-modal{max-width:460px;}
 .lr-q{font-family:var(--font-display);font-size:21px;font-weight:700;margin:4px 0 4px;}
 .lr-deal{color:var(--text2);font-size:14px;margin:0 0 14px;}
@@ -3188,3 +3166,40 @@ body.jv-open .jv-fab{display:none;}
 #lost-details{width:100%;padding:10px 13px;border-radius:10px;border:1px solid var(--line);background:var(--paper);font:inherit;font-size:14px;resize:vertical;}
 .lr-err{min-height:18px;margin:6px 0 4px;font-size:12.5px;color:var(--danger);}
 .lr-btns{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;}
+/* Deals: compact on desktop so the whole board (2 deals a stage) fits without scrolling. */
+@media (min-width:821px){
+  #page-deals #deals-list-view > .page-header{margin-bottom:12px;}
+  #kanban-board{gap:12px;}
+  #kanban-board .kanban-col{padding:12px 14px 10px;gap:7px;min-height:0;}
+  #kanban-board .kanban-col-value{font-size:14px;padding-bottom:0;}
+  #kanban-board .kanban-cards{gap:7px;}
+  #kanban-board .deal-card{padding:9px 12px;}
+  #kanban-board .kanban-more{padding:5px 10px;}
+  #page-deals .kanban-closed-divider{margin:12px 0 8px;padding-top:10px;}
+}
+/* Stage total sits on the header line, beside the count. */
+.kanban-col-head{gap:8px;}
+.kanban-col-head h4{flex:1;min-width:0;}
+.kanban-col-head .kanban-col-value{padding:0;font-size:14px;white-space:nowrap;}
+@media (min-width:821px){
+  #page-deals{margin-top:-12px;}
+  #page-deals > .page-tabs{margin-bottom:10px;}
+  #page-deals #deals-list-view > .page-header{margin-bottom:10px;}
+  #kanban-board .deal-card h5{margin-bottom:2px;}
+  #kanban-board .deal-card .deal-contact{margin-bottom:4px;}
+  #kanban-board .deal-card-foot{margin-top:4px;}
+  #kanban-board .deal-card .deal-value{font-size:15px;}
+  #kanban-board .deal-card .icon-btn{width:28px;height:28px;}
+  /* Closed stages: one slim line each. */
+  #page-deals .kanban-col.dl-closed-chip{flex-wrap:nowrap;padding:8px 12px;gap:8px;}
+  #page-deals .dl-closed-chip .dl-closed-label{flex:1 1 auto;}
+}
+/* Region chips a touch bigger now they have the whole page. */
+@media (min-width:821px) and (min-height:560px){
+  #page-lead-engine .le-coverage{margin-top:4px;}
+  #page-lead-engine .le-coverage > .coverage-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;}
+  #page-lead-engine .coverage-chip{padding:9px 10px 9px 12px;}
+  #page-lead-engine .coverage-chip-name{font-size:13px;}
+  #page-lead-engine .coverage-chip-count{font-size:11px;margin-top:1px;}
+  #page-lead-engine .coverage-tick{width:20px;height:20px;}
+}

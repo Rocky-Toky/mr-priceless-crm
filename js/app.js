@@ -2065,7 +2065,6 @@ function renderDeals(){
   if (!listView || !detailView) return;
 
   const selected = state.deals.find(d => d.id === state.selectedDealId);
-  $("#page-deals")?.classList.toggle("deals-board", !selected);
   if (!selected){
     state.selectedDealId = null;
     listView.style.display = "";
@@ -2124,20 +2123,9 @@ function renderDealMonthPicker(){
       return `<button type="button" data-dmp-month="${mm}" class="${ym === cur ? "is-cur" : ""}${ym === now ? " is-now" : ""}">${new Date(2000, i, 1).toLocaleDateString("en-NZ", { month: "short" })}</button>`; }).join("")}</div>`;
 }
 function closeDealMonthPicker(){ const pop = $("#deal-month-pop"); if (pop) pop.hidden = true; dmpDealId = null; }
-// On a desktop screen the Deals board fits the screen: every stage shows all
-// its deals and scrolls inside itself, so the page never needs scrolling.
-const DEALS_FIT_MQ = window.matchMedia ? window.matchMedia("(min-width:821px) and (min-height:560px)") : null;
-const dealsFit = () => Boolean(DEALS_FIT_MQ?.matches);
-DEALS_FIT_MQ?.addEventListener?.("change", () => { if (state.page === "deals") renderDeals(); });
-// The opened closed stage is a pop-up over the board there: a click anywhere else closes it.
-document.addEventListener("pointerdown", (e) => {
-  if (!state.closedOpen || !dealsFit() || e.target.closest?.("#kanban-board-closed, .overlay, #deal-month-pop")) return;
-  state.closedOpen = null; renderDealsList();
-});
 function renderDealStageCol(stage){
   const deals = pipelineDeals().filter(d => d.stage === stage.key);
-  const fit = dealsFit();
-  const expanded = fit || !!state.expandedStages[stage.key];
+  const expanded = !!state.expandedStages[stage.key];
   // Net of rep commission where it's known, same as the pipeline total above
   // the board - a column footer that only ever showed gross was overstating
   // what actually lands once commission's paid out.
@@ -2146,9 +2134,9 @@ function renderDealStageCol(stage){
     <div class="kanban-col" data-stage="${stage.key}">
       <div class="kanban-col-head">
         <h4>${stage.label}${winChanceChip(stage.key)}</h4>
+        <span class="kanban-col-value">${fmtMoney(stageValue)}</span>
         <span class="kanban-count">${deals.length}</span>
       </div>
-      <div class="kanban-col-value">${fmtMoney(stageValue)}</div>
       <div class="kanban-cards">
       ${(expanded ? deals : deals.slice(0, KANBAN_PREVIEW_COUNT)).map(d => {
         const extraContacts = dealContactsFor(d.id);
@@ -2169,7 +2157,7 @@ function renderDealStageCol(stage){
         </div>
       `;}).join("")}
       </div>
-      ${!fit && deals.length > KANBAN_PREVIEW_COUNT ? `<button type="button" class="kanban-more" data-action="toggle-stage-expand" data-stage="${stage.key}">${expanded ? "Show less" : `Show ${deals.length - KANBAN_PREVIEW_COUNT} more`}</button>` : ""}
+      ${deals.length > KANBAN_PREVIEW_COUNT ? `<button type="button" class="kanban-more" data-action="toggle-stage-expand" data-stage="${stage.key}">${expanded ? "Show less" : `Show ${deals.length - KANBAN_PREVIEW_COUNT} more`}</button>` : ""}
     </div>
   `;
 }
@@ -11195,6 +11183,7 @@ function setupModals(){
   });
 
   $("#vertical-coverage-btn")?.addEventListener("click", () => { renderVerticalCoverage(); openModal("vcov-modal"); });
+  $("#team-focus-btn")?.addEventListener("click", () => { renderTeamFocusPanel(); openModal("team-focus-modal"); });
   $("#prospecting-coverage-btn")?.addEventListener("click", () => {
     renderCoverageMap();
     openModal("coverage-modal");
