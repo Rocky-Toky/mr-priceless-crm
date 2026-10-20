@@ -6449,7 +6449,7 @@ async function rpRemember(c, key, value){
   if (key === "adSpend"){ patch.monthly_ad_spend = v; c.monthly_ad_spend = v; }
   await DataLayer.update("clients", c.id, patch);
 }
-const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "adMonth", "adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"];
+const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "adMonth", "adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "did4", "did5", "next1", "next2", "next3", "topAdId"];
 let rpClientId = null, rpLastUrl = null, rpLastName = "", rpExisting = null;
 function rpVal(k){ return $("#rp-" + k)?.value ?? ""; }
 function rpSet(k, v){ const el = $("#rp-" + k); if (el) el.value = v ?? ""; }
@@ -6542,7 +6542,7 @@ function openReportModal(clientId, existingId){
     const base = monthBase(c.id, rpExisting.period_end, rpExisting.id);
     REPORT_DELTAS.forEach(d => rpSet(d.key, m[d.key] ?? ((toNum(m[d.month]) ?? 0) - (toNum(base[d.month]) || 0) || "")));
     rpSet("adMonth", m.adMonth ?? m.adSpendMonth ?? "");
-    ["adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"].forEach(k => rpSet(k, m[k] ?? ""));
+    ["adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "did4", "did5", "next1", "next2", "next3", "topAdId"].forEach(k => rpSet(k, m[k] ?? ""));
   } else {
     const to = localDayStr();
     rpSet("to", to); rpSet("from", reportFrom(c.id, to));
@@ -6583,14 +6583,23 @@ function rpFillStory(){
     const parts = [`Your ads brought in ${plural(enq, "enquiry").replace("enquirys", "enquiries")} in ${monthName} so far, and ${ready} ${ready === 1 ? "has" : "have"} booked a quote with you.`];
     parts.push(jobs ? `${plural(jobs, "job")} signed this month, worth ${fmtMoney(rev)}${jobs > 1 ? ` - an average of ${fmtMoney(rev / jobs)} a job` : ""}.` : "No new jobs signed yet this month - the quotes are still coming back.");
     if (waiting) parts.push(`${plural(waiting, "quote")} ${waiting === 1 ? "is" : "are"} out waiting on a decision.`);
-    if (t.revenueToDate) parts.push(`Since we started you've won ${t.jobsToDate > jobs ? `${plural(t.jobsToDate, "job")} worth ` : ""}${fmtMoney(t.revenueToDate)} in work${t.roiToDate ? `, ${fmtTimes(t.roiToDate)} what you've invested with us` : ""}.`);
+    if (t.revenueToDate) parts.push(`Since we started you've won ${t.jobsToDate > jobs ? `${plural(t.jobsToDate, "job")} worth ` : ""}${fmtMoney(t.revenueToDate)} in work.`);
+    // The bit that matters to them: rough profit after what they've spent with us.
+    if (t.revenueToDate && t.margin != null && t.profitToDate != null){
+      const net = Math.round(t.profitToDate - t.investedToDate);
+      parts.push(net >= 0
+        ? `Assuming your ${t.margin}% margin, that's roughly ${fmtMoney(t.profitToDate)} in profit - and after your ${fmtMoney(t.investedToDate)} marketing investment, you're left with about ${fmtMoney(net)} profit in your pocket.`
+        : `Assuming your ${t.margin}% margin, that's roughly ${fmtMoney(t.profitToDate)} in profit so far - ${fmtMoney(-net)} off covering your ${fmtMoney(t.investedToDate)} marketing investment, with the quotes still out to come.`);
+    } else if (t.roiToDate) parts.push(`That's ${fmtTimes(t.roiToDate)} what you've invested with us.`);
     summary = parts.join(" ");
   }
   const story = {
     summary,
-    did1: live ? `Had ${plural(live, "new ad")} live for ${monthName}` : "Kept your ads running and optimised",
-    did2: best ? `"${best.name}" brought in leads at ${fmtMoney(best.cost_per_result)} each` : "Tested new audiences and headlines",
-    did3: "Called every new enquiry and booked the quotes in",
+    did1: `Wrote fresh ad copy for ${monthName} and tested dozens of variations of headlines, hooks and opening lines to find what makes locals stop scrolling`,
+    did2: live ? `Launched ${plural(live, "new ad creative")} this month across static and video, and rotated out any that were starting to tire` : "Refreshed your ad creatives across static and video, and rotated out any that were starting to tire",
+    did3: best ? `Found your top performer - "${best.name}" is bringing leads in at ${fmtMoney(best.cost_per_result)} each - and moved more budget behind it` : "Shifted budget daily onto the ads and audiences bringing in the best enquiries",
+    did4: "Refined your audience targeting and placements, cutting spend on anything not bringing in quality local enquiries",
+    did5: `Called every new enquiry within minutes, qualified them and booked ${ready ? plural(ready, "quote") : "the quotes"} straight into your calendar, then fed the results back into Meta so it keeps finding more people like your best customers`,
     next1: best ? `Put more budget behind "${best.name}"` : "Move budget onto the best performing ad",
     next2: "Launch a fresh test ad for next month",
     next3: waiting ? `Follow up the ${plural(waiting, "quote")} still waiting on a decision` : "Keep following up every quote after a few days",
@@ -6788,7 +6797,7 @@ async function makeReport(){
       quotesBooked: ready || 0, quoteTarget: n("quoteTarget") || c.quote_target || 10,
       // The quote guarantee only runs for their first month (or while they're still on it).
       showGuarantee: normalizeClientStage(c.stage) === "quote_guarantee" || ymOf(to) === ymOf(rpStartDate(c, to)),
-      summary: form.summary, didList: [form.did1, form.did2, form.did3], nextList: [form.next1, form.next2, form.next3],
+      summary: form.summary, didList: [form.did1, form.did2, form.did3, form.did4, form.did5], nextList: [form.next1, form.next2, form.next3],
       topAd: ad ? { name: ad.name, leads: ad.results, cpl: ad.cost_per_result, share: clientResults ? Math.round((Number(ad.results) || 0) / clientResults * 100) : null, imageBytes: img?.bytes, imageType: img?.type } : null,
       hood: [
         ["Cost per enquiry", spend && enq ? fmtMoney(spend / enq) : null, "Ad spend divided by every enquiry, qualified or not"],
