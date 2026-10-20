@@ -3123,3 +3123,4 @@ body.jv-open .jv-fab{display:none;}
 .rp-row2{grid-template-columns:repeat(2,minmax(0,1fr));}.rp-totals{grid-template-columns:repeat(4,minmax(0,1fr));}@media (max-width:640px){.rp-row2{grid-template-columns:1fr 1fr;}.rp-totals{grid-template-columns:repeat(2,minmax(0,1fr));}}
 .rp-ad-note{margin:-4px 0 0;font-size:13px;color:var(--text2);line-height:1.45;}
 .rp-did textarea{min-height:260px;}.rp-sub{font-weight:500;color:var(--text2);margin-left:4px;}
+.auth-invite-note{font-size:13px;color:var(--text2);text-align:center;margin:0 0 14px;}

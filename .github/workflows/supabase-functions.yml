@@ -34,6 +34,7 @@ on:
       - "sql/063_margin_and_video.sql"
       - "sql/064_deal_stage_history.sql"
       - "sql/065_deal_attended.sql"
+      - "sql/066_security_hardening.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
     inputs:
@@ -74,13 +75,24 @@ jobs:
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
               --data @/tmp/q.json
             echo " <- $f"
           done
+      # Sign-in lock-down: nobody can create their own account (teammates are
+      # invited from the Team page, which creates the account for them), and an
+      # email address has to be confirmed before it counts. Only those two
+      # settings are printed - the rest of the auth config stays out of the log.
+      - name: Lock down sign-ups
+        if: steps.token.outputs.ok == 'true'
+        run: |
+          curl -sS --fail-with-body -X PATCH "https://api.supabase.com/v1/projects/$PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+            --data '{"disable_signup": true, "mailer_autoconfirm": false, "password_min_length": 8}' \
+            | jq '{disable_signup, mailer_autoconfirm, password_min_length}'
       # Jarvis's Claude API key: add it once as the ANTHROPIC_API_KEY repo
       # secret and this copies it into the Supabase project's function secrets.
       - name: Pass Jarvis his API key
