@@ -4595,7 +4595,7 @@ async function cpPullGhl(c){
   if (fresh(csGhl[c.id]) && fresh(cpGhlMonth[c.id]) && cpGhlMonth[c.id].ym === ym) return;
   cpGhlPulling.add(c.id);
   try {
-    const stages = (c.onboarding_progress || {}).ghl_stages || {};
+    const stages = ghlStagesOf(c);
     const from = String(c.ad_start_date || c.created_at || today).slice(0, 10);
     const [all, month] = await Promise.all([
       ghlCall({ action: "pull", client_id: c.id, from, to: today, stages }),
@@ -5512,7 +5512,7 @@ async function csPullGhl(force){
     while (queue.length){
       const c = queue.shift();
       const from = String(c.ad_start_date || c.created_at || today).slice(0, 10);
-      const r = await ghlCall({ action: "pull", client_id: c.id, from, to: today, stages: (c.onboarding_progress || {}).ghl_stages || {} });
+      const r = await ghlCall({ action: "pull", client_id: c.id, from, to: today, stages: ghlStagesOf(c) });
       csGhl[c.id] = r.error ? { at: Date.now(), error: r.error } : { at: Date.now(), metrics: r.metrics || {} };
     }
   };
@@ -6530,6 +6530,8 @@ function rpRenderTotals(){
 }
 
 /* GHL connection (through the ghl-report-data function, so the key never reaches the browser). */
+// Only the "quote booked" pick is used; an older saved "quote sent" pick is ignored.
+const ghlStagesOf = (c) => { const g = (c.onboarding_progress || {}).ghl_stages || {}; return g.booked ? { booked: g.booked } : {}; };
 async function ghlCall(body){
   if (!IS_CONFIGURED) return { error: "demo" };
   const { data, error } = await supabase.functions.invoke("ghl-report-data", { body });
@@ -6557,14 +6559,14 @@ async function rpRenderGhl(c){
     return;
   }
   box.innerHTML = `<span class="rp-ghl-ok">GHL connected${s.location_name ? ` · ${escapeHtml(s.location_name)}` : ""}</span><button type="button" class="btn gold sm" data-action="rp-ghl-pull">Pull from GHL</button><button type="button" class="btn ghost sm" data-action="rp-ghl-connect-show">Change</button>`;
-  // Which stages count as "quote booked" and "quote sent" in their pipeline.
+  // Which stage counts as "quote booked" in their pipeline. Quotes sent are
+  // worked out from the stage names - no need to pick one.
   const stages = (s.pipelines || []).flatMap(p => (p.stages || []).map(st => ({ id: st.id, name: (s.pipelines.length > 1 ? p.name + " · " : "") + st.name })));
-  const pick = (c.onboarding_progress || {}).ghl_stages || {};
+  const pick = ghlStagesOf(c);
   if (stagesBox && stages.length){
     const opts = (sel) => `<option value="">Work it out from the names</option>` + stages.map(st => `<option value="${escapeHtml(st.id)}" ${st.id === sel ? "selected" : ""}>${escapeHtml(st.name)}</option>`).join("");
     stagesBox.innerHTML = `
-      <div class="field"><label for="rp-ghl-booked">"Quote booked" is their stage</label><select id="rp-ghl-booked">${opts(pick.booked)}</select></div>
-      <div class="field"><label for="rp-ghl-sent">"Quote sent" is their stage</label><select id="rp-ghl-sent">${opts(pick.sent)}</select></div>`;
+      <div class="field"><label for="rp-ghl-booked">"Quote booked" is their stage</label><select id="rp-ghl-booked">${opts(pick.booked)}</select></div>`;
     stagesBox.hidden = false;
   }
   // A new report fills itself straight away.
@@ -6577,7 +6579,7 @@ async function rpGhlPull(){
   // Ask GHL for the whole month so far, then take off what earlier reports this
   // month already counted. Leads that moved along since the last report are caught.
   const to = rpVal("to") || localDayStr();
-  const pick = (c.onboarding_progress || {}).ghl_stages || {};
+  const pick = ghlStagesOf(c);
   const r = await ghlCall({ action: "pull", client_id: c.id, from: monthStart(to), to, stages: pick });
   if (rpClientId !== c.id) return;
   if (r.error){ rpStatus(`Couldn't pull from GHL: ${r.error}`, true); return; }
@@ -7620,7 +7622,7 @@ function setupReporting(){
   $("#rp-ghl-stages")?.addEventListener("change", async (e) => {
     const c = state.clients.find(x => x.id === rpClientId);
     if (!c || !e.target.matches("select")) return;
-    const ghl_stages = { booked: $("#rp-ghl-booked")?.value || "", sent: $("#rp-ghl-sent")?.value || "" };
+    const ghl_stages = { booked: $("#rp-ghl-booked")?.value || "" };
     c.onboarding_progress = { ...(c.onboarding_progress || {}), ghl_stages };
     await DataLayer.update("clients", c.id, { onboarding_progress: c.onboarding_progress });
     rpGhlPull();
