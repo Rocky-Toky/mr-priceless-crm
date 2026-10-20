@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=270">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=270">
+<link rel="stylesheet" href="css/style.css?v=271">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=271">
 </head>
 <body>
 
@@ -1914,6 +1914,7 @@
           <option value="profit_share">Profit Share</option>
           <option value="revenue_share">Revenue Share</option>
           <option value="ppl">Pay Per Lead</option>
+          <option value="adhoc">Ad-Hoc (one-off)</option>
         </select>
       </div>
       <div class="field-row">
@@ -2727,17 +2728,42 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
-<script src="js/config.js?v=270"></script>
-<script src="js/supabaseClient.js?v=270"></script>
-<script src="js/report-pdf.js?v=270"></script>
-<script src="js/plan-pdf.js?v=270"></script>
-<script src="js/workshop-pdf.js?v=270"></script>
-<script src="js/receipt-pdf.js?v=270"></script>
-<script src="js/welcome-pdf.js?v=270"></script>
-<script src="js/builtin-playbooks.js?v=270"></script>
-<script src="js/builtin-email-templates.js?v=270"></script>
-<script src="js/app.js?v=270"></script>
-<script src="js/meetings-tracker.js?v=270"></script>
-<script src="js/todo.js?v=270"></script>
+<div class="overlay" id="lost-modal">
+  <div class="modal lr-modal">
+    <div class="modal-body">
+      <p class="lr-q">Why was this deal lost?</p>
+      <p class="lr-deal" id="lost-deal"></p>
+      <div class="lr-chips" id="lost-chips">
+        <button type="button" data-reason="Too expensive">Too expensive</button>
+        <button type="button" data-reason="Went with someone else">Went with someone else</button>
+        <button type="button" data-reason="Not the right time">Not the right time</button>
+        <button type="button" data-reason="No budget">No budget</button>
+        <button type="button" data-reason="Not a good fit">Not a good fit</button>
+        <button type="button" data-reason="Doing it themselves">Doing it themselves</button>
+        <button type="button" data-reason="Stopped responding">Stopped responding</button>
+        <button type="button" data-reason="Other">Other</button>
+      </div>
+      <label class="lr-label" for="lost-details">What happened? <span>needed</span></label>
+      <textarea id="lost-details" rows="3" placeholder="e.g. Liked the pitch but went with their nephew's agency on price"></textarea>
+      <p class="lr-err" id="lost-err"></p>
+      <div class="lr-btns">
+        <button type="button" class="btn ghost" id="lost-cancel">Cancel - keep the deal where it was</button>
+        <button type="button" class="btn gold" id="lost-save">Mark as lost</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/config.js?v=271"></script>
+<script src="js/supabaseClient.js?v=271"></script>
+<script src="js/report-pdf.js?v=271"></script>
+<script src="js/plan-pdf.js?v=271"></script>
+<script src="js/workshop-pdf.js?v=271"></script>
+<script src="js/receipt-pdf.js?v=271"></script>
+<script src="js/welcome-pdf.js?v=271"></script>
+<script src="js/builtin-playbooks.js?v=271"></script>
+<script src="js/builtin-email-templates.js?v=271"></script>
+<script src="js/app.js?v=271"></script>
+<script src="js/meetings-tracker.js?v=271"></script>
+<script src="js/todo.js?v=271"></script>
 </body>
 </html>

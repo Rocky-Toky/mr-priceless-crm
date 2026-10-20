@@ -242,12 +242,14 @@ const CONTRACT_TYPES = {
   profit_share: { label: "Profit Share", cls: "green" },
   revenue_share: { label: "Revenue Share", cls: "black" },
   ppl: { label: "Pay Per Lead", cls: "purple" },
+  adhoc: { label: "Ad-Hoc", cls: "green" },
 };
 function dealValueLabel(d){
   if (d.contract_type === "profit_share" || d.contract_type === "revenue_share"){
     return `${Number(d.percentage||0)}% ${CONTRACT_TYPES[d.contract_type].label}`;
   }
   if (d.contract_type === "ppl") return `${fmtMoney(d.value)} / lead`;
+  if (d.contract_type === "adhoc") return `${fmtMoney(d.value)} one-off`;
   return fmtMoney(d.value);
 }
 // What the business actually nets after the rep's cut - only meaningful for
@@ -2288,7 +2290,7 @@ function renderDealDetail(deal){
   const ago = (iso) => { const n = daysSince(iso); return n == null ? "" : n <= 0 ? "Today" : n === 1 ? "Yesterday" : `${n} days ago`; };
   const fact = (k, v, sub, cls = "") => `<div class="dd-fact ${cls}"><span class="dd-k">${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
   $("#deal-detail-facts").innerHTML = [
-    fact("Value", escapeHtml(dealValueLabel(deal)), deal.contract_type === "retainer" || !deal.contract_type ? "per month" : escapeHtml(CONTRACT_TYPES[deal.contract_type]?.label || ""), "gold"),
+    fact("Value", escapeHtml(dealValueLabel(deal)), deal.contract_type === "retainer" || !deal.contract_type ? "per month" : deal.contract_type === "adhoc" ? "one-off job" : escapeHtml(CONTRACT_TYPES[deal.contract_type]?.label || ""), "gold"),
     net != null ? fact("Net", escapeHtml(fmtMoney(net)), `after ${escapeHtml(fmtMoney(deal.commission_initial_amount))} commission`) : "",
     fact("Month", escapeHtml(monthNameOf(dealDate(deal), true)), "on the pipeline"),
     fact("Last called", lastCall ? escapeHtml(ago(lastCall.created_at)) : "Not yet", lastCall ? escapeHtml(fmtDate(lastCall.created_at)) : "tap Called them after a call"),
@@ -2324,6 +2326,7 @@ function renderDealDetail(deal){
   $("#deal-detail-details").innerHTML = [
     det("Contract", escapeHtml(CONTRACT_TYPES[deal.contract_type || "retainer"]?.label || "")),
     det("Lead source", DEAL_SOURCES[dealSource(deal)]),
+    deal.stage === "closed_lost" ? det("Lost because", escapeHtml(deal.lost_reason || "")) : "",
     det("In this stage", deal.stage_changed_at ? escapeHtml(ago(deal.stage_changed_at).replace(" ago", "")) : ""),
     det("Deal date", escapeHtml(fmtDate(dealDate(deal)))),
     det("Created", escapeHtml(fmtDate(deal.created_at))),
@@ -2344,10 +2347,55 @@ function renderDealDetail(deal){
     : `<p class="dd-empty">Nothing yet. Add a note or tap Called them after a call.</p>`;
 }
 // Moving a deal to a new stage, from the board or from the deal itself.
+// Moving a deal to Closed Lost needs a real reason. Resolves with the reason,
+// or null if they backed out (the deal then stays where it was).
+let lostResolve = null;
+function askLostReason(deal){
+  return new Promise((resolve) => {
+    lostResolve = resolve;
+    $("#lost-deal").textContent = deal?.title || deal?.contact_name || "This deal";
+    $("#lost-details").value = "";
+    $("#lost-err").textContent = "";
+    $$("#lost-chips button").forEach(b => b.classList.remove("active"));
+    openModal("lost-modal");
+    setTimeout(() => $("#lost-details")?.focus(), 50);
+  });
+}
+function finishLostReason(value){
+  const r = lostResolve; lostResolve = null;
+  closeModal("lost-modal");
+  if (r) r(value);
+}
+function setupLostReason(){
+  $("#lost-chips")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-reason]"); if (!b) return;
+    $$("#lost-chips button").forEach(x => x.classList.toggle("active", x === b));
+    $("#lost-err").textContent = "";
+    $("#lost-details").focus();
+  });
+  $("#lost-cancel")?.addEventListener("click", () => finishLostReason(null));
+  $("#lost-save")?.addEventListener("click", () => {
+    const chip = $("#lost-chips button.active")?.dataset.reason || "";
+    const details = $("#lost-details").value.trim();
+    if (!chip){ $("#lost-err").textContent = "Pick the closest reason first."; return; }
+    if (details.length < 8){ $("#lost-err").textContent = "Add a few words on what actually happened."; $("#lost-details").focus(); return; }
+    finishLostReason(chip === "Other" ? details : `${chip} - ${details}`);
+  });
+}
 async function changeDealStage(dealId, stage){
-  const before = state.deals.find(d => d.id === dealId)?.stage;
+  const current = state.deals.find(d => d.id === dealId);
+  const before = current?.stage;
+  // A one-off (ad-hoc) deal that's won goes to Closed Won Adhoc, not MRR.
+  if (stage === "closed_won" && current?.contract_type === "adhoc") stage = ADHOC_STAGE;
   if (!stage || before === stage) return;
-  const updated = await DataLayer.update("deals", dealId, { stage, updated_at: new Date().toISOString() });
+  const patch = { stage, updated_at: new Date().toISOString() };
+  if (stage === "closed_lost"){
+    const reason = await askLostReason(current);
+    if (!reason){ renderDeals(); return; }
+    patch.lost_reason = reason;
+  }
+  const updated = await DataLayer.update("deals", dealId, patch);
+  if (patch.lost_reason) await DataLayer.insert("notes", { deal_id: dealId, title: "Lost", body: `Lost because: ${patch.lost_reason}` });
   await onDealStageChanged(updated, before);
   const created = await maybeCreateClientFromDeal(updated);
   // Already a client (so no new pack popped up)? Still offer the pack on signing.
@@ -2465,13 +2513,13 @@ function dealContactsFor(dealId){
 }
 function toggleDealContractFields(){
   const type = $("#deal-contract-type")?.value || "retainer";
-  const isMoneyType = type === "retainer" || type === "ppl";
+  const isMoneyType = type === "retainer" || type === "ppl" || type === "adhoc";
   const valueField = $("#deal-value-field");
   const pctField = $("#deal-percentage-field");
   if (valueField) valueField.style.display = isMoneyType ? "" : "none";
   if (pctField) pctField.style.display = isMoneyType ? "none" : "";
   const valueLabel = valueField?.querySelector("label");
-  if (valueLabel) valueLabel.textContent = type === "ppl" ? "Price Per Lead (NZD)" : "Value (NZD/mo)";
+  if (valueLabel) valueLabel.textContent = type === "ppl" ? "Price Per Lead (NZD)" : type === "adhoc" ? "One-off value (NZD)" : "Value (NZD/mo)";
 }
 // Commission's Thor-only for now - the field stays hidden for every other
 // assignee so it's not sitting there as a temptation/distraction on deals
@@ -11097,7 +11145,7 @@ function setupModals(){
     const id = $("#deal-form-id").value;
     const contactId = $("#deal-contact-select").value || null;
     const contractType = $("#deal-contract-type").value;
-    const isMoneyType = contractType === "retainer" || contractType === "ppl";
+    const isMoneyType = contractType === "retainer" || contractType === "ppl" || contractType === "adhoc";
     const row = {
       title: $("#deal-title").value.trim(),
       contract_type: contractType,
@@ -11115,6 +11163,13 @@ function setupModals(){
     };
     if (!row.title) return;
     const stageBefore = id ? state.deals.find(d => d.id === id)?.stage : null;
+    if (row.contract_type === "adhoc" && row.stage === "closed_won") row.stage = ADHOC_STAGE;
+    // Saving a deal as Closed Lost needs the reason too.
+    if (row.stage === "closed_lost" && stageBefore !== "closed_lost"){
+      const reason = await askLostReason({ title: row.title });
+      if (!reason) return;
+      row.lost_reason = reason;
+    }
     const deal = id ? await DataLayer.update("deals", id, row) : await DataLayer.insert("deals", { ...row, notes: "" });
     if (deal) await saveDealContactRows(deal.id);
     const createdClient = deal ? await maybeCreateClientFromDeal(deal) : null;
@@ -12080,6 +12135,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupGoogleAuth();
   setupEmailAuth();
   setupIdleSignOut();
+  setupLostReason();
   setupNav();
   setupModals();
   setupWelcomePack();
