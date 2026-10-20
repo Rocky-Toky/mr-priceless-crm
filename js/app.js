@@ -4112,7 +4112,7 @@ function amNavCount(){
 }
 const amFmtDay = (ym, d) => new Date(amDueDay(ym, d) + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
 // One row per client, one box per ad. Tap a box: To do → Made → Live → back to To do.
-const AM_CYCLE = { "": "made", brief: "made", made: "live", live: "" };
+const AM_CYCLE = { "": "live", brief: "live", made: "live", live: "" };
 const AM_LOOK = {
   "": { label: "To do", cls: "todo" }, brief: { label: "To do", cls: "todo" },
   made: { label: "Made", cls: "made" }, live: { label: "Live", cls: "live" },
@@ -4166,7 +4166,7 @@ function renderAdsMonth(){
         </div>`;
       }).join("")}
     </div>
-    <p class="am-howto">Tap a box to move it along: <span class="am-key am-todo">To do</span> → <span class="am-key am-made">Made</span> → <span class="am-key am-live">Live</span>. Tap a live one to start it over. Anything not live by its date shows as late.</p>`;
+    <p class="am-howto">Tap a box to mark it: <span class="am-key am-todo">To do</span> → <span class="am-key am-live">Live</span>. Tap a live one to set it back to To do. Anything not live by its date shows as late.</p>`;
 }
 /* ───────── Clients board: drag clients between lifecycle stages ───────── */
 function clientsView(){
@@ -11481,7 +11481,7 @@ function setupModals(){
     if (action === "am-tap"){
       const c = state.clients.find(x => x.id === id);
       const cur = amClientProgress(c).slots.find(s => s.key === btn.dataset.slot)?.status || "";
-      const next = AM_CYCLE[cur] ?? "made";
+      const next = AM_CYCLE[cur] ?? "live";
       const r = btn.getBoundingClientRect();
       await amSetSlot(id, btn.dataset.slot, { s: next });
       renderAdsMonth(); renderClients();
