@@ -20,7 +20,7 @@ const C = {
 const LIGHT = {
   bg: "#fbf8f1", panel: "#ffffff", panel2: "#f3eee2", line: "#e7dfcd",
   gold: "#b8912c", gold2: "#c9a13e", gold3: "#e3d3a4", text: "#1a1813", soft: "#3f3b33",
-  muted: "#7a7466", dim: "#a59f90", good: "#3f7d55", bad: "#b4532a", onGold: "#ffffff", tint: "#fdf6e3",
+  muted: "#655f52", dim: "#958e7e", good: "#3f7d55", bad: "#b4532a", onGold: "#ffffff", tint: "#fdf6e3",
   bars: ["#ece0bb", "#dfc988", "#cdae5c", "#b8912c"],
 };
 C.onGold = C.bg; C.tint = C.panel2;
@@ -163,49 +163,45 @@ async function build(data){
   label(p1, "Prepared for", M, H - 96);
   text(p1, data.clientName || "Client", M, H - 128, { f: F.d7, size: 28, maxWidth: CW });
 
-  // Centrepiece: everything invested vs everything won, and the return on it.
-  // The month so far sits beside it.
-  const heroH = 196, heroY = H - 150 - heroH, gapX = 12;
-  const mainW = CW * 0.64, sideX = M + mainW + gapX, sideW = CW - mainW - gapX;
-  box(p1, M, heroY, mainW, heroH, { fill: C.tint, stroke: C.gold3, bw: 1 });
-  label(p1, `Your return to date${data.since ? ` · since ${data.since}` : ""}`, M + 22, heroY + heroH - 28, { color: C.gold });
-  const roiW = text(p1, times(data.roiToDate), M + 20, heroY + heroH - 86, { f: F.d8, size: 54, color: C.gold });
-  text(p1, "return on everything", M + 34 + roiW, heroY + heroH - 62, { size: 10, color: C.soft });
-  text(p1, "you've invested with us", M + 34 + roiW, heroY + heroH - 76, { size: 10, color: C.soft });
-  // Invested vs won, side by side, with bars to scale.
-  const won = Number(data.revenueToDate) || 0, inv = Number(data.investedToDate) || 0, scaleTop = Math.max(won, inv, 1);
-  const colW = (mainW - 44 - 20) / 2, rowY = heroY + 50;
-  [["Revenue won", won, C.gold, money(data.revenueToDate), `from jobs our ads brought in`],
-   ["Invested", inv, C.muted, money(data.investedToDate), `${money(data.adSpendToDate)} ads + ${money(data.mgmtToDate)} management`]].forEach(([l, v, col, val, sub], i) => {
-    const x = M + 22 + i * (colW + 20);
-    label(p1, l, x, rowY + 34, { size: 6.4 });
-    text(p1, val, x, rowY + 12, { f: F.d7, size: 20, color: i ? C.text : C.gold, maxWidth: colW });
-    box(p1, x, rowY - 4, colW, 6, { fill: C.panel2, r: 3 });
-    if (v > 0) box(p1, x, rowY - 4, Math.max(6, v / scaleTop * colW), 6, { fill: col, r: 3 });
-    text(p1, sub, x, rowY - 20, { size: 7.6, color: C.muted, maxWidth: colW });
-  });
+  // Centrepiece: the work won and the profit it's made them, big and bright.
+  // What they've spent sits underneath, small and quiet.
+  const heroH = 186, heroY = H - 146 - heroH;
+  box(p1, M, heroY, CW, heroH, { fill: "#0e0d0b", r: 14 });
+  const halfW = (CW - 44) / 2, lx = M + 24, rx = M + 24 + halfW + 22;
+  label(p1, `Work won since we started${data.since ? ` · ${data.since}` : ""}`, lx, heroY + heroH - 30, { color: "#e8c468" });
+  text(p1, money(data.revenueToDate), lx, heroY + heroH - 92, { f: F.d8, size: 52, color: "#f3cf6a", maxWidth: halfW + 10 });
+  const jobsAll = Number(data.jobsToDate) || 0;
+  text(p1, jobsAll ? `from ${num(jobsAll)} job${jobsAll === 1 ? "" : "s"} your ads brought in` : "from jobs your ads brought in", lx, heroY + heroH - 112, { size: 10, color: "#d9d3c5" });
+  vr(p1, rx - 12, heroY + 64, heroY + heroH - 22, "#2e2b25");
+  const profitNet = has(data.profitToDate) ? Number(data.profitToDate) - (Number(data.investedToDate) || 0) : null;
+  if (profitNet != null && profitNet > 0){
+    label(p1, "Profit in your pocket", rx, heroY + heroH - 30, { color: "#8fe0b0" });
+    text(p1, money(profitNet), rx, heroY + heroH - 84, { f: F.d8, size: 40, color: "#8fe0b0", maxWidth: halfW });
+    text(p1, `after marketing, at your ${data.margin}% margin`, rx, heroY + heroH - 104, { size: 10, color: "#d9d3c5", maxWidth: halfW });
+  } else {
+    label(p1, "Return on your investment", rx, heroY + heroH - 30, { color: "#e8c468" });
+    text(p1, times(data.roiToDate), rx, heroY + heroH - 84, { f: F.d8, size: 40, color: "#f3cf6a", maxWidth: halfW });
+    text(p1, "back in work for every $1 invested", rx, heroY + heroH - 104, { size: 10, color: "#d9d3c5", maxWidth: halfW });
+  }
+  // The quiet line: what's gone in.
+  hr(p1, lx, M + CW - 24, heroY + 48, "#2e2b25", 0.6);
+  text(p1, `Invested with us so far ${money(data.investedToDate)}  ·  ${money(data.adSpendToDate)} ads + ${money(data.mgmtToDate)} management${has(data.roiToDate) && data.roiToDate > 0 ? `  ·  ${times(data.roiToDate)} return` : ""}`, lx, heroY + 26, { size: 8.4, color: "#8d887c", maxWidth: CW - 48 });
 
-  // Side: where this month is at.
-  box(p1, sideX, heroY, sideW, heroH, { fill: C.panel, stroke: C.line });
-  label(p1, `${data.monthName} so far`, sideX + 18, heroY + heroH - 28);
-  text(p1, money(data.revenueMonth), sideX + 18, heroY + heroH - 62, { f: F.d8, size: 28, maxWidth: sideW - 36 });
-  text(p1, "revenue won this month", sideX + 18, heroY + heroH - 76, { size: 8.5, color: C.muted });
+  // This month at a glance: the wins, in three clean tiles.
+  const tileH = 88, tileY = heroY - 14 - tileH, tileW = (CW - 24) / 3;
   const jobs = Number(data.jobsMonth) || 0;
-  const sideRows = [
-    ["Jobs signed", jobs ? String(jobs) : "0"],
-    [data.lastMonthName ? `${data.lastMonthName} revenue` : "Last month", has(data.revenueLastMonth) ? money(data.revenueLastMonth) : "-"],
-    ["Ad spend", has(data.adSpendMonth) ? money(data.adSpendMonth) : "-"],
-    ["Quotes booked", data.showGuarantee === false ? num(data.quotesBooked ?? 0) : `${num(data.quotesBooked ?? 0)} of ${num(data.quoteTarget || 10)}`],
-  ];
-  let sy = heroY + heroH - 100;
-  sideRows.forEach(([k, v]) => {
-    hr(p1, sideX + 18, sideX + sideW - 18, sy + 12, C.line, 0.5);
-    text(p1, k, sideX + 18, sy, { size: 8.8, color: C.soft, maxWidth: sideW - 90 });
-    text(p1, v, sideX + sideW - 18, sy, { f: F.b, size: 9.5, align: "right" });
-    sy -= 22;
+  const jobValue = jobs && has(data.revenueMonth) ? Number(data.revenueMonth) / jobs : null;
+  [[`Won in ${data.monthName}`, money(data.revenueMonth), jobs ? `${num(jobs)} new job${jobs === 1 ? "" : "s"} signed` : "quotes still coming back", C.gold],
+   ["Jobs signed", String(jobs), data.lastMonthName && has(data.revenueLastMonth) ? `${money(data.revenueLastMonth)} won in ${data.lastMonthName}` : `in ${data.monthName} so far`, C.text],
+   ["Average job value", jobValue != null ? money(jobValue) : "-", jobs ? "per job signed this month" : "once jobs are signed", C.text]].forEach(([l, v, sub, col], i) => {
+    const x = M + i * (tileW + 12);
+    box(p1, x, tileY, tileW, tileH, { fill: C.panel, stroke: C.line });
+    label(p1, l, x + 16, tileY + tileH - 24, { size: 6.6, maxWidth: tileW - 30 });
+    text(p1, v, x + 16, tileY + 32, { f: F.d8, size: 26, color: col, maxWidth: tileW - 30 });
+    text(p1, sub, x + 16, tileY + 15, { size: 8, color: C.muted, maxWidth: tileW - 30 });
   });
 
-  const gH = 118, gY = heroY - 14 - gH;
+  const gH = 108, gY = tileY - 14 - gH;
   if (data.showGuarantee === false){
     // After the first month: the quote pipeline, no guarantee.
     const got = Math.max(0, Number(data.quotesBooked) || 0), q = Math.max(0, Number(data.quoted) || 0), enq = Math.max(0, Number(data.enquiries) || 0);
@@ -224,8 +220,8 @@ async function build(data){
   box(p1, M, gY, CW, gH, { fill: C.panel, stroke: got >= target ? C.gold : C.gold3, bw: 1 });
   label(p1, `Your ${target}-quote guarantee · ${data.monthName}`, M + 22, gY + gH - 26, { color: C.gold });
   const big = `${num(Math.min(got, 999))}`;
-  const bw = text(p1, big, M + 22, gY + gH - 58, { f: F.d8, size: 34 });
-  text(p1, ` of ${target} quotes booked`, M + 24 + bw, gY + gH - 58, { f: F.sb, size: 12, color: C.soft });
+  const bw = text(p1, big, M + 22, gY + gH - 56, { f: F.d8, size: 34 });
+  text(p1, ` of ${target} quotes booked`, M + 24 + bw, gY + gH - 56, { f: F.sb, size: 12, color: C.soft });
   const pill = got >= target ? (got > target ? `Guarantee met · +${got - target} extra` : "Guarantee met") : `${target - got} to go`;
   const pw = width(F.b, pill, 9) + 24;
   box(p1, W - M - 22 - pw, gY + gH - 64, pw, 22, { fill: got >= target ? C.gold : C.panel2, stroke: got >= target ? undefined : C.gold3, r: 11 });
@@ -233,7 +229,7 @@ async function build(data){
   // One circle per quote.
   const slots = Math.min(target, 20), gap = 8, rowW = CW - 44;
   const d = Math.min(36, (rowW - gap * (slots - 1)) / slots);
-  const startX = M + 22, cy = gY + 28;
+  const startX = M + 22, cy = gY + 26;
   for (let i = 0; i < slots; i++){
     const cx = startX + d / 2 + i * (d + gap);
     const done = i < got;
@@ -243,32 +239,8 @@ async function build(data){
   }
   }
 
-  // Three cards: what each enquiry and each quote cost, and what a job is worth.
-  const cardH = 84, cardY = gY - 14 - cardH, cardW = (CW - 24) / 3;
-  const cpl = has(data.adSpendMonth) && Number(data.quoteReady) ? Number(data.adSpendMonth) / Number(data.quoteReady) : null;
-  let cplNote = "", cplColor = C.muted;
-  if (cpl != null && has(data.cplLastMonth) && Number(data.cplLastMonth) > 0){
-    const ch = Math.round((cpl - data.cplLastMonth) / data.cplLastMonth * 100);
-    cplNote = ch === 0 ? "same as last month" : `${Math.abs(ch)}% ${ch < 0 ? "lower" : "higher"} than last month`;
-    cplColor = ch <= 0 ? C.good : C.bad;
-  }
-  const enqCost = has(data.adSpendMonth) && Number(data.enquiries) ? Number(data.adSpendMonth) / Number(data.enquiries) : null;
-  const jobValue = Number(data.jobsMonth) && has(data.revenueMonth) ? Number(data.revenueMonth) / Number(data.jobsMonth) : null;
-  const cards = [
-    ["Cost per enquiry", enqCost != null ? money2(enqCost) : "-", has(data.enquiries) ? `${num(data.enquiries)} enquiries this month` : "this month", C.muted],
-    ["Cost per quote booked", cpl != null ? money2(cpl) : "-", cplNote || (has(data.quoteReady) ? `${num(data.quoteReady)} quotes booked this month` : "this month"), cplColor],
-    ["Average job value", jobValue != null ? money(jobValue) : "-", Number(data.jobsMonth) ? `across ${num(data.jobsMonth)} job${Number(data.jobsMonth) === 1 ? "" : "s"} signed` : "no jobs signed yet", C.muted],
-  ];
-  cards.forEach(([l, v, sub, sc], i) => {
-    const x = M + i * (cardW + 12);
-    box(p1, x, cardY, cardW, cardH, { fill: C.panel, stroke: C.line });
-    label(p1, l, x + 16, cardY + cardH - 24, { size: 6.4, maxWidth: cardW - 30 });
-    text(p1, v, x + 16, cardY + 30, { f: F.d7, size: 23 });
-    text(p1, sub, x + 16, cardY + 14, { size: 7.8, color: sc, maxWidth: cardW - 30 });
-  });
-
   // From enquiry to signed job.
-  let y = cardY - 34;
+  let y = gY - 30;
   text(p1, "From enquiry to signed job", M, y, { f: F.d7, size: 16 });
   text(p1, `${data.monthName} so far · conversion from previous stage`, W - M, y + 2, { size: 8, color: C.muted, align: "right" });
   y -= 14;
