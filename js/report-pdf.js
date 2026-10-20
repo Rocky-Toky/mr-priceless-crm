@@ -164,7 +164,7 @@ async function build(data){
     ["Jobs signed", jobs ? String(jobs) : "0"],
     [data.lastMonthName ? `${data.lastMonthName} revenue` : "Last month", has(data.revenueLastMonth) ? money(data.revenueLastMonth) : "-"],
     ["Ad spend", has(data.adSpendMonth) ? money(data.adSpendMonth) : "-"],
-    ["Quotes booked", `${num(data.quotesBooked ?? 0)} of ${num(data.quoteTarget || 10)}`],
+    ["Quotes booked", data.showGuarantee === false ? num(data.quotesBooked ?? 0) : `${num(data.quotesBooked ?? 0)} of ${num(data.quoteTarget || 10)}`],
   ];
   let sy = heroY + heroH - 100;
   sideRows.forEach(([k, v]) => {
@@ -174,9 +174,22 @@ async function build(data){
     sy -= 22;
   });
 
-  // The 10-quote guarantee, front and centre.
-  const target = Math.max(1, Number(data.quoteTarget) || 10), got = Math.max(0, Number(data.quotesBooked) || 0);
   const gH = 118, gY = heroY - 14 - gH;
+  if (data.showGuarantee === false){
+    // After the first month: the quote pipeline, no guarantee.
+    const got = Math.max(0, Number(data.quotesBooked) || 0), q = Math.max(0, Number(data.quoted) || 0), enq = Math.max(0, Number(data.enquiries) || 0);
+    box(p1, M, gY, CW, gH, { fill: C.panel, stroke: C.gold3, bw: 1 });
+    label(p1, `Your quote pipeline · ${data.monthName}`, M + 22, gY + gH - 26, { color: C.gold });
+    const cols = [[num(enq), "enquiries from your ads"], [num(got), "quotes booked"], [num(q), "quotes sent"], [num(data.awaitingDecision || 0), "waiting on a decision"]];
+    const colW = (CW - 44) / cols.length;
+    cols.forEach(([v, l], i) => {
+      const x = M + 22 + i * colW;
+      text(p1, v, x, gY + 44, { f: F.d8, size: 30, color: i === 1 ? C.gold : C.text });
+      text(p1, l, x, gY + 26, { size: 8.8, color: C.soft, maxWidth: colW - 10 });
+    });
+  } else {
+  // The quote guarantee, front and centre (their first month).
+  const target = Math.max(1, Number(data.quoteTarget) || 10), got = Math.max(0, Number(data.quotesBooked) || 0);
   box(p1, M, gY, CW, gH, { fill: C.panel, stroke: got >= target ? C.gold : C.gold3, bw: 1 });
   label(p1, `Your ${target}-quote guarantee · ${data.monthName}`, M + 22, gY + gH - 26, { color: C.gold });
   const big = `${num(Math.min(got, 999))}`;
@@ -196,6 +209,7 @@ async function build(data){
     p1.drawCircle({ x: cx, y: cy, size: d / 2, color: done ? hex(C.gold) : hex(C.panel2), borderColor: done ? undefined : hex(C.gold3), borderWidth: done ? 0 : 0.9 });
     if (done) tick(p1, cx, cy, d * 0.42, C.onGold);
     else text(p1, String(i + 1), cx, cy - 3.6, { f: F.b, size: 9.5, color: C.dim, align: "center" });
+  }
   }
 
   // Three cards: what each enquiry and each quote cost, and what a job is worth.

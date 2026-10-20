@@ -6444,7 +6444,7 @@ async function rpRemember(c, key, value){
   if (key === "adSpend"){ patch.monthly_ad_spend = v; c.monthly_ad_spend = v; }
   await DataLayer.update("clients", c.id, patch);
 }
-const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "adMonth", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"];
+const REPORT_FIELDS = ["from", "to", ...REPORT_DELTAS.map(d => d.key), "adMonth", "adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"];
 let rpClientId = null, rpLastUrl = null, rpLastName = "", rpExisting = null;
 function rpVal(k){ return $("#rp-" + k)?.value ?? ""; }
 function rpSet(k, v){ const el = $("#rp-" + k); if (el) el.value = v ?? ""; }
@@ -6484,7 +6484,7 @@ function openReportModal(clientId, existingId){
     const base = monthBase(c.id, rpExisting.period_end, rpExisting.id);
     REPORT_DELTAS.forEach(d => rpSet(d.key, m[d.key] ?? ((toNum(m[d.month]) ?? 0) - (toNum(base[d.month]) || 0) || "")));
     rpSet("adMonth", m.adMonth ?? m.adSpendMonth ?? "");
-    ["revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"].forEach(k => rpSet(k, m[k] ?? ""));
+    ["adSpendToDateOverride", "revenueToDateOverride", "quoteTarget", "mgmtMonth", "summary", "did1", "did2", "did3", "next1", "next2", "next3", "topAdId"].forEach(k => rpSet(k, m[k] ?? ""));
   } else {
     const to = localDayStr();
     rpSet("to", to); rpSet("from", reportFrom(c.id, to));
@@ -6559,7 +6559,8 @@ function rpTotals(c){
   const ghlToDate = rpGhlToDate && rpGhlToDate.clientId === c.id ? rpGhlToDate : null;
   const revenueToDate = toNum(rpVal("revenueToDateOverride")) ?? Math.max(stacked, ghlToDate?.revenue || 0);
   const jobsToDate = Math.max(sum("jobsMonth") + (mv.jobsMonth || 0), ghlToDate?.jobs || 0);
-  const adSpendToDate = sum("adSpendMonth") + spend, mgmtToDate = sum("mgmtMonth") + mgmt;
+  // Ad spend to date can be corrected by hand, in case a month was missed.
+  const adSpendToDate = toNum(rpVal("adSpendToDateOverride")) ?? (sum("adSpendMonth") + spend), mgmtToDate = sum("mgmtMonth") + mgmt;
   const investedToDate = adSpendToDate + mgmtToDate;
   const lastMonthYm = ymOf(addDays(monthStart(to), -1));
   const lastMonth = earlier.find(r => ymOf(r.period_end) === lastMonthYm);
@@ -6577,7 +6578,6 @@ function rpRenderTotals(){
   const el = $("#rp-totals");
   if (!c || !el) return;
   const t = rpTotals(c), mv = t.month;
-  const target = toNum(rpVal("quoteTarget")) || 10;
   const monthName = rpVal("to") ? monthNameOf(rpVal("to")) : "This month";
   REPORT_DELTAS.forEach(d => { const cell = $("#rp-m-" + d.key); if (cell) cell.textContent = d.money ? fmtMoney(mv[d.month]) : String(mv[d.month]); });
   $$(".rp-month-name").forEach(e => { e.textContent = monthName; });
@@ -6589,7 +6589,6 @@ function rpRenderTotals(){
     <div><span>Revenue to date</span><b>${fmtMoney(t.revenueToDate)}</b></div>
     <div><span>Invested to date</span><b>${fmtMoney(t.investedToDate)}</b></div>
     <div><span>Return to date</span><b class="gold">${fmtTimes(t.roiToDate)}</b></div>
-    <div><span>Quote guarantee</span><b>${mv.quotesBooked} / ${target}</b></div>
     <div title="Revenue to date at their rough margin. Set the margin on the client (Edit Client) or in onboarding."><span>Rough profit${t.margin != null ? ` · ${t.margin}% margin` : ""}</span>${t.profitToDate != null ? `<b>${fmtMoney(t.profitToDate)}</b>` : `<b class="rp-na">Add their margin on the client</b>`}</div>`;
   $("#rp-period-note").textContent = `Report ${t.reportNumber} · ${fmtReportPeriod(rpVal("from"), rpVal("to"))}`;
 }
@@ -6721,7 +6720,9 @@ async function makeReport(){
       awaitingDecision: Math.max(0, (quoted || 0) - (jobs || 0)),
       adSpendMonth: spend, adSpendToDate: t.adSpendToDate, mgmtToDate: t.mgmtToDate, investedToDate: t.investedToDate, roiToDate: t.roiToDate,
       enquiries: enq, quoteReady: ready, quoted,
-      quotesBooked: ready || 0, quoteTarget: n("quoteTarget") || 10,
+      quotesBooked: ready || 0, quoteTarget: n("quoteTarget") || c.quote_target || 10,
+      // The quote guarantee only runs for their first month (or while they're still on it).
+      showGuarantee: normalizeClientStage(c.stage) === "quote_guarantee" || ymOf(to) === ymOf(rpStartDate(c, to)),
       summary: form.summary, didList: [form.did1, form.did2, form.did3], nextList: [form.next1, form.next2, form.next3],
       topAd: ad ? { name: ad.name, leads: ad.results, cpl: ad.cost_per_result, share: clientResults ? Math.round((Number(ad.results) || 0) / clientResults * 100) : null, imageBytes: img?.bytes, imageType: img?.type } : null,
       hood: [
@@ -6741,7 +6742,8 @@ async function makeReport(){
       impressions: ads.reduce((n, a) => n + (Number(a.impressions) || 0), 0),
       clicks: ads.reduce((n, a) => n + (Number(a.clicks) || 0), 0),
       leadsToDate: ads.reduce((n, a) => n + (Number(a.results) || 0), 0),
-      adSpendToDate: ads.reduce((n, a) => n + (Number(a.spend) || 0), 0) || t.adSpendToDate,
+      // Same ad spend as Invested to date, so the two always add up.
+      adSpendToDate: t.adSpendToDate,
     });
     const bytes = style === "early" ? await window.MPReportPDF.buildEarly(data) : await window.MPReportPDF.build(data);
     // Save this report's numbers so later reports' totals build on them.
