@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=244">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=244">
+<link rel="stylesheet" href="css/style.css?v=245">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=245">
 </head>
 <body>
 
@@ -1515,6 +1515,20 @@
 </div>
 
 <!-- ───────── Modal: Contact ───────── -->
+<div class="overlay" id="attend-modal">
+  <div class="modal at-modal">
+    <div class="modal-body">
+      <p class="at-q">Did they attend the first meeting?</p>
+      <p class="at-deal" id="attend-deal"></p>
+      <div class="at-btns">
+        <button type="button" class="btn gold" data-action="attend-yes">Yes</button>
+        <button type="button" class="btn ghost" data-action="attend-no">No</button>
+      </div>
+      <button type="button" class="at-later" data-action="attend-later">Ask me later</button>
+      <p class="at-left" id="attend-left"></p>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="contact-modal">
   <div class="modal">
     <div class="modal-header"><h3 id="contact-modal-title">Add Contact</h3><button class="modal-close" data-close="contact-modal">&times;</button></div>
@@ -2691,17 +2705,17 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
-<script src="js/config.js?v=244"></script>
-<script src="js/supabaseClient.js?v=244"></script>
-<script src="js/report-pdf.js?v=244"></script>
-<script src="js/plan-pdf.js?v=244"></script>
-<script src="js/workshop-pdf.js?v=244"></script>
-<script src="js/receipt-pdf.js?v=244"></script>
-<script src="js/welcome-pdf.js?v=244"></script>
-<script src="js/builtin-playbooks.js?v=244"></script>
-<script src="js/builtin-email-templates.js?v=244"></script>
-<script src="js/app.js?v=244"></script>
-<script src="js/meetings-tracker.js?v=244"></script>
-<script src="js/todo.js?v=244"></script>
+<script src="js/config.js?v=245"></script>
+<script src="js/supabaseClient.js?v=245"></script>
+<script src="js/report-pdf.js?v=245"></script>
+<script src="js/plan-pdf.js?v=245"></script>
+<script src="js/workshop-pdf.js?v=245"></script>
+<script src="js/receipt-pdf.js?v=245"></script>
+<script src="js/welcome-pdf.js?v=245"></script>
+<script src="js/builtin-playbooks.js?v=245"></script>
+<script src="js/builtin-email-templates.js?v=245"></script>
+<script src="js/app.js?v=245"></script>
+<script src="js/meetings-tracker.js?v=245"></script>
+<script src="js/todo.js?v=245"></script>
 </body>
 </html>
