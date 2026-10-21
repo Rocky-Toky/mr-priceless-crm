@@ -9,7 +9,7 @@ window.MP_BUILTIN_PLAYBOOKS = [
   title: "Meeting Structure",
   sort_order: 2,
   content: `## What this meeting is for
-We're not here to pitch. We're here to work out, together, whether we'd actually be a good fit for their business. If we run it properly, they'll end up selling themselves on it - or we'll both find out early that it's not right, which is fine too.
+We don't lead with a pitch. First we work out, together, whether we'd actually be a good fit for their business - or we both find out early that it's not right, which is fine too. Once we know it's a fit, the pitch is short and certain: here's how we fix the problem you just told me about.
 
 ## The mindset
 - **We're the ones deciding if they're a fit**, not the other way round. Not needy, not desperate - genuinely curious.
@@ -17,6 +17,7 @@ We're not here to pitch. We're here to work out, together, whether we'd actually
 - **Context before every question.** Say why you're asking, so it feels like a conversation and not an interview or a sales pitch.
 - **They talk, we listen.** Aim for them talking 70% of the time. Take notes - you'll use their exact words later.
 - **Be happy to walk away.** If it's not a fit, say so. That honesty is what builds the trust and authority.
+- **Pitch it like the answer.** Keep it short, answer their doubts before they raise them, and never ask for their opinion on it.
 
 ## The flow at a glance
 1. Intro and light rapport (2-3 min)
@@ -24,8 +25,8 @@ We're not here to pitch. We're here to work out, together, whether we'd actually
 3. Quick intro on us (1 min)
 4. Discovery - low, mid, then high trust (15-20 min)
 5. Demo - a relevant ad account, then the CRM (5-8 min)
-6. Sum it back and decide if it's a fit (2 min)
-7. Into the offer - see the Meetings to Close playbook
+6. Sum it back (2 min)
+7. The pitch - answer their doubts before they ask (3-4 min)
 
 ## 1. Intro and light rapport (2-3 min)
 Keep it light and genuine. Match their energy - a laid-back tradie doesn't want corporate talk.
@@ -147,12 +148,33 @@ Show, don't tell. Pull up a client in their trade (or the closest one), then the
 - Drag leads through the stages - site visit, quoted, won - so we can see which ads bring real jobs.
 - Quotes book straight into their calendar, with a reminder text an hour before.
 - Every quote that goes quiet gets followed up.
-> "How would something like that fit with how you're handling enquiries at the moment?"
+> "So that's exactly what yours would look like."
 
-## 6. Sum it back and decide
+## 6. Sum it back (2 min)
+Play their numbers and their problem back in their own words - that's what you pitch to next.
 > "So if I've got this right - you're doing about [X], want to get to [Y], your average job's around [Z], and the main thing holding you back is [their words]. Is that about it?"
-> "From what you've told me, I think this could actually make a lot of sense - want me to walk you through how we'd go about it?"
-If it's not a fit, say that instead and point them in the right direction.
+- Let them correct you. Use their words, not yours.
+- Not a fit? Say so now and point them in the right direction - don't pitch.
+
+## 7. The pitch (3-4 min)
+Short and certain - the answer to their problem, not a question. Go through the tabs in order. Each one answers a doubt before they get the chance to raise it.
+
+## How we fix it
+> "So [their problem, in their words] - that's exactly what we fix."
+> "We run your Meta ads, call every enquiry within minutes, and book the good ones straight into your calendar as quotes. You just turn up and quote."
+- **Burnt before?** "Unlike last time, we don't just hand you leads - we book the quotes."
+
+## Lead quality
+> "And before you ask - they're not tyre-kickers. First we set what a good lead is for you: the jobs, the budget, the timeline, how far you'll travel. We filter for that and talk to every lead before it gets to you."
+> "Every lead you move to quoted or won teaches Meta who to find. The leads get better the longer it runs."
+
+## Results
+> "And you're not taking it on faith - we guarantee you [X] quotes in your first month."
+
+## Price and next step
+> "It's $[X] a month for us, plus your ad spend, which goes straight to Meta - we'd start you at around $[X]."
+> "Next step is getting you set up. I'll send the agreement through now and lock in your onboarding for [day]."
+- No "does that make sense?" - say it like it's the answer, then go straight to the next step.
 
 ## Red flags - it might not be a fit
 - Margins too thin to cover the investment.
@@ -164,6 +186,8 @@ If it's not a fit, say that instead and point them in the right direction.
 ## Don'ts
 - Don't jump to deep, personal questions early.
 - Don't pitch during discovery - save it for after you've summed it back.
+- Don't wait for the objections - answer lead quality, results and price inside the pitch.
+- Don't ask for their opinion on the pitch. Tell them how it works, then go to the next step.
 - Don't fill silences - let them think.
 - Don't fire questions back to back. React to what they said first.
 - Don't argue with an answer - get curious about it.

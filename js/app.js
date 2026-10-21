@@ -10266,50 +10266,42 @@ function renderMeetingStructure(){
   ensureBuiltinPlaybooks();
   const d = mtgDoc();
   if (!d || !d.steps.length){ root.innerHTML = `<div class="etx-empty"><h3>No meeting structure yet</h3><p>Add a playbook called "Meeting Structure" with numbered steps and it shows up here.</p></div>`; return; }
-  const last = d.steps.length; // one extra "into the offer" step at the end
+  const last = d.steps.length - 1;
   if (mtgStep > last) mtgStep = 0;
   const step = d.steps[mtgStep];
   if (step && mtgTab >= step.tabs.length) mtgTab = 0;
   const totalTarget = d.steps.reduce((t, s) => t + s.target, 0);
   const persisted = state.playbooks.find(x => PB_PINNED_RE.test(x.title || ""));
-  let main;
-  if (!step){
-    main = `<div class="mtg-main-head"><span class="mtg-k">Last step</span><h2>Into the offer</h2></div>
-      <div class="mtg-content"><p class="mtg-lead">You've summed it back and they've agreed it makes sense. Now walk them through how we'd do it.</p>
-      <button type="button" class="btn gold mtg-big-btn" data-mtg-act="close-playbook">Open Meetings to Close →</button></div>`;
-  } else {
-    const blocks = mtgBlocks(step.body);
-    // The step's opening guidance sits under the title as one quiet line.
-    const leadIdx = blocks.findIndex(b => b.t === "note");
-    const lead = leadIdx === 0 ? blocks.shift().text : "";
-    const tab = step.tabs[mtgTab];
-    const over = mtgRun && step.target && mtgRun.stepStart && (Date.now() - mtgRun.stepStart) / 60000 > step.target;
-    main = `
-      <div class="mtg-main-head">
-        <div class="mtg-main-k"><span class="mtg-k">${step.n ? `Step ${step.n} of ${d.steps.filter(x => x.n).length}` : "Before the meeting"}</span>${step.dur ? `<span class="mtg-time${over ? " over" : ""}" id="mtg-step-time">⏱ ${escapeHtml(step.dur)}</span>` : ""}</div>
-        <h2>${escapeHtml(step.title)}</h2>
-        ${lead ? `<p class="mtg-lead${step.tabs.length ? " short" : ""}">${mtgInline(lead)}</p>` : ""}
-      </div>
-      ${step.tabs.length ? `<div class="mtg-tabs" role="tablist">${step.tabs.map((t, i) => `<button type="button" class="${i === mtgTab ? "active" : ""}" data-mtg-tab="${i}">${escapeHtml(t.title)}</button>`).join("")}</div>` : ""}
-      <div class="mtg-content">
-        ${blocks.length ? mtgBlocksHtml(blocks, `s${step.n}`) : ""}
-        ${tab ? mtgBlocksHtml(mtgBlocks(tab.body), `s${step.n}|${tab.title}`) : ""}
-      </div>
-      ${step.leadins ? `<div class="mtg-leadins"><span class="mtg-k">Lead-ins</span>${mtgBlocks(step.leadins).map(b => `<span class="mtg-leadin">${mtgInline(b.text)}</span>`).join("")}</div>` : ""}`;
-  }
+  const blocks = mtgBlocks(step.body);
+  // The step's opening guidance sits under the title as one quiet line.
+  const leadIdx = blocks.findIndex(b => b.t === "note");
+  const lead = leadIdx === 0 ? blocks.shift().text : "";
+  const tab = step.tabs[mtgTab];
+  const over = mtgRun && step.target && mtgRun.stepStart && (Date.now() - mtgRun.stepStart) / 60000 > step.target;
+  const main = `
+    <div class="mtg-main-head">
+      <div class="mtg-main-k"><span class="mtg-k">${step.n ? `Step ${step.n} of ${d.steps.filter(x => x.n).length}` : "Before the meeting"}</span>${step.dur ? `<span class="mtg-time${over ? " over" : ""}" id="mtg-step-time">⏱ ${escapeHtml(step.dur)}</span>` : ""}</div>
+      <h2>${escapeHtml(step.title)}</h2>
+      ${lead ? `<p class="mtg-lead${step.tabs.length ? " short" : ""}">${mtgInline(lead)}</p>` : ""}
+    </div>
+    ${step.tabs.length ? `<div class="mtg-tabs" role="tablist">${step.tabs.map((t, i) => `<button type="button" class="${i === mtgTab ? "active" : ""}" data-mtg-tab="${i}">${escapeHtml(t.title)}</button>`).join("")}</div>` : ""}
+    <div class="mtg-content">
+      ${blocks.length ? mtgBlocksHtml(blocks, `s${step.n}`) : ""}
+      ${tab ? mtgBlocksHtml(mtgBlocks(tab.body), `s${step.n}|${tab.title}`) : ""}
+    </div>
+    ${step.leadins ? `<div class="mtg-leadins"><span class="mtg-k">Lead-ins</span>${mtgBlocks(step.leadins).map(b => `<span class="mtg-leadin">${mtgInline(b.text)}</span>`).join("")}</div>` : ""}`;
   const prevLabel = mtgStep > 0 ? d.steps[mtgStep - 1].title : "";
-  const nextLabel = mtgStep < last - 1 ? d.steps[mtgStep + 1].title : mtgStep === last - 1 ? "Into the offer" : "";
+  const nextLabel = mtgStep < last ? d.steps[mtgStep + 1].title : "";
   root.innerHTML = `
     <div class="mtg">
       <aside class="mtg-rail">
         <div class="mtg-rail-top">
-          ${mtgRun ? `<div class="mtg-clock"><span class="mtg-k">In the meeting</span><b id="mtg-elapsed">${mtgClock(Date.now() - mtgRun.start)}</b><small>aim ~${totalTarget} min to the offer</small></div>`
+          ${mtgRun ? `<div class="mtg-clock"><span class="mtg-k">In the meeting</span><b id="mtg-elapsed">${mtgClock(Date.now() - mtgRun.start)}</b><small>aim ~${totalTarget} min</small></div>`
             : `<button type="button" class="btn gold mtg-start" data-mtg-act="start">▶ Start meeting</button>`}
         </div>
         <nav class="mtg-rail-steps">
           ${d.steps.map((s, i) => `<button type="button" class="mtg-rail-step${i === mtgStep ? " active" : ""}${mtgRun && mtgRun.done.includes(i) ? " done" : ""}" data-mtg-step="${i}">
             <i>${mtgRun && mtgRun.done.includes(i) ? "✓" : s.n || "★"}</i><span><b>${escapeHtml(s.title)}</b>${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</span></button>`).join("")}
-          <button type="button" class="mtg-rail-step${mtgStep === last ? " active" : ""}" data-mtg-step="${last}"><i>→</i><span><b>Into the offer</b><small>Meetings to Close</small></span></button>
         </nav>
         <div class="mtg-rail-foot">
           <button type="button" class="btn ghost mtg-sheet-btn" data-mtg-act="sheet">Cheat sheet</button>
@@ -10336,7 +10328,7 @@ function mtgGo(i){
   const d = mtgDoc(); if (!d) return;
   if (mtgRun && i > mtgStep && !mtgRun.done.includes(mtgStep)) mtgRun.done.push(mtgStep);
   if (mtgRun && i !== mtgStep) mtgRun.stepStart = Date.now();
-  mtgStep = Math.max(0, Math.min(d.steps.length, i)); mtgTab = 0;
+  mtgStep = Math.max(0, Math.min(d.steps.length - 1, i)); mtgTab = 0;
   renderMeetingStructure();
   $("#mtg-root .mtg-content")?.scrollTo({ top: 0 });
 }
@@ -10365,11 +10357,6 @@ function setupMeetingStructure(){
     if (act === "stop"){ mtgRun = null; clearInterval(mtgTick); renderMeetingStructure(); }
     if (act === "sheet"){ mtgSheet = 0; renderMeetingStructure(); }
     if (act === "sheet-close"){ mtgSheet = null; renderMeetingStructure(); }
-    if (act === "close-playbook"){
-      const pb = state.playbooks.find(x => /meetings? to close/i.test(x.title || ""));
-      if (pb){ state.selectedPlaybookId = pb.id; goPage("playbooks"); renderPlaybooks(); }
-      else goPage("playbooks");
-    }
   });
   document.addEventListener("keydown", (e) => {
     if (state.page !== "meeting" || /input|textarea|select/i.test(document.activeElement?.tagName || "")) return;
