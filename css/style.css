@@ -3324,3 +3324,21 @@ body.jv-open .jv-fab{display:none;}
 .mtg-leadins .mtg-k{white-space:nowrap;flex-shrink:0;}
 .mtg-branch .mtg-say p{font-size:19px;}
 .mtg-branch .mtg-q span{font-size:17.5px;}
+/* Meeting sit rate process: same feel as Meeting structure. */
+.sr-intro{padding:6px 6px 4px;display:flex;flex-direction:column;gap:8px;}
+.sr-intro p{margin:0;font-size:14.5px;line-height:1.5;color:var(--text);}
+.sr-intro .sr-when{font-size:13.5px;color:var(--text2);background:var(--gold-soft);border:1px solid var(--gold-border);border-radius:12px;padding:9px 11px;}
+.sr-intro .sr-when b{color:var(--gold-deep);}
+.mtg-branches.cols3{grid-template-columns:repeat(3,minmax(0,1fr));}
+.sr-done{align-self:center;font-size:15px;font-weight:700;color:var(--success);}
+@media (min-width:821px) and (min-height:560px){
+  #page-sit-rate.active{height:calc(100vh - 76px);display:flex;flex-direction:column;overflow:hidden;}
+  #page-sit-rate > *{flex-shrink:0;}
+  #page-sit-rate > .page-tabs{align-self:flex-start;}
+  #page-sit-rate > #sr-root{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
+  #page-sit-rate .mtg{flex:1 1 auto;min-height:0;}
+  #page-sit-rate .mtg-rail{min-height:0;overflow-y:auto;}
+  #page-sit-rate .mtg-main{min-height:0;overflow:hidden;}
+  #page-sit-rate .mtg-content{flex:1 1 auto;min-height:0;overflow-y:auto;}
+}
+@media (max-width:1100px){.mtg-branches.cols3{grid-template-columns:1fr;}}

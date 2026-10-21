@@ -194,4 +194,39 @@ If it's not a fit, say that instead and point them in the right direction.
 - [ ] Send a follow-up summary within the hour, using their words
 - [ ] Book the next step in the calendar before you hang up`
 },
+{
+  title: "Meeting Sit Rate Process",
+  sort_order: 3,
+  content: `## What this is for
+Turn a booked meeting into a committed one before the call ends. They should leave knowing what the session is worth to them, having shaped the agenda, and with the invite accepted.
+
+## When
+Straight after the meeting time is agreed, while you're still on the call.
+
+## 1. Run the commercials
+Go over the numbers that show what the extra work is worth to them. Assume the figures rather than asking - people are quick to correct a wrong number, but slow to volunteer one. Write down whatever they confirm or correct, because it feeds into the session.
+**Close rate on quotes:**
+> "Roughly how many of the quotes you send out do you win?"
+**Average job value - assume it:**
+> "I'd guess your average job's around $[X]. Is that about right?"
+**Average margin - assume it:**
+> "And you'd be running a margin of around [X]%?"
+
+## 2. Connect the profit to their goals
+Ask pain-based questions, or dig into how the extra profit moves them towards their next target. The aim is for them to tie the meeting to something they personally want, not just "marketing".
+- What's the biggest thing holding the business back right now?
+- If you picked up an extra [X] jobs a month at that margin, what would that let you do?
+- What's the next big target for the business, and what's standing between you and it?
+
+## 3. Let them shape the agenda
+A meeting they helped plan is one they're more likely to turn up to.
+> "Apart from what we've talked about, is there anything else that would be helpful to cover off in the session?"
+- Add whatever they say to the invite notes.
+
+## 4. Confirm the invite live
+Don't end the call until the invite shows as accepted.
+- [ ] Send the calendar invite while you're still on the call.
+- [ ] Ask them to check it's landed in their inbox.
+- [ ] Have them press Yes to accept it before you hang up.`
+},
 ];
