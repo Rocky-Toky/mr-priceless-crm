@@ -10285,7 +10285,7 @@ function renderMeetingStructure(){
     const over = mtgRun && step.target && mtgRun.stepStart && (Date.now() - mtgRun.stepStart) / 60000 > step.target;
     main = `
       <div class="mtg-main-head">
-        <div class="mtg-main-k"><span class="mtg-k">Step ${step.n} of ${d.steps.length}</span>${step.dur ? `<span class="mtg-time${over ? " over" : ""}" id="mtg-step-time">⏱ ${escapeHtml(step.dur)}</span>` : ""}</div>
+        <div class="mtg-main-k"><span class="mtg-k">${step.n ? `Step ${step.n} of ${d.steps.filter(x => x.n).length}` : "Before the meeting"}</span>${step.dur ? `<span class="mtg-time${over ? " over" : ""}" id="mtg-step-time">⏱ ${escapeHtml(step.dur)}</span>` : ""}</div>
         <h2>${escapeHtml(step.title)}</h2>
         ${lead ? `<p class="mtg-lead${step.tabs.length ? " short" : ""}">${mtgInline(lead)}</p>` : ""}
       </div>
@@ -10307,7 +10307,7 @@ function renderMeetingStructure(){
         </div>
         <nav class="mtg-rail-steps">
           ${d.steps.map((s, i) => `<button type="button" class="mtg-rail-step${i === mtgStep ? " active" : ""}${mtgRun && mtgRun.done.includes(i) ? " done" : ""}" data-mtg-step="${i}">
-            <i>${mtgRun && mtgRun.done.includes(i) ? "✓" : s.n}</i><span><b>${escapeHtml(s.title)}</b>${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</span></button>`).join("")}
+            <i>${mtgRun && mtgRun.done.includes(i) ? "✓" : s.n || "★"}</i><span><b>${escapeHtml(s.title)}</b>${s.dur ? `<small>${escapeHtml(s.dur)}</small>` : ""}</span></button>`).join("")}
           <button type="button" class="mtg-rail-step${mtgStep === last ? " active" : ""}" data-mtg-step="${last}"><i>→</i><span><b>Into the offer</b><small>Meetings to Close</small></span></button>
         </nav>
         <div class="mtg-rail-foot">
@@ -10350,7 +10350,8 @@ function setupMeetingStructure(){
     const sh = t.closest("[data-mtg-sheet]"); if (sh){ mtgSheet = +sh.dataset.mtgSheet; renderMeetingStructure(); return; }
     const act = t.closest("[data-mtg-act]")?.dataset.mtgAct;
     if (act === "start"){
-      mtgRun = { start: Date.now(), stepStart: Date.now(), done: [] }; mtgAsked.clear(); mtgStep = 0; mtgTab = 0;
+      mtgRun = { start: Date.now(), stepStart: Date.now(), done: [] }; mtgAsked.clear(); mtgTab = 0;
+      { const d0 = mtgDoc(); const first = d0 ? d0.steps.findIndex(x => x.n > 0) : 0; mtgStep = Math.max(0, first); }
       clearInterval(mtgTick);
       mtgTick = setInterval(() => {
         const el = $("#mtg-elapsed"); if (!el || !mtgRun) return;
