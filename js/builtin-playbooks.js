@@ -207,6 +207,16 @@ A meeting they helped plan is one they're more likely to turn up to.
 Don't end the call until the invite shows as accepted.
 - [ ] Send the calendar invite while you're still on the call.
 - [ ] Ask them to check it's landed in their inbox.
-- [ ] Have them press Yes to accept it before you hang up.`
+- [ ] Have them press Yes to accept it before you hang up.
+
+## 5. Fill in the invite description
+Put their numbers in the calendar description, so every time they open the invite they see what the session is worth to them.
+**Paste into the invite description:**
+- Quotes won: about [X] out of every 10
+- Average job value: $[X]
+- Average margin: [X]%
+- Extra profit from [X] more jobs a month: about $[X]
+- What you wanted to cover: [what they said in step 3]
+- I'll share my screen to go over what your competitors are doing with their ads.`
 },
 ];
