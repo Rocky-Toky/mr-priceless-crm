@@ -27,26 +27,6 @@ We're not here to pitch. We're here to work out, together, whether we'd actually
 6. Sum it back and decide if it's a fit (2 min)
 7. Into the offer - see the Meetings to Close playbook
 
-## 0. Lock in the meeting
-Get them to actually show up - most no-shows are decided before the meeting starts.
-**When you book it:**
-> "Perfect - I'll flick you a calendar invite now. Can you hit accept while we're on the phone, just so I know it's come through?"
-> "Just so you know, it's about 30 minutes, it's just me and you, and it's not a big pitch - we'll work out if we can actually help."
-- Book it within 48 hours - the sooner it is, the more likely they show.
-- Confirm the day and time back out loud - "So Thursday the 23rd at 2pm."
-- Check who else should be on it - a partner or business partner - and book them in too.
-- Give them a reason to turn up - one thing they'll walk away with, like what jobs are costing others in their area to win.
-**Before the meeting:**
-- Send the confirmation text straight after you hang up, with the time and the link.
-- Day before, send a short personal text: "Looking forward to tomorrow at 2, [Name]. Still good?"
-- Morning of, send the link again.
-- No reply to the day-before text? Give them a call.
-> "Hey [Name], just checking we're still good for 2 today - I've had a look at a couple of [trade] businesses in [area] I want to show you."
-**If they don't show:**
-- Call within 5 minutes of the start time, then text if they don't pick up.
-> "Hey [Name], no worries if something came up on site - want to grab a new time this week?"
-- Rebook it on the spot, and move the deal to No Show so the follow-up kicks in.
-
 ## 1. Intro and light rapport (2-3 min)
 Keep it light and genuine. Match their energy - a laid-back tradie doesn't want corporate talk.
 - How's the week been, flat out or a bit quieter?
