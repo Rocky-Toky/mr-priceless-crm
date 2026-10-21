@@ -220,7 +220,7 @@ Ask pain-based questions, or dig into how the extra profit moves them towards th
 
 ## 3. Let them shape the agenda
 A meeting they helped plan is one they're more likely to turn up to.
-> "Apart from what we've talked about, is there anything else that would be helpful to cover off in the session?"
+> "What else would be helpful to cover off in the session?"
 - Add whatever they say to the invite notes.
 
 ## 4. Confirm the invite live
