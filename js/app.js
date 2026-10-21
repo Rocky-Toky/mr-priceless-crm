@@ -1669,7 +1669,7 @@ const PAGE_GROUPS = {
   prospects: [["lead-engine", "Add prospects"], ["contacts", "Contacts"]],
   stats: [["rates", "Rates"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
-  library: [["meeting", "Meeting structure"], ["playbooks", "Playbooks"], ["email-templates", "Sales emails"], ["delivery-emails", "Delivery emails"], ["rules", "Rules"]],
+  library: [["meeting", "Meeting structure"], ["playbooks", "Playbooks"], ["rules", "Rules"], ["sit-rate", "Meeting Sit Rate Process"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
   ads: [["ads-month", "This month"], ["content-library", "Video scripts"]],
 };
@@ -9481,7 +9481,7 @@ const RENDERERS = [
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
-  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
+  [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -10001,7 +10001,8 @@ function renderPlaybooks(){
   ensureBuiltinPlaybooks();
   const root = $("#pbx");
   if (!root) return;
-  const list = [...state.playbooks].sort((a, b) => (PB_PINNED_RE.test(b.title) - PB_PINNED_RE.test(a.title)) || (a.sort_order || 0) - (b.sort_order || 0));
+  // The sit rate process has its own tab in the Library, so it's not listed here.
+  const list = state.playbooks.filter(x => !SR_TITLE_RE.test(x.title || "")).sort((a, b) => (PB_PINNED_RE.test(b.title) - PB_PINNED_RE.test(a.title)) || (a.sort_order || 0) - (b.sort_order || 0));
   const p = state.selectedPlaybookId && list.find(x => x.id === state.selectedPlaybookId);
   if (state.selectedPlaybookId && !p) state.selectedPlaybookId = null;
   const searchFocused = document.activeElement?.id === "pbx-search";
@@ -10238,21 +10239,21 @@ function mtgBlocksHtml(blocks, keyBase){
   const qKey = (t) => keyBase + "|" + t;
   while (i < blocks.length){
     const b = blocks[i];
-    if (b.t === "q"){
-      const qs = [];
-      while (i < blocks.length && blocks[i].t === "q") qs.push(blocks[i++]);
+    if (b.t === "q" || b.t === "check"){
+      // Questions to ask and checklist items: big rows you tap to tick off.
+      const kind = b.t, qs = [];
+      while (i < blocks.length && blocks[i].t === kind) qs.push(blocks[i++]);
       html += `<div class="mtg-qs${qs.length > 6 ? " two" : ""}">${qs.map(q => { const asked = mtgAsked.has(qKey(q.text)); return `<button type="button" class="mtg-q${asked ? " asked" : ""}" data-mtg-q="${escapeHtml(qKey(q.text))}"><i>${asked ? "✓" : ""}</i><span>${mtgInline(q.text)}</span></button>`; }).join("")}</div>`;
       continue;
     }
     if (b.t === "branch"){
       const group = [];
       while (i < blocks.length && blocks[i].t === "branch") group.push(blocks[i++]);
-      html += `<div class="mtg-branches${group.length > 1 ? " cols" : ""}">${group.map(g => `<div class="mtg-branch"><span class="mtg-branch-label">${mtgInline(g.label)}</span>${mtgBlocksHtml(g.items, keyBase + "|" + g.label)}</div>`).join("")}</div>`;
+      html += `<div class="mtg-branches${group.length > 1 ? " cols" : ""}${group.length === 3 ? " cols3" : ""}">${group.map(g => `<div class="mtg-branch"><span class="mtg-branch-label">${mtgInline(g.label)}</span>${mtgBlocksHtml(g.items, keyBase + "|" + g.label)}</div>`).join("")}</div>`;
       continue;
     }
     if (b.t === "say") html += `<blockquote class="mtg-say${b.small ? " small" : ""}"><span>Say</span><p>${mtgInline(b.text)}</p></blockquote>`;
     else if (b.t === "tip" || b.t === "point") html += `<p class="mtg-point">${mtgInline(b.text)}</p>`;
-    else if (b.t === "check") html += `<p class="mtg-point mtg-check">☐ ${mtgInline(b.text)}</p>`;
     else html += `<p class="mtg-note">${mtgInline(b.text)}</p>`;
     i++;
   }
@@ -10375,6 +10376,84 @@ function setupMeetingStructure(){
     if (e.key === "Escape" && mtgSheet != null){ mtgSheet = null; renderMeetingStructure(); return; }
     if (e.key === "ArrowRight") mtgGo(mtgStep + 1);
     if (e.key === "ArrowLeft") mtgGo(mtgStep - 1);
+  });
+}
+
+/* ───────── Meeting sit rate process ─────────
+   Its own Library tab, read on the call straight after booking: the four
+   steps down the side, the one you're on big (lines to say, questions you
+   tick off), same style as Meeting structure. Content is the "Meeting Sit
+   Rate Process" playbook, so Edit changes it. */
+const SR_TITLE_RE = /sit rate process/i;
+let srStep = 0;
+const srAsked = new Set();
+function srDoc(){
+  const p = state.playbooks.find(x => SR_TITLE_RE.test(x.title || "")) || (window.MP_BUILTIN_PLAYBOOKS || []).find(x => SR_TITLE_RE.test(x.title || ""));
+  if (!p) return null;
+  const doc = pbParse(p);
+  const steps = [], extra = [];
+  doc.chapters.forEach(c => {
+    const m = c.title.match(/^(\d+)\.\s*(.+)$/);
+    if (m) steps.push({ n: +m[1], title: m[2], body: c.body }); else extra.push(c);
+  });
+  return { p, lead: doc.lead, when: extra.find(c => /^when$/i.test(c.title))?.body || "", steps };
+}
+function renderSitRate(){
+  const root = $("#sr-root");
+  if (!root) return;
+  ensureBuiltinPlaybooks();
+  const d = srDoc();
+  if (!d || !d.steps.length){ root.innerHTML = `<div class="etx-empty"><h3>No sit rate process yet</h3><p>Add a playbook called "Meeting Sit Rate Process" with numbered steps.</p></div>`; return; }
+  if (srStep >= d.steps.length) srStep = 0;
+  const step = d.steps[srStep];
+  const blocks = mtgBlocks(step.body);
+  const lead = blocks[0]?.t === "note" ? blocks.shift().text : "";
+  const persisted = state.playbooks.find(x => SR_TITLE_RE.test(x.title || ""));
+  // mtgBlocksHtml ticks questions in the meeting's set; keep this page's own.
+  const html = mtgBlocksHtml(blocks, `sr${step.n}`).replace(/data-mtg-q=/g, "data-sr-q=");
+  root.innerHTML = `
+    <div class="mtg sr">
+      <aside class="mtg-rail">
+        <div class="sr-intro">
+          <span class="mtg-k">Meeting sit rate process</span>
+          <p>${mtgInline(d.lead)}</p>
+          ${d.when ? `<p class="sr-when"><b>When:</b> ${mtgInline(d.when)}</p>` : ""}
+        </div>
+        <nav class="mtg-rail-steps">
+          ${d.steps.map((s, i) => `<button type="button" class="mtg-rail-step${i === srStep ? " active" : ""}" data-sr-step="${i}"><i>${s.n}</i><span><b>${escapeHtml(s.title)}</b></span></button>`).join("")}
+        </nav>
+        ${persisted ? `<div class="mtg-rail-foot"><div><button type="button" class="mtg-edit" data-action="edit-playbook" data-id="${persisted.id}">Edit</button></div></div>` : ""}
+      </aside>
+      <section class="mtg-main">
+        <div class="mtg-main-head">
+          <div class="mtg-main-k"><span class="mtg-k">Step ${step.n} of ${d.steps.length}</span></div>
+          <h2>${escapeHtml(step.title)}</h2>
+          ${lead ? `<p class="mtg-lead">${mtgInline(lead)}</p>` : ""}
+        </div>
+        <div class="mtg-content">${html}</div>
+        <footer class="mtg-nav">
+          ${srStep > 0 ? `<button type="button" class="btn ghost" data-sr-step="${srStep - 1}">← ${escapeHtml(d.steps[srStep - 1].title)}</button>` : "<span></span>"}
+          ${srStep < d.steps.length - 1 ? `<button type="button" class="btn gold" data-sr-step="${srStep + 1}">${escapeHtml(d.steps[srStep + 1].title)} →</button>` : `<span class="sr-done">Invite accepted? You're done - hang up.</span>`}
+        </footer>
+      </section>
+    </div>`;
+  // Restore this page's own ticks.
+  root.querySelectorAll("[data-sr-q]").forEach(q => { const on = srAsked.has(q.dataset.srQ); q.classList.toggle("asked", on); q.querySelector("i").textContent = on ? "✓" : ""; });
+}
+function setupSitRate(){
+  const root = $("#sr-root");
+  if (!root) return;
+  root.addEventListener("click", (e) => {
+    const st = e.target.closest("[data-sr-step]");
+    if (st){ srStep = +st.dataset.srStep; renderSitRate(); root.querySelector(".mtg-content")?.scrollTo({ top: 0 }); return; }
+    const q = e.target.closest("[data-sr-q]");
+    if (q){ const k = q.dataset.srQ; srAsked.has(k) ? srAsked.delete(k) : srAsked.add(k); renderSitRate(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (state.page !== "sit-rate" || /input|textarea|select/i.test(document.activeElement?.tagName || "")) return;
+    const d = srDoc(); if (!d) return;
+    if (e.key === "ArrowRight" && srStep < d.steps.length - 1){ srStep++; renderSitRate(); }
+    if (e.key === "ArrowLeft" && srStep > 0){ srStep--; renderSitRate(); }
   });
 }
 
@@ -12390,6 +12469,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupLostReason();
   setupEmailLibrary();
   setupMeetingStructure();
+  setupSitRate();
   setupNav();
   setupModals();
   setupWelcomePack();
