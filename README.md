@@ -203,16 +203,11 @@ Without it, an unanswered inbound call just hears a short "nobody's available, t
 
 ## 10. Client inbox (emails from clients, top priority)
 
-The **Client inbox** page shows every email a client sends to either of your Gmail inboxes, oldest first, until someone replies. Replying in Gmail ticks it off by itself (checked every 5 minutes). While anything is waiting, there's a count in the menu and a red bar across every page, the tab title shows the count, and each new one pops up as a desktop notification (click **Turn on notifications** on the page once per browser). If an email is still waiting after 2 hours, whoever it was sent to gets one reminder email. Reminders only go out between 7am and 8pm NZ time, and only if Resend is set up (see "Emails that send themselves").
+The **Client inbox** page shows every email a client sends to either of your Gmail inboxes, oldest first, until someone replies. While anything is waiting, there's a count in the menu and a red bar across every page, the tab title shows the count, and each new one pops up as a desktop notification (click **Turn on notifications** on the page once per browser). If an email is still waiting after 2 hours, whoever it was sent to gets one reminder email. Reminders only go out between 7am and 8pm NZ time, and only if Resend is set up (see "Emails that send themselves"). Replying in Gmail ticks it off within 5 minutes.
 
 "From a client" means it came from a client's **Email** or **Report email** on their client page. A client on their own domain (like `sam@ritchiebuilding.co.nz`) is matched on the whole domain, so their office staff count too. A Gmail or Xtra-style address is matched exactly. Churned clients are left out.
 
-One-time Google setup (Google Cloud Console, same project as sign-in):
-1. **APIs & Services → Library** → search **Gmail API** → **Enable**.
-2. **OAuth consent screen → Data access / Scopes** → add `https://www.googleapis.com/auth/gmail.readonly`.
-3. If your inboxes are on Google Workspace (`@mrpriceless.com`), set the consent screen's **User type** to **Internal**. Otherwise Google expires the connection every 7 days while the app is in "Testing", and each of you has to reconnect weekly.
-
-Then each person opens **Client inbox**, clicks **Connect my inbox**, and ticks the Gmail box on Google's screen. The `sync-client-inbox` function and its 5-minute schedule (`sql/074_client_inbox.sql`) are set up automatically by the deploy workflow. The function reads email headers and Gmail's short preview only, never the full body. It stores just the emails from clients, and nobody outside the team can read them.
+Connecting an inbox takes about 2 minutes per person and needs no Google Cloud project. On the Client inbox page, click **Copy my Gmail script** and follow the steps shown. In short: paste the script into a new project at script.google.com, pick **setup**, click **Run**, then **Allow**. The script runs inside that person's own Gmail every 5 minutes. It only reads, and it sends the CRM just the sender, subject and the first 300 characters of emails from clients, plus whether a thread has been replied to. Copying a fresh script makes a new key and turns the old copy off. The key is stored hashed on the server, and nobody outside the team can read the saved emails. The `sync-client-inbox` function and its reminder schedule (`sql/074_client_inbox.sql`, `sql/075_inbox_by_gmail_script.sql`) are set up automatically by the deploy workflow.
 
 ## How the pieces fit together
 

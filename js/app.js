@@ -1371,8 +1371,6 @@ async function handleSignedInNow(session, freshLogin){
       refresh_token: session.provider_refresh_token,
     });
     if (error) console.error("Couldn't save Google refresh token:", error.message);
-    // Check the inbox straight away, so a fresh connection shows up now rather than in 5 minutes.
-    else supabase.functions.invoke("sync-client-inbox", { body: { action: "sync" } }).then(() => loadClientInbox()).then(refreshInboxViews).catch(() => {});
   } else if (freshLogin){
     console.warn("Google sign-in didn't return a refresh token - use the Calendar page's Connect button to retry.");
   }
@@ -1460,8 +1458,7 @@ function startGoogleOAuth(){
   return supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      // Calendar for follow-ups; Gmail (read-only) so client emails show up in the Client inbox.
-      scopes: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly",
+      scopes: "https://www.googleapis.com/auth/calendar.events",
       queryParams: { access_type: "offline", prompt: "consent" },
       redirectTo: window.location.origin + window.location.pathname,
     },
@@ -9482,7 +9479,7 @@ function renderTeamFocusPanel(){
 const INBOX_LATE_MS = 3600e3, INBOX_URGENT_MS = 4 * 3600e3;
 const INBOX_BASE_TITLE = document.title;
 Object.assign(state, { clientEmails: [], inboxConnections: [], inboxLoaded: false, inboxMissing: false });
-let inboxShowHandled = false, inboxChecking = false, inboxSubscribed = false, inboxTicker = null;
+let inboxShowHandled = false, inboxSubscribed = false, inboxTicker = null;
 const inboxWaiting = () => state.clientEmails.filter(e => e.status === "new").sort((a, b) => new Date(a.received_at) - new Date(b.received_at));
 const inboxAge = (ts) => inboxDur(Date.now() - new Date(ts));
 function inboxDur(ms){
@@ -9542,25 +9539,121 @@ function setupClientInbox(){
   supabase.channel("client-inbox")
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "client_emails" }, (p) => { notifyClientEmail(p.new); reload(); })
     .on("postgres_changes", { event: "UPDATE", schema: "public", table: "client_emails" }, reload)
-    .on("postgres_changes", { event: "*", schema: "public", table: "inbox_connections" }, reload)
+    .on("postgres_changes", { event: "*", schema: "public", table: "inbox_connections" }, (p) => {
+      if (p.new?.user_id === state.user?.id && p.new?.status === "ok" && inboxSetupOpen){ inboxSetupOpen = false; inboxScriptFallback = ""; rcToast("Your Gmail is connected."); }
+      reload();
+    })
     .subscribe();
 }
-async function checkInboxNow(){
-  if (inboxChecking) return;
-  if (!IS_CONFIGURED){ rcToast("Demo mode - connect Supabase to check real inboxes."); return; }
-  inboxChecking = true; renderClientInbox();
+// Connecting an inbox: a short Apps Script that runs inside that person's own
+// Gmail every 5 minutes and sends client emails in, so no Google Cloud
+// project or Google sign-in is needed. Copying it makes a fresh key (any
+// older copy of the script stops working).
+const INBOX_STALE_MS = 20 * 60e3;
+let inboxSetupOpen = false, inboxCopying = false;
+function inboxScript(key){
+  return [
+    "// Mr Priceless CRM - client inbox.",
+    "// Sends emails from our clients in this Gmail to the CRM every 5 minutes.",
+    "// Only reads - it never sends, changes or deletes anything in Gmail.",
+    "// First time: pick \"setup\" in the menu at the top, click Run, then Allow.",
+    "",
+    "const CRM_URL = " + JSON.stringify((SUPABASE_URL || "https://YOUR-PROJECT.supabase.co") + "/functions/v1/sync-client-inbox") + ";",
+    "const CRM_PUBLIC_KEY = " + JSON.stringify(SUPABASE_ANON_KEY || "") + ";",
+    "const INBOX_KEY = " + JSON.stringify(key) + ";",
+    "",
+    "function setup() {",
+    "  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });",
+    "  ScriptApp.newTrigger(\"checkInbox\").timeBased().everyMinutes(5).create();",
+    "  checkInbox();",
+    "  Logger.log(\"All set - client emails will show in the CRM's Client inbox.\");",
+    "}",
+    "",
+    "function crm_(body) {",
+    "  const res = UrlFetchApp.fetch(CRM_URL, {",
+    "    method: \"post\", contentType: \"application/json\", muteHttpExceptions: true,",
+    "    headers: { Authorization: \"Bearer \" + CRM_PUBLIC_KEY, apikey: CRM_PUBLIC_KEY, \"x-inbox-key\": INBOX_KEY },",
+    "    payload: JSON.stringify(body),",
+    "  });",
+    "  if (res.getResponseCode() !== 200) throw new Error(\"The CRM said: \" + res.getContentText());",
+    "  return JSON.parse(res.getContentText());",
+    "}",
+    "",
+    "function checkInbox() {",
+    "  const me = Session.getActiveUser().getEmail().toLowerCase();",
+    "  const mine = [me].concat(GmailApp.getAliases().map(function (a) { return a.toLowerCase(); }));",
+    "  const fromMe = function (from) { from = from.toLowerCase(); return mine.some(function (a) { return from.indexOf(a) !== -1; }); };",
+    "  const cfg = crm_({ action: \"senders\" });",
+    "  const senders = cfg.senders || [], threads = {};",
+    "  for (let i = 0; i < senders.length; i += 25) {",
+    "    const q = \"newer_than:2d -in:sent -in:chats -in:spam -in:trash {\" + senders.slice(i, i + 25).map(function (s) { return \"from:\" + s; }).join(\" \") + \"}\";",
+    "    GmailApp.search(q, 0, 50).forEach(function (t) { threads[t.getId()] = t; });",
+    "  }",
+    "  (cfg.open_threads || []).forEach(function (id) {",
+    "    if (threads[id]) return;",
+    "    try { const t = GmailApp.getThreadById(id); if (t) threads[id] = t; } catch (e) {}",
+    "  });",
+    "  const messages = [], replies = [];",
+    "  Object.keys(threads).forEach(function (id) {",
+    "    let lastFromMe = 0;",
+    "    threads[id].getMessages().forEach(function (m) {",
+    "      const when = m.getDate().getTime();",
+    "      if (fromMe(m.getFrom())) { lastFromMe = Math.max(lastFromMe, when); return; }",
+    "      if (Date.now() - when > 2 * 86400000) return;",
+    "      messages.push({",
+    "        gmail_id: m.getId(), thread_id: id, message_id: m.getHeader(\"Message-ID\") || null,",
+    "        from: m.getFrom(), subject: m.getSubject(), received_at: new Date(when).toISOString(),",
+    "        snippet: m.getPlainBody().replace(/\\s+/g, \" \").slice(0, 300),",
+    "      });",
+    "    });",
+    "    if (lastFromMe) replies.push({ thread_id: id, replied_at: new Date(lastFromMe).toISOString() });",
+    "  });",
+    "  crm_({ action: \"push\", inbox: me, messages: messages, replies: replies });",
+    "}",
+    "",
+  ].join("\n");
+}
+async function copyInboxScript(){
+  if (inboxCopying) return;
+  inboxCopying = true; renderClientInbox();
   try {
-    const { data, error } = await supabase.functions.invoke("sync-client-inbox", { body: { action: "sync" } });
-    if (error) throw error;
+    let key = "demo-key-not-real";
+    if (IS_CONFIGURED){
+      const { data, error } = await supabase.functions.invoke("sync-client-inbox", { body: { action: "make_key" } });
+      if (error || !data?.key) throw error || new Error("No key");
+      key = data.key;
+    }
+    const text = inboxScript(key);
+    try { await navigator.clipboard.writeText(text); rcToast("Script copied - now paste it into Apps Script (step 2)."); }
+    catch(e){ inboxScriptFallback = text; rcToast("Couldn't copy automatically - select the script below and copy it."); }
+    inboxSetupOpen = true;
     await loadClientInbox();
-    const mine = data?.mine;
-    rcToast(mine?.error ? "Couldn't check your inbox - try connecting it again." : mine?.added ? `${mine.added} new client email${mine.added === 1 ? "" : "s"}.` : "Inboxes checked - nothing new from clients.");
   } catch(e){
-    rcToast("Couldn't check the inboxes right now.");
     console.warn(e);
+    rcToast("Couldn't make your script right now - try again in a minute.");
   } finally {
-    inboxChecking = false; refreshInboxViews();
+    inboxCopying = false; refreshInboxViews();
   }
+}
+let inboxScriptFallback = "";
+function inboxSetupHtml(mine){
+  const stale = mine && mine.status === "ok" && mine.last_sync_at && Date.now() - new Date(mine.last_sync_at) > INBOX_STALE_MS;
+  const title = !mine ? "Connect your Gmail" : mine.status === "waiting" ? "Finish connecting your Gmail" : stale ? `Your Gmail hasn't checked in for ${inboxAge(mine.last_sync_at)}` : "Connect your Gmail again";
+  const step = (n, body) => `<li><span class="inbox-step-n">${n}</span><div>${body}</div></li>`;
+  return `<div class="inbox-connect">
+    <div class="inbox-connect-head">
+      <div><b>${escapeHtml(title)}</b><p>About 2 minutes, once. Do it signed in to <b>${escapeHtml(state.user?.email || "your work Gmail")}</b>.</p></div>
+      ${mine && mine.status === "ok" && !stale ? `<button type="button" class="inbox-undo" data-inbox-act="setup-close">Close</button>` : ""}
+    </div>
+    <ol class="inbox-steps">
+      ${step(1, `<button type="button" class="btn gold" data-inbox-act="copy" ${inboxCopying ? "disabled" : ""}>${inboxCopying ? "Making your script…" : "Copy my Gmail script"}</button>`)}
+      ${step(2, `Open <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener"><b>script.google.com → New project</b></a>. Delete everything in the editor, paste the script in, then click the 💾 Save icon.`)}
+      ${step(3, `At the top, make sure <b>setup</b> is picked in the menu next to "Debug", then click <b>▶ Run</b>.`)}
+      ${step(4, `Google asks for permission: <b>Review permissions</b> → pick your work account → if it says "Google hasn't verified this app", click <b>Advanced</b> → <b>Go to Untitled project</b> → <b>Allow</b>. It's your own script, so this is safe.`)}
+      ${step(5, `That's it. Come back here - your inbox shows as connected within a few seconds.`)}
+    </ol>
+    ${inboxScriptFallback ? `<textarea class="inbox-script" readonly>${escapeHtml(inboxScriptFallback)}</textarea>` : ""}
+  </div>`;
 }
 async function setClientEmailStatus(id, status){
   const e = state.clientEmails.find(x => x.id === id); if (!e) return;
@@ -9597,8 +9690,9 @@ function renderClientInbox(){
   const canNotify = "Notification" in window;
   const notifyOn = canNotify && Notification.permission === "granted";
   const conns = state.inboxConnections.map(c => {
-    const ok = c.status === "ok";
-    return `<span class="inbox-conn ${ok ? "ok" : "bad"}"><i></i>${escapeHtml(c.email || "Inbox")}<small>${ok ? (c.last_sync_at ? `checked ${inboxAge(c.last_sync_at)} ago` : "connected") : "needs reconnecting"}</small></span>`;
+    const stale = c.last_sync_at && Date.now() - new Date(c.last_sync_at) > INBOX_STALE_MS;
+    const ok = c.status === "ok" && !stale;
+    return `<span class="inbox-conn ${ok ? "ok" : "bad"}"><i></i>${escapeHtml(c.email || "Inbox")}<small>${c.status === "waiting" ? "not connected yet" : c.last_sync_at ? `checked ${inboxAge(c.last_sync_at)} ago` : "connected"}</small></span>`;
   }).join("");
   const card = (e) => {
     const age = Date.now() - new Date(e.received_at);
@@ -9629,14 +9723,11 @@ function renderClientInbox(){
       <div><h2>Client inbox</h2><p>Every email from a client, from both inboxes. Reply first - replying in Gmail ticks it off here.</p></div>
       <div class="inbox-head-actions">
         ${canNotify && !notifyOn ? `<button type="button" class="btn ghost" data-inbox-act="notify">🔔 Turn on notifications</button>` : notifyOn ? `<span class="inbox-notify-on">🔔 Notifications on</span>` : ""}
-        <button type="button" class="btn ghost" data-inbox-act="check" ${inboxChecking ? "disabled" : ""}>${inboxChecking ? "Checking…" : "Check now"}</button>
+        ${mine && mine.status === "ok" && !inboxSetupOpen ? `<button type="button" class="btn ghost" data-inbox-act="setup-open">Reconnect my Gmail</button>` : ""}
       </div>
     </div>
     ${state.inboxMissing ? `<div class="inbox-setup"><b>The client inbox is still being set up.</b> It switches on once the latest database update has run.</div>` : ""}
-    ${!mine || mine.status !== "ok" ? `<div class="inbox-setup">
-        <div><b>${mine ? "Your inbox needs reconnecting." : "Connect your inbox."}</b> Sign in with Google again and tick the Gmail box, so client emails coming into ${escapeHtml(state.user?.email || "your inbox")} show up here.</div>
-        <button type="button" class="btn gold" data-inbox-act="connect">Connect my inbox</button>
-      </div>` : ""}
+    ${!mine || mine.status !== "ok" || inboxSetupOpen || (mine.last_sync_at && Date.now() - new Date(mine.last_sync_at) > INBOX_STALE_MS) ? inboxSetupHtml(mine) : ""}
     ${conns ? `<div class="inbox-conns">${conns}</div>` : ""}
     <section class="inbox-waiting">
       <h3 class="inbox-h">${waiting.length ? `Waiting on a reply <span>${waiting.length}</span>` : "Waiting on a reply"}</h3>
@@ -9657,9 +9748,10 @@ function setupClientInboxUi(){
     if (t.dataset.inboxDone) return setClientEmailStatus(t.dataset.inboxDone, "done");
     if (t.dataset.inboxUndo) return setClientEmailStatus(t.dataset.inboxUndo, "new");
     const act = t.dataset.inboxAct;
-    if (act === "check") return checkInboxNow();
+    if (act === "copy") return copyInboxScript();
+    if (act === "setup-open"){ inboxSetupOpen = true; return renderClientInbox(); }
+    if (act === "setup-close"){ inboxSetupOpen = false; inboxScriptFallback = ""; return renderClientInbox(); }
     if (act === "handled"){ inboxShowHandled = !inboxShowHandled; return renderClientInbox(); }
-    if (act === "connect"){ if (!IS_CONFIGURED){ rcToast("Demo mode - connect Supabase first."); return; } return startGoogleOAuth(); }
     if (act === "notify"){
       try { await Notification.requestPermission(); } catch(e){}
       if (Notification.permission === "granted") rcToast("Notifications on - you'll get one the moment a client emails.");
