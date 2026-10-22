@@ -9620,12 +9620,14 @@ function inboxScript(key){
     "// Sends emails from our clients in this Gmail to the CRM every 5 minutes.",
     "// Only reads - it never sends, changes or deletes anything in Gmail.",
     "// First time: pick \"setup\" in the menu at the top, click Run, then Allow.",
+    "// When Google asks for permission, tick \"Select all\" - it needs every box.",
     "",
     "const CRM_URL = " + JSON.stringify((SUPABASE_URL || "https://YOUR-PROJECT.supabase.co") + "/functions/v1/sync-client-inbox") + ";",
     "const CRM_PUBLIC_KEY = " + JSON.stringify(SUPABASE_ANON_KEY || "") + ";",
     "const INBOX_KEY = " + JSON.stringify(key) + ";",
     "",
     "function setup() {",
+    "  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL); // asks again if any permission box was left unticked",
     "  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });",
     "  ScriptApp.newTrigger(\"checkInbox\").timeBased().everyMinutes(5).create();",
     "  checkInbox();",
@@ -9705,14 +9707,14 @@ function inboxSetupHtml(mine){
   const step = (n, body) => `<li><span class="inbox-step-n">${n}</span><div>${body}</div></li>`;
   return `<div class="inbox-connect">
     <div class="inbox-connect-head">
-      <div><b>${escapeHtml(title)}</b><p>About 2 minutes, once. Do it signed in to <b>${escapeHtml(state.user?.email || "your work Gmail")}</b>.</p></div>
+      <div><b>${escapeHtml(title)}</b><p>About 2 minutes, once. Do it in the Gmail account you want connected - your work Gmail, not necessarily the email you sign in to the CRM with.</p></div>
       ${mine && mine.status === "ok" && !stale ? `<button type="button" class="inbox-undo" data-inbox-act="setup-close">Close</button>` : ""}
     </div>
     <ol class="inbox-steps">
       ${step(1, `<button type="button" class="btn gold" data-inbox-act="copy" ${inboxCopying ? "disabled" : ""}>${inboxCopying ? "Making your script…" : "Copy my Gmail script"}</button>`)}
-      ${step(2, `Open <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener"><b>script.google.com → New project</b></a>. Delete everything in the editor, paste the script in, then click the 💾 Save icon.`)}
+      ${step(2, `Open <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener"><b>script.google.com → New project</b></a> and check the account picture in the top right is the Gmail you want connected. Delete everything in the editor, paste the script in, then click the 💾 Save icon.`)}
       ${step(3, `At the top, make sure <b>setup</b> is picked in the menu next to "Debug", then click <b>▶ Run</b>.`)}
-      ${step(4, `Google asks for permission: <b>Review permissions</b> → pick your work account → if it says "Google hasn't verified this app", click <b>Advanced</b> → <b>Go to Untitled project</b> → <b>Allow</b>. It's your own script, so this is safe.`)}
+      ${step(4, `Google asks for permission: <b>Review permissions</b> → pick the Gmail you're connecting → if it says "Google hasn't verified this app", click <b>Advanced</b> → <b>Go to Untitled project</b> → tick <b>Select all</b> so every box is ticked → <b>Allow</b>. It's your own script, so this is safe.`)}
       ${step(5, `That's it. Come back here - your inbox shows as connected within a few seconds.`)}
     </ol>
     ${inboxScriptFallback ? `<textarea class="inbox-script" readonly>${escapeHtml(inboxScriptFallback)}</textarea>` : ""}
@@ -9755,7 +9757,7 @@ function renderClientInbox(){
   const conns = state.inboxConnections.map(c => {
     const stale = c.last_sync_at && Date.now() - new Date(c.last_sync_at) > INBOX_STALE_MS;
     const ok = c.status === "ok" && !stale;
-    return `<span class="inbox-conn ${ok ? "ok" : "bad"}"><i></i>${escapeHtml(c.email || "Inbox")}<small>${c.status === "waiting" ? "not connected yet" : c.last_sync_at ? `checked ${inboxAge(c.last_sync_at)} ago` : "connected"}</small></span>`;
+    return `<span class="inbox-conn ${ok ? "ok" : "bad"}"><i></i>${escapeHtml(c.status === "waiting" ? (c.user_id === state.user?.id ? "Your Gmail" : "A teammate's Gmail") : c.email || "Inbox")}<small>${c.status === "waiting" ? "not connected yet" : c.last_sync_at ? `checked ${inboxAge(c.last_sync_at)} ago` : "connected"}</small></span>`;
   }).join("");
   const card = (e) => {
     const age = Date.now() - new Date(e.received_at);

@@ -197,7 +197,8 @@ Deno.serve(async (req: Request) => {
     const key = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
     await admin.from("app_secrets").upsert({ name: keyName(user.id), value: await sha256(key) });
     const { data: conn } = await admin.from("inbox_connections").select("user_id").eq("user_id", user.id).maybeSingle();
-    if (!conn) await admin.from("inbox_connections").insert({ user_id: user.id, email: cleanEmail(user.email), status: "waiting" });
+    // The Gmail address fills in from the script's first check - it's often not the CRM login.
+    if (!conn) await admin.from("inbox_connections").insert({ user_id: user.id, email: null, status: "waiting" });
     else await admin.from("inbox_connections").update({ status: "waiting", error: null }).eq("user_id", user.id);
     return json({ key });
   }
