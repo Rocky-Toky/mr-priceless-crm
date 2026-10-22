@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=285">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=285">
+<link rel="stylesheet" href="css/style.css?v=286">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=286">
 </head>
 <body>
 
@@ -188,6 +188,10 @@
       </select>
     </div>
     <nav class="nav">
+      <button class="nav-item nav-inbox" data-page="client-inbox" data-workspace="both">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
+        <span>Client inbox</span><span class="nav-count nav-inbox-count" hidden title="Client emails waiting on a reply"></span>
+      </button>
       <button class="nav-item" data-page="cold-calls" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         <span>Meetings Booked</span>
@@ -333,6 +337,7 @@
     <div id="demo-banner" class="demo-banner" style="display:none;">
       ★ Demo mode - connect Supabase (see README.md) to save real, shared data.
     </div>
+    <button type="button" id="inbox-alert" class="inbox-alert" hidden></button>
 
     <!-- Dashboard -->
     <section class="page active" id="page-dashboard">
@@ -842,6 +847,11 @@
     <!-- Meeting structure: how every first meeting runs -->
     <section class="page" id="page-meeting">
       <div id="mtg-root"></div>
+    </section>
+
+    <!-- Client inbox: emails from clients, waiting on a reply -->
+    <section class="page" id="page-client-inbox">
+      <div id="inbox-root"></div>
     </section>
 
     <!-- Meeting sit rate process: run on the call straight after booking -->
@@ -2768,17 +2778,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=285"></script>
-<script src="js/supabaseClient.js?v=285"></script>
-<script src="js/report-pdf.js?v=285"></script>
-<script src="js/plan-pdf.js?v=285"></script>
-<script src="js/workshop-pdf.js?v=285"></script>
-<script src="js/receipt-pdf.js?v=285"></script>
-<script src="js/welcome-pdf.js?v=285"></script>
-<script src="js/builtin-playbooks.js?v=285"></script>
-<script src="js/builtin-email-templates.js?v=285"></script>
-<script src="js/app.js?v=285"></script>
-<script src="js/meetings-tracker.js?v=285"></script>
-<script src="js/todo.js?v=285"></script>
+<script src="js/config.js?v=286"></script>
+<script src="js/supabaseClient.js?v=286"></script>
+<script src="js/report-pdf.js?v=286"></script>
+<script src="js/plan-pdf.js?v=286"></script>
+<script src="js/workshop-pdf.js?v=286"></script>
+<script src="js/receipt-pdf.js?v=286"></script>
+<script src="js/welcome-pdf.js?v=286"></script>
+<script src="js/builtin-playbooks.js?v=286"></script>
+<script src="js/builtin-email-templates.js?v=286"></script>
+<script src="js/app.js?v=286"></script>
+<script src="js/meetings-tracker.js?v=286"></script>
+<script src="js/todo.js?v=286"></script>
 </body>
 </html>
