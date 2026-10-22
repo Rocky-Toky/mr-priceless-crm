@@ -7088,7 +7088,7 @@ function rcNextSeq(){
 
 /* Our business details */
 const RC_SETTINGS_KEY = "billing_settings";
-let rcSettings = {}, rcSettingsLoaded = false;
+let rcSettings = {}, rcSettingsLoaded = false, rcSettingsFetched = false;
 function rcBusiness(){
   // Gaps are filled from the most recent receipt anyone made.
   const latest = rcAll().map(x => x.r).filter(r => r.business).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
@@ -7107,6 +7107,7 @@ async function rcLoadSettings(){
       rcSettings = data?.data || {};
     } else rcSettings = JSON.parse(localStorage.getItem("mp_" + RC_SETTINGS_KEY) || "{}");
   } catch(e){ rcSettings = {}; }
+  rcSettingsFetched = true;
   renderReceipts();
 }
 async function rcSaveSettings(next){
@@ -7196,6 +7197,10 @@ function renderReceipts(){
       const nxt = active.map(c => ({ c, n: rcNextDue(c) })).filter(x => x.n).sort((a, b) => a.n.date.localeCompare(b.n.date))[0];
       return nxt ? `Nothing due in the next two weeks. Next up is <b>${escapeHtml(nxt.c.name)}</b> on ${escapeHtml(rcShort(nxt.n.date))}.` : "No payments coming up. Set each client's monthly fee under Clients &amp; billing below.";
     })()}</div>`;
+
+  const note = $("#rc-remind-note"), remindTo = rcRemindTo();
+  if (note) note.innerHTML = remindTo ? `🔔 Reminder emails go to <b>${escapeHtml(remindTo)}</b> at 8am the day before and on the day${rcBusiness().email ? "" : ` - set a business email under Business details to send them there instead`}.` : "";
+  rcSyncReminders();
 
   // Receipts list
   const fc = $("#rc-filter-client");
@@ -7422,6 +7427,64 @@ async function rcLoadScheduled(){
   const { data, error } = await supabase.from("scheduled_emails").select("id,record_id,client_id,to_email,send_at,status,sent_at,error").order("send_at", { ascending: false }).limit(500);
   if (!error) rcScheduled = data || [];
   renderReceipts();
+}
+/* Payment reminders: an email at 8am the day before each client's payment
+   is due, and another on the morning it's due. They're queued in
+   scheduled_emails (the 5-minute sender emails them) and kept in step with
+   Up next whenever the CRM loads - moved if a due date or fee changes,
+   cancelled once the payment is recorded. They go to the business email in
+   "Your details", or whoever's signed in if that's blank. */
+const RC_REMIND_KIND = "billing_reminder", RC_REMIND_HOUR = 8;
+let rcRemindSig = "", rcRemindBusy = false;
+const rcRemindTo = () => rcBusiness().email || state.user?.email || "";
+function rcWantedReminders(){
+  const today = localDayStr(), horizon = rcAddDays(today, RC_SOON_DAYS), to = rcRemindTo();
+  const out = [];
+  if (!to) return out;
+  state.clients.filter(rcActive).forEach(c => {
+    const next = rcNextDue(c);
+    if (!next || next.date < today || next.date > horizon) return;
+    const amount = rcMoney(rcFee(c) * (1 + RC_GST)), dueLong = new Date(next.date + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" });
+    [["before", rcAddDays(next.date, -1), "tomorrow"], ["day", next.date, "today"]].forEach(([when, day, word]) => {
+      if (day < today) return;
+      out.push({
+        record_id: `${c.id}:${next.cycle}:${when}`, to_email: to,
+        send_at: new Date(`${day}T${String(RC_REMIND_HOUR).padStart(2, "0")}:00:00`).toISOString(),
+        subject: `Payment due ${word}: ${c.name} - ${amount}`,
+        body: `The payment for ${c.name} is due ${word} (${dueLong}).\n\nAmount: ${amount} incl. GST\nPayment ${next.cycle + 1} · covers ${rcPeriodLabel(next.from, next.to)}\n\n` +
+          `Once it's charged, record it on the Receipts page so their receipt goes out:\nhttps://rocky-toky.github.io/mr-priceless-crm/\n\n- Mr Priceless CRM`,
+      });
+    });
+  });
+  return out;
+}
+async function rcSyncReminders(){
+  if (!IS_CONFIGURED || !state.user || !rcSettingsFetched || rcRemindBusy) return;
+  const want = rcWantedReminders();
+  const sig = JSON.stringify(want);
+  if (sig === rcRemindSig) return;
+  rcRemindBusy = true;
+  try {
+    const since = new Date(Date.now() - 3 * 86400e3).toISOString();
+    const { data: have, error } = await supabase.from("scheduled_emails").select("id,record_id,to_email,send_at,subject,body,status")
+      .eq("kind", RC_REMIND_KIND).gte("send_at", since);
+    if (error) return;
+    const byId = new Map((have || []).map(r => [r.record_id, r]));
+    const wanted = new Set(want.map(w => w.record_id));
+    // Paid, paused or rescheduled: drop the ones that no longer apply.
+    const stale = (have || []).filter(r => r.status === "scheduled" && !wanted.has(r.record_id)).map(r => r.id);
+    if (stale.length) await supabase.from("scheduled_emails").update({ status: "cancelled" }).in("id", stale);
+    for (const w of want){
+      const cur = byId.get(w.record_id);
+      if (!cur) await supabase.from("scheduled_emails").insert({ kind: RC_REMIND_KIND, ...w, created_by: state.user.email }); // a teammate adding it at the same moment is fine - the record_id is unique
+      else if (cur.status === "cancelled") await supabase.from("scheduled_emails").update({ send_at: w.send_at, subject: w.subject, body: w.body, status: "scheduled", error: null }).eq("id", cur.id);
+      // Who it goes to is set when it's first queued, so two of us with different details don't keep swapping it.
+      else if (cur.status === "scheduled" && (new Date(cur.send_at).getTime() !== new Date(w.send_at).getTime() || cur.subject !== w.subject || cur.body !== w.body))
+        await supabase.from("scheduled_emails").update({ send_at: w.send_at, subject: w.subject, body: w.body }).eq("id", cur.id);
+    }
+    rcRemindSig = sig;
+  } catch(e){ console.warn("Payment reminders:", e); }
+  finally { rcRemindBusy = false; }
 }
 async function rcCheckMailStatus(){
   if (rcMailStatus || !IS_CONFIGURED) return rcMailStatus;
