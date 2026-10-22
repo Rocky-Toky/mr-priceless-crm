@@ -408,8 +408,6 @@ const ONBOARDING_SECTIONS = [
     { key: "honest_expect_2", text: "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that." },
   ]},
   { section: "Launch Prep", items: [
-    { key: "launch_creatives", text: "Add 2 proven High Performer ad creatives, plus 1 new Test creative, into their ad account." },
-    { key: "fb_lead_form", text: "Create a Facebook Lead Form based on their requirements." },
     { key: "zapier_setup", text: "Get Max to set up the Zapier integration, connecting the new lead form through to GHL." },
     { key: "ad_start_date", text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
     { key: "meta_ad_account_id", text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
@@ -5101,8 +5099,6 @@ const LAUNCH_MILESTONES = [
     { key: "photos_in", label: "Job photos and a team photo received", who: "client", ask: "Some before and after job photos, plus a photo of you and the team" },
     { key: "meta_ad_account_id", label: "Ad account ID added to their client page", derived: "meta_ad_account_id", hint: "Add it on their client page." },
     { key: "ghl_template", label: "GHL pipeline and calendar set up" },
-    { key: "fb_lead_form", label: "Lead form built and connected to GHL" },
-    { key: "launch_creatives", label: "2 proven creatives and 1 test loaded" },
   ]},
   { key: "live", label: "Live", blurb: "Ads running", tasks: [
     { key: "ad_start_date", label: "Ads switched on", derived: "ad_start_date", hint: "Set when they're dropped into Live." },
