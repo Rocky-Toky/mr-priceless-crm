@@ -113,6 +113,7 @@ const ASSIGNEES = {
 // changed.
 const EMAIL_TO_ASSIGNEE = {
   "rockyoneill02@gmail.com": "rocky",
+  "rocky.oneill@mrpriceless.com": "rocky",
   "maximus.smith@mrpriceless.com": "max",
   "gabriel.irvan@mrpriceless.com": "gabriel",
   "thrkamhadi810@gmail.com": "thor",
@@ -129,7 +130,7 @@ function canAccessDelivery(){
 // Team Focus (who's pointed at which vertical) is Rocky's call to make, not
 // something everyone should be able to reassign for each other.
 function isRocky(){
-  return (state.user?.email || "").toLowerCase() === "rockyoneill02@gmail.com";
+  return ["rockyoneill02@gmail.com", "rocky.oneill@mrpriceless.com"].includes((state.user?.email || "").toLowerCase());
 }
 function isMax(){
   return (state.user?.email || "").toLowerCase() === "maximus.smith@mrpriceless.com";

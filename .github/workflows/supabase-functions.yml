@@ -52,6 +52,10 @@ on:
         description: "Send a test email to this address once everything's deployed (leave blank to skip)"
         required: false
         default: ""
+      create_login:
+        description: "Give this email address a CRM login: adds them to the team and emails them a link to set their password (leave blank to skip)"
+        required: false
+        default: ""
 
 jobs:
   deploy:
@@ -145,3 +149,29 @@ jobs:
             -H "x-cron-secret: $secret" --data '{}'
           echo
           q "select to_email, status, error, sent_at from scheduled_emails where kind = 'test' order by created_at desc limit 1"
+      # Run this workflow by hand with create_login to give someone a CRM
+      # login: they're added to the team list, their account is made (already
+      # confirmed, with a throwaway password nobody sees), and Supabase emails
+      # them a link to set their own password. No keys or passwords are printed.
+      - name: Create a CRM login
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.create_login != ''
+        env:
+          NEW_LOGIN: ${{ inputs.create_login }}
+        run: |
+          email=$(printf '%s' "$NEW_LOGIN" | tr -d "'\\\" " | tr 'A-Z' 'a-z')
+          case "$email" in *@*.*) ;; *) echo "::error::That isn't an email address."; exit 1;; esac
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          q "insert into allowlist (email, invited_by) values ('$email', 'workflow') on conflict (email) do nothing" > /dev/null
+          echo "Added to the team list."
+          key=$(curl -sS --fail-with-body "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys?reveal=true" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" | jq -r '[.[] | select(.name == "service_role")][0].api_key')
+          echo "::add-mask::$key"
+          pw=$(openssl rand -hex 24)
+          echo "::add-mask::$pw"
+          base="https://$PROJECT_REF.supabase.co"
+          code=$(curl -sS -o /tmp/u.json -w '%{http_code}' -X POST "$base/auth/v1/admin/users" \
+            -H "apikey: $key" -H "Authorization: Bearer $key" -H "Content-Type: application/json" \
+            --data "$(jq -n --arg e "$email" --arg p "$pw" '{email: $e, password: $p, email_confirm: true}')")
+          if [ "$code" = "200" ]; then echo "Account created."; else echo "Account not created (HTTP $code): $(jq -r '.msg // .message // .error_description // "unknown"' /tmp/u.json) - if it already exists, the set-password email below still works."; fi
+          code=$(curl -sS -o /tmp/r.json -w '%{http_code}' -X POST "$base/auth/v1/recover?redirect_to=https%3A%2F%2Frocky-toky.github.io%2Fmr-priceless-crm%2F" \
+            -H "apikey: $key" -H "Content-Type: application/json" --data "$(jq -n --arg e "$email" '{email: $e}')")
+          if [ "$code" = "200" ]; then echo "Set-password email sent to $email."; else echo "::error::Couldn't send the set-password email (HTTP $code): $(jq -r '.msg // .message // .error_description // "unknown"' /tmp/r.json)"; exit 1; fi
