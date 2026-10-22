@@ -1311,6 +1311,7 @@ async function initAuth(){
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
     showApp();
+    setupClientInbox();
     reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call - Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
     checkOverdueTasksPopup();
@@ -1370,6 +1371,8 @@ async function handleSignedInNow(session, freshLogin){
       refresh_token: session.provider_refresh_token,
     });
     if (error) console.error("Couldn't save Google refresh token:", error.message);
+    // Check the inbox straight away, so a fresh connection shows up now rather than in 5 minutes.
+    else supabase.functions.invoke("sync-client-inbox", { body: { action: "sync" } }).then(() => loadClientInbox()).then(refreshInboxViews).catch(() => {});
   } else if (freshLogin){
     console.warn("Google sign-in didn't return a refresh token - use the Calendar page's Connect button to retry.");
   }
@@ -1397,6 +1400,7 @@ async function handleSignedInNow(session, freshLogin){
   await fresh;
   if (shown) renderAll(); else showApp();
   subscribeRealtime();
+  setupClientInbox();
   // None of these need to hold the page up.
   repairNzProspectCountryCodes().then(n => { if (n) renderAll(); }).catch(e => console.warn(e));
   fetchTeam().then(() => { if (state.page === "lead-engine") renderTeamFocusPanel(); }).catch(e => console.warn(e));
@@ -1456,7 +1460,8 @@ function startGoogleOAuth(){
   return supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      scopes: "https://www.googleapis.com/auth/calendar.events",
+      // Calendar for follow-ups; Gmail (read-only) so client emails show up in the Client inbox.
+      scopes: "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.readonly",
       queryParams: { access_type: "offline", prompt: "consent" },
       redirectTo: window.location.origin + window.location.pathname,
     },
@@ -9468,6 +9473,202 @@ function renderTeamFocusPanel(){
 // e.g. the shared dropdowns). renderAll draws the page you're looking at
 // straight away and the rest just after, while the browser is idle, so a
 // save or a live update never stalls the screen redrawing pages nobody's on.
+/* ───────── Client inbox ─────────
+   Emails from clients, pulled out of each teammate's connected Gmail every
+   5 minutes by the sync-client-inbox function. Anything waiting on a reply
+   is top priority: a count in the menu, a bar across every page, and a
+   desktop notification the moment a new one lands. Replying in Gmail ticks
+   it off by itself. */
+const INBOX_LATE_MS = 3600e3, INBOX_URGENT_MS = 4 * 3600e3;
+const INBOX_BASE_TITLE = document.title;
+Object.assign(state, { clientEmails: [], inboxConnections: [], inboxLoaded: false, inboxMissing: false });
+let inboxShowHandled = false, inboxChecking = false, inboxSubscribed = false, inboxTicker = null;
+const inboxWaiting = () => state.clientEmails.filter(e => e.status === "new").sort((a, b) => new Date(a.received_at) - new Date(b.received_at));
+const inboxAge = (ts) => inboxDur(Date.now() - new Date(ts));
+function inboxDur(ms){
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h${m % 60 ? ` ${m % 60}m` : ""}` : `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+const inboxGmailLink = (e) => `https://mail.google.com/mail/u/${encodeURIComponent(e.inbox_email || "")}/#all/${encodeURIComponent(e.thread_id || e.gmail_id || "")}`;
+function inboxDemo(){
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+  return [
+    { id: uid(), client_name: "Reeve Builders", from_name: "Marlon Reeve", from_email: "marlon@reevebuilders.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Leads this week?", snippet: "Hey mate, only had two come through since Monday - is everything still running ok on your end?", received_at: ago(275), status: "new" },
+    { id: uid(), client_name: "Ritchie Building", from_name: "Sam Ritchie", from_email: "sam@ritchiebuilding.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "New photos for the ads", snippet: "Just finished the Ponsonby deck, uploaded a heap of before and afters to the folder.", received_at: ago(70), status: "new" },
+    { id: uid(), client_name: "Ritchie Building", from_name: "Sam Ritchie", from_email: "sam@ritchiebuilding.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Invoice", snippet: "Paid that one this morning, cheers.", received_at: ago(1500), status: "replied", replied_at: ago(1460) },
+  ];
+}
+async function loadClientInbox(){
+  if (!IS_CONFIGURED){
+    if (!state.inboxLoaded){
+      state.clientEmails = inboxDemo();
+      state.inboxConnections = [{ user_id: "demo", email: "demo@mrpriceless.co.nz", status: "ok", last_sync_at: new Date().toISOString() }];
+      state.inboxLoaded = true;
+    }
+    return;
+  }
+  const since = new Date(Date.now() - 7 * 86400e3).toISOString();
+  const [em, ic] = await Promise.all([
+    supabase.from("client_emails").select("*").or(`status.eq.new,received_at.gte.${since}`).order("received_at", { ascending: false }).limit(300),
+    supabase.from("inbox_connections").select("*"),
+  ]);
+  state.clientEmails = em.data || [];
+  state.inboxConnections = ic.data || [];
+  state.inboxMissing = Boolean(em.error);
+  state.inboxLoaded = true;
+}
+function refreshInboxViews(){ renderInboxAlert(); if (state.page === "client-inbox") renderClientInbox(); }
+// A new client email: a desktop notification (if they're turned on) and a toast.
+function notifyClientEmail(row){
+  if (!row || row.status !== "new") return;
+  const title = `${row.client_name || row.from_email} emailed`;
+  rcToast(`${title}: ${row.subject || "(no subject)"}`);
+  try {
+    if (window.Notification && Notification.permission === "granted"){
+      const n = new Notification(title, { body: row.subject || row.snippet || "", tag: "client-email-" + row.id, requireInteraction: true });
+      n.onclick = () => { window.focus(); goPage("client-inbox"); n.close(); };
+    }
+  } catch(e){}
+}
+function setupClientInbox(){
+  loadClientInbox().then(refreshInboxViews).catch(e => console.warn(e));
+  if (!inboxTicker) inboxTicker = setInterval(refreshInboxViews, 60e3); // keeps the "waiting 2h" times fresh
+  if (!IS_CONFIGURED || inboxSubscribed) return;
+  inboxSubscribed = true;
+  let t = null;
+  const reload = () => { clearTimeout(t); t = setTimeout(() => loadClientInbox().then(refreshInboxViews), 300); };
+  supabase.channel("client-inbox")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "client_emails" }, (p) => { notifyClientEmail(p.new); reload(); })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "client_emails" }, reload)
+    .on("postgres_changes", { event: "*", schema: "public", table: "inbox_connections" }, reload)
+    .subscribe();
+}
+async function checkInboxNow(){
+  if (inboxChecking) return;
+  if (!IS_CONFIGURED){ rcToast("Demo mode - connect Supabase to check real inboxes."); return; }
+  inboxChecking = true; renderClientInbox();
+  try {
+    const { data, error } = await supabase.functions.invoke("sync-client-inbox", { body: { action: "sync" } });
+    if (error) throw error;
+    await loadClientInbox();
+    const mine = data?.mine;
+    rcToast(mine?.error ? "Couldn't check your inbox - try connecting it again." : mine?.added ? `${mine.added} new client email${mine.added === 1 ? "" : "s"}.` : "Inboxes checked - nothing new from clients.");
+  } catch(e){
+    rcToast("Couldn't check the inboxes right now.");
+    console.warn(e);
+  } finally {
+    inboxChecking = false; refreshInboxViews();
+  }
+}
+async function setClientEmailStatus(id, status){
+  const e = state.clientEmails.find(x => x.id === id); if (!e) return;
+  const patch = status === "done" ? { status, done_by: state.user?.email || "demo" } : { status: "new", done_by: null, replied_at: null };
+  Object.assign(e, patch);
+  refreshInboxViews();
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("client_emails").update(patch).eq("id", id);
+    if (error){ rcToast("Couldn't save that - try again."); loadClientInbox().then(refreshInboxViews); }
+  }
+}
+// The count in the menu, the tab title, and the priority bar on every other page.
+function renderInboxAlert(){
+  const waiting = inboxWaiting();
+  $$(".nav-inbox-count").forEach(el => { el.hidden = !waiting.length; el.textContent = waiting.length; });
+  document.title = waiting.length ? `(${waiting.length}) ${INBOX_BASE_TITLE}` : INBOX_BASE_TITLE;
+  const bar = $("#inbox-alert");
+  if (!bar) return;
+  const show = waiting.length && state.page !== "client-inbox";
+  document.body.classList.toggle("has-inbox-alert", Boolean(show));
+  if (!show){ bar.hidden = true; return; }
+  const oldest = waiting[0], urgent = Date.now() - new Date(oldest.received_at) > INBOX_URGENT_MS;
+  bar.hidden = false;
+  bar.classList.toggle("urgent", urgent);
+  bar.innerHTML = `<i></i><span><b>${waiting.length} client email${waiting.length === 1 ? "" : "s"} waiting on a reply</b> · ${escapeHtml(oldest.client_name || oldest.from_email || "")} has waited ${inboxAge(oldest.received_at)}</span><em>Open client inbox →</em>`;
+}
+function renderClientInbox(){
+  const root = $("#inbox-root");
+  if (!root) return;
+  const waiting = inboxWaiting();
+  const handled = state.clientEmails.filter(e => e.status !== "new").sort((a, b) => new Date(b.received_at) - new Date(a.received_at));
+  const me = state.user?.id || "demo";
+  const mine = state.inboxConnections.find(c => c.user_id === me);
+  const canNotify = "Notification" in window;
+  const notifyOn = canNotify && Notification.permission === "granted";
+  const conns = state.inboxConnections.map(c => {
+    const ok = c.status === "ok";
+    return `<span class="inbox-conn ${ok ? "ok" : "bad"}"><i></i>${escapeHtml(c.email || "Inbox")}<small>${ok ? (c.last_sync_at ? `checked ${inboxAge(c.last_sync_at)} ago` : "connected") : "needs reconnecting"}</small></span>`;
+  }).join("");
+  const card = (e) => {
+    const age = Date.now() - new Date(e.received_at);
+    const cls = age > INBOX_URGENT_MS ? " urgent" : age > INBOX_LATE_MS ? " late" : "";
+    return `<article class="inbox-card${cls}">
+      <div class="inbox-card-top">
+        <span class="inbox-client">${e.client_id ? `<button type="button" data-action="view-client" data-id="${escapeHtml(e.client_id)}">${escapeHtml(e.client_name || "Client")}</button>` : escapeHtml(e.client_name || "Client")}</span>
+        <span class="inbox-age">Waiting ${inboxAge(e.received_at)}</span>
+      </div>
+      <h3>${escapeHtml(e.subject || "(no subject)")}</h3>
+      <p class="inbox-snippet">${escapeHtml(e.snippet || "")}</p>
+      <div class="inbox-card-foot">
+        <span class="inbox-from">${escapeHtml(e.from_name || e.from_email || "")}${e.from_name ? ` &lt;${escapeHtml(e.from_email)}&gt;` : ""} · to ${escapeHtml(e.inbox_email || "")}</span>
+        <span class="inbox-actions">
+          <button type="button" class="btn ghost sm" data-inbox-done="${escapeHtml(e.id)}">Mark handled</button>
+          <a class="btn gold sm" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail →</a>
+        </span>
+      </div>
+    </article>`;
+  };
+  const handledRow = (e) => `<div class="inbox-handled-row">
+      <span><b>${escapeHtml(e.client_name || e.from_email || "")}</b> · ${escapeHtml(e.subject || "(no subject)")}</span>
+      <small>${e.status === "replied" ? `Replied${e.replied_at ? ` after ${inboxDur(new Date(e.replied_at) - new Date(e.received_at))}` : ""}` : `Handled${e.done_by ? " by " + escapeHtml(ASSIGNEES[personKeyFromEmail(e.done_by)]?.label || e.done_by) : ""}`}</small>
+      ${e.status === "done" ? `<button type="button" class="inbox-undo" data-inbox-undo="${escapeHtml(e.id)}">Back to waiting</button>` : `<a class="inbox-undo" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Open</a>`}
+    </div>`;
+  root.innerHTML = `
+    <div class="page-header">
+      <div><h2>Client inbox</h2><p>Every email from a client, from both inboxes. Reply first - replying in Gmail ticks it off here.</p></div>
+      <div class="inbox-head-actions">
+        ${canNotify && !notifyOn ? `<button type="button" class="btn ghost" data-inbox-act="notify">🔔 Turn on notifications</button>` : notifyOn ? `<span class="inbox-notify-on">🔔 Notifications on</span>` : ""}
+        <button type="button" class="btn ghost" data-inbox-act="check" ${inboxChecking ? "disabled" : ""}>${inboxChecking ? "Checking…" : "Check now"}</button>
+      </div>
+    </div>
+    ${state.inboxMissing ? `<div class="inbox-setup"><b>The client inbox is still being set up.</b> It switches on once the latest database update has run.</div>` : ""}
+    ${!mine || mine.status !== "ok" ? `<div class="inbox-setup">
+        <div><b>${mine ? "Your inbox needs reconnecting." : "Connect your inbox."}</b> Sign in with Google again and tick the Gmail box, so client emails coming into ${escapeHtml(state.user?.email || "your inbox")} show up here.</div>
+        <button type="button" class="btn gold" data-inbox-act="connect">Connect my inbox</button>
+      </div>` : ""}
+    ${conns ? `<div class="inbox-conns">${conns}</div>` : ""}
+    <section class="inbox-waiting">
+      <h3 class="inbox-h">${waiting.length ? `Waiting on a reply <span>${waiting.length}</span>` : "Waiting on a reply"}</h3>
+      ${waiting.length ? waiting.map(card).join("") : `<div class="inbox-empty"><b>All caught up.</b><p>No client is waiting on a reply.</p></div>`}
+    </section>
+    ${handled.length ? `<section class="inbox-handled">
+      <button type="button" class="inbox-h toggle" data-inbox-act="handled">${inboxShowHandled ? "▾" : "▸"} Handled in the last 7 days <span>${handled.length}</span></button>
+      ${inboxShowHandled ? handled.map(handledRow).join("") : ""}
+    </section>` : ""}`;
+}
+function setupClientInboxUi(){
+  $("#inbox-alert")?.addEventListener("click", () => goPage("client-inbox"));
+  // Changing page: the bar hides on the inbox itself, and the inbox shows the latest.
+  $$(".nav-item[data-page]").forEach(b => b.addEventListener("click", () => setTimeout(refreshInboxViews, 0)));
+  $("#inbox-root")?.addEventListener("click", async (ev) => {
+    const t = ev.target.closest("[data-inbox-act],[data-inbox-done],[data-inbox-undo]");
+    if (!t) return;
+    if (t.dataset.inboxDone) return setClientEmailStatus(t.dataset.inboxDone, "done");
+    if (t.dataset.inboxUndo) return setClientEmailStatus(t.dataset.inboxUndo, "new");
+    const act = t.dataset.inboxAct;
+    if (act === "check") return checkInboxNow();
+    if (act === "handled"){ inboxShowHandled = !inboxShowHandled; return renderClientInbox(); }
+    if (act === "connect"){ if (!IS_CONFIGURED){ rcToast("Demo mode - connect Supabase first."); return; } return startGoogleOAuth(); }
+    if (act === "notify"){
+      try { await Notification.requestPermission(); } catch(e){}
+      if (Notification.permission === "granted") rcToast("Notifications on - you'll get one the moment a client emails.");
+      else rcToast("Notifications are blocked - allow them for this site in your browser settings.");
+      renderClientInbox();
+    }
+  });
+}
+
 const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
@@ -9478,6 +9679,7 @@ const RENDERERS = [
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
+  [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -12452,6 +12654,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupLostReason();
   setupEmailLibrary();
   setupMeetingStructure();
+  setupClientInboxUi();
   setupSitRate();
   setupNav();
   setupModals();

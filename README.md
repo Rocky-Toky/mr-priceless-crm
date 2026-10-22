@@ -201,6 +201,19 @@ If that also goes unanswered - or you never set a fallback number at all - a tas
 
 Without it, an unanswered inbound call just hears a short "nobody's available, try again later" message.
 
+## 10. Client inbox (emails from clients, top priority)
+
+The **Client inbox** page shows every email a client sends to either of your Gmail inboxes, oldest first, until someone replies. Replying in Gmail ticks it off by itself (checked every 5 minutes). While anything is waiting, there's a count in the menu and a red bar across every page, the tab title shows the count, and each new one pops up as a desktop notification (click **Turn on notifications** on the page once per browser). If an email is still waiting after 2 hours, whoever it was sent to gets one reminder email. Reminders only go out between 7am and 8pm NZ time, and only if Resend is set up (see "Emails that send themselves").
+
+"From a client" means it came from a client's **Email** or **Report email** on their client page. A client on their own domain (like `sam@ritchiebuilding.co.nz`) is matched on the whole domain, so their office staff count too. A Gmail or Xtra-style address is matched exactly. Churned clients are left out.
+
+One-time Google setup (Google Cloud Console, same project as sign-in):
+1. **APIs & Services → Library** → search **Gmail API** → **Enable**.
+2. **OAuth consent screen → Data access / Scopes** → add `https://www.googleapis.com/auth/gmail.readonly`.
+3. If your inboxes are on Google Workspace (`@mrpriceless.com`), set the consent screen's **User type** to **Internal**. Otherwise Google expires the connection every 7 days while the app is in "Testing", and each of you has to reconnect weekly.
+
+Then each person opens **Client inbox**, clicks **Connect my inbox**, and ticks the Gmail box on Google's screen. The `sync-client-inbox` function and its 5-minute schedule (`sql/074_client_inbox.sql`) are set up automatically by the deploy workflow. The function reads email headers and Gmail's short preview only, never the full body. It stores just the emails from clients, and nobody outside the team can read them.
+
 ## How the pieces fit together
 
 - **Login & access control**: sign-in is Google-only. The `allowlist` table is the actual gatekeeper - anyone can technically click "Sign in with Google," but the app checks their email against `allowlist` and shows a "not authorized" screen if they're not on it. Every table's Row Level Security policy re-checks the same allowlist, so even a signed-in-but-uninvited account can't read or write data.
