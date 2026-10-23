@@ -1319,12 +1319,26 @@ async function initAuth(){
     return;
   }
   if (!supabase){ showAuth(); return; }
+  // Opened from a "set your password" email: Supabase signs them in from the
+  // link before anything here runs, so look at the link itself and go
+  // straight to choosing a password. A link that's expired or already been
+  // used says so instead of quietly landing on the sign-in page.
+  const linkParams = new URLSearchParams(location.hash.replace(/^#/, "") + "&" + location.search.replace(/^\?/, ""));
+  const fromRecoveryLink = ["recovery", "invite"].includes(linkParams.get("type"));
+  const linkError = linkParams.get("error_description");
   const { data:{ session } } = await supabase.auth.getSession();
-  if (session){
+  if (linkError || fromRecoveryLink) history.replaceState(null, "", location.pathname);
+  if (session && fromRecoveryLink){
+    try { localStorage.setItem(IDLE_KEY, String(Date.now())); } catch(e){}
+    showResetPassword();
+  } else if (session){
     try { await handleSignedIn(session); }
     catch (err){ console.error(err); showAuth(); authFailed("The CRM couldn't load: " + (err.message || err) + ". Refresh to try again."); }
   }
-  else showAuth();
+  else {
+    showAuth();
+    if (linkError) authFailed(`That link didn't work (${linkError.replace(/\+/g, " ")}). Links only work once and expire after an hour - click "Forgot password?" below to get a fresh one.`);
+  }
 
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === "PASSWORD_RECOVERY"){
