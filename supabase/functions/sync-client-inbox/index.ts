@@ -1,7 +1,7 @@
 // Edge Function: sync-client-inbox
 // Emails from clients (and anyone else who's a real person - not promotions,
 // automated notices, big companies or job applications), sent in by a small Google Apps Script that runs every
-// 5 minutes inside each teammate's own Gmail (the CRM's Client inbox page
+// minute inside each teammate's own Gmail (the CRM's Client inbox page
 // hands it out). Saved to client_emails so the CRM can show what's waiting on
 // a reply. A reply sent from Gmail in the same thread ticks it off by itself.
 // An email still waiting after 2 hours gets one reminder email (via Resend,
@@ -9,7 +9,7 @@
 //
 //   Signed-in allowlisted user, body { action: "make_key" }: a new key for
 //     their Gmail script (the old one stops working). Returns it once.
-//   Gmail script, header x-inbox-key:
+//   Gmail script (every minute), header x-inbox-key:
 //     { action: "senders" } -> what to search for, who counts as a client, and
 //                              the threads still waiting on a reply in this inbox
 //     { action: "push", inbox, messages, replies } -> saves them
@@ -46,11 +46,16 @@ const PERSONAL_DOMAINS = new Set([
 ]);
 const OWN_DOMAINS = new Set(["mrpriceless.com", "mrpriceless.co.nz"]);
 
-// What the Gmail script searches: every recent email in the Primary tab
-// (Gmail already files promotions, social and updates elsewhere). push() then
-// drops what's left that isn't from a real person: automated senders, big
-// companies and job applications. Emails from clients always count.
-const INBOX_QUERY = "newer_than:2d category:primary -in:sent -in:chats -in:spam -in:trash -in:drafts";
+// What the Gmail script searches (it runs every minute and only looks at
+// threads that changed): every recent email except Gmail's Promotions, Social
+// and Forums tabs. push() then drops what's left that isn't from a real
+// person: automated senders, big companies and job applications. Emails from
+// clients always count. Once per connection, the script also works through
+// what's already in the inbox (BACKFILL_QUERY), a page at a time.
+const INBOX_QUERY = "newer_than:2d -category:promotions -category:social -category:forums -in:sent -in:chats -in:spam -in:trash -in:drafts";
+const BACKFILL_QUERY = "in:inbox newer_than:60d -category:promotions -category:social -category:forums -in:chats -in:drafts";
+const BACKFILL_DAYS = 60;
+const backfillName = (userId: string) => `inbox_backfill:${userId}`;
 const AUTOMATED_SENDER = /^(no-?reply|do-?not-?reply|donotreply|noreply|notifications?|notify|alerts?|mailer-daemon|postmaster|bounces?|newsletters?|news|marketing|promo(tions)?|updates?|digest|automated|system|calendar-notification|invitations?|drive-shares-[a-z-]*|comments-noreply)([+._-].*)?$/;
 // Big companies and platforms: their emails are notices, not people.
 const COMPANY_DOMAINS = [
@@ -123,7 +128,7 @@ async function push(admin: any, userId: string, body: any) {
   const inbox = cleanEmail(body.inbox);
   const match = await clientMatchers(admin);
   let added = 0, replied = 0;
-  const messages = Array.isArray(body.messages) ? body.messages.slice(0, 200) : [];
+  const messages = Array.isArray(body.messages) ? body.messages.slice(0, 1000) : [];
   if (messages.length) {
     const ids = messages.map((m: any) => clip(m.gmail_id, 100)).filter(Boolean);
     const { data: have } = await admin.from("client_emails").select("gmail_id").eq("user_id", userId).in("gmail_id", ids);
@@ -140,6 +145,8 @@ async function push(admin: any, userId: string, body: any) {
         message_id: clip(m.message_id, 300) || null, client_id: client?.id || null, client_name: client?.name || null,
         from_email: from.email, from_name: from.name, subject: clip(m.subject, 300), snippet: clip(m.snippet, 400),
         received_at: isNaN(received.getTime()) ? new Date().toISOString() : received.toISOString(),
+        // Older emails from the catch-up don't each set off a 2-hour reminder.
+        reminded_at: !isNaN(received.getTime()) && Date.now() - received.getTime() > REMIND_AFTER_MS ? new Date().toISOString() : null,
       });
       if (!error) added++; // a duplicate (cc'd to both of us) is skipped by the unique Message-ID
     }
@@ -152,6 +159,7 @@ async function push(admin: any, userId: string, body: any) {
       .eq("user_id", userId).eq("thread_id", clip(r.thread_id, 100)).eq("status", "new").lt("received_at", at.toISOString()).select("id");
     replied += (data || []).length;
   }
+  if (body.backfill_done) await admin.from("app_secrets").upsert({ name: backfillName(userId), value: new Date().toISOString() });
   await admin.from("inbox_connections").upsert({ user_id: userId, email: inbox || undefined, status: "ok", error: null, last_sync_at: new Date().toISOString() });
   return { added, replied };
 }
@@ -208,8 +216,10 @@ Deno.serve(async (req: Request) => {
     if (body.action === "senders") {
       const match = await clientMatchers(admin);
       const { data: open } = await admin.from("client_emails").select("thread_id").eq("user_id", userId).eq("status", "new").not("thread_id", "is", null).limit(200);
+      const { data: caughtUp } = await admin.from("app_secrets").select("name").eq("name", backfillName(userId)).maybeSingle();
       return json({
-        query: INBOX_QUERY,
+        query: INBOX_QUERY, max: 100, days: 2, sender_scope: "newer_than:2d",
+        backfill: !caughtUp, backfill_query: BACKFILL_QUERY, backfill_days: BACKFILL_DAYS,
         senders: [...match.byEmail.keys(), ...match.byDomain.keys()],
         open_threads: [...new Set((open || []).map((o: any) => o.thread_id))],
       });
@@ -230,6 +240,7 @@ Deno.serve(async (req: Request) => {
     const bytes = crypto.getRandomValues(new Uint8Array(32));
     const key = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
     await admin.from("app_secrets").upsert({ name: keyName(user.id), value: await sha256(key) });
+    await admin.from("app_secrets").delete().eq("name", backfillName(user.id)); // a fresh script catches up on the inbox again
     const { data: conn } = await admin.from("inbox_connections").select("user_id").eq("user_id", user.id).maybeSingle();
     // The Gmail address fills in from the script's first check - it's often not the CRM login.
     if (!conn) await admin.from("inbox_connections").insert({ user_id: user.id, email: null, status: "waiting" });
