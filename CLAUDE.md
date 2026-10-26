@@ -29,7 +29,7 @@ Never: commit API keys or passwords, print client data or secrets in logs, bulk-
 - `js/builtin-playbooks.js`: built-in playbooks (Meeting Structure, Meeting Sit Rate Process). These are only seeded into the DB when the title is missing, so changes to an existing playbook also need a guarded SQL `update`.
 - `css/style.css`: tokens on `:root`, gold/black theme.
 - `sql/NNN_*.sql`: migrations. They must be safe to re-run. **New ones are added to `.github/workflows/supabase-functions.yml` in two places** (the `paths:` list and the `for f in` loop), and every one in that loop re-runs on each deploy.
-- `supabase/functions/*`: Edge Functions. The workflow deploys `sync-client-ads`, `ghl-report-data`, `jarvis`, `send-scheduled-emails`, `sync-client-inbox` and `sync-ghl-leads` (with `--no-verify-jwt`; each checks its own caller).
+- `supabase/functions/*`: Edge Functions. The workflow deploys `sync-client-ads`, `ghl-report-data`, `jarvis`, `send-scheduled-emails`, `sync-client-inbox`, `sync-ghl-leads` and `precall-meetings` (with `--no-verify-jwt`; each checks its own caller).
 
 ## Access the workflow already has (no keys needed in chat)
 GitHub repo secrets: `SUPABASE_ACCESS_TOKEN`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO` (+ optional AI keys). `supabase-functions.yml` uses them to:
@@ -67,6 +67,14 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
   - Outcomes go back into the client's GoHighLevel via `sync-ghl-leads` action `outcome`: site visit / consultation call move the opportunity to that stage and book the client's calendar; not interested / not a fit / wrong number move to Disqualified; 5 unanswered calls move to No answer. Stages and calendars are matched by name unless set per client in `lead_stage_map` (Results → Stages). What happened is recorded on `client_leads.ghl_sync`.
   - GHL keys need: View Contacts, Edit Contacts, View/Edit Opportunities, View Forms, View Custom Fields, View Calendars, Edit Calendar Events.
   - Workspaces are `sales`, `delivery`, `employees` and `leads`. The last two are in `SOLO_WORKSPACES`, so shared menu items are hidden there.
+
+- **Pre-call nurture (Sales → Upcoming Meetings):**
+  - The Book Meeting form (every entry point: Upcoming Meetings, Meetings Booked, Dialler) calls the `precall-meetings` Edge Function, which saves to `meetings` and puts a 15-minute Google Meet invite plus a private 30-minute buffer on the closer's calendar. It acts as the closer through a Workspace service account with domain-wide delegation (repo secret `GOOGLE_SERVICE_ACCOUNT_JSON`, passed on base64-encoded). Invite title: "{prospect} x {closer}" (Max shows as Maximus).
+  - Reschedule / cancel / confirm / flag actions also go through that function. History is in `meeting_events`.
+  - pg_cron (sql/083) calls it every 5 minutes (`action: "poll"`): an accept confirms; a decline, or a move/delete in Google, sets `calendar_flag` and emails the setter via `scheduled_emails` (kind `precall_alert`). It never changes the meeting by itself.
+  - Test mode (`precall_settings.test_mode`, toggled on the page) only invites @mrpriceless.com and the test list.
+  - The workflow's manual `check_calendar` (an email) and `check_meetings` (yes) runs check Google access and how meetings, the watch and alert emails are doing (statuses only).
+  - Phases still to come: GHL sync, setter/closer task engine, message timeline, reporting.
 
 ## Testing before you push
 - `node --check js/app.js`
