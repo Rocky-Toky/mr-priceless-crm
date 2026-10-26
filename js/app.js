@@ -500,6 +500,7 @@ const state = {
   completedVerticals: [],
   meetings: [],
   precallSettings: null,
+  precallMessages: [],
   playbookUsage: [],
   selectedClientId: null,
   selectedDealId: null,
@@ -1157,6 +1158,7 @@ const DataLayer = {
       allRows(() => supabase.from("completed_verticals").select("*").order("completed_at",{ascending:false})),
       allRows(() => supabase.from("meetings").select("*").order("starts_at",{ascending:true})),
       supabase.from("precall_settings").select("*").eq("id", 1).maybeSingle(),
+      allRows(() => supabase.from("precall_messages").select("*").gt("at", new Date(Date.now() - 45 * 86400e3).toISOString())),
     ]);
     DataLayer._apply(results);
     crmCacheSave(results);
@@ -1164,7 +1166,7 @@ const DataLayer = {
   // Puts a fetch's results into state - from the live database, or from the
   // copy saved in this browser last time (so the CRM opens instantly).
   _apply(results){
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv, mt, pcs] = results;
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv, mt, pcs, pmsg] = results;
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
     state.deals = d.data || [];
@@ -1199,6 +1201,7 @@ const DataLayer = {
     state.completedVerticals = cv.data || [];
     state.meetings = mt?.data || [];
     state.precallSettings = pcs?.data || null;
+    state.precallMessages = pmsg?.data || [];
     dropArchivedClientData();
   },
   async insert(table, row){
@@ -1296,7 +1299,7 @@ function subscribeRealtime(){
       await DataLayer.fetchAll(); renderAll();
     }, 350);
   };
-  const LIVE_TABLES = ["contacts", "cold_calls", "deals", "prospecting_regions", "dial_prospects", "clients", "client_content", "client_ad_creatives", "client_campaigns", "deal_contacts", "tasks", "client_reports", "notes", "playbooks", "rules", "email_templates", "expenses", "call_activity", "playbook_usage", "creative_weekly_snapshots", "team_focus", "client_leads", "completed_verticals", "meetings", "precall_settings"];
+  const LIVE_TABLES = ["contacts", "cold_calls", "deals", "prospecting_regions", "dial_prospects", "clients", "client_content", "client_ad_creatives", "client_campaigns", "deal_contacts", "tasks", "client_reports", "notes", "playbooks", "rules", "email_templates", "expenses", "call_activity", "playbook_usage", "creative_weekly_snapshots", "team_focus", "client_leads", "completed_verticals", "meetings", "precall_settings", "precall_messages"];
   const channel = supabase.channel("crm-live");
   LIVE_TABLES.forEach(table => channel.on("postgres_changes", { event:"*", schema:"public", table }, liveRefresh));
   channel
@@ -2332,6 +2335,14 @@ function pmSeedDemo(){
   state.meetings.push({ ...state.meetings[0], id: uid(), first_name: "Rangi", last_name: "Moana", business_name: "Moana Builders", starts_at: now.toISOString(), closer: "max",
     booked_at: new Date(Date.now() - 2 * 86400e3).toISOString(), tasks_from: new Date(Date.now() - 2 * 86400e3).toISOString(), task_log: { A: { status: "done", at: new Date().toISOString() } } });
   window.__pmTasks = pmTasks;
+  const sarah = state.meetings[1], lena = state.meetings.find(m => m.first_name === "Lena");
+  const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  state.precallMessages = [
+    { id: uid(), meeting_id: sarah.id, ghl_message_id: "d1", channel: "email", direction: "outbound", subject: "How we got Kauri Builders 40 leads a month", body: "Hey Sarah, ahead of your chat with Maximus...", status: "delivered", at: ago(20) },
+    { id: uid(), meeting_id: sarah.id, ghl_message_id: "d2", channel: "sms", direction: "outbound", body: "Hey Sarah, quick one before Thursday: what's the main job type you want more of?", status: "delivered", at: ago(16) },
+    { id: uid(), meeting_id: sarah.id, ghl_message_id: "d3", channel: "sms", direction: "inbound", body: "Mostly bathroom renos. Cheers", status: "delivered", at: ago(0.5) },
+    { id: uid(), meeting_id: lena.id, ghl_message_id: "d4", channel: "sms", direction: "outbound", body: "Hey Lena, just confirming tomorrow...", status: "failed", error: "Landline number", at: ago(3) },
+  ];
 }
 /* ───────── Meeting tasks: the setter's and closer's calls and texts ─────────
    Worked out from the meeting itself (M = when it starts, B = when it was
@@ -2503,6 +2514,146 @@ async function pmCopy(text, btn, label = "Copy text"){
   catch(err){ prompt("Copy this:", text); }
 }
 
+/* ───────── Prospect timeline: GHL messages, manual logs, calendar, tasks ─────────
+   precall_messages holds what GHL sent each prospect and their replies (read
+   in every 5 minutes); meeting_events holds everything else (booked, moved,
+   accepted, confirmations, tasks, texts and calls from the setter's phone).
+   A reply is unread until someone opens that prospect's timeline. */
+const pmMessages = (m) => state.precallMessages.filter(x => x.meeting_id === m.id);
+const pmUnread = (m) => pmMessages(m).filter(x => x.direction === "inbound" && !x.read_at);
+const pmFailed = (m) => pmMessages(m).filter(x => x.direction === "outbound" && /fail|undeliver/i.test(x.status || ""));
+// What GHL is set up to send (built in GHL; worked out here only to show what's next).
+function pmGhlSchedule(m){
+  const M = Date.parse(m.starts_at), from = Date.parse(m.tasks_from || m.booked_at || m.created_at);
+  const dayM = nzDayStr(new Date(M)), dayB = nzDayStr(new Date(from));
+  const daysOut = Math.round((Date.parse(dayM) - Date.parse(dayB)) / 86400e3);
+  const after11 = nzParts(new Date(M)).h >= 11;
+  const at = (day, time) => nzToDate(day, time).getTime();
+  const out = [];
+  if (daysOut >= 2){
+    out.push({ at: at(nzAddDays(dayB, 1), "09:00"), label: "Case study email" });
+    out.push({ at: at(nzAddDays(dayB, 1), "13:00"), label: "Prep-question text" });
+  }
+  if (daysOut >= 4) out.push({ at: at(nzAddDays(dayB, 2), "09:00"), label: "FAQ email" });
+  if (daysOut >= 1){
+    const t = at(nzAddDays(dayM, -1), after11 ? "16:00" : "12:00");
+    const late = daysOut === 1 && from > at(dayB, after11 ? "14:00" : "10:00");
+    if (!late && t > from) out.push({ at: t, label: "Day-before confirmation text" });
+  }
+  if (after11) out.push({ at: at(dayM, "08:30"), label: "Morning-of text", note: "only if they've confirmed by then" });
+  if (m.onehour_noanswer_at) out.push({ at: Date.parse(m.onehour_noanswer_at), label: "Text after the unanswered one-hour call" });
+  return out.filter(x => x.at < M && x.at >= from - 60e3).sort((a, b) => a.at - b.at);
+}
+const pmNextTouch = (m) => m.status === "scheduled" ? pmGhlSchedule(m).find(x => x.at > Date.now()) : null;
+
+let pmTl = { id: null, events: [], loading: false };
+const pmWhenShort = (t) => `${pmDayLabel(nzDayStr(new Date(t)))} ${pmTime(t)}`;
+function pmEventLine(e, m){
+  const d = e.detail || {}, by = e.by && e.by !== "google" && e.by !== "crm" ? pmPerson(EMAIL_TO_ASSIGNEE[String(e.by).toLowerCase()] || String(e.by).split("@")[0]) : "";
+  const T = { A: "Booking text", B: "Follow-up text", C: "Follow-up call", D: "One-hour call", E: "Late joiner text", F: "Late joiner call", G: "Outcome" };
+  const R = { answered_ok: "answered, still good", answered_reschedule: "answered, wants to reschedule", no_answer: "no answer", confirmed: "confirmed", showed: "showed", noshow: "no-show" };
+  switch (e.kind){
+    case "booked": return ["cal", `Booked for ${pmWhenShort(d.starts_at || m.starts_at)}${by ? ` by ${by}` : ""}`];
+    case "calendar_created": return ["cal", d.invite_to_prospect ? "Calendar invite sent" : d.skipped_reason === "test_mode" ? "Invite only on the closer's calendar (test mode)" : "Put on the closer's calendar (no email to invite)"];
+    case "calendar_error": return ["bad", `Calendar invite failed: ${d.error || ""}`];
+    case "rescheduled": return ["cal", `Moved from ${pmWhenShort(d.from)} to ${pmWhenShort(d.to)}${d.reason ? ` - ${PM_REASON_LABEL[d.reason] || d.reason}` : ""}${d.note ? ` (${d.note})` : ""}${by ? ` · ${by}` : ""}`];
+    case "cancelled": return ["bad", `Cancelled: ${d.reason || ""}${by ? ` · ${by}` : ""}`];
+    case "invite_accepted": return ["good", "Accepted the calendar invite"];
+    case "invite_declined": return ["bad", "Declined the calendar invite"];
+    case "invite_tentative": return ["cal", "Said maybe to the invite"];
+    case "confirmed": return ["good", `Confirmed${d.source === "calendar" ? " (accepted the invite)" : d.source === "setter" ? ` by ${by || "the setter"}` : ""}${d.note ? `: ${d.note}` : ""}`];
+    case "moved_in_google": return ["bad", `Moved in Google Calendar to ${pmWhenShort(d.to)}`];
+    case "deleted_in_google": return ["bad", "Deleted from Google Calendar"];
+    case "restored": return ["cal", "Invite put back"];
+    case "flag_dismissed": return ["cal", `Flag cleared (${d.flag})${by ? ` · ${by}` : ""}`];
+    case "ghl_tag": return ["ghl", `GHL tag: ${d.tag}`];
+    case "ghl_error": return ["bad", `GHL sync failed: ${d.error || ""}`];
+    case "task": return [d.status === "dismissed" ? "cal" : "good", `${T[d.task] || d.task}: ${d.status === "dismissed" ? "skipped" : d.result ? R[d.result] || d.result : "done"}${d.note ? ` (${d.note})` : ""}${by ? ` · ${by}` : ""}`];
+    case "outcome": return [d.result === "showed" ? "good" : "bad", `Outcome: ${R[d.result] || d.result}${by ? ` · ${by}` : ""}`];
+    case "outcome_overdue": return ["bad", "No outcome 20 minutes in - closer and setter emailed"];
+    case "prospect_joined": return ["good", "Joined the call"];
+    case "manual": return [d.type === "replied" ? "reply" : "manual", `${{ text_sent: "Text sent from phone", replied: "Replied", called: "Called", note: "Note" }[d.type] || "Note"}${by ? ` (${by})` : ""}${d.note ? `: ${d.note}` : ""}`];
+    default: return ["cal", e.kind.replace(/_/g, " ")];
+  }
+}
+function renderTimeline(){
+  const box = $("#pm-tl-body"), m = state.meetings.find(x => x.id === pmTl.id);
+  if (!box || !m) return;
+  $("#pm-tl-title").textContent = pmName(m) + (m.business_name ? ` · ${m.business_name}` : "");
+  $("#pm-tl-sub").textContent = `${m.status === "cancelled" ? "Cancelled" : m.outcome ? (m.outcome === "showed" ? "Showed" : "No-show") : pmWhenLong(m.starts_at)} · closer ${pmPerson(m.closer)} · set by ${pmPerson(m.setter)}${m.phone ? ` · ${m.phone}` : ""}`;
+  const now = Date.now();
+  const coming = [
+    ...pmTasks(m).filter(t => t.state === "upcoming" || t.state === "due" || t.state === "late").map(t => ({ at: t.due, text: `${t.label} (${t.who === "setter" ? pmPerson(m.setter) : pmPerson(m.closer)})`, cls: t.state === "upcoming" ? "" : "due" })),
+    ...(m.status === "scheduled" ? pmGhlSchedule(m).filter(x => x.at > now).map(x => ({ at: x.at, text: `GHL: ${x.label}${x.note ? ` (${x.note})` : ""}`, cls: "ghl" })) : []),
+  ].sort((a, b) => a.at - b.at);
+  const items = [
+    ...pmMessages(m).map(x => ({ at: Date.parse(x.at), cls: x.direction === "inbound" ? "reply" : /fail|undeliver/i.test(x.status || "") ? "bad" : "ghl",
+      text: `${x.direction === "inbound" ? `Replied by ${x.channel === "email" ? "email" : "text"}` : `GHL ${x.channel === "email" ? "email" : x.channel === "sms" ? "text" : x.channel} sent`}${x.subject ? ` - ${x.subject}` : ""}${/fail|undeliver/i.test(x.status || "") ? ` - FAILED${x.error ? `: ${x.error}` : ""}` : x.direction === "outbound" && x.status ? ` · ${x.status}` : ""}`,
+      body: x.body })),
+    ...pmTl.events.map(e => { const [cls, text] = pmEventLine(e, m); return { at: Date.parse(e.at), cls, text }; }),
+  ].sort((a, b) => b.at - a.at);
+  box.innerHTML = `
+    ${m.status === "scheduled" ? `<div class="pm-tl-quick">
+      ${m.confirmation_status !== "confirmed" || (pmIsToday(m) && !m.confirmed_today_at) ? `<button type="button" class="btn gold" data-pm-act="confirm" data-id="${m.id}">${pmIsToday(m) ? "Confirmed today" : "Confirmed"}</button>` : ""}
+      <button type="button" class="btn ghost" data-pm-act="resched" data-id="${m.id}">Wants to reschedule</button>
+      <button type="button" class="btn ghost" data-pm-log="replied">Replied - add note</button>
+      <button type="button" class="btn ghost" data-pm-log="text_sent">Text sent from my phone</button>
+      <button type="button" class="btn ghost" data-pm-log="called">Called</button>
+      <button type="button" class="btn ghost" data-pm-log="note">Note</button>
+    </div>` : ""}
+    ${coming.length ? `<h4 class="pm-tl-h">Coming up</h4><ul class="pm-tl coming">${coming.slice(0, 8).map(c => `<li class="${c.cls}"><time>${escapeHtml(pmWhenShort(c.at))}</time><span>${escapeHtml(c.text)}</span></li>`).join("")}</ul>` : ""}
+    <h4 class="pm-tl-h">History${pmTl.loading ? ` <small>loading…</small>` : ""}</h4>
+    ${items.length ? `<ul class="pm-tl">${items.map(i => `<li class="${i.cls}"><time>${escapeHtml(pmWhenShort(i.at))}</time><span>${escapeHtml(i.text)}${i.body ? `<q>${escapeHtml(i.body)}</q>` : ""}</span></li>`).join("")}</ul>` : `<p class="pm-todo-empty">${pmTl.loading ? "Loading…" : "Nothing yet."}</p>`}`;
+}
+async function openTimeline(m){
+  pmTl = { id: m.id, events: [], loading: true };
+  renderTimeline();
+  openModal("pm-tl-modal");
+  if (!IS_CONFIGURED){
+    pmTl.events = [{ kind: "booked", at: m.booked_at, by: "demo", detail: { starts_at: m.starts_at } }, { kind: "calendar_created", at: m.booked_at, detail: { invite_to_prospect: m.invite_to_prospect, skipped_reason: m.invite_to_prospect ? null : "test_mode" } }, ...(m.demo_events || [])];
+    pmTl.loading = false;
+    pmUnread(m).forEach(x => { x.read_at = new Date().toISOString(); });
+    renderTimeline(); renderMeetingsPage();
+    return;
+  }
+  // Opened = read.
+  if (pmUnread(m).length){
+    const ids = pmUnread(m).map(x => x.id);
+    ids.forEach(id => { const x = state.precallMessages.find(y => y.id === id); if (x) x.read_at = new Date().toISOString(); });
+    supabase.from("precall_messages").update({ read_at: new Date().toISOString() }).in("id", ids).then(() => {});
+    renderMeetingsPage();
+  }
+  const loadEvents = async () => {
+    const { data } = await supabase.from("meeting_events").select("kind,detail,by,at").eq("meeting_id", m.id).order("at", { ascending: false }).limit(200);
+    if (pmTl.id === m.id){ pmTl.events = data || []; pmTl.loading = false; renderTimeline(); }
+  };
+  await loadEvents();
+  // And anything new from GHL right now.
+  const { data } = await supabase.functions.invoke("precall-meetings", { body: { action: "messages", meeting_id: m.id } });
+  if (data?.added){ const r = await allRows(() => supabase.from("precall_messages").select("*").gt("at", new Date(Date.now() - 45 * 86400e3).toISOString())); if (!r.error) state.precallMessages = r.data || []; renderTimeline(); renderMeetingsPage(); }
+}
+async function pmLog(type){
+  const m = state.meetings.find(x => x.id === pmTl.id);
+  if (!m) return;
+  const ask = { replied: `What did ${m.first_name} say?`, text_sent: "What did you text? (optional)", called: "How did the call go? (optional)", note: "Note:" }[type];
+  const note = prompt(ask, "");
+  if (note === null || ((type === "replied" || type === "note") && !note.trim())) return;
+  if (!IS_CONFIGURED){ (m.demo_events = m.demo_events || []).push({ kind: "manual", at: new Date().toISOString(), by: "demo", detail: { type, note } }); pmTl.events.unshift({ kind: "manual", at: new Date().toISOString(), by: "demo", detail: { type, note } }); renderTimeline(); return; }
+  const { data, error } = await supabase.functions.invoke("precall-meetings", { body: { action: "log", meeting_id: m.id, type, note } });
+  if (error || data?.error){ alert(data?.error || error.message); return; }
+  const { data: ev } = await supabase.from("meeting_events").select("kind,detail,by,at").eq("meeting_id", m.id).order("at", { ascending: false }).limit(200);
+  pmTl.events = ev || pmTl.events; renderTimeline();
+}
+// "Unread replies" at the top of the page: prospects who've written back, with their setter.
+function pmUnreadHtml(){
+  const rows = state.meetings.filter(m => pmUnread(m).length).sort((a, b) => Date.parse(pmUnread(b).slice(-1)[0].at) - Date.parse(pmUnread(a).slice(-1)[0].at));
+  if (!rows.length) return "";
+  return `<div class="card pm-unread"><h3>Unread replies <span>${rows.length}</span></h3>${rows.map(m => {
+    const last = pmUnread(m).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+    return `<button type="button" class="pm-unread-row" data-pm-act="timeline" data-id="${m.id}"><b>${escapeHtml(pmName(m))}</b><span>${escapeHtml((last.body || last.subject || "(no text)").slice(0, 140))}</span><em>${escapeHtml(pmPerson(m.setter))} · ${escapeHtml(pmWhenShort(Date.parse(last.at)))}</em></button>`;
+  }).join("")}</div>`;
+}
+
 let pmTab = "upcoming";
 const PM_REASON_LABEL = { prospect_conflict: "Prospect couldn't make it", closer_conflict: "Closer couldn't make it", no_show: "No-show", other: "Other" };
 const pmName = (m) => [m.first_name, m.last_name].filter(Boolean).join(" ");
@@ -2522,6 +2673,7 @@ function pmFlagHtml(m){
   return body ? `<div class="pm-flag pm-flag-${f}"><span>${body[0]}</span><div>${body[1]}</div></div>` : "";
 }
 function renderMeetingsPage(){
+  if ($("#pm-tl-modal")?.classList.contains("visible")) renderTimeline();
   const root = $("#pm-root");
   if (!root) return;
   if (Date.now() - pmLastRefresh > 30e3) pmRefresh();
@@ -2563,13 +2715,14 @@ function renderMeetingsPage(){
       <div class="pm-when"><b>${pmTime(m.starts_at)}</b><small>to ${pmTime(Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3)}</small></div>
       <div class="pm-who"><b>${escapeHtml(pmName(m))}</b><small>${escapeHtml([m.business_name, m.phone].filter(Boolean).join(" · "))}</small></div>
       <div class="pm-people"><span>Closer <b>${escapeHtml(pmPerson(m.closer))}</b></span><span>Set by <b>${escapeHtml(pmPerson(m.setter))}</b></span></div>
-      <div class="pm-tags">${confPill(m)}${calPill(m)}${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${m.reschedule_count ? `<span class="pm-pill${m.reschedule_count >= 2 ? " gold" : ""}">Moved ${m.reschedule_count}x</span>` : ""}${ghlPill(m)}</div>
+      <div class="pm-tags">${confPill(m)}${calPill(m)}${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${m.reschedule_count ? `<span class="pm-pill${m.reschedule_count >= 2 ? " gold" : ""}">Moved ${m.reschedule_count}x</span>` : ""}${ghlPill(m)}${pmUnread(m).length ? `<span class="pm-pill red">${pmUnread(m).length} unread repl${pmUnread(m).length === 1 ? "y" : "ies"}</span>` : ""}${pmFailed(m).length ? `<span class="pm-pill red" title="${escapeHtml(pmFailed(m).map(x => x.error || x.status).join(", "))}">${pmFailed(m)[0].channel === "email" ? "Email" : "Text"} didn't send</span>` : ""}${(() => { const n = pmNextTouch(m); return n ? `<span class="pm-pill" title="Next automated message from GHL">Next: ${escapeHtml(n.label)} ${escapeHtml(pmWhenShort(n.at))}</span>` : ""; })()}</div>
       <div class="pm-actions">
         ${needConfirm ? `<button type="button" class="btn gold" data-pm-act="confirm" data-id="${m.id}" title="They confirmed by text or on a call">${pmIsToday(m) ? "Mark confirmed today" : "Mark confirmed"}</button>` : ""}
         ${live ? `<button type="button" class="btn ghost" data-pm-act="resched" data-id="${m.id}">Reschedule</button><button type="button" class="btn ghost" data-pm-act="cancel" data-id="${m.id}">Cancel</button>` : ""}
         ${m.calendar_status === "error" && live ? `<button type="button" class="btn ghost" data-pm-act="retry" data-id="${m.id}">Retry invite</button>` : ""}
         ${m.ghl_status === "error" ? `<button type="button" class="btn ghost" data-pm-act="retry-ghl" data-id="${m.id}">Retry GHL</button>` : ""}
         ${m.meet_link && live ? `<a class="btn ghost" href="${escapeHtml(m.meet_link)}" target="_blank" rel="noopener">Open Meet</a><button type="button" class="btn ghost" data-pm-act="copy" data-link="${escapeHtml(m.meet_link)}">Copy link</button>` : ""}
+        <button type="button" class="btn ghost" data-pm-act="timeline" data-id="${m.id}">Timeline</button>
         ${m.deal_id && state.deals.some(d => d.id === m.deal_id) ? `<button type="button" class="btn ghost" data-pm-act="deal" data-id="${m.deal_id}">Deal</button>` : ""}
       </div>
       ${pmTaskStrip(m)}
@@ -2590,7 +2743,7 @@ function renderMeetingsPage(){
       <button type="button" class="btn ${test ? "ghost" : "gold"}" data-pm-act="test">${test ? "Go live" : "Turn test mode back on"}</button>
     </div>
     ${flagged.length && pmTab === "upcoming" ? `<div class="pm-attn"><b>${flagged.length} meeting${flagged.length === 1 ? " needs" : "s need"} you.</b> ${flagged.map(m => `${escapeHtml(pmName(m))} (${{ declined: "declined", moved: "moved in Google", deleted: "deleted in Google" }[m.calendar_flag] || m.calendar_flag})`).join(", ")}. The CRM checks Google Calendar every 5 minutes.</div>` : ""}
-    ${pmTab === "upcoming" ? pmTodoHtml() : ""}
+    ${pmTab === "upcoming" ? pmUnreadHtml() + pmTodoHtml() : ""}
     <div class="country-toggle pm-tabs">
       <button type="button" data-pm-tab="upcoming" class="${pmTab === "upcoming" ? "active" : ""}">Upcoming (${upcoming.length})</button>
       <button type="button" data-pm-tab="past" class="${pmTab === "past" ? "active" : ""}">Past and cancelled</button>
@@ -2621,7 +2774,8 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 function pmNavCount(){
   const el = $(".nav-pm-count");
   if (!el) return;
-  const up = pmUpcoming(), flagged = up.filter(m => m.calendar_flag).length, mine = pmMyTasks(false).length;
+  const me = pmMe();
+  const up = pmUpcoming(), flagged = up.filter(m => m.calendar_flag).length, mine = pmMyTasks(false).length + state.meetings.filter(m => m.setter === me && pmUnread(m).length).length;
   const n = flagged + mine || up.filter(pmIsToday).length;
   el.hidden = !n; el.textContent = n || "";
   el.classList.toggle("alert", !!(flagged + mine));
@@ -2723,6 +2877,8 @@ async function submitCancel(e){
 document.addEventListener("click", async (e) => {
   const tab = e.target.closest("[data-pm-tab]");
   if (tab){ pmTab = tab.dataset.pmTab; renderMeetingsPage(); return; }
+  const logBtn = e.target.closest("[data-pm-log]");
+  if (logBtn){ pmLog(logBtn.dataset.pmLog); return; }
   const todo = e.target.closest("[data-pm-todo]");
   if (todo){ pmTodoAll = todo.dataset.pmTodo === "all"; renderMeetingsPage(); return; }
   if (e.target.closest("#book-meeting-copy")){ pmCopy($("#book-meeting-sms-text").textContent, e.target.closest("button"), "Copy"); return; }
@@ -2758,6 +2914,7 @@ document.addEventListener("click", async (e) => {
     if (done && b.dataset.result === "answered_reschedule") openReschedule(state.meetings.find(x => x.id === m.id) || m);
     else if (done) rcToast(b.dataset.result === "no_answer" && b.dataset.task === "D" ? "Noted - GHL will send them the follow-up text." : b.dataset.task === "G" ? `Outcome saved: ${b.dataset.result === "showed" ? "showed" : "no-show"}.` : "Done.");
   }
+  else if (act === "timeline" && m) openTimeline(m);
   else if (act === "joined" && m){ b.disabled = true; if (await pmDoTask(m, "joined")) rcToast(`${m.first_name}'s on the call.`); }
   else if (act === "retry-ghl" && m){
     b.disabled = true; b.textContent = "Trying…";
