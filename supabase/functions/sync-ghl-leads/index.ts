@@ -98,18 +98,47 @@ function valueText(v: any): string {
 }
 
 // Address and form answers from the contact itself.
-async function contactDetails(id: string, token: string, fieldNames: () => Promise<Map<string, string>>) {
+// What a form submission holds besides the answers: who they are, and the
+// tracking GHL adds. Matched loosely on the key.
+const SUBMISSION_NOISE = /^(event_?data|fields_?ori|others?|signature|form_?id|location_?id|contact_?id|id|timezone|time_?zone|ip|user_?agent|session|captcha|recaptcha|page|url|referrer|source|medium|campaign|utm_|fbclid|gclid|ad_?id|adset|campaign_?id|full_?name|first_?name|last_?name|name|email|phone|phone_?number|mobile|terms|consent|privacy|submission|created|date_?added|__)/i;
+const ADDRESS_KEYS: Record<string, string> = { address: "street", address1: "street", street_address: "street", full_address: "street", street: "street", city: "city", suburb: "suburb", town: "city", postal_code: "postal", postcode: "postal", zip: "postal", zip_code: "postal", state: "state", region: "state" };
+const humanise = (k: string) => k.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
+
+// Address and form answers. Answers come from the contact's custom fields
+// and from their most recent form submission (our clients' leads mostly come
+// in through GHL forms, which keep the answers on the submission).
+async function contactDetails(id: string, token: string, fieldNames: () => Promise<Map<string, string>>, locationId: string) {
   const body = await ghl(`/contacts/${encodeURIComponent(id)}`, token);
   const c = body?.contact || body || {};
   const names = await fieldNames();
-  const answers = (c.customFields || c.customField || [])
+  const answers: { q: string; a: string }[] = (c.customFields || c.customField || [])
     .map((f: any) => ({ q: clean(names.get(f.id) || f.name || f.fieldKey || "", 120), a: clean(valueText(f.value ?? f.fieldValue), 600) }))
     .filter((x: any) => x.q && x.a);
-  const street = clean(c.address1, 200);
-  const city = clean([c.city, c.state].filter(Boolean).join(", "), 120);
-  const address = clean([street, c.city, c.postalCode].filter(Boolean).join(", "), 240);
+  const place: Record<string, string> = { street: clean(c.address1, 200), city: clean(c.city, 80), suburb: "", postal: clean(c.postalCode, 20), state: clean(c.state, 60) };
+  try {
+    const subs = await ghl(`/forms/submissions?locationId=${encodeURIComponent(locationId)}&q=${encodeURIComponent(c.email || id)}&limit=10`, token);
+    const mine = (subs?.submissions || []).filter((x: any) => !x.contactId || x.contactId === id)
+      .sort((x: any, y: any) => String(y.createdAt || "").localeCompare(String(x.createdAt || "")))[0];
+    const others = mine?.others || {};
+    for (const [key, raw] of Object.entries(others)) {
+      const v = clean(valueText(raw), 600);
+      if (!v || typeof raw === "object" && !Array.isArray(raw) && raw !== null && !("value" in (raw as any))) continue;
+      const lk = key.toLowerCase();
+      if (ADDRESS_KEYS[lk]) { if (!place[ADDRESS_KEYS[lk]]) place[ADDRESS_KEYS[lk]] = v; continue; }
+      if (SUBMISSION_NOISE.test(lk)) continue;
+      const q = clean(names.get(key) || humanise(key), 120);
+      if (q && !answers.some((x) => x.q.toLowerCase() === q.toLowerCase())) answers.push({ q, a: v });
+    }
+  } catch { /* no Forms access on this key: custom fields only */ }
+  const town = place.suburb || place.city;
+  const city = clean([town, place.suburb && place.city !== place.suburb ? place.city : "", place.state].filter(Boolean).join(", "), 120);
+  const address = clean([place.street, town, place.postal].filter(Boolean).join(", "), 240);
   return { contact: c, answers, address, city };
 }
+
+// Leads read before form submissions were looked at get one more read.
+const DETAILS_FROM_SUBMISSIONS = "2026-10-26T07:00:00Z";
+const needsDetails = (r: any) => !r.details_at || (r.details_at < DETAILS_FROM_SUBMISSIONS && !(Array.isArray(r.answers) && r.answers.length) && !r.address && !r.city);
 
 async function syncClient(admin: any, conn: any, client: any, deadline: number) {
   const loc = conn.location_id, token = conn.token;
@@ -134,7 +163,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
   }
 
   const since = new Date(Date.now() - 14 * 86400e3).toISOString();
-  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at")
+  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at, answers, address, city")
     .eq("client_id", client.id).gte("created_at", since).limit(3000);
   const byExt = new Map((recent || []).map((r: any) => [r.external_lead_id, r]));
   const byContact = new Map((recent || []).filter((r: any) => r.ghl_contact_id).map((r: any) => [r.ghl_contact_id, r]));
@@ -162,10 +191,10 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     const existing = byExt.get(x.ext) || (x.cid && byContact.get(x.cid));
     // Already in: just fill in its details if it hasn't got them yet.
     if (existing) {
-      if (!existing.details_at && x.cid && reads < MAX_DETAIL_READS && Date.now() < deadline) {
+      if (needsDetails(existing) && x.cid && reads < MAX_DETAIL_READS && Date.now() < deadline) {
         reads++;
         try {
-          const d = await contactDetails(x.cid, token, fieldNames);
+          const d = await contactDetails(x.cid, token, fieldNames, loc);
           await admin.from("client_leads").update({ ghl_contact_id: x.cid, address: d.address || null, city: d.city || null, answers: d.answers, details_at: new Date().toISOString() }).eq("id", existing.id);
         } catch { /* try again next run */ }
       }
@@ -174,7 +203,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     let c = x.c, d: any = null;
     if (x.cid && reads < MAX_DETAIL_READS && Date.now() < deadline) {
       reads++;
-      try { d = await contactDetails(x.cid, token, fieldNames); c = { ...c, ...d.contact }; } catch { d = null; }
+      try { d = await contactDetails(x.cid, token, fieldNames, loc); c = { ...c, ...d.contact }; } catch { d = null; }
     }
     const phone = clean(c.phone, 40), email = clean(c.email, 200).toLowerCase();
     if ((digits(phone).length >= 8 && phones.has(digits(phone))) || (email && emails.has(email))) continue;
@@ -282,7 +311,8 @@ async function inspect(admin: any) {
         } catch (e) { s.notes = { error: (e as any)?.status || String(e).slice(0, 60) }; }
         try {
           const subs = await ghl(`/forms/submissions?locationId=${encodeURIComponent(conn.location_id)}&q=${encodeURIComponent(cid)}&limit=5`, conn.token);
-          s.form_submissions = { count: (subs?.submissions || []).length };
+          const first = (subs?.submissions || [])[0];
+          s.form_submissions = { count: (subs?.submissions || []).length, keys: Object.keys(first?.others || {}).map((k) => k.slice(0, 40)).slice(0, 30) };
         } catch (e) { s.form_submissions = { error: (e as any)?.status || String(e).slice(0, 60) }; }
       }
       samples.push(s);
