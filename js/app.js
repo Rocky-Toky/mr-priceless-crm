@@ -1699,6 +1699,7 @@ function applyWorkspace(){
   }
   if (state.page === "lead-engine" && !canAccessLeadEngine()) goPage(landing);
   wsMenuSync();
+  renderInboxAlert();
 }
 // The workspace picker: our own dark menu in place of the browser's white
 // dropdown list. The real <select> stays (hidden) and still drives everything.
@@ -10542,7 +10543,7 @@ async function loadClientInbox(){
 function refreshInboxViews(){ renderInboxAlert(); if (state.page === "client-inbox") renderClientInbox(); }
 // A new client email: a desktop notification (if they're turned on) and a toast.
 function notifyClientEmail(row){
-  if (!row || row.status !== "new") return;
+  if (!row || row.status !== "new" || !inboxHere()) return;
   const title = `${row.client_name || row.from_email} emailed`;
   rcToast(`${title}: ${row.subject || "(no subject)"}`);
   try {
@@ -10737,8 +10738,11 @@ async function setClientEmailStatus(id, status){
   }
 }
 // The count in the menu, the tab title, and the priority bar on every other page.
+// The Client inbox lives in Service Delivery only, so its count, tab title
+// and bar only show there.
+const inboxHere = () => document.body.classList.contains("workspace-delivery");
 function renderInboxAlert(){
-  const waiting = inboxWaiting();
+  const waiting = inboxHere() ? inboxWaiting() : [];
   $$(".nav-inbox-count").forEach(el => { el.hidden = !waiting.length; el.textContent = waiting.length; });
   document.title = waiting.length ? `(${waiting.length}) ${INBOX_BASE_TITLE}` : INBOX_BASE_TITLE;
   const bar = $("#inbox-alert");
