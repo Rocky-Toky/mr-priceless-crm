@@ -2315,13 +2315,13 @@ function pmSeedDemo(){
       phone: "+6421555" + String(Math.floor(Math.random() * 9000) + 1000), closer, closer_email: personEmail(closer), setter, setter_email: personEmail(setter),
       starts_at: start.toISOString(), duration_min: 15, buffer_min: 30, description: "", status: "scheduled", booked_at: booked.toISOString(),
       lead_time_hours: Math.round((start - booked) / 360e3) / 10, booking_window: pmWindow(booked, start), google_event_id: "demo", buffer_event_id: "demo-b",
-      meet_link: "https://meet.google.com/abc-defg-hij", calendar_status: "ok", invite_to_prospect: false, test_mode: true,
+      meet_link: "https://meet.google.com/abc-defg-hij", calendar_status: "ok", invite_to_prospect: false, test_mode: true, ghl_status: "ok", ghl_tag: "precall-booked",
       confirmation_status: "unconfirmed", reschedule_count: 0, created_at: booked.toISOString(), ...extra };
   };
   state.meetings = [
     mk(today, "16:30", "Hemi", "Walker", "Walker Roofing", "max", "rocky"),
     mk(nzAddDays(today, 1), "10:00", "Sarah", "Tane", "Tane Plumbing & Gas", "max", "rocky"),
-    mk(nzAddDays(today, 1), "13:15", "Josh", "Kerr", "Kerr Electrical", "max", "rocky", { calendar_status: "error", meet_link: null, google_event_id: null, calendar_error: "Google hasn't switched on calendar access for the CRM yet. It can take up to 24 hours after setting it up - try again later." }),
+    mk(nzAddDays(today, 1), "13:15", "Josh", "Kerr", "Kerr Electrical", "max", "rocky", { ghl_status: "error", ghl_error: "GHL returned 503", calendar_status: "error", meet_link: null, google_event_id: null, calendar_error: "Google hasn't switched on calendar access for the CRM yet. It can take up to 24 hours after setting it up - try again later." }),
     mk(nzAddDays(today, 3), "11:30", "Lena", "Fisher", "Fisher Landscapes", "max", "rocky", { invite_to_prospect: true, prospect_response: "declined", calendar_flag: "declined", calendar_flag_detail: { declined: { at: booked.toISOString() } } }),
     mk(nzAddDays(today, 2), "09:30", "Tom", "Reid", "Reid Concrete", "max", "rocky", { invite_to_prospect: true, prospect_response: "accepted", confirmation_status: "confirmed", confirmations: [{ source: "calendar", at: booked.toISOString() }], reschedule_count: 2,
       calendar_flag: "moved", calendar_flag_detail: { moved: { from: nzToDate(nzAddDays(today, 2), "09:30").toISOString(), to: nzToDate(nzAddDays(today, 2), "15:00").toISOString() } } }),
@@ -2368,6 +2368,13 @@ function renderMeetingsPage(){
     if (m.invite_to_prospect) return m.prospect_response === "accepted" ? `<span class="pm-pill green">Accepted invite</span>` : `<span class="pm-pill">Invite sent</span>`;
     return m.email ? `<span class="pm-pill gold" title="Test mode was on, so the prospect wasn't invited">Test: closer only</span>` : `<span class="pm-pill gray">No email, not invited</span>`;
   };
+  // Where GoHighLevel's at for this prospect (it sends the texts and emails).
+  const ghlPill = (m) => {
+    if (m.ghl_status === "error") return `<span class="pm-pill red" title="${escapeHtml(m.ghl_error || "")}">GHL sync failed</span>`;
+    if (m.ghl_status === "skipped") return `<span class="pm-pill gold" title="${escapeHtml(m.ghl_error || "")}">Not sent to GHL</span>`;
+    if (m.ghl_status === "ok") return `<span class="pm-pill" title="Tag in GHL: ${escapeHtml(m.ghl_tag || "")}">In GHL</span>`;
+    return "";
+  };
   const confPill = (m) => {
     if (m.status !== "scheduled") return "";
     const src = (m.confirmations || []).map(c => `${c.source === "calendar" ? "Accepted the invite" : c.source === "email_reply" ? "Replied to an email" : "Setter"} ${new Date(c.at).toLocaleString("en-NZ", { timeZone: NZ_TZ, dateStyle: "medium", timeStyle: "short" })}`).join("\n");
@@ -2381,16 +2388,18 @@ function renderMeetingsPage(){
       <div class="pm-when"><b>${pmTime(m.starts_at)}</b><small>to ${pmTime(Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3)}</small></div>
       <div class="pm-who"><b>${escapeHtml(pmName(m))}</b><small>${escapeHtml([m.business_name, m.phone].filter(Boolean).join(" · "))}</small></div>
       <div class="pm-people"><span>Closer <b>${escapeHtml(pmPerson(m.closer))}</b></span><span>Set by <b>${escapeHtml(pmPerson(m.setter))}</b></span></div>
-      <div class="pm-tags">${confPill(m)}${calPill(m)}${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${m.reschedule_count ? `<span class="pm-pill${m.reschedule_count >= 2 ? " gold" : ""}">Moved ${m.reschedule_count}x</span>` : ""}</div>
+      <div class="pm-tags">${confPill(m)}${calPill(m)}${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${m.reschedule_count ? `<span class="pm-pill${m.reschedule_count >= 2 ? " gold" : ""}">Moved ${m.reschedule_count}x</span>` : ""}${ghlPill(m)}</div>
       <div class="pm-actions">
         ${needConfirm ? `<button type="button" class="btn gold" data-pm-act="confirm" data-id="${m.id}" title="They confirmed by text or on a call">${pmIsToday(m) ? "Mark confirmed today" : "Mark confirmed"}</button>` : ""}
         ${live ? `<button type="button" class="btn ghost" data-pm-act="resched" data-id="${m.id}">Reschedule</button><button type="button" class="btn ghost" data-pm-act="cancel" data-id="${m.id}">Cancel</button>` : ""}
         ${m.calendar_status === "error" && live ? `<button type="button" class="btn ghost" data-pm-act="retry" data-id="${m.id}">Retry invite</button>` : ""}
+        ${m.ghl_status === "error" ? `<button type="button" class="btn ghost" data-pm-act="retry-ghl" data-id="${m.id}">Retry GHL</button>` : ""}
         ${m.meet_link && live ? `<a class="btn ghost" href="${escapeHtml(m.meet_link)}" target="_blank" rel="noopener">Open Meet</a><button type="button" class="btn ghost" data-pm-act="copy" data-link="${escapeHtml(m.meet_link)}">Copy link</button>` : ""}
         ${m.deal_id && state.deals.some(d => d.id === m.deal_id) ? `<button type="button" class="btn ghost" data-pm-act="deal" data-id="${m.deal_id}">Deal</button>` : ""}
       </div>
       ${live ? pmFlagHtml(m) : ""}
       ${m.calendar_status === "error" && live ? `<p class="pm-err">${escapeHtml(m.calendar_error || "Google Calendar said no.")}</p>` : ""}
+      ${m.ghl_status === "error" ? `<p class="pm-err">GHL: ${escapeHtml(m.ghl_error || "the sync didn't go through")}. It tries again every 5 minutes.</p>` : ""}
       ${m.status === "cancelled" && m.cancel_reason ? `<p class="pm-note">Cancelled: ${escapeHtml(m.cancel_reason)}</p>` : ""}
     </div>`;
   };
@@ -2462,6 +2471,7 @@ function pmDemo(action, p){
   if (action === "cancel") Object.assign(m, { status: "cancelled", cancel_reason: p.reason, cancelled_at: now.toISOString(), calendar_flag: null });
   if (action === "confirm") Object.assign(m, { confirmation_status: "confirmed", confirmed_at: m.confirmed_at || now.toISOString(), confirmed_today_at: pmIsToday(m) ? now.toISOString() : m.confirmed_today_at,
     confirmations: [...(m.confirmations || []), { source: "setter", at: now.toISOString(), by: "demo" }] });
+  if (action === "retry_ghl") Object.assign(m, { ghl_status: "ok", ghl_error: null });
   if (action === "resolve_flag"){
     const d = (m.calendar_flag_detail || {})[m.calendar_flag] || {};
     if (p.do === "accept_move" && d.to) Object.assign(m, { starts_at: d.to, reschedule_count: (m.reschedule_count || 0) + 1, ...unconf });
@@ -2552,6 +2562,11 @@ document.addEventListener("click", async (e) => {
     await savePrecallSettings({ test_mode: !pmTestMode() });
   } else if (act === "resched" && m) openReschedule(m);
   else if (act === "cancel" && m) openCancel(m);
+  else if (act === "retry-ghl" && m){
+    b.disabled = true; b.textContent = "Trying…";
+    const done = await pmCall("retry_ghl", { meeting_id: m.id });
+    if (done) rcToast(done.ghl_status === "ok" ? "Sent to GHL." : "GHL still isn't taking it: " + (done.ghl_error || "unknown error"));
+  }
   else if (act === "to-followup" && m){ closeModal("pm-resched-modal"); openCancel(m, `Moved to follow-up after ${m.reschedule_count} reschedules`); }
   else if (act === "confirm" && m){
     b.disabled = true;
