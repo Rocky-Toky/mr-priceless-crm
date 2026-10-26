@@ -220,5 +220,11 @@ jobs:
           q "select count(*) as rows, count(*) filter (where last_ok_at is not null and error is null) as working, count(*) filter (where error is not null) as with_error, count(*) filter (where contacts_access = false) as no_contacts_access, count(*) filter (where last_ok_at is null and error is null) as not_finished from lead_sync_status" | jq -c '.[0]'
           echo "Errors seen (text only):"
           q "select left(error, 160) as error, count(*) from lead_sync_status where error is not null group by 1" | jq -c '.[]'
+          echo "Where lead details live in GHL (shape only, 2 recent leads per connected client):"
+          curl -sS -m 160 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/sync-ghl-leads" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data '{"action":"inspect"}' | jq -c '.[]'
+          echo "Leads with details read:"
+          q "select count(*) filter (where details_at is not null) as details_read, count(*) filter (where ghl_contact_id is not null) as with_contact_id, count(*) as total from client_leads where source = 'ghl' and coalesce(lead_created_at, created_at) > now() - interval '3 days'" | jq -c '.[0]'
           echo "Leads in the last 3 days by source:"
           q "select coalesce(source,'none') as source, count(*), count(*) filter (where jsonb_array_length(answers) > 0) as with_answers, count(*) filter (where coalesce(address,city) is not null) as with_location from client_leads where coalesce(lead_created_at, created_at) > now() - interval '3 days' group by 1" | jq -c '.[]'
