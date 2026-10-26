@@ -47,18 +47,16 @@ async function ghl(path: string, token: string, init: RequestInit = {}, version 
 
 const createdAt = (o: any) => new Date(o.createdAt || o.dateAdded || 0).getTime();
 
-// Opportunities created in the window. GHL lists newest first, so this stops
-// at the first page that's entirely older; if it ever lists oldest first it
-// still works, just reads more pages.
-async function recentOpportunities(locationId: string, token: string) {
-  const since = Date.now() - WINDOW_MS;
+// Every opportunity in the location (for the backlog sitting in Rep to
+// contact / Stuck, whatever its age).
+async function allOpportunities(locationId: string, token: string) {
   const out: any[] = [];
   let query = `location_id=${encodeURIComponent(locationId)}&limit=100`;
-  for (let page = 0; page < 50; page++) {
+  for (let page = 0; page < 60; page++) {
     const body = await ghl(`/opportunities/search?${query}`, token);
     const batch = body?.opportunities || [];
-    out.push(...batch.filter((o: any) => createdAt(o) >= since));
-    if (!batch.length || batch.length < 100 || batch.every((o: any) => createdAt(o) < since)) break;
+    out.push(...batch);
+    if (!batch.length || batch.length < 100) break;
     const meta = body?.meta || {};
     if (meta.startAfterId && meta.startAfter != null) query = `location_id=${encodeURIComponent(locationId)}&limit=100&startAfterId=${encodeURIComponent(meta.startAfterId)}&startAfter=${encodeURIComponent(meta.startAfter)}`;
     else if (meta.nextPage) query = `location_id=${encodeURIComponent(locationId)}&limit=100&page=${encodeURIComponent(meta.nextPage)}`;
@@ -66,6 +64,9 @@ async function recentOpportunities(locationId: string, token: string) {
   }
   return out;
 }
+// The stages Carmen works from: anyone sitting here gets a call.
+const QUEUE_STAGE = /rep\s*to\s*contact|\bstuck\b/i;
+const OPEN_FOLLOW = new Set(["new", "no_answer", "call_back"]);
 
 // The newest contacts (newest first), for leads that never got an opportunity.
 // Returns null when the key can't read contacts.
@@ -204,7 +205,7 @@ const needsDetails = (r: any) => !r.details_at || (r.details_at < DETAILS_FROM_S
 
 async function syncClient(admin: any, conn: any, client: any, deadline: number) {
   const loc = conn.location_id, token = conn.token;
-  const opps = await recentOpportunities(loc, token);
+  const allOpps = await allOpportunities(loc, token);
   const contacts = await recentContacts(loc, token);
   let names: Map<string, string> | null = null;
   const fieldNames = async () => {
@@ -217,16 +218,36 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     return names;
   };
   const stageName = new Map<string, string>();
-  if (opps.length) {
+  if (allOpps.length) {
     try {
       const pipes = await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(loc)}`, token);
       for (const p of pipes?.pipelines || []) for (const s of p.stages || []) stageName.set(s.id, s.name || "");
     } catch { /* names are a nice-to-have */ }
   }
+  const inQueueStage = (o: any) => QUEUE_STAGE.test(stageName.get(o.pipelineStageId) || "");
+  const closed = (o: any) => /^(won|lost|abandoned)$/i.test(String(o.status || ""));
+  // New in the last few days, or sitting in Rep to contact / Stuck at any age.
+  const windowStart = Date.now() - WINDOW_MS;
+  const opps = allOpps.filter((o: any) => !closed(o) && (createdAt(o) >= windowStart || inQueueStage(o)));
 
-  const since = new Date(Date.now() - 14 * 86400e3).toISOString();
-  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at, answers, address, city")
-    .eq("client_id", client.id).gte("created_at", since).limit(3000);
+  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at, answers, address, city, follow_status, status")
+    .eq("client_id", client.id).limit(20000);
+
+  // Keep the queue in step with their pipeline: refresh each open lead's
+  // stage, drop leads the client has already moved on from Rep to contact /
+  // Stuck themselves, and bring older untouched leads back if they're
+  // sitting in those stages. Leads Carmen has finished stay finished.
+  const rowByExt = new Map((recent || []).map((r: any) => [r.external_lead_id, r]));
+  for (const o of allOpps) {
+    const r: any = rowByExt.get("ghl:" + o.id);
+    if (!r) continue;
+    const stage = stageName.get(o.pipelineStageId) || "";
+    const patch: any = {};
+    if (OPEN_FOLLOW.has(r.follow_status) && stage && stage !== r.status) patch.status = clean(stage, 100);
+    if (OPEN_FOLLOW.has(r.follow_status) && QUEUE_STAGE.test(r.status || "") && (closed(o) || (stage && !QUEUE_STAGE.test(stage)))) { patch.follow_status = "in_ghl"; patch.next_attempt_at = null; }
+    if ((r.follow_status === "old" || r.follow_status === "in_ghl") && !closed(o) && inQueueStage(o)) { patch.follow_status = "new"; patch.status = clean(stage, 100); }
+    if (Object.keys(patch).length) { await admin.from("client_leads").update(patch).eq("id", r.id); Object.assign(r, patch); }
+  }
   const byExt = new Map((recent || []).map((r: any) => [r.external_lead_id, r]));
   const byContact = new Map((recent || []).filter((r: any) => r.ghl_contact_id).map((r: any) => [r.ghl_contact_id, r]));
   const phones = new Set((recent || []).map((r: any) => digits(r.phone)).filter((p: string) => p.length >= 8));
