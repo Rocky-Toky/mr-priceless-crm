@@ -2349,6 +2349,7 @@ function pmFlagHtml(m){
 function renderMeetingsPage(){
   const root = $("#pm-root");
   if (!root) return;
+  if (Date.now() - pmLastRefresh > 30e3) pmRefresh();
   if (root.contains(document.activeElement) && document.activeElement.matches("input")) return;
   const all = state.meetings.slice().sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const upcoming = pmUpcoming().sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
@@ -2412,6 +2413,24 @@ function renderMeetingsPage(){
       : `<div class="card">${emptyState(pmTab === "past" ? "No past meetings yet." : "No meetings coming up. Book one with + Book Meeting.")}</div>`}`;
   pmNavCount();
 }
+// Live updates normally bring changes in (a decline, an accept), but a tab
+// left in the background can miss them. So the meetings are re-read every
+// minute on this page (every 5 elsewhere), and as soon as the tab's back.
+let pmLastRefresh = Date.now();
+async function pmRefresh(){
+  if (!IS_CONFIGURED || !state.user) return;
+  pmLastRefresh = Date.now();
+  const r = await allRows(() => supabase.from("meetings").select("*").order("starts_at", { ascending: true }));
+  if (r.error || !r.data || JSON.stringify(r.data) === JSON.stringify(state.meetings)) return;
+  state.meetings = r.data;
+  if (state.page === "meetings") renderMeetingsPage();
+  pmNavCount();
+}
+setInterval(() => {
+  if (document.visibilityState === "visible" && Date.now() - pmLastRefresh >= (state.page === "meetings" ? 59e3 : 299e3)) pmRefresh();
+}, 15e3);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pmRefresh(); });
+
 // The menu count: meetings that need someone (red), otherwise today's meetings.
 function pmNavCount(){
   const el = $(".nav-pm-count");

@@ -4,7 +4,8 @@
 -- the prospect accepting confirms the meeting; the prospect declining, or
 -- the event being moved or deleted in Google, is flagged on the meeting
 -- (calendar_flag) and emailed to the setter - nothing is changed by itself.
--- Run after 082. Safe to re-run.
+-- The call waits up to a minute (pg_net's default 5 seconds isn't enough
+-- on a busy day). Run after 082. Safe to re-run.
 
 alter table meetings add column if not exists cancel_reason text;
 alter table meetings add column if not exists cancelled_at timestamptz;
@@ -32,7 +33,8 @@ select cron.schedule(
       'Authorization', 'Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_',
       'x-cron-secret', (select value from public.app_secrets where name = 'precall_cron_secret')
     ),
-    body := '{"action":"poll"}'::jsonb
+    body := '{"action":"poll"}'::jsonb,
+    timeout_milliseconds := 60000
   )
   where exists (
     select 1 from public.meetings
