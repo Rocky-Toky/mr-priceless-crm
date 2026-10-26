@@ -3777,21 +3777,13 @@ body.workspace-leads .inbox-alert{display:none !important;}
 .lr-warn{color:var(--danger);font-weight:600;}
 @media (max-width:820px){ .lr-stage-grid{grid-template-columns:1fr;} }
 
-/* Lead Follow Up: GoHighLevel stage tags, the calling process guide, KPIs page */
+/* Lead Follow Up: the calling process guide, KPIs page, location box */
 .lq3-guide{margin:-6px 0 22px;padding:20px 22px;border-radius:16px;background:var(--white);border:1px solid var(--lq-line);}
 .lq3-guide h3{font-family:var(--font-display);font-size:22px;font-weight:800;margin-bottom:12px;}
 .lq3-guide ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px 22px;}
 .lq3-guide li{display:flex;gap:12px;align-items:flex-start;}
 .lq3-guide h4{font-size:16px;margin-bottom:3px;}
 .lq3-guide p{font-size:15px;line-height:1.5;color:var(--lq-ink);}
-.lq3-side-sub{margin:-6px 2px 8px;font-size:13px;color:var(--lq-muted);}
-.lq3-stage{align-self:flex-start;margin-top:4px;padding:2px 9px;border-radius:999px;font-style:normal;font-size:12px;font-weight:700;background:#eee9de;color:#5c5546;white-space:nowrap;}
-.lq3-stage.rep{background:#e3effb;color:#1f5f99;}
-.lq3-stage.stuck{background:#fdf0d9;color:#8a5a00;}
-.lq3-stage-line{margin-top:8px;font-size:14.5px;color:#cfc8b8;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.lq3-stage-line .lq3-stage{margin-top:0;font-size:13.5px;}
-.lq3-status b{font-variant-numeric:tabular-nums;}
-.lq3-row em[data-lq-clock]{color:var(--lq-green);font-variant-numeric:tabular-nums;}
 .lk-kpi{padding:22px 24px;border-radius:18px;background:var(--white);border:1px solid var(--lq-line);margin-bottom:18px;}
 .lk-kpi-head{display:flex;gap:16px;align-items:flex-start;margin-bottom:18px;}
 .lk-kpi-n{flex:none;padding:6px 12px;border-radius:999px;background:#111;color:var(--gold);font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;}
@@ -3816,3 +3808,6 @@ body.workspace-leads .inbox-alert{display:none !important;}
 .lk-wave.pm{border-left-color:#8ec1f0;}
 .lk-wave span{color:var(--lq-muted);}
 #page-lead-kpis .lq3-guide{margin:0;}
+.lq3-place-form div{display:flex;gap:10px;margin-top:10px;}
+.lq3-place-form input{flex:1;min-width:0;padding:12px 14px;border:1px solid var(--lq-line);border-radius:12px;font:inherit;font-size:16px;background:#fff;}
+.lq3-place-form input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,175,55,.18);}

@@ -10431,14 +10431,8 @@ function lqNextTry(){
   else { next.setDate(next.getDate() + 1); next.setHours(LQ_WAVES.am.h, 0, 0, 0); }
   return next.toISOString();
 }
-// The lead's stage in the client's GoHighLevel, as a coloured tag.
-const lqStageCls = (s) => /rep\s*to\s*contact/i.test(s) ? "rep" : /\bstuck\b/i.test(s) ? "stuck" : "other";
-const lqStageTag = (l) => l.source === "ghl" && l.status ? `<i class="lq3-stage ${lqStageCls(l.status)}">${escapeHtml(l.status)}</i>` : "";
-// "2:41 left" until the 3-minute goal, ticking every second.
-function lqCountdown(t){
-  const left = Math.round((LQ_FAST_MS - (Date.now() - t)) / 1000);
-  return left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} left` : "over 3 min - call now";
-}
+// The lead's stage in the client's GoHighLevel, without GHL's "(3 Minutes)"-style notes.
+const lqStageName = (l) => l.source === "ghl" ? String(l.status || "").replace(/\s*\([^)]*\)\s*$/, "").trim() : "";
 function lqQueue(){
   const all = state.clientLeads.filter(l => l.follow_status !== "old");
   // Fresh enquiries nobody's called yet, then retries and call-backs that are
@@ -10539,11 +10533,11 @@ function renderLeadQueue(){
   const row = (l) => {
     const c = lqClient(l), st = l.follow_status || "new", waited = now - lqIn(l);
     const tone = st === "new" ? (lqBacklog(l) ? "due" : waited > LQ_FAST_MS ? "late" : "hot") : lqIsOpen(l) ? (lqDue(l) ? "due" : "later") : "done";
-    const when = st === "new" && !lqBacklog(l) && waited < LQ_FAST_MS ? lqCountdown(lqIn(l)) : st === "new" ? lqShortAgo(waited) : lqIsOpen(l) ? (lqDue(l) ? (st === "call_back" ? "Now" : `Try ${l.attempts + 1}`) : lqClock(l.next_attempt_at)) : (LQ_STATUS_LABEL[st] || st);
+    const when = st === "new" ? lqShortAgo(waited) : lqIsOpen(l) ? (lqDue(l) ? (st === "call_back" ? "Now" : `Try ${l.attempts + 1}`) : lqClock(l.next_attempt_at)) : (LQ_STATUS_LABEL[st] || st);
     return `<button type="button" class="lq3-row ${tone}${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
       <span class="lq3-av">${escapeHtml(lqInitials(l.name))}</span>
-      <span class="lq3-row-id"><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml(c?.name || "")}${l.city ? " · " + escapeHtml(l.city.split(",")[0]) : ""}</small>${lqStageTag(l)}</span>
-      <em ${st === "new" && !lqBacklog(l) && waited < LQ_FAST_MS ? `data-lq-clock="${lqIn(l)}"` : ""}>${escapeHtml(when)}</em></button>`;
+      <span class="lq3-row-id"><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml([c?.name, lqStageName(l)].filter(Boolean).join(" · "))}</small></span>
+      <em>${escapeHtml(when)}</em></button>`;
   };
   const side = `
     <div class="lq3-side-actions">
@@ -10551,11 +10545,9 @@ function renderLeadQueue(){
       <button type="button" class="lq3-mini" data-lq-act="add">${lqIcon("plus")}Add a lead</button>
     </div>
     ${lqAdding ? lqAddFormHtml() : ""}
-    ${q.due.length ? "" : `<h3 class="lq3-side-h">Call now <span class="soft">0</span></h3><p class="lq3-side-empty">Nobody waiting right now.</p>`}
-    ${q.fresh.length ? `<h3 class="lq3-side-h">1 · New enquiries <span>${q.fresh.length}</span></h3><p class="lq3-side-sub">Call within 3 minutes</p>${q.fresh.map(row).join("")}` : ""}
-    ${q.retries.length ? `<h3 class="lq3-side-h">2 · Try again now <span>${q.retries.length}</span></h3><p class="lq3-side-sub">No answer last time, or they asked for a call back</p>${q.retries.map(row).join("")}` : ""}
-    ${q.backlog.length ? `<h3 class="lq3-side-h">3 · Older leads <span>${q.backlog.length}</span></h3><p class="lq3-side-sub">Sitting in Rep to contact or Stuck - longest waiting first</p>${q.backlog.map(row).join("")}` : ""}
-    ${q.later.length ? `<h3 class="lq3-side-h">Coming up later <span class="soft">${q.later.length}</span></h3>${q.later.map(row).join("")}` : ""}
+    <h3 class="lq3-side-h">Call now <span>${q.due.length}</span></h3>
+    ${q.due.map(row).join("") || `<p class="lq3-side-empty">Nobody waiting right now.</p>`}
+    ${q.later.length ? `<h3 class="lq3-side-h">Later <span class="soft">${q.later.length}</span></h3>${q.later.map(row).join("")}` : ""}
     ${q.doneToday.length ? `<button type="button" class="lq3-fold" data-lq-act="done">${lqShowDone ? "Hide" : "Show"} done today (${q.doneToday.length})</button>${lqShowDone ? q.doneToday.map(row).join("") : ""}` : ""}`;
   // While Carmen's typing or picking (notes, a booking time, a new lead),
   // only the top line updates, so nothing she's in the middle of is lost.
@@ -10581,11 +10573,11 @@ function lqGuideHtml(){
   return `<section class="lq3-guide">
     <h3>The calling process</h3>
     <ol>
-      ${step(1, "New enquiries first - within 3 minutes", "Anyone who's just enquired goes to the top, the one waiting longest first. Your goal is to ring every new enquiry within 3 minutes of it coming in. The clock on each one shows how long you've got.")}
+      ${step(1, "New enquiries first - within 3 minutes", "Anyone who's just enquired goes to the top, the one waiting longest first. Your goal is to ring every new enquiry within 3 minutes of it coming in.")}
       ${step(2, "No answer? Leave the message and press No answer", "They come back in the next wave. The <b>morning wave</b> starts at 9am and the <b>afternoon wave</b> at 2pm. If you rang in the morning, the next try is that afternoon; if you rang in the afternoon, it's the next morning. That way you catch them at a different time of day each try.")}
       ${step(3, "5 calls in all", "Each lead gets up to 5 calls - the first one straight away, then 4 more in alternating morning and afternoon waves (about 2 days). After the 5th no-answer, they move to \"No answer\" in the client's GoHighLevel and come off your list.")}
       ${step(4, "Call backs", "If they ask you to ring back, press Call back later and pick the time they asked for. They'll pop back up at that time.")}
-      ${step(5, "Then Rep to contact and Stuck", "When the new ones and the retries are done, work through the older leads sitting in the client's Rep to contact or Stuck stage - longest waiting first. Each lead shows its stage as a coloured tag.")}
+      ${step(5, "Then Rep to contact and Stuck", "When the new ones and the retries are done, work through the older leads sitting in the client's Rep to contact or Stuck stage - longest waiting first. Each lead shows its stage next to the client's name.")}
       ${step(6, "Booked, or not a fit", "Site visit or consultation booked: it goes straight into the client's GoHighLevel and calendar. Not interested, not a fit or wrong number: they move to Disqualified.")}
     </ol>
   </section>`;
@@ -10630,8 +10622,8 @@ function lqDetailHtml(l){
   const checks = goodLead.filter(x => !/^service radius:/i.test(x));
   const log = (Array.isArray(l.call_log) ? l.call_log : []).slice().reverse();
   const lastTry = log[0];
-  const status = st === "new" && lqBacklog(l) ? { tone: "amber", text: `Older lead, not called yet · enquired ${lqAgo(waited)} ago` }
-    : st === "new" ? { tone: late ? "late" : "hot", text: `New enquiry · ${lqAgo(waited)} ago`, clock: !late }
+  const status = st === "new" && lqBacklog(l) ? { tone: "amber", text: `Not called yet · enquired ${lqAgo(waited)} ago` }
+    : st === "new" ? { tone: late ? "late" : "hot", text: `New enquiry · ${lqAgo(waited)} ago${late ? " · call now" : ""}` }
     : st === "call_back" ? { tone: "blue", text: `Call back ${lqWhenWords(l.next_attempt_at)}` }
     : st === "no_answer" ? { tone: "amber", text: `Call ${l.attempts + 1} of ${LQ_MAX_TRIES} · no answer ${lastTry ? lqWhenWords(lastTry.at) : "last time"}` }
     : { tone: "done", text: `${LQ_STATUS_LABEL[st] || st}${l.booked_for ? ` · quote ${lqWhenWords(l.booked_for)}` : ""}` };
@@ -10656,10 +10648,9 @@ function lqDetailHtml(l){
   return `
     <header class="lq3-hero ${status.tone}">
       <div class="lq3-hero-id">
-        <span class="lq3-status"><i></i>${escapeHtml(status.text)}${status.clock ? ` · <b data-lq-clock="${lqIn(l)}">${escapeHtml(lqCountdown(lqIn(l)))}</b>` : st === "new" && late && !lqBacklog(l) ? " · over 3 min - call now" : ""}</span>
+        <span class="lq3-status"><i></i>${escapeHtml(status.text)}</span>
         <h2>${escapeHtml(l.name || "No name")}</h2>
         <p>Calling for <b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}</p>
-        ${lqStageTag(l) ? `<p class="lq3-stage-line">Stage in ${escapeHtml(biz)}'s GoHighLevel: ${lqStageTag(l)}</p>` : ""}
         ${l.ghl_sync?.at && !l.ghl_sync.skipped ? `<p class="lq3-ghl ${l.ghl_sync.errors?.length ? "bad" : ""}">${l.ghl_sync.errors?.length ? `⚠ GoHighLevel: ${escapeHtml(l.ghl_sync.errors[0])}` : `✓ In GoHighLevel: ${escapeHtml([l.ghl_sync.moved ? `moved to "${l.ghl_sync.stage}"` : "", l.ghl_sync.appointment ? `booked in ${l.ghl_sync.calendar || "their calendar"}` : ""].filter(Boolean).join(" · "))}`}</p>` : ""}
       </div>
       <div class="lq3-hero-call">
@@ -10678,6 +10669,7 @@ function lqDetailHtml(l){
           ${ad.campaign ? `<div><dt>Campaign</dt><dd>${escapeHtml(lqNice(ad.campaign))}</dd></div>` : ""}
           ${ad.adset ? `<div><dt>Targeting</dt><dd>${escapeHtml(lqNice(ad.adset))}</dd></div>` : ""}
           ${realForm ? `<div><dt>Facebook form</dt><dd>${escapeHtml(lqNice(realForm))}</dd></div>` : ""}
+          ${lqStageName(l) ? `<div><dt>Stage in GoHighLevel</dt><dd>${escapeHtml(lqStageName(l))}</dd></div>` : ""}
           ${!creative && !ad.ad && liveAds.length ? `<div><dt>${escapeHtml(biz)}'s ads running now</dt><dd>${liveAds.map(x => escapeHtml(x.name)).join(" · ")}</dd></div>` : ""}
         </dl>
       </div>
@@ -10696,7 +10688,10 @@ function lqDetailHtml(l){
         ${place ? `<p class="lq3-place">${escapeHtml(lqNice(l.address || l.city))}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq3-muted">${escapeHtml(l.city)}</p>` : ""}
           <div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=12&output=embed"></iframe></div>
           <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>`
-          : `<p class="lq3-muted">No location came through. Ask which suburb the job is in.</p>`}
+          : `<form class="lq3-place-form" data-lq-form="place">
+              <p class="lq3-muted">No location came through - ask which suburb the job is in, then fill it in here.</p>
+              <div><input name="place" placeholder="e.g. Petone, Lower Hutt" required><button type="submit" class="lq3-btn">Save</button></div>
+            </form>`}
         ${coverage ? `<p class="lq3-cover"><span>${escapeHtml(biz)} covers</span>${escapeHtml(coverage)}</p>` : ""}
       </section>
     </div>
@@ -10975,6 +10970,17 @@ function setupLeadFollowUpUi(){
         }
         return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when);
       }
+      if (form.dataset.lqForm === "place"){
+        const l = state.clientLeads.find(x => x.id === lqSel), place = (v.place || "").trim();
+        if (!l || !place) return;
+        Object.assign(l, { address: place, city: place });
+        renderLeadQueue();
+        if (IS_CONFIGURED){
+          const { error } = await supabase.from("client_leads").update({ address: place, city: place }).eq("id", l.id);
+          if (error) rcToast("Couldn't save the location - " + error.message);
+        }
+        return;
+      }
       if (form.dataset.lqForm === "add"){
         const row = { client_id: v.client_id, name: v.name.trim(), phone: v.phone.trim(), email: "", form_name: (v.form_name || "").trim(),
           address: (v.address || "").trim() || null, external_lead_id: "", status: "", source: "manual", follow_status: "new", lead_created_at: new Date().toISOString() };
@@ -11034,10 +11040,6 @@ function setupLeadFollowUpUi(){
     await lqSync();
     renderLeadResults();
   });
-  // The 3-minute countdowns tick every second without redrawing the page.
-  setInterval(() => {
-    if (state.page === "lead-queue") $$("[data-lq-clock]").forEach(el => { el.textContent = lqCountdown(Number(el.dataset.lqClock)); });
-  }, 1000);
   // Keeps the "came in 4 minutes ago" times ticking, and the sync line fresh.
   setInterval(() => {
     if (state.page === "lead-queue") renderLeadQueue(); else lqNavCount();
