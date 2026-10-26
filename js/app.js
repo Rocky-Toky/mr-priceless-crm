@@ -10857,6 +10857,7 @@ const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call b
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
 const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable"]);
 const LQ_MAX_TRIES = 5, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
+let lqPlaceFor = null;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
@@ -10887,6 +10888,48 @@ function lqWhenWords(iso){
   const d = new Date(iso), day = localDayStr(d), today = localDayStr();
   const tomorrow = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDayStr(t); })();
   return day === today ? `today at ${lqClock(iso)}` : day === tomorrow ? `tomorrow at ${lqClock(iso)}` : lqTime(iso);
+}
+// A client's name the way you'd say it on the phone: "A and B Concrete Ltd -
+// Blade" becomes "A and B Concrete".
+const lqBizName = (c) => String(c?.name || "").replace(/\s+[-–|(].*$/, "").replace(/[,.]?\s+(pty\.?\s+)?(ltd|limited|co|nz ltd)\.?$/i, "").trim() || c?.name || "";
+// The region a lead is in when no suburb came through: the first place named
+// in their answers, the ad they saw, or the client's service area.
+const LQ_REGIONS = [
+  ["Northland", /northland|whang[aā]rei|kerikeri|kaitaia|dargaville|bay of islands|paihia/],
+  ["Auckland", /auckland|north shore|albany|manukau|papakura|pukekohe|waiheke|henderson|howick|orewa|silverdale|east tamaki|botany/],
+  ["Waikato", /waikato|hamilton|cambridge|te awamutu|thames|coromandel|matamata|morrinsville|huntly|taup[oō]/],
+  ["Bay of Plenty", /bay of plenty|\bbop\b|tauranga|mount maunganui|mt maunganui|papamoa|rotorua|whakat[aā]ne|te puke|katikati/],
+  ["Gisborne", /gisborne|tair[aā]whiti/],
+  ["Hawke's Bay", /hawke'?s bay|\bhb\b|napier|hastings|havelock north|waipukurau|wairoa/],
+  ["Taranaki", /taranaki|new plymouth|hawera|stratford|inglewood|waitara/],
+  ["Manawatū-Whanganui", /manawat[uū]|palmerston north|whanganui|wanganui|feilding|levin|horowhenua|ruapehu|ohakune/],
+  ["Wellington", /wellington|porirua|lower hutt|upper hutt|\bhutt\b|petone|k[aā]piti|paraparaumu|waikanae|wairarapa|masterton|carterton|martinborough/],
+  ["Nelson Tasman", /nelson|tasman|richmond|motueka|golden bay/],
+  ["Marlborough", /marlborough|blenheim|picton/],
+  ["West Coast", /west coast|greymouth|hokitika|westport/],
+  ["Canterbury", /canterbury|christchurch|rangiora|rolleston|ashburton|timaru|kaiapoi|selwyn/],
+  ["Otago", /otago|dunedin|queenstown|wanaka|oamaru|alexandra|cromwell/],
+  ["Southland", /southland|invercargill|gore|te anau/],
+  ["Sydney", /sydney|\bnsw\b|new south wales|newcastle|wollongong|central coast/],
+  ["Melbourne", /melbourne|victoria|\bvic\b|geelong|ballarat|bendigo/],
+  ["Brisbane", /brisbane|queensland|\bqld\b|sunshine coast|ipswich/],
+  ["Gold Coast", /gold coast/],
+  ["Perth", /perth|western australia/],
+  ["Adelaide", /adelaide|south australia/],
+];
+function lqRegion(l, c){
+  const ad = l.ad_info || {};
+  const sources = [
+    (Array.isArray(l.answers) ? l.answers : []).map(a => a && a.a).join(" "),
+    [ad.adset, ad.campaign, ad.form, ad.ad, l.form_name].join(" "),
+    c?.qualified_lead_structure, c?.name,
+  ];
+  for (const text of sources){
+    const t = String(text || "").toLowerCase().replace(/_/g, " ");
+    const hit = t && LQ_REGIONS.find(([, re]) => re.test(t));
+    if (hit) return hit[0];
+  }
+  return "";
 }
 // NZ mobiles start 02, AU mobiles 04 - anything else is treated as NZ.
 const lqCountry = (phone) => /^\s*(\+?61|04)/.test(phone || "") ? "61" : "64";
@@ -11006,7 +11049,7 @@ function renderLeadQueue(){
     const when = st === "new" ? lqShortAgo(waited) : lqIsOpen(l) ? (lqDue(l) ? (st === "call_back" ? "Now" : `Try ${l.attempts + 1}`) : lqClock(l.next_attempt_at)) : (LQ_STATUS_LABEL[st] || st);
     return `<button type="button" class="lq3-row ${tone}${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
       <span class="lq3-av">${escapeHtml(lqInitials(l.name))}</span>
-      <span class="lq3-row-id"><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml([c?.name, lqStageName(l)].filter(Boolean).join(" · "))}</small></span>
+      <span class="lq3-row-id"><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml([lqBizName(c), lqStageName(l)].filter(Boolean).join(" · "))}</small></span>
       <em>${escapeHtml(when)}</em></button>`;
   };
   const side = `
@@ -11084,7 +11127,7 @@ function lqWhenPicker(kind){
 
 function lqDetailHtml(l){
   const c = lqClient(l), st = l.follow_status || "new", first = (l.name || "").split(" ")[0] || "there";
-  const biz = c?.name || "the client", trade = c ? (clientIndustry(c).name || "") : "";
+  const biz = lqBizName(c) || "the client", trade = c ? (clientIndustry(c).name || "") : "";
   const waited = Date.now() - lqIn(l), late = waited > LQ_FAST_MS;
   const answers = (Array.isArray(l.answers) ? l.answers : []).filter(a => a && a.a).map(a => ({ q: lqQuestion(a.q), a: lqNice(a.a) }));
   const goodLead = String(c?.qualified_lead_structure || "").split("\n").map(x => x.trim()).filter(Boolean);
@@ -11109,7 +11152,10 @@ function lqDetailHtml(l){
   const liveAds = !creative ? (state.adCreatives || []).filter(x => x.client_id === l.client_id && /active/i.test(x.delivery_status || "")).slice(0, 4) : [];
   const realForm = [ad.form, l.form_name].find(f => f && !/^(facebook( lead)?( form)?|gohighlevel|meta|instagram|website( form)?|lead form|form)$/i.test(String(f).trim()));
   const place = l.address || l.city || "";
-  const mapQ = encodeURIComponent([place, "New Zealand"].filter(Boolean).join(", "));
+  const country = lqCountry(l.phone) === "61" ? "Australia" : "New Zealand";
+  const region = place ? "" : lqRegion(l, c);
+  const mapQ = encodeURIComponent([place || region, country].filter(Boolean).join(", "));
+  const mapZoom = place ? 12 : region ? 8 : 5;
   const B = (t) => `<b>${escapeHtml(t)}</b>`;
   const step = (n, title, body) => `<li><span class="lq3-n">${n}</span><div><h4>${title}</h4>${body}</div></li>`;
   const quote = (html) => `<p class="lq3-say">${html}</p>`;
@@ -11155,13 +11201,11 @@ function lqDetailHtml(l){
       </section>
       <section class="lq3-panel">
         <h3>${lqIcon("pin")}Where they are</h3>
-        ${place ? `<p class="lq3-place">${escapeHtml(lqNice(l.address || l.city))}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq3-muted">${escapeHtml(l.city)}</p>` : ""}
-          <div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=12&output=embed"></iframe></div>
-          <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>`
-          : `<form class="lq3-place-form" data-lq-form="place">
-              <p class="lq3-muted">No location came through - ask which suburb the job is in, then fill it in here.</p>
-              <div><input name="place" placeholder="e.g. Petone, Lower Hutt" required><button type="submit" class="lq3-btn">Save</button></div>
-            </form>`}
+        ${place ? `<p class="lq3-place">${escapeHtml(lqNice(l.address || l.city))}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq3-muted">${escapeHtml(l.city)}</p>` : ""}`
+          : `<p class="lq3-place">${escapeHtml(region || country)}</p><p class="lq3-muted">${region ? "The region they're in - ask which suburb." : "Ask which suburb the job is in."}${lqPlaceFor === l.id ? "" : ` <button type="button" class="lq3-textbtn" data-lq-act="place">Add the suburb</button>`}</p>
+            ${lqPlaceFor === l.id ? `<form class="lq3-place-form" data-lq-form="place"><div><input name="place" placeholder="e.g. Petone, Lower Hutt" required><button type="submit" class="lq3-btn">Save</button></div></form>` : ""}`}
+          <div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=${mapZoom}&output=embed"></iframe></div>
+          <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>
         ${coverage ? `<p class="lq3-cover"><span>${escapeHtml(biz)} covers</span>${escapeHtml(coverage)}</p>` : ""}
       </section>
     </div>
@@ -11420,6 +11464,7 @@ function setupLeadFollowUpUi(){
       if (act === "add"){ lqAdding = true; return renderLeadQueue(); }
       if (act === "add-cancel"){ lqAdding = false; return renderLeadQueue(); }
       if (act === "done"){ lqShowDone = !lqShowDone; return renderLeadQueue(); }
+      if (act === "place"){ lqPlaceFor = lqSel; renderLeadQueue(); $(".lq3-place-form input")?.focus(); return; }
       if (act === "history"){ lqShowHistory = !lqShowHistory; return renderLeadQueue(); }
     });
     root.addEventListener("input", (ev) => {
@@ -11444,6 +11489,7 @@ function setupLeadFollowUpUi(){
         const l = state.clientLeads.find(x => x.id === lqSel), place = (v.place || "").trim();
         if (!l || !place) return;
         Object.assign(l, { address: place, city: place });
+        lqPlaceFor = null;
         renderLeadQueue();
         if (IS_CONFIGURED){
           const { error } = await supabase.from("client_leads").update({ address: place, city: place }).eq("id", l.id);
