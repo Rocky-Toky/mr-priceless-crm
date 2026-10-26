@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=291">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=291">
+<link rel="stylesheet" href="css/style.css?v=292">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=292">
 </head>
 <body>
 
@@ -243,6 +243,10 @@
       <button type="button" class="nav-item nav-group-item" data-group="finance" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/><path d="M9.5 16l1.5 1.5 3-3"/></svg>
         <span>Finance</span><span class="nav-count" id="nav-rc-count" hidden></span>
+      </button>
+      <button class="nav-item" data-page="employees" data-workspace="both">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        <span>Employees</span><span class="nav-count nav-emp-count" hidden title="1:1s due"></span>
       </button>
       <button type="button" class="nav-item nav-group-item" data-group="library" data-workspace="both">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -839,6 +843,11 @@
     <!-- Meeting structure: how every first meeting runs -->
     <section class="page" id="page-meeting">
       <div id="mtg-root"></div>
+    </section>
+
+    <!-- Employees: the team, how they're tracking, onboarding, 1:1s, leave -->
+    <section class="page" id="page-employees">
+      <div id="emp-root"></div>
     </section>
 
     <!-- Client inbox: emails from clients, waiting on a reply -->
@@ -2770,17 +2779,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=291"></script>
-<script src="js/supabaseClient.js?v=291"></script>
-<script src="js/report-pdf.js?v=291"></script>
-<script src="js/plan-pdf.js?v=291"></script>
-<script src="js/workshop-pdf.js?v=291"></script>
-<script src="js/receipt-pdf.js?v=291"></script>
-<script src="js/welcome-pdf.js?v=291"></script>
-<script src="js/builtin-playbooks.js?v=291"></script>
-<script src="js/builtin-email-templates.js?v=291"></script>
-<script src="js/app.js?v=291"></script>
-<script src="js/meetings-tracker.js?v=291"></script>
-<script src="js/todo.js?v=291"></script>
+<script src="js/config.js?v=292"></script>
+<script src="js/supabaseClient.js?v=292"></script>
+<script src="js/report-pdf.js?v=292"></script>
+<script src="js/plan-pdf.js?v=292"></script>
+<script src="js/workshop-pdf.js?v=292"></script>
+<script src="js/receipt-pdf.js?v=292"></script>
+<script src="js/welcome-pdf.js?v=292"></script>
+<script src="js/builtin-playbooks.js?v=292"></script>
+<script src="js/builtin-email-templates.js?v=292"></script>
+<script src="js/app.js?v=292"></script>
+<script src="js/meetings-tracker.js?v=292"></script>
+<script src="js/todo.js?v=292"></script>
 </body>
 </html>

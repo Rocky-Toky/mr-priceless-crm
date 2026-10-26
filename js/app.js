@@ -1313,6 +1313,7 @@ async function initAuth(){
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
     showApp();
     setupClientInbox();
+    setupEmployees();
     reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call - Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
     checkOverdueTasksPopup();
@@ -1414,6 +1415,7 @@ async function handleSignedInNow(session, freshLogin){
   if (shown) renderAll(); else showApp();
   subscribeRealtime();
   setupClientInbox();
+  setupEmployees();
   // None of these need to hold the page up.
   repairNzProspectCountryCodes().then(n => { if (n) renderAll(); }).catch(e => console.warn(e));
   fetchTeam().then(() => { if (state.page === "lead-engine") renderTeamFocusPanel(); }).catch(e => console.warn(e));
@@ -1739,6 +1741,7 @@ const FIT_PAGES = {
   "ads-month": ["#am-root"],
   "content-library": ["#vs-root"],
   reporting: ["#rp-client-list"],
+  employees: ["#emp-root"],
   expenses: ["#page-expenses > .card:last-child"],
   commission: ["#commission-groups"],
   statistics: ["#page-statistics > .st-scroll"],
@@ -9841,6 +9844,512 @@ function setupClientInboxUi(){
   });
 }
 
+/* ───────── Employees ─────────
+   Everyone on the team in one place: profile, how they're tracking (pulled
+   from call activity, deals, tasks and clients the CRM already has),
+   onboarding/offboarding checklists, 1:1s and leave. Pay, contract and
+   emergency contact sit in employee_private, which only Rocky and Max can
+   read (sql/077 enforces it). Anyone can see the team; managers edit, and
+   each person can add their own leave and tick their own onboarding. */
+const EMP_STATUS = {
+  onboarding: { label: "Onboarding", cls: "gold" },
+  active: { label: "Active", cls: "green" },
+  on_leave: { label: "On leave", cls: "blue" },
+  left: { label: "Left", cls: "grey" },
+};
+const EMP_TYPES = { full_time: "Full-time", part_time: "Part-time", contractor: "Contractor", commission_only: "Commission only" };
+const EMP_TEAMS = { sales: "Sales", delivery: "Service Delivery", both: "Sales & Delivery" };
+const EMP_LEAVE_TYPES = { annual: "Annual leave", sick: "Sick leave", unpaid: "Unpaid leave", other: "Other" };
+const EMP_PAY_UNITS = { hour: "per hour", week: "per week", year: "per year" };
+const EMP_CHECKIN_DAYS = 14;
+const EMP_ONBOARDING = [
+  { section: "Before day one", items: [
+    ["contract", "Employment or contractor agreement signed"],
+    ["email", "Work email set up (@mrpriceless.com)"],
+    ["crm_login", "CRM login created"],
+    ["tax", "Tax code form (IR330) and KiwiSaver sorted - keep these in payroll, not here"],
+    ["payroll", "Added to payroll"],
+  ]},
+  { section: "First week", items: [
+    ["tools", "Added to the team chat, calendar and shared drive"],
+    ["playbooks", "Read Meeting Structure, Meeting Sit Rate Process and the Rules"],
+    ["shadow", "Shadowed at least 3 calls or meetings"],
+    ["targets", "Weekly targets agreed and saved on their profile"],
+    ["first_checkin", "First 1:1 booked"],
+  ]},
+  { section: "First month", items: [
+    ["first_solo", "First solo call or client task done"],
+    ["review_30", "30-day review held"],
+  ]},
+];
+const EMP_OFFBOARDING = [
+  ["off_crm", "CRM login removed"],
+  ["off_email", "Work email suspended, with forwarding set up"],
+  ["off_accounts", "Removed from Meta, GHL, ad accounts and shared drives"],
+  ["off_handover", "Their deals, tasks and clients handed to someone else"],
+  ["off_final_pay", "Final pay and holiday pay sorted"],
+  ["off_exit", "Exit chat held"],
+];
+const EMP_ONB_KEYS = EMP_ONBOARDING.flatMap(s => s.items.map(([k]) => k));
+Object.assign(state, { employees: [], employeePrivate: {}, empLoaded: false, empMissing: false });
+let empSel = null, empTab = "overview", empEditing = false, empPeriod = "week", empShowLeft = false, empSubscribed = false, empSeeding = false;
+
+const empIsManager = () => !IS_CONFIGURED || isRocky() || isMax();
+const empMe = () => {
+  const email = (state.user?.email || "").toLowerCase(), key = personKeyFromEmail(email);
+  return state.employees.find(e => (e.email || "").toLowerCase() === email) || state.employees.find(e => e.person_key && e.person_key === key) || null;
+};
+const empCanEdit = () => empIsManager();
+const empIsSelf = (e) => empMe()?.id === e.id;
+const empCurrent = (e) => e.status !== "left";
+const empInitials = (name) => String(name || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+const empColour = (e) => ASSIGNEES[e.person_key]?.cls || "gold";
+const empDay = (d) => d ? new Date(String(d).slice(0, 10) + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" }) : "-";
+const empShortDay = (d) => d ? new Date(String(d).slice(0, 10) + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" }) : "";
+function empAddDays(day, n){ const d = new Date(day + "T00:00:00"); d.setDate(d.getDate() + n); return localDayStr(d); }
+function empWeekdays(from, to){
+  let n = 0;
+  for (let d = new Date(from + "T00:00:00"), end = new Date(to + "T00:00:00"); d <= end; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) n++;
+  return n;
+}
+function empTenure(start){
+  if (!start) return "";
+  const months = Math.floor((new Date() - new Date(start + "T00:00:00")) / (30.44 * 86400e3));
+  if (months < 0) return "starts " + empShortDay(start);
+  if (months < 1) return "under a month";
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"}`;
+  const y = Math.floor(months / 12), m = months % 12;
+  return `${y} year${y === 1 ? "" : "s"}${m ? ` ${m} month${m === 1 ? "" : "s"}` : ""}`;
+}
+const empLeaveList = (e) => (Array.isArray(e.leave) ? e.leave : []).slice().sort((a, b) => (a.from || "").localeCompare(b.from || ""));
+const empOffToday = (e) => empLeaveList(e).find(l => l.from <= localDayStr() && localDayStr() <= (l.to || l.from)) || null;
+const empNextLeave = (e) => empLeaveList(e).find(l => l.from > localDayStr()) || null;
+const empCheckins = (e) => (Array.isArray(e.checkins) ? e.checkins : []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+// When their next 1:1 is due: the date set, else a fortnight after the last one,
+// else a week after they started. Only for people who report to someone.
+function empCheckinDue(e){
+  if (!empCurrent(e) || (!e.manager && !e.next_checkin)) return null;
+  if (e.next_checkin) return e.next_checkin;
+  const last = empCheckins(e)[0];
+  if (last?.date) return empAddDays(last.date, EMP_CHECKIN_DAYS);
+  return e.start_date ? empAddDays(e.start_date, 7) : localDayStr();
+}
+function empOnbProgress(e){
+  const done = EMP_ONB_KEYS.filter(k => (e.onboarding || {})[k]).length;
+  return { done, total: EMP_ONB_KEYS.length, pct: Math.round(done / EMP_ONB_KEYS.length * 100) };
+}
+function empDemo(){
+  const day = (n) => empAddDays(localDayStr(), n);
+  const base = { targets: {}, onboarding: {}, checkins: [], leave: [], notes: "" };
+  return [
+    { ...base, id: "emp-rocky", person_key: "rocky", name: "Rocky O'Neill", role: "Co-founder", team: "both", email: "rocky.oneill@mrpriceless.com", status: "active", employment_type: "full_time", start_date: "2024-03-01", location: "Auckland" },
+    { ...base, id: "emp-max", person_key: "max", name: "Max Smith", role: "Co-founder", team: "both", email: "maximus.smith@mrpriceless.com", status: "active", employment_type: "full_time", start_date: "2024-03-01", location: "Auckland",
+      leave: [{ id: "lv1", type: "annual", from: day(9), to: day(13), note: "Queenstown" }] },
+    { ...base, id: "emp-gabriel", person_key: "gabriel", name: "Gabriel Irvan", role: "Sales rep", team: "sales", email: "gabriel.irvan@mrpriceless.com", status: "active", employment_type: "commission_only", start_date: "2026-06-02", manager: "rocky", targets: { dials_per_day: 80, meetings_per_week: 5 },
+      onboarding: Object.fromEntries(EMP_ONB_KEYS.map(k => [k, "2026-06-10"])), next_checkin: day(-2),
+      checkins: [{ id: "ci1", date: day(-16), by: "rocky", wins: "Booked 6 meetings, best week yet", blockers: "Struggling to get past gatekeepers", actions: "Practise the gatekeeper opener with Rocky" }] },
+    { ...base, id: "emp-randy", person_key: "raheem", name: "Randy Khawaja", role: "Sales rep", team: "sales", email: "raheem.raza.khawaja@gmail.com", status: "active", employment_type: "part_time", start_date: "2026-08-18", manager: "rocky", targets: { dials_per_day: 60, meetings_per_week: 3 },
+      leave: [{ id: "lv2", type: "sick", from: day(0), to: day(0), note: "" }], next_checkin: day(5) },
+    { ...base, id: "emp-sophie", person_key: null, name: "Sophie Tane", role: "Media buyer", team: "delivery", email: "", status: "onboarding", employment_type: "contractor", start_date: day(7), manager: "max",
+      onboarding: { contract: day(-3), email: day(-2) } },
+  ];
+}
+async function loadEmployees(){
+  if (!IS_CONFIGURED){
+    if (!state.empLoaded){
+      state.employees = empDemo();
+      state.employeePrivate = { "emp-gabriel": { employee_id: "emp-gabriel", pay_unit: "week", pay_rate: null, commission_pct: 10, emergency_name: "Ana Irvan", emergency_phone: "021 555 0100" } };
+      state.empLoaded = true;
+    }
+    return;
+  }
+  const [e, pv] = await Promise.all([
+    supabase.from("employees").select("*").order("name"),
+    empIsManager() ? supabase.from("employee_private").select("*") : Promise.resolve({ data: [] }),
+  ]);
+  state.empLoaded = true;
+  if (e.error){ state.empMissing = true; return; }
+  state.empMissing = false;
+  state.employees = e.data || [];
+  state.employeePrivate = Object.fromEntries((pv.data || []).map(r => [r.employee_id, r]));
+  if (!state.employees.length && empIsManager()) await empSeedTeam();
+}
+// First visit: start the list from the people the CRM already knows.
+async function empSeedTeam(){
+  if (empSeeding) return;
+  empSeeding = true;
+  try {
+    const emailOf = Object.fromEntries(Object.entries(EMAIL_TO_ASSIGNEE).map(([em, k]) => [k, em]));
+    if (emailOf.rocky === "rockyoneill02@gmail.com") emailOf.rocky = "rocky.oneill@mrpriceless.com";
+    const rows = Object.entries(ASSIGNEES).map(([key, a]) => {
+      const founder = key === "rocky" || key === "max";
+      return { person_key: key, name: a.label, role: founder ? "Co-founder" : "Sales", team: founder ? "both" : "sales", email: emailOf[key] || null, status: "active", manager: founder ? null : "rocky" };
+    });
+    const { data } = await supabase.from("employees").insert(rows).select("*");
+    if (data) state.employees = data.sort((a, b) => a.name.localeCompare(b.name));
+  } finally { empSeeding = false; }
+}
+function setupEmployees(){
+  loadEmployees().then(() => { renderEmployees(); empNavCount(); }).catch(e => console.warn(e));
+  if (!IS_CONFIGURED || empSubscribed) return;
+  empSubscribed = true;
+  let t = null;
+  supabase.channel("employees").on("postgres_changes", { event: "*", schema: "public", table: "employees" }, () => {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      // Don't redraw under someone half-way through typing in a form here.
+      if ($("#emp-root")?.contains(document.activeElement) && document.activeElement.matches("input,textarea,select")) return;
+      await loadEmployees(); renderEmployees(); empNavCount();
+    }, 400);
+  }).subscribe();
+}
+async function empSave(id, patch){
+  const e = state.employees.find(x => x.id === id);
+  if (!e) return;
+  Object.assign(e, patch);
+  renderEmployees(); empNavCount();
+  if (!IS_CONFIGURED) return;
+  const { error } = await supabase.from("employees").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error){ rcToast("Couldn't save that - " + error.message); await loadEmployees(); renderEmployees(); }
+}
+async function empSavePrivate(id, patch){
+  state.employeePrivate[id] = { ...(state.employeePrivate[id] || {}), employee_id: id, ...patch };
+  renderEmployees();
+  if (!IS_CONFIGURED){ rcToast("Saved."); return; }
+  const { error } = await supabase.from("employee_private").upsert({ employee_id: id, ...patch, updated_at: new Date().toISOString() });
+  rcToast(error ? "Couldn't save that - " + error.message : "Saved - only Rocky and Max can see this.");
+}
+async function empAdd(){
+  const row = { name: "New employee", role: "", team: "sales", status: "onboarding", start_date: localDayStr(), manager: "rocky" };
+  let made = { ...row, id: "emp-" + uid(), targets: {}, onboarding: {}, checkins: [], leave: [] };
+  if (IS_CONFIGURED){
+    const { data, error } = await supabase.from("employees").insert(row).select("*").single();
+    if (error){ rcToast("Couldn't add them - " + error.message); return; }
+    made = data;
+  }
+  state.employees.push(made);
+  empSel = made.id; empTab = "overview"; empEditing = true;
+  renderEmployees(); empNavCount();
+}
+async function empDelete(id){
+  const e = state.employees.find(x => x.id === id);
+  if (!e || !confirm(`Delete ${e.name} completely? This removes their 1:1 notes, leave and pay details too.\n\nIf they've just left, set their status to "Left" instead so the history stays.`)) return;
+  state.employees = state.employees.filter(x => x.id !== id);
+  empSel = null; empEditing = false;
+  renderEmployees(); empNavCount();
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("employees").delete().eq("id", id);
+    if (error){ rcToast("Couldn't delete - " + error.message); await loadEmployees(); renderEmployees(); }
+  }
+}
+
+// How someone's tracking, from what the CRM already records.
+function empPerf(e){
+  const key = e.person_key;
+  if (!key) return null;
+  const today = localDayStr();
+  const bounds = empPeriod === "week" ? { from: empAddDays(today, -6), to: today } : { from: today.slice(0, 8) + "01", to: today };
+  const acts = (state.callActivity || []).filter(a => a.person === key && a.activity_date >= bounds.from && a.activity_date <= bounds.to);
+  const sum = (k) => acts.reduce((t, a) => t + (Number(a[k]) || 0), 0);
+  const funnel = funnelDeals([key], bounds).all;
+  const won = state.deals.filter(d => d.assignee === key && WIN_STAGES.has(d.stage) && d.stage !== "churned" && inStatsRange(d.deal_date || d.updated_at || d.created_at, bounds));
+  const open = state.tasks.filter(t => t.assignee === key && t.status === "open");
+  const workdays = Math.max(1, empWeekdays(bounds.from, bounds.to));
+  return {
+    bounds, workdays, dials: sum("calls"), convos: sum("conversations"), booked: sum("meetings_booked"), funnel,
+    won: won.length, wonValue: won.reduce((t, d) => t + Number(d.value || 0), 0),
+    tasksOpen: open.length, tasksOverdue: open.filter(t => t.due_date && t.due_date < today).length,
+    clients: state.clients.filter(c => (c.onboarding_progress || {}).owner === key && c.stage !== "churned"),
+  };
+}
+
+// Count in the menu: 1:1s due for managers.
+function empNavCount(){
+  const due = empIsManager() ? state.employees.filter(e => { const d = empCheckinDue(e); return d && d <= localDayStr(); }).length : 0;
+  $$(".nav-emp-count").forEach(el => { el.hidden = !due; el.textContent = due; });
+}
+
+function renderEmployees(){
+  const root = $("#emp-root");
+  if (!root) return;
+  if (!state.empLoaded){ root.innerHTML = `<div class="emp-empty">Loading the team…</div>`; return; }
+  const mgr = empIsManager(), today = localDayStr();
+  const current = state.employees.filter(empCurrent), past = state.employees.filter(e => !empCurrent(e));
+  if (empSel && !state.employees.some(e => e.id === empSel)) empSel = null;
+  if (!empSel) empSel = (empMe() || current[0] || past[0])?.id || null;
+  const sel = state.employees.find(e => e.id === empSel);
+  const off = current.filter(empOffToday);
+  const dueSoon = current.filter(e => { const d = empCheckinDue(e); return d && d <= empAddDays(today, 3); });
+  const onboarding = current.filter(e => e.status === "onboarding");
+  const stat = (label, value, sub, cls = "") => `<div class="emp-stat ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
+
+  const card = (e) => {
+    const lv = empOffToday(e), due = empCheckinDue(e), onb = empOnbProgress(e);
+    const line = lv ? `Off today · ${escapeHtml(EMP_LEAVE_TYPES[lv.type] || "Leave")}`
+      : e.status === "onboarding" ? `Onboarding ${onb.done}/${onb.total}`
+      : mgr && due && due <= today ? `1:1 overdue` : mgr && due && due <= empAddDays(today, 3) ? `1:1 ${due === today ? "today" : empShortDay(due)}` : escapeHtml(EMP_TEAMS[e.team] || "");
+    return `<button type="button" class="emp-card${e.id === empSel ? " active" : ""}" data-emp-sel="${escapeHtml(e.id)}">
+      <span class="emp-av ${empColour(e)}">${escapeHtml(empInitials(e.name))}</span>
+      <span class="emp-card-id"><b>${escapeHtml(e.name)}</b><small>${escapeHtml(e.role || "No role yet")}</small><em class="${lv || (mgr && due && due <= today) ? "warn" : ""}">${line}</em></span>
+      <span class="emp-status ${EMP_STATUS[e.status]?.cls || ""}">${EMP_STATUS[e.status]?.label || e.status}</span>
+    </button>`;
+  };
+
+  root.innerHTML = `
+    <div class="page-header">
+      <div><h2>Employees</h2><p>Everyone on the team - who they are, how they're tracking, and what's coming up.</p></div>
+      ${mgr ? `<button type="button" class="btn gold" data-emp-act="add">+ Add employee</button>` : ""}
+    </div>
+    ${state.empMissing ? `<div class="inbox-setup"><b>Employees is still being set up.</b> It switches on once the latest database update has run.</div>` : ""}
+    <div class="emp-stats">
+      ${stat("On the team", current.length, `${current.filter(e => ["sales", "both"].includes(e.team)).length} sales · ${current.filter(e => ["delivery", "both"].includes(e.team)).length} delivery`)}
+      ${stat("Off today", off.length ? off.map(e => escapeHtml(e.name.split(" ")[0])).join(", ") : "Everyone's in", off.length ? "on leave" : "no one on leave", off.length ? "warn" : "")}
+      ${stat("1:1s due", dueSoon.length, dueSoon.length ? `in the next 3 days${dueSoon.some(e => empCheckinDue(e) < today) ? " · some overdue" : ""}` : "all up to date", dueSoon.some(e => empCheckinDue(e) < today) ? "warn" : "")}
+      ${stat("Onboarding", onboarding.length, onboarding.length ? onboarding.map(e => escapeHtml(e.name.split(" ")[0])).join(", ") : "no one new")}
+    </div>
+    <div class="emp-layout">
+      <aside class="emp-list">
+        ${current.map(card).join("") || `<div class="emp-empty">No one yet.${mgr ? " Click + Add employee." : ""}</div>`}
+        ${past.length ? `<button type="button" class="emp-past-toggle" data-emp-act="past">${empShowLeft ? "▾" : "▸"} Past employees (${past.length})</button>${empShowLeft ? past.map(card).join("") : ""}` : ""}
+      </aside>
+      <section class="emp-detail">${sel ? empDetailHtml(sel) : `<div class="emp-empty">Pick someone on the left.</div>`}</section>
+    </div>`;
+}
+
+function empDetailHtml(e){
+  const mgr = empIsManager(), self = empIsSelf(e);
+  const tabs = [["overview", "Overview"], ["performance", "Performance"], ["onboarding", e.status === "left" ? "Offboarding" : "Onboarding"], ["checkins", "1:1s"], ["leave", "Leave"], ...(mgr ? [["pay", "Pay & contract"]] : [])];
+  if (!tabs.some(([k]) => k === empTab)) empTab = "overview";
+  const body = empEditing && empTab === "overview" ? empEditHtml(e) : ({ overview: empOverviewHtml, performance: empPerfHtml, onboarding: empOnbHtml, checkins: empCheckinsHtml, leave: empLeaveHtml, pay: empPayHtml }[empTab] || empOverviewHtml)(e);
+  return `
+    <header class="emp-head">
+      <span class="emp-av big ${empColour(e)}">${escapeHtml(empInitials(e.name))}</span>
+      <div class="emp-head-id">
+        <h3>${escapeHtml(e.name)}${self ? ` <small>(you)</small>` : ""}</h3>
+        <p>${escapeHtml(e.role || "No role yet")} · ${escapeHtml(EMP_TEAMS[e.team] || "")}${e.start_date ? ` · ${escapeHtml(empTenure(e.start_date))}` : ""}</p>
+      </div>
+      <span class="emp-status ${EMP_STATUS[e.status]?.cls || ""}">${EMP_STATUS[e.status]?.label || e.status}</span>
+      ${mgr && !empEditing ? `<button type="button" class="btn ghost sm" data-emp-act="edit">Edit</button>` : ""}
+    </header>
+    <nav class="emp-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="${k === empTab ? "active" : ""}" data-emp-tab="${k}">${l}</button>`).join("")}</nav>
+    <div class="emp-body">${body}</div>`;
+}
+
+function empOverviewHtml(e){
+  const today = localDayStr(), due = empCheckinDue(e), lv = empOffToday(e) || empNextLeave(e), onb = empOnbProgress(e);
+  const login = (state.team || []).some(t => (t.email || "").toLowerCase() === (e.email || "").toLowerCase() && e.email);
+  const fact = (label, value) => `<div class="emp-fact"><span>${label}</span><b>${value || "-"}</b></div>`;
+  const p = empPerf(e);
+  return `
+    <div class="emp-facts">
+      ${fact("Email", e.email ? `<a href="mailto:${escapeHtml(e.email)}">${escapeHtml(e.email)}</a>` : "")}
+      ${fact("Phone", e.phone ? `<a href="tel:${escapeHtml(e.phone)}">${escapeHtml(e.phone)}</a>` : "")}
+      ${fact("Started", e.start_date ? `${escapeHtml(empDay(e.start_date))}` : "")}
+      ${fact("Type", escapeHtml(EMP_TYPES[e.employment_type] || ""))}
+      ${fact("Reports to", escapeHtml(ASSIGNEES[e.manager]?.label || ""))}
+      ${fact("Location", escapeHtml(e.location || ""))}
+      ${fact("CRM login", e.email ? (login ? "✓ Has access" : (state.team || []).length ? "No login yet" : "-") : "Add their email")}
+      ${e.status === "left" ? fact("Left", escapeHtml(empDay(e.end_date))) : ""}
+    </div>
+    <div class="emp-next">
+      <div class="${due && due < today ? "warn" : ""}"><span>Next 1:1</span><b>${due ? (due < today ? `Overdue (${escapeHtml(empShortDay(due))})` : due === today ? "Today" : escapeHtml(empShortDay(due))) : "-"}</b></div>
+      <div><span>Leave</span><b>${lv ? `${escapeHtml(EMP_LEAVE_TYPES[lv.type] || "Leave")} ${lv.from <= today ? "until " + escapeHtml(empShortDay(lv.to || lv.from)) : escapeHtml(empShortDay(lv.from))}` : "None booked"}</b></div>
+      <div><span>Onboarding</span><b>${onb.done}/${onb.total} done</b></div>
+    </div>
+    ${p ? `<h4 class="emp-h">Last 7 days</h4><div class="emp-mini">
+      <div><b>${p.dials}</b><span>dials</span></div><div><b>${p.booked}</b><span>meetings booked</span></div>
+      <div><b>${p.won}</b><span>deals won</span></div><div><b>${p.clients.length}</b><span>clients</span></div>
+    </div>` : ""}
+    ${e.targets && (e.targets.dials_per_day || e.targets.meetings_per_week) ? `<h4 class="emp-h">Targets</h4><p class="emp-text">${[e.targets.dials_per_day ? `${e.targets.dials_per_day} dials a day` : "", e.targets.meetings_per_week ? `${e.targets.meetings_per_week} meetings booked a week` : ""].filter(Boolean).join(" · ")}</p>` : ""}
+    ${e.notes ? `<h4 class="emp-h">Notes</h4><p class="emp-text">${escapeHtml(e.notes).replace(/\n/g, "<br>")}</p>` : ""}`;
+}
+
+function empEditHtml(e){
+  const opt = (map, v, blank) => (blank ? `<option value="">${blank}</option>` : "") + Object.entries(map).map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${escapeHtml(typeof l === "string" ? l : l.label)}</option>`).join("");
+  const f = (label, html, hint = "") => `<div class="field"><label>${label}</label>${html}${hint ? `<span class="field-hint">${hint}</span>` : ""}</div>`;
+  const inp = (name, v, type = "text", extra = "") => `<input name="${name}" type="${type}" value="${escapeHtml(v ?? "")}" ${extra}>`;
+  const t = e.targets || {};
+  return `<form class="emp-form" data-emp-form="profile">
+    <div class="field-row">${f("Name", inp("name", e.name, "text", "required"))}${f("Role", inp("role", e.role, "text", 'placeholder="e.g. Sales rep, Media buyer"'))}</div>
+    <div class="field-row">${f("Status", `<select name="status">${opt(EMP_STATUS, e.status)}</select>`)}${f("Team", `<select name="team">${opt(EMP_TEAMS, e.team)}</select>`)}</div>
+    <div class="field-row">${f("Work email", inp("email", e.email, "email"))}${f("Phone", inp("phone", e.phone, "tel"))}</div>
+    <div class="field-row">${f("Start date", inp("start_date", e.start_date, "date"))}${f("End date", inp("end_date", e.end_date, "date"), "Only if they've left")}</div>
+    <div class="field-row">${f("Employment type", `<select name="employment_type">${opt(EMP_TYPES, e.employment_type, "-")}</select>`)}${f("Reports to", `<select name="manager">${opt(Object.fromEntries(Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label])), e.manager, "No one")}</select>`)}</div>
+    <div class="field-row">${f("Location", inp("location", e.location))}${f("Name in the CRM", `<select name="person_key">${opt(Object.fromEntries(Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label])), e.person_key, "Not linked")}</select>`, "Links their deals, calls and tasks to this profile")}</div>
+    <div class="field-row">${f("Target: dials a day", inp("dials_per_day", t.dials_per_day, "number", 'min="0"'))}${f("Target: meetings booked a week", inp("meetings_per_week", t.meetings_per_week, "number", 'min="0"'))}</div>
+    ${f("Notes", `<textarea name="notes" rows="3">${escapeHtml(e.notes || "")}</textarea>`)}
+    <div class="emp-form-foot">
+      <button type="button" class="emp-link danger" data-emp-act="delete">Delete employee</button>
+      <span><button type="button" class="btn ghost" data-emp-act="cancel">Cancel</button> <button type="submit" class="btn gold">Save</button></span>
+    </div>
+  </form>`;
+}
+
+function empPerfHtml(e){
+  const p = empPerf(e);
+  const toggle = `<div class="emp-period">${[["week", "Last 7 days"], ["month", "This month"]].map(([k, l]) => `<button type="button" class="${k === empPeriod ? "active" : ""}" data-emp-period="${k}">${l}</button>`).join("")}</div>`;
+  if (!p) return `${toggle}<div class="emp-empty">Link ${escapeHtml(e.name.split(" ")[0])} to their name in the CRM (Edit → Name in the CRM) to see their numbers here.</div>`;
+  const t = e.targets || {};
+  const dialsTarget = t.dials_per_day ? t.dials_per_day * p.workdays : 0;
+  const bookTarget = t.meetings_per_week ? Math.round(t.meetings_per_week * (empPeriod === "week" ? 1 : p.workdays / 5)) : 0;
+  const pct = (v) => v == null ? "-" : Math.round(v * 100) + "%";
+  const tile = (label, value, sub, target, actual) => {
+    const prog = target ? Math.min(100, Math.round(actual / target * 100)) : null;
+    return `<div class="emp-tile${prog != null ? (prog >= 100 ? " hit" : prog < 60 ? " low" : "") : ""}"><span>${label}</span><b>${value}</b><small>${sub}</small>${prog != null ? `<i class="emp-bar"><i style="width:${prog}%"></i></i>` : ""}</div>`;
+  };
+  const f = p.funnel;
+  return `${toggle}
+    <div class="emp-tiles">
+      ${tile("Dials", p.dials, dialsTarget ? `target ${dialsTarget} (${t.dials_per_day}/day)` : `${Math.round(p.dials / p.workdays)} a work day`, dialsTarget, p.dials)}
+      ${tile("Conversations", p.convos, p.dials ? `${pct(p.convos / p.dials)} of dials` : "-")}
+      ${tile("Meetings booked", p.booked, bookTarget ? `target ${bookTarget}` : "from the dialler", bookTarget, p.booked)}
+      ${tile("Meetings sat", f.sat, f.sitRate != null ? `${pct(f.sitRate)} sit rate · ${f.noShow} no-show${f.noShow === 1 ? "" : "s"}` : "none finished yet")}
+      ${tile("Deals won", p.won, p.won ? fmtMoney(p.wonValue) + " total" : "none yet")}
+      ${tile("Close rate", pct(f.closeRate), f.sat ? `of ${f.sat} sat meeting${f.sat === 1 ? "" : "s"}` : "-")}
+      ${tile("Clients they look after", p.clients.length, p.clients.slice(0, 3).map(c => escapeHtml(c.name)).join(", ") || "none")}
+      ${tile("Open tasks", p.tasksOpen, p.tasksOverdue ? `${p.tasksOverdue} overdue` : "nothing overdue")}
+    </div>
+    <p class="emp-foot">Dials, conversations and meetings booked come from the dialler. Meetings and deals come from Deals (by who they're assigned to). Commission is on the Commission page.</p>`;
+}
+
+function empOnbHtml(e){
+  const can = empCanEdit() || empIsSelf(e), ticks = e.onboarding || {};
+  const row = ([k, label]) => `<button type="button" class="emp-check${ticks[k] ? " done" : ""}" data-emp-tick="${k}" ${can ? "" : "disabled"}><i>${ticks[k] ? "✓" : ""}</i><span>${escapeHtml(label)}</span>${ticks[k] ? `<small>${escapeHtml(empShortDay(ticks[k]))}</small>` : ""}</button>`;
+  if (e.status === "left"){
+    const done = EMP_OFFBOARDING.filter(([k]) => ticks[k]).length;
+    return `<p class="emp-text">Work through these so nothing's left open when someone leaves. ${done}/${EMP_OFFBOARDING.length} done.</p>
+      <div class="emp-checks">${EMP_OFFBOARDING.map(row).join("")}</div>`;
+  }
+  const pr = empOnbProgress(e);
+  return `<div class="emp-progress"><b>${pr.done}/${pr.total} done</b><i class="emp-bar"><i style="width:${pr.pct}%"></i></i></div>
+    ${EMP_ONBOARDING.map(s => `<h4 class="emp-h">${escapeHtml(s.section)}</h4><div class="emp-checks">${s.items.map(row).join("")}</div>`).join("")}
+    ${empCanEdit() ? `<p class="emp-foot">When someone leaves, set their status to "Left" and this becomes their offboarding checklist.</p>` : ""}`;
+}
+
+function empCheckinsHtml(e){
+  const mgr = empCanEdit(), today = localDayStr(), due = empCheckinDue(e), list = empCheckins(e);
+  return `
+    <div class="emp-next one ${due && due < today ? "warn" : ""}">
+      <div><span>Next 1:1</span><b>${due ? (due < today ? `Overdue - was due ${escapeHtml(empShortDay(due))}` : due === today ? "Today" : escapeHtml(empShortDay(due))) : "-"}</b></div>
+      ${mgr ? `<form class="emp-inline" data-emp-form="next"><input type="date" name="next_checkin" value="${escapeHtml(e.next_checkin || "")}"><button type="submit" class="btn ghost sm">Set date</button></form>` : ""}
+    </div>
+    ${mgr ? `<form class="emp-form card-ish" data-emp-form="checkin">
+      <h4 class="emp-h">Log a 1:1</h4>
+      <div class="field-row"><div class="field"><label>Date</label><input type="date" name="date" value="${today}" required></div><div class="field"><label>Next one</label><input type="date" name="next" value="${empAddDays(today, EMP_CHECKIN_DAYS)}"></div></div>
+      <div class="field"><label>Wins since last time</label><textarea name="wins" rows="2"></textarea></div>
+      <div class="field"><label>What's getting in the way</label><textarea name="blockers" rows="2"></textarea></div>
+      <div class="field"><label>Actions agreed</label><textarea name="actions" rows="2" placeholder="Who does what by when"></textarea></div>
+      <div class="emp-form-foot"><span></span><button type="submit" class="btn gold">Save 1:1</button></div>
+    </form>` : ""}
+    <h4 class="emp-h">History</h4>
+    ${list.length ? list.map(c => `<article class="emp-ci">
+      <header><b>${escapeHtml(empDay(c.date))}</b><small>${c.by ? "with " + escapeHtml(ASSIGNEES[c.by]?.label || c.by) : ""}</small>${mgr ? `<button type="button" class="emp-link" data-emp-del-ci="${escapeHtml(c.id)}">Delete</button>` : ""}</header>
+      ${c.wins ? `<p><span>Wins</span>${escapeHtml(c.wins)}</p>` : ""}${c.blockers ? `<p><span>Blockers</span>${escapeHtml(c.blockers)}</p>` : ""}${c.actions ? `<p><span>Actions</span>${escapeHtml(c.actions)}</p>` : ""}
+    </article>`).join("") : `<div class="emp-empty">No 1:1s logged yet. Aim for one every two weeks - it's where problems get caught early.</div>`}`;
+}
+
+function empLeaveHtml(e){
+  const can = empCanEdit() || empIsSelf(e), today = localDayStr(), list = empLeaveList(e);
+  const year = today.slice(0, 4);
+  const taken = list.filter(l => l.type === "annual" && (l.from || "").startsWith(year) && (l.to || l.from) < today).reduce((t, l) => t + empWeekdays(l.from, l.to || l.from), 0);
+  const upcoming = list.filter(l => (l.to || l.from) >= today), past = list.filter(l => (l.to || l.from) < today).reverse().slice(0, 12);
+  const row = (l) => `<div class="emp-leave-row"><b>${escapeHtml(EMP_LEAVE_TYPES[l.type] || "Leave")}</b><span>${escapeHtml(empShortDay(l.from))}${l.to && l.to !== l.from ? " – " + escapeHtml(empShortDay(l.to)) : ""} · ${empWeekdays(l.from, l.to || l.from)} work day${empWeekdays(l.from, l.to || l.from) === 1 ? "" : "s"}${l.note ? " · " + escapeHtml(l.note) : ""}</span>${can ? `<button type="button" class="emp-link" data-emp-del-leave="${escapeHtml(l.id)}">Remove</button>` : ""}</div>`;
+  return `
+    <p class="emp-text">${taken} day${taken === 1 ? "" : "s"} of annual leave taken so far this year.</p>
+    ${can ? `<form class="emp-form card-ish" data-emp-form="leave">
+      <h4 class="emp-h">Add leave</h4>
+      <div class="field-row"><div class="field"><label>Type</label><select name="type">${Object.entries(EMP_LEAVE_TYPES).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></div><div class="field"><label>Note</label><input name="note" placeholder="Optional"></div></div>
+      <div class="field-row"><div class="field"><label>From</label><input type="date" name="from" value="${today}" required></div><div class="field"><label>To</label><input type="date" name="to" value="${today}" required></div></div>
+      <div class="emp-form-foot"><span></span><button type="submit" class="btn gold">Add leave</button></div>
+    </form>` : ""}
+    <h4 class="emp-h">Coming up</h4>${upcoming.length ? upcoming.map(row).join("") : `<div class="emp-empty small">Nothing booked.</div>`}
+    ${past.length ? `<h4 class="emp-h">Past</h4>${past.map(row).join("")}` : ""}`;
+}
+
+function empPayHtml(e){
+  const p = state.employeePrivate[e.id] || {};
+  const f = (label, html) => `<div class="field"><label>${label}</label>${html}</div>`;
+  const inp = (name, v, type = "text", extra = "") => `<input name="${name}" type="${type}" value="${escapeHtml(v ?? "")}" ${extra}>`;
+  return `<div class="emp-private">🔒 Only Rocky and Max can see this. Don't save IRD numbers or bank details here - keep those in payroll.</div>
+    <form class="emp-form" data-emp-form="pay">
+      <div class="field-row">${f("Pay", inp("pay_rate", p.pay_rate, "number", 'min="0" step="0.01" placeholder="e.g. 28.50"'))}${f("Per", `<select name="pay_unit"><option value="">-</option>${Object.entries(EMP_PAY_UNITS).map(([k, l]) => `<option value="${k}" ${k === p.pay_unit ? "selected" : ""}>${l}</option>`).join("")}</select>`)}</div>
+      <div class="field-row">${f("Commission %", inp("commission_pct", p.commission_pct, "number", 'min="0" max="100" step="0.1"'))}${f("Contract (link)", inp("contract_url", p.contract_url, "url", 'placeholder="Link to the signed agreement"'))}</div>
+      <div class="field-row">${f("Emergency contact", inp("emergency_name", p.emergency_name))}${f("Their phone", inp("emergency_phone", p.emergency_phone, "tel"))}</div>
+      ${f("Private notes", `<textarea name="private_notes" rows="3">${escapeHtml(p.private_notes || "")}</textarea>`)}
+      ${p.contract_url ? `<p class="emp-text"><a href="${escapeHtml(p.contract_url)}" target="_blank" rel="noopener">Open contract →</a></p>` : ""}
+      <div class="emp-form-foot"><span></span><button type="submit" class="btn gold">Save</button></div>
+    </form>`;
+}
+
+function setupEmployeesUi(){
+  const root = $("#emp-root");
+  if (!root) return;
+  root.addEventListener("click", (ev) => {
+    const t = ev.target.closest("[data-emp-sel],[data-emp-tab],[data-emp-act],[data-emp-period],[data-emp-tick],[data-emp-del-ci],[data-emp-del-leave]");
+    if (!t || t.disabled) return;
+    const e = state.employees.find(x => x.id === empSel);
+    if (t.dataset.empSel){ empSel = t.dataset.empSel; empEditing = false; return renderEmployees(); }
+    if (t.dataset.empTab){ empTab = t.dataset.empTab; empEditing = false; return renderEmployees(); }
+    if (t.dataset.empPeriod){ empPeriod = t.dataset.empPeriod; return renderEmployees(); }
+    if (t.dataset.empTick && e){
+      const ticks = { ...(e.onboarding || {}) };
+      if (ticks[t.dataset.empTick]) delete ticks[t.dataset.empTick]; else ticks[t.dataset.empTick] = localDayStr();
+      const patch = { onboarding: ticks };
+      // Everything ticked: they're through onboarding.
+      if (e.status === "onboarding" && EMP_ONB_KEYS.every(k => ticks[k])){ patch.status = "active"; rcToast(`${e.name.split(" ")[0]} is fully onboarded - marked Active.`); }
+      return empSave(e.id, patch);
+    }
+    if (t.dataset.empDelCi && e) return empSave(e.id, { checkins: (e.checkins || []).filter(c => c.id !== t.dataset.empDelCi) });
+    if (t.dataset.empDelLeave && e) return empSave(e.id, { leave: (e.leave || []).filter(l => l.id !== t.dataset.empDelLeave) });
+    const act = t.dataset.empAct;
+    if (act === "add") return empAdd();
+    if (act === "past"){ empShowLeft = !empShowLeft; return renderEmployees(); }
+    if (act === "edit"){ empEditing = true; empTab = "overview"; return renderEmployees(); }
+    if (act === "cancel"){ empEditing = false; return renderEmployees(); }
+    if (act === "delete" && e) return empDelete(e.id);
+  });
+  root.addEventListener("submit", (ev) => {
+    const form = ev.target.closest("[data-emp-form]");
+    if (!form) return;
+    ev.preventDefault();
+    const e = state.employees.find(x => x.id === empSel);
+    if (!e) return;
+    const v = Object.fromEntries(new FormData(form).entries());
+    const num = (x) => x === "" || x == null ? null : Number(x);
+    const kind = form.dataset.empForm;
+    if (kind === "profile"){
+      empEditing = false;
+      const patch = {
+        name: v.name.trim() || e.name, role: v.role.trim() || null, status: v.status, team: v.team,
+        email: v.email.trim().toLowerCase() || null, phone: v.phone.trim() || null,
+        start_date: v.start_date || null, end_date: v.end_date || (v.status === "left" && !e.end_date ? localDayStr() : e.end_date || null),
+        employment_type: v.employment_type || null, manager: v.manager || null, location: v.location.trim() || null,
+        person_key: v.person_key || null, notes: v.notes.trim() || null,
+        targets: { ...(e.targets || {}), dials_per_day: num(v.dials_per_day), meetings_per_week: num(v.meetings_per_week) },
+      };
+      if (patch.person_key && state.employees.some(x => x.id !== e.id && x.person_key === patch.person_key)){ rcToast(`Someone else is already linked to ${ASSIGNEES[patch.person_key]?.label}.`); empEditing = true; return; }
+      return empSave(e.id, patch);
+    }
+    if (kind === "next") return empSave(e.id, { next_checkin: v.next_checkin || null });
+    if (kind === "checkin"){
+      if (!(v.wins || v.blockers || v.actions).trim()){ rcToast("Add a note before saving the 1:1."); return; }
+      const by = personKeyFromEmail(state.user?.email || "");
+      const ci = { id: uid(), date: v.date, by: ASSIGNEES[by] ? by : null, wins: v.wins.trim(), blockers: v.blockers.trim(), actions: v.actions.trim() };
+      rcToast("1:1 saved.");
+      return empSave(e.id, { checkins: [...(e.checkins || []), ci], next_checkin: v.next || empAddDays(v.date, EMP_CHECKIN_DAYS) });
+    }
+    if (kind === "leave"){
+      if (v.to < v.from){ rcToast("The end date is before the start date."); return; }
+      rcToast("Leave added.");
+      return empSave(e.id, { leave: [...(e.leave || []), { id: uid(), type: v.type, from: v.from, to: v.to, note: v.note.trim() }] });
+    }
+    if (kind === "pay") return empSavePrivate(e.id, {
+      pay_rate: num(v.pay_rate), pay_unit: v.pay_unit || null, commission_pct: num(v.commission_pct), contract_url: v.contract_url.trim() || null,
+      emergency_name: v.emergency_name.trim() || null, emergency_phone: v.emergency_phone.trim() || null, private_notes: v.private_notes.trim() || null,
+    });
+  });
+}
+
 const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
@@ -9851,7 +10360,7 @@ const RENDERERS = [
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
-  [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]],
+  [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -12827,6 +13336,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupEmailLibrary();
   setupMeetingStructure();
   setupClientInboxUi();
+  setupEmployeesUi();
   setupSitRate();
   setupNav();
   setupModals();
