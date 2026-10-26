@@ -102,6 +102,7 @@ function valueText(v: any): string {
 // tracking GHL and Facebook add. Matched loosely on the key.
 const SUBMISSION_NOISE = /^(event_?data|fields_?ori|signature|form_?id|location_?id|contact_?id|id|type|product_?type|source|last_?attribution|attribution|facebook_?(lead_?id|form_?id|page|ad)|lead_?id|ad_?(set)?_?(id|name)|campaign|timezone|time_?zone|ip|user_?agent|session|captcha|recaptcha|page|url|referrer|medium|utm_|fbclid|gclid|full_?name|first_?name|last_?name|name|email|e_?mail|phone|phone_?number|mobile|terms|consent|privacy|submission|created|date_?added|is_?organic|platform|__)/i;
 const ADDRESS_KEYS: Record<string, string> = { address: "street", address1: "street", street_address: "street", full_address: "street", street: "street", city: "city", suburb: "suburb", town: "city", postal_code: "postal", post_code: "postal", postcode: "postal", zip: "postal", zip_code: "postal", state: "state", region: "state", province: "state" };
+const LOCATION_QUESTION = /(what|which)_(area|suburb|town|city|region)|suburb|where_(is|are|abouts)|whereabouts|location|located|property_in|address|postcode|post_code/;
 const humanise = (k: string) => k.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
 const keyOf = (k: string) => k.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
@@ -157,6 +158,8 @@ async function contactDetails(id: string, token: string, fieldNames: () => Promi
       if (ADDRESS_KEYS[k]) { if (!place[ADDRESS_KEYS[k]]) place[ADDRESS_KEYS[k]] = a; continue; }
       if (SUBMISSION_NOISE.test(k) || /^facebook_?form_?name$/.test(k)) continue;
       const label = clean(q, 120);
+      // "What area is the property in?" and the like: that's where they are.
+      if (LOCATION_QUESTION.test(k) && !place.suburb) place.suburb = a;
       if (label && !answers.some((x) => x.q.toLowerCase() === label.toLowerCase())) answers.push({ q: label, a });
     }
   } catch { /* no Forms access on this key: custom fields only */ }
@@ -168,7 +171,7 @@ async function contactDetails(id: string, token: string, fieldNames: () => Promi
 
 // Leads read before form submissions were looked at get one more read.
 // Leads read before Facebook form answers were understood get read again.
-const DETAILS_FROM_SUBMISSIONS = "2026-10-26T07:20:00Z";
+const DETAILS_FROM_SUBMISSIONS = "2026-10-26T07:40:00Z";
 const needsDetails = (r: any) => !r.details_at || r.details_at < DETAILS_FROM_SUBMISSIONS;
 
 async function syncClient(admin: any, conn: any, client: any, deadline: number) {
