@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=302">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=302">
+<link rel="stylesheet" href="css/style.css?v=303">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=303">
 </head>
 <body>
 
@@ -257,6 +257,10 @@
       <button class="nav-item" data-page="lead-results" data-workspace="leads">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
         <span>Results</span>
+      </button>
+      <button class="nav-item" data-page="lead-kpis" data-workspace="leads">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>
+        <span>KPI's</span>
       </button>
       <button type="button" class="nav-item nav-group-item" data-group="library" data-workspace="both">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -866,6 +870,9 @@
     </section>
     <section class="page" id="page-lead-results">
       <div id="lr-root"></div>
+    </section>
+    <section class="page" id="page-lead-kpis">
+      <div id="lk-root"></div>
     </section>
 
     <!-- Client inbox: emails from clients, waiting on a reply -->
@@ -2797,17 +2804,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=302"></script>
-<script src="js/supabaseClient.js?v=302"></script>
-<script src="js/report-pdf.js?v=302"></script>
-<script src="js/plan-pdf.js?v=302"></script>
-<script src="js/workshop-pdf.js?v=302"></script>
-<script src="js/receipt-pdf.js?v=302"></script>
-<script src="js/welcome-pdf.js?v=302"></script>
-<script src="js/builtin-playbooks.js?v=302"></script>
-<script src="js/builtin-email-templates.js?v=302"></script>
-<script src="js/app.js?v=302"></script>
-<script src="js/meetings-tracker.js?v=302"></script>
-<script src="js/todo.js?v=302"></script>
+<script src="js/config.js?v=303"></script>
+<script src="js/supabaseClient.js?v=303"></script>
+<script src="js/report-pdf.js?v=303"></script>
+<script src="js/plan-pdf.js?v=303"></script>
+<script src="js/workshop-pdf.js?v=303"></script>
+<script src="js/receipt-pdf.js?v=303"></script>
+<script src="js/welcome-pdf.js?v=303"></script>
+<script src="js/builtin-playbooks.js?v=303"></script>
+<script src="js/builtin-email-templates.js?v=303"></script>
+<script src="js/app.js?v=303"></script>
+<script src="js/meetings-tracker.js?v=303"></script>
+<script src="js/todo.js?v=303"></script>
 </body>
 </html>

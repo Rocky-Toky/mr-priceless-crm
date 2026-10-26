@@ -10387,7 +10387,6 @@ const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call b
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
 const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable"]);
 const LQ_MAX_TRIES = 5, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
-let lqShowGuide = false;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
@@ -10522,10 +10521,6 @@ function renderLeadQueue(){
   const bookedToday = logsToday.filter(x => LQ_BOOKED.has(x.outcome)).length;
   const waiting = q.fresh;
   const longest = waiting.length ? now - lqIn(waiting[0]) : 0;
-  // The 3-minute goal: of today's new enquiries, how many got a first call in time.
-  const inToday = state.clientLeads.filter(l => l.follow_status !== "old" && localDayStr(new Date(lqIn(l))) === today);
-  const calledIn = inToday.filter(l => l.first_called_at && new Date(l.first_called_at) - lqIn(l) <= LQ_FAST_MS).length;
-  const wave = LQ_WAVES[lqWaveOf(now)];
   const me = lqWho(state.user?.email || "");
   const checked = lqLastChecked();
   const top = `
@@ -10537,17 +10532,10 @@ function renderLeadQueue(){
       </div>
       <div class="lq3-kpis">
         <div class="lq3-kpi ${longest > LQ_FAST_MS ? "bad" : ""}"><b>${waiting.length ? escapeHtml(lqShortAgo(longest)) : "-"}</b><span>longest wait</span></div>
-        <div class="lq3-kpi ${inToday.length ? (calledIn === inToday.length ? "good" : "bad") : ""}"><b>${inToday.length ? `${calledIn}/${inToday.length}` : "-"}</b><span>called in 3 min</span></div>
         <div class="lq3-kpi"><b>${logsToday.length}</b><span>calls today</span></div>
         <div class="lq3-kpi ${bookedToday ? "good" : ""}"><b>${bookedToday}</b><span>booked today</span></div>
       </div>
-    </div>
-    <div class="lq3-goal">
-      <span class="lq3-goal-kpi">${lqIcon("phone")}<span><b>Your goal: call every new enquiry within 3 minutes</b><small>The quicker the call, the more quotes get booked.</small></span></span>
-      <span class="lq3-wave ${lqWaveOf(now)}"><b>${wave.name}</b><small>Missed calls come back in the ${lqWaveOf(now) === "am" ? "afternoon wave (2pm)" : "morning wave (9am tomorrow)"}</small></span>
-      <button type="button" class="lq3-mini" data-lq-act="guide">${lqShowGuide ? "Hide" : "How calling works"}</button>
-    </div>
-    ${lqShowGuide ? lqGuideHtml() : ""}`;
+    </div>`;
   const row = (l) => {
     const c = lqClient(l), st = l.follow_status || "new", waited = now - lqIn(l);
     const tone = st === "new" ? (lqBacklog(l) ? "due" : waited > LQ_FAST_MS ? "late" : "hot") : lqIsOpen(l) ? (lqDue(l) ? "due" : "later") : "done";
@@ -10591,7 +10579,7 @@ function renderLeadQueue(){
 function lqGuideHtml(){
   const step = (n, title, body) => `<li><span class="lq3-n">${n}</span><div><h4>${title}</h4><p>${body}</p></div></li>`;
   return `<section class="lq3-guide">
-    <h3>How calling works</h3>
+    <h3>The calling process</h3>
     <ol>
       ${step(1, "New enquiries first - within 3 minutes", "Anyone who's just enquired goes to the top, the one waiting longest first. Your goal is to ring every new enquiry within 3 minutes of it coming in. The clock on each one shows how long you've got.")}
       ${step(2, "No answer? Leave the message and press No answer", "They come back in the next wave. The <b>morning wave</b> starts at 9am and the <b>afternoon wave</b> at 2pm. If you rang in the morning, the next try is that afternoon; if you rang in the afternoon, it's the next morning. That way you catch them at a different time of day each try.")}
@@ -10807,6 +10795,42 @@ async function lqSync(){
   finally { lqSyncing = false; renderAll(); }
 }
 
+// KPIs: the 3-minute response target, and the calling process behind it.
+function renderLeadKpis(){
+  const root = $("#lk-root");
+  if (!root) return;
+  const now = Date.now(), wave = lqWaveOf(now);
+  const since = (days) => { const d = new Date(); d.setDate(d.getDate() - days); return localDayStr(d); };
+  const score = (from) => {
+    // Fresh enquiries only - older Rep to contact / Stuck leads were never 3-minute calls.
+    const ls = state.clientLeads.filter(l => l.follow_status !== "old" && localDayStr(new Date(lqIn(l))) >= from && (!l.first_called_at || new Date(l.first_called_at) - lqIn(l) < LQ_FRESH_MS));
+    const due = ls.filter(l => l.first_called_at || now - lqIn(l) > LQ_FAST_MS);
+    const hit = due.filter(l => l.first_called_at && new Date(l.first_called_at) - lqIn(l) <= LQ_FAST_MS);
+    return { hit: hit.length, of: due.length, pct: due.length ? Math.round(hit.length / due.length * 100) : null, missed: due.filter(l => !hit.includes(l)) };
+  };
+  const today = score(localDayStr()), week = score(since(6)), month = score(localDayStr().slice(0, 8) + "01");
+  const card = (label, x) => `<div class="lk-score ${x.pct == null ? "" : x.pct >= 90 ? "hit" : x.pct >= 70 ? "warn" : "low"}">
+    <span>${label}</span><b>${x.pct == null ? "-" : x.pct + "%"}</b>
+    <div class="lk-bar"><i style="width:${x.pct || 0}%"></i></div>
+    <small>${x.of ? `${x.hit} of ${x.of} new enquiries called within 3 minutes` : "No new enquiries yet"}</small></div>`;
+  const late = today.missed.sort((a, b) => lqIn(b) - lqIn(a)).slice(0, 8);
+  root.innerHTML = `
+    <div class="page-header"><div><h2>KPI's</h2><p>What good looks like on the phones, and how today is tracking.</p></div></div>
+    <section class="lk-kpi">
+      <div class="lk-kpi-head">
+        <span class="lk-kpi-n">KPI 1</span>
+        <div><h3>Respond to every new lead within 3 minutes</h3><p>From the moment someone enquires to the first call. Target: every single one.</p></div>
+      </div>
+      <div class="lk-scores">${card("Today", today)}${card("Last 7 days", week)}${card("This month", month)}</div>
+      ${late.length ? `<div class="lk-late"><h4>Missed the 3 minutes today</h4>${late.map(l => `<div><b>${escapeHtml(l.name || l.phone || "No name")}</b><span>${escapeHtml(lqClient(l)?.name || "")}</span><em>${l.first_called_at ? `called after ${escapeHtml(lqAgo(new Date(l.first_called_at) - lqIn(l)))}` : "not called yet"}</em></div>`).join("")}</div>` : ""}
+    </section>
+    <section class="lk-wave ${wave}">
+      <b>Right now: ${LQ_WAVES[wave].name}</b>
+      <span>Missed calls made now come back in the ${wave === "am" ? "afternoon wave (from 2pm today)" : "morning wave (from 9am tomorrow)"}.</span>
+    </section>
+    ${lqGuideHtml()}`;
+}
+
 function renderLeadResults(){
   const root = $("#lr-root");
   if (!root) return;
@@ -10931,7 +10955,6 @@ function setupLeadFollowUpUi(){
       if (act === "add"){ lqAdding = true; return renderLeadQueue(); }
       if (act === "add-cancel"){ lqAdding = false; return renderLeadQueue(); }
       if (act === "done"){ lqShowDone = !lqShowDone; return renderLeadQueue(); }
-      if (act === "guide"){ lqShowGuide = !lqShowGuide; return renderLeadQueue(); }
       if (act === "history"){ lqShowHistory = !lqShowHistory; return renderLeadQueue(); }
     });
     root.addEventListener("input", (ev) => {
@@ -11018,6 +11041,7 @@ function setupLeadFollowUpUi(){
   // Keeps the "came in 4 minutes ago" times ticking, and the sync line fresh.
   setInterval(() => {
     if (state.page === "lead-queue") renderLeadQueue(); else lqNavCount();
+    if (state.page === "lead-kpis") renderLeadKpis();
     if (["lead-queue", "lead-results"].includes(state.page)) lqLoadSync(true);
   }, 60e3);
 }
@@ -11059,7 +11083,7 @@ const RENDERERS = [
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
-  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [lqNavCount, ["*"]],
+  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [lqNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
