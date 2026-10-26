@@ -1653,7 +1653,8 @@ function applyWorkspace(){
   document.body.classList.toggle("workspace-delivery", ws === "delivery");
   document.body.classList.toggle("workspace-employees", ws === "employees");
   $$("[data-workspace]").forEach(el => {
-    el.style.display = (el.dataset.workspace === "both" || el.dataset.workspace === ws) ? "" : "none";
+    // Employees is a section of its own: none of the shared Sales / Delivery items show there.
+    el.style.display = ((el.dataset.workspace === "both" && ws !== "employees") || el.dataset.workspace === ws) ? "" : "none";
   });
   // Lead Engine is Rocky/Max only regardless of workspace - override the
   // workspace loop above rather than fold it into data-workspace, since
@@ -1676,7 +1677,7 @@ function applyWorkspace(){
   // Each workspace opens on its main page: Meetings Booked, Clients, or Employees.
   const landing = ws === "delivery" ? "clients" : ws === "employees" ? "employees" : "cold-calls";
   const pageBtns = $$(`.nav-item[data-page="${state.page}"]`);
-  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => b.dataset.workspace === "both" || b.dataset.workspace === ws))){
+  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => (b.dataset.workspace === "both" && ws !== "employees") || b.dataset.workspace === ws))){
     workspaceLanded = true;
     $(`.nav-item[data-page="${landing}"]`)?.click();
   }

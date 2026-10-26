@@ -1021,6 +1021,7 @@ body.workspace-delivery .workspace-banner{background:#eef0f1;border:1px solid #d
 body.workspace-delivery .workspace-banner h2{color:#2a3438;}
 body.workspace-employees .workspace-banner{background:#f1eef5;border:1px solid #ddd6e6;}
 body.workspace-employees .workspace-banner h2{color:#3a2f48;}
+body.workspace-employees .inbox-alert{display:none !important;}
 
 /* ───────── Team ───────── */
 .team-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line);gap:10px;}
