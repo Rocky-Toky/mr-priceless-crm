@@ -278,7 +278,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
         reads++;
         try {
           const d = await contactDetails(x.cid, token, fieldNames, loc);
-          await admin.from("client_leads").update({ ghl_contact_id: x.cid, address: d.address || null, city: d.city || null, answers: d.answers, details_at: new Date().toISOString(), ad_info: d.adInfo || {}, ...(d.formName ? { form_name: d.formName } : {}) }).eq("id", existing.id);
+          await admin.from("client_leads").update({ ghl_contact_id: x.cid, address: d.address || existing.address || null, city: d.city || existing.city || null, answers: d.answers, details_at: new Date().toISOString(), ad_info: d.adInfo || {}, ...(d.formName ? { form_name: d.formName } : {}) }).eq("id", existing.id);
         } catch { /* try again next run */ }
       }
       continue;
