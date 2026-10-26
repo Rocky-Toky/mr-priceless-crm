@@ -73,6 +73,10 @@ on:
         description: "Check the CRM can reach this person's Google Calendar for meeting invites (an @mrpriceless.com email; leave blank to skip)"
         required: false
         default: ""
+      check_meetings:
+        description: "Type yes to print how booked meetings are doing: live updates, the 5-minute calendar check, alert emails (counts and statuses only, no names)"
+        required: false
+        default: ""
 
 jobs:
   deploy:
@@ -267,3 +271,21 @@ jobs:
             -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
             -H "x-cron-secret: $secret" --data "$(jq -n --arg e "$CHECK_EMAIL" '{action: "check_calendar", email: $e}')"
           echo
+      # Run by hand with check_meetings=yes. Statuses and counts only: no
+      # names, and email addresses are shown only as "team" or "other".
+      - name: Check booked meetings
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_meetings == 'yes'
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          echo "Live updates on for:"
+          q "select tablename from pg_publication_tables where pubname = 'supabase_realtime' and tablename in ('meetings', 'meeting_events', 'precall_settings', 'deals')" | jq -c '[.[].tablename]'
+          echo "Calendar check (last 5 runs):"
+          q "select status, left(coalesce(return_message,''),120) as message, start_time from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'precall-watch') order by start_time desc limit 5" | jq -c '.[]'
+          echo "Calendar check replies (last 5):"
+          q "select status_code, left(coalesce(content::text, error_msg, ''), 160) as reply, created from net._http_response where coalesce(content::text,'') like '%checked%' or coalesce(error_msg,'') <> '' order by created desc limit 5" | jq -c '.[]' || true
+          echo "Meetings:"
+          q "select status, calendar_flag, prospect_response, case when setter_email like '%@mrpriceless.com' then 'team' when setter_email is null then 'none' else 'other' end as setter_email, (calendar_checked_at is not null) as checked from meetings order by created_at desc limit 10" | jq -c '.[]'
+          echo "Alert emails:"
+          q "select status, left(coalesce(error,''),160) as error, case when to_email like '%@mrpriceless.com' then 'team' else 'other' end as to_email, send_at, sent_at from scheduled_emails where kind = 'precall_alert' order by created_at desc limit 10" | jq -c '.[]'
+          echo "Email sender (last 3 runs):"
+          q "select status, left(coalesce(return_message,''),120) as message, start_time from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'send-scheduled-emails') order by start_time desc limit 3" | jq -c '.[]'
