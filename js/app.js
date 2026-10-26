@@ -10596,8 +10596,17 @@ function lqDetailHtml(l){
     : st === "call_back" ? { tone: "blue", text: `Call back ${lqWhenWords(l.next_attempt_at)}` }
     : st === "no_answer" ? { tone: "amber", text: `Call ${l.attempts + 1} of ${LQ_MAX_TRIES} · no answer ${lastTry ? lqWhenWords(lastTry.at) : "last time"}` }
     : { tone: "done", text: `${LQ_STATUS_LABEL[st] || st}${l.booked_for ? ` · quote ${lqWhenWords(l.booked_for)}` : ""}` };
-  const jobAnswer = answers.find(a => /need|looking|renovat|service|job|work|project|type|concret|build|install/i.test(a.q))?.a;
-  const job = jobAnswer || (l.form_name && !/gohighlevel|facebook|meta|instagram|website|lead|form$/i.test(l.form_name) ? lqNice(l.form_name) : "");
+  // The job itself: an answer to "what are you looking to renovate / need
+  // done" - never the timing, area, size or budget questions, and not a
+  // vague "Other".
+  const jobAnswer = answers.find(a => /looking|need|renovat|service|job|type of|kind of|what.*(done|build|install|concret|fix|replace|work)/i.test(a.q)
+    && !/when|time|how soon|area|where|suburb|located|big|size|budget|price|cost|spend/i.test(a.q)
+    && !/^(other|not sure|unsure|n\/?a|none|yes|no)$/i.test(a.a.trim()))?.a;
+  const job = jobAnswer || "";
+  const ad = l.ad_info || {};
+  const creative = ad.ad_id ? (state.adCreatives || []).find(x => x.meta_ad_id && String(x.meta_ad_id) === String(ad.ad_id)) : null;
+  const liveAds = !creative ? (state.adCreatives || []).filter(x => x.client_id === l.client_id && /active/i.test(x.delivery_status || "")).slice(0, 4) : [];
+  const realForm = [ad.form, l.form_name].find(f => f && !/^(facebook( lead)?( form)?|gohighlevel|meta|instagram|website( form)?|lead form|form)$/i.test(String(f).trim()));
   const place = l.address || l.city || "";
   const mapQ = encodeURIComponent([place, "New Zealand"].filter(Boolean).join(", "));
   const B = (t) => `<b>${escapeHtml(t)}</b>`;
@@ -10617,6 +10626,21 @@ function lqDetailHtml(l){
         ${l.email ? `<a class="lq3-email" href="mailto:${escapeHtml(l.email)}">${lqIcon("mail")}${escapeHtml(l.email)}</a>` : ""}
       </div>
     </header>
+
+    <section class="lq3-panel lq3-ad">
+      ${creative?.image_url ? `<img class="lq3-ad-img" src="${escapeHtml(creative.image_url)}" alt="" loading="lazy">` : `<span class="lq3-ad-badge">${lqIcon("chat")}</span>`}
+      <div class="lq3-ad-body">
+        <h3>About the ad they saw</h3>
+        <p class="lq3-ad-lead"><b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}${ad.campaign || realForm ? ` - the ad was for <b>${escapeHtml(lqNice(ad.campaign || realForm))}</b>` : ""}</p>
+        <dl class="lq3-ad-facts">
+          ${creative ? `<div><dt>Ad</dt><dd>${escapeHtml(creative.name)}</dd></div>` : ad.ad ? `<div><dt>Ad</dt><dd>${escapeHtml(lqNice(ad.ad))}</dd></div>` : ""}
+          ${ad.campaign ? `<div><dt>Campaign</dt><dd>${escapeHtml(lqNice(ad.campaign))}</dd></div>` : ""}
+          ${ad.adset ? `<div><dt>Targeting</dt><dd>${escapeHtml(lqNice(ad.adset))}</dd></div>` : ""}
+          ${realForm ? `<div><dt>Facebook form</dt><dd>${escapeHtml(lqNice(realForm))}</dd></div>` : ""}
+          ${!creative && !ad.ad && liveAds.length ? `<div><dt>${escapeHtml(biz)}'s ads running now</dt><dd>${liveAds.map(x => escapeHtml(x.name)).join(" · ")}</dd></div>` : ""}
+        </dl>
+      </div>
+    </section>
 
     <div class="lq3-info">
       <section class="lq3-panel">
@@ -10639,7 +10663,7 @@ function lqDetailHtml(l){
     <section class="lq3-panel lq3-script">
       <h3>${lqIcon("chat")}What to say</h3>
       <ol class="lq3-steps">
-        ${step(1, "Say hello", quote(`Hi ${B(first)}, it's Carmen from ${B(biz)}. You just sent through an enquiry${job ? ` about ${B(job.toLowerCase())}` : ""}. Have you got a quick minute?`))}
+        ${step(1, "Say hello", quote(`Hi ${B(first)}, it's Carmen from ${B(biz)}. You just sent through an enquiry${job ? ` about ${B(job.toLowerCase())}` : " on Facebook"}. Have you got a quick minute?`))}
         ${step(2, "Ask about the job", quote(`Awesome. Tell me a bit about what you're looking to get done?`))}
         ${step(3, "Check it's a fit", checks.length ? `<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : `<p class="lq3-muted">How big is the job, what's the budget, when do they want it done, and where is it?</p>`)}
         ${step(4, "Book the quote", quote(`Perfect. ${B(biz)} can come out and give you a quote. Does earlier or later in the week suit, morning or afternoon?`))}
@@ -10876,7 +10900,8 @@ function lqSeedDemo(){
       address: "12 Kauri Road, Albany, 0632", city: "Albany, Auckland",
       answers: [{ q: "What do you need done?", a: "New deck off the back of the house" }, { q: "Roughly how big?", a: "About 6m x 4m" }, { q: "Budget", a: "$10,000 - $15,000" }, { q: "When would you like it done?", a: "Before Christmas" }] },
     { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Sarah Lin", phone: "027 555 0172", email: "", form_name: "Website form", lead_created_at: ago(26), created_at: ago(26), follow_status: "new",
-      city: "Hamilton East, Hamilton", answers: [{ q: "what_are_you_looking_to_renovate", a: "bathroom" }, { q: "when_are_you_hoping_to_complete_the_project", a: "next_3_months" }, { q: "what_area_is_the_property_in", a: "Hamilton East" }] },
+      city: "Hamilton East, Hamilton", ad_info: { form: "Kitchen & bathroom reno enquiry", campaign: "Renovations - Waikato", adset: "Homeowners 30-65, Hamilton 25km" },
+      answers: [{ q: "when_are_you_hoping_to_complete_the_project", a: "3-6_months" }, { q: "what_area_is_the_property_in", a: "Hamilton East" }, { q: "what_are_you_looking_to_renovate", a: "other" }] },
     { ...base, id: uid(), client_id: c[0].id, name: "Tom Fraser", phone: "022 555 0190", email: "tom@example.com", form_name: "Fence", lead_created_at: ago(240), created_at: ago(240), follow_status: "no_answer", attempts: 2, first_called_at: ago(236), last_attempt_at: ago(70), next_attempt_at: ago(10),
       call_log: [{ at: ago(236), by: "demo@mrpriceless.co.nz", outcome: "no_answer", note: "" }, { at: ago(70), by: "demo@mrpriceless.co.nz", outcome: "no_answer", note: "Left a voicemail" }] },
     { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Aroha Pene", phone: "021 555 0111", email: "", form_name: "Retaining wall", lead_created_at: ago(400), created_at: ago(400), follow_status: "call_back", attempts: 1, first_called_at: ago(395), last_attempt_at: ago(395), next_attempt_at: new Date(Date.now() + 90 * 60e3).toISOString(),

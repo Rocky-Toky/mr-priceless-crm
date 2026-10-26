@@ -108,6 +108,28 @@ const tidyAnswer = (a: string) => { const t = a.replace(/_+/g, " ").replace(/\s+
 const humanise = (k: string) => k.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
 const keyOf = (k: string) => k.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
+// Which ad they came from, out of GHL's attribution blobs (contact and
+// submission). Key names vary, so match loosely.
+function adInfoFrom(...blobs: any[]) {
+  const out: Record<string, string> = {};
+  const take = (k: string, v: any) => { const t = clean(valueText(v), 160); if (t && !out[k]) out[k] = t; };
+  for (const b of blobs) {
+    if (!b || typeof b !== "object") continue;
+    for (const [k, v] of Object.entries(b)) {
+      const lk = k.toLowerCase().replace(/[^a-z]/g, "");
+      if (v && typeof v === "object") continue;
+      if (/^(adid|fbadid|metaadid)$/.test(lk)) take("ad_id", v);
+      else if (/^(adname|ad)$/.test(lk)) take("ad", v);
+      else if (/^(adsetname|adset|adgroupname|adgroup)$/.test(lk)) take("adset", v);
+      else if (/^(adsetid|adgroupid)$/.test(lk)) take("adset_id", v);
+      else if (/^(campaignname|campaign|utmcampaign)$/.test(lk)) take("campaign", v);
+      else if (/^(campaignid|utmcampaignid)$/.test(lk)) take("campaign_id", v);
+      else if (/^(utmcontent)$/.test(lk)) take("content", v);
+    }
+  }
+  return out;
+}
+
 // Every question/answer pair in a submission, whatever shape it's in:
 // Facebook's field_data list ({ name, values }), a custom field list
 // ({ id, value }), or plain key: value.
@@ -148,13 +170,14 @@ async function contactDetails(id: string, token: string, fieldNames: () => Promi
     .map((f: any) => ({ q: clean(names.get(f.id) || f.name || f.fieldKey || "", 120), a: clean(valueText(f.value ?? f.fieldValue), 600) }))
     .filter((x: any) => x.q && x.a);
   const place: Record<string, string> = { street: clean(c.address1, 200), city: clean(c.city, 80), suburb: "", postal: clean(c.postalCode, 20), state: clean(c.state, 60) };
-  let formName = "";
+  let formName = "", adInfo: Record<string, string> = adInfoFrom(c.attributionSource, c.lastAttributionSource);
   try {
     const subs = await ghl(`/forms/submissions?locationId=${encodeURIComponent(locationId)}&q=${encodeURIComponent(c.email || id)}&limit=10`, token);
     const mine = (subs?.submissions || []).filter((x: any) => !x.contactId || x.contactId === id)
       .sort((x: any, y: any) => String(y.createdAt || "").localeCompare(String(x.createdAt || "")))[0];
     const others = mine?.others || {};
     formName = clean(others.facebookFormName || mine?.name || "", 120);
+    adInfo = { ...adInfoFrom(others.attributionSource, others.lastAttributionSource, others.facebookLeadSubmissionDetails), ...adInfo };
     for (const { key, q, a } of submissionPairs(others, names)) {
       const k = keyOf(key);
       if (ADDRESS_KEYS[k]) { if (!place[ADDRESS_KEYS[k]]) place[ADDRESS_KEYS[k]] = a; continue; }
@@ -168,13 +191,16 @@ async function contactDetails(id: string, token: string, fieldNames: () => Promi
   const town = place.suburb || place.city;
   const city = clean([town, place.suburb && place.city !== place.suburb ? place.city : "", place.state].filter(Boolean).join(", "), 120);
   const address = clean([place.street, town, place.postal].filter(Boolean).join(", "), 240);
-  return { contact: c, answers, address, city, formName };
+  if (formName) adInfo.form = formName;
+  return { contact: c, answers, address, city, formName, adInfo };
 }
 
 // Leads read before form submissions were looked at get one more read.
 // Leads read before Facebook form answers were understood get read again.
-const DETAILS_FROM_SUBMISSIONS = "2026-10-26T07:40:00Z";
-const needsDetails = (r: any) => !r.details_at || r.details_at < DETAILS_FROM_SUBMISSIONS;
+// Leads read before we looked for which ad they came from get read again -
+// but not twice within half an hour, so every lead gets its turn.
+const DETAILS_FROM_SUBMISSIONS = "2026-10-26T08:30:00Z";
+const needsDetails = (r: any) => !r.details_at || (r.details_at < DETAILS_FROM_SUBMISSIONS && Date.now() - new Date(r.details_at).getTime() > 30 * 60e3);
 
 async function syncClient(admin: any, conn: any, client: any, deadline: number) {
   const loc = conn.location_id, token = conn.token;
@@ -231,7 +257,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
         reads++;
         try {
           const d = await contactDetails(x.cid, token, fieldNames, loc);
-          await admin.from("client_leads").update({ ghl_contact_id: x.cid, address: d.address || null, city: d.city || null, answers: d.answers, details_at: new Date().toISOString(), ...(d.formName ? { form_name: d.formName } : {}) }).eq("id", existing.id);
+          await admin.from("client_leads").update({ ghl_contact_id: x.cid, address: d.address || null, city: d.city || null, answers: d.answers, details_at: new Date().toISOString(), ad_info: d.adInfo || {}, ...(d.formName ? { form_name: d.formName } : {}) }).eq("id", existing.id);
         } catch { /* try again next run */ }
       }
       continue;
@@ -253,7 +279,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
       client_id: client.id, external_lead_id: x.ext, source: "ghl", ghl_contact_id: x.cid || null,
       name: nameOf(c, { name: x.oppName }), phone, email,
       status: clean(x.status, 100), form_name: clean(d?.formName || x.form || "GoHighLevel", 120),
-      address: d?.address || null, city: d?.city || null, answers: d?.answers || [], details_at: d ? new Date().toISOString() : null,
+      address: d?.address || null, city: d?.city || null, answers: d?.answers || [], ad_info: d?.adInfo || {}, details_at: d ? new Date().toISOString() : null,
       lead_created_at: at, follow_status: "new",
     });
   }
@@ -339,6 +365,7 @@ async function inspect(admin: any) {
         try {
           const c = (await ghl(`/contacts/${encodeURIComponent(cid)}`, conn.token))?.contact || {};
           const cf = c.customFields || [];
+          s.attribution_keys = { first: Object.keys(c.attributionSource || {}), last: Object.keys(c.lastAttributionSource || {}) };
           s.contact = { keys: Object.keys(c).sort(), custom_fields: cf.length, custom_filled: cf.filter((f: any) => valueText(f.value)).length, address1: Boolean(c.address1), city: Boolean(c.city), postal: Boolean(c.postalCode), tags: (c.tags || []).length, attribution: Boolean(c.attributionSource) };
         } catch (e) { s.contact = { error: (e as any)?.status || String(e).slice(0, 60) }; }
         try {
