@@ -218,6 +218,17 @@ async function push(admin: any, userId: string, body: any) {
       .eq("user_id", userId).eq("thread_id", clip(r.thread_id, 100)).eq("status", "new").lt("received_at", at.toISOString()).select("id");
     replied += (data || []).length;
   }
+  // How this inbox's script is doing, for the workflow's check_inbox run (counts only).
+  const statsName = `inbox_stats:${userId}`;
+  const { data: prev } = await admin.from("app_secrets").select("value").eq("name", statsName).maybeSingle();
+  let st: any = {};
+  try { st = JSON.parse(prev?.value || "{}"); } catch { st = {}; }
+  const page = "backfill_done" in body;
+  const today = new Date().toISOString().slice(0, 10);
+  if (st.day !== today) Object.assign(st, { day: today, pushes: 0, emails_seen: 0, saved: 0 });
+  Object.assign(st, { at: new Date().toISOString(), pushes: (st.pushes || 0) + 1, emails_seen: (st.emails_seen || 0) + messages.length, saved: (st.saved || 0) + added,
+    catch_up_pages: (st.catch_up_pages || 0) + (page ? 1 : 0), last_catch_up_page_at: page ? new Date().toISOString() : st.last_catch_up_page_at || null });
+  await admin.from("app_secrets").upsert({ name: statsName, value: JSON.stringify(st) });
   if (body.backfill_done) await admin.from("app_secrets").upsert({ name: backfillName(userId), value: `${BACKFILL_VERSION}:${new Date().toISOString()}` });
   await admin.from("inbox_connections").upsert({ user_id: userId, email: inbox || undefined, status: "ok", error: null, last_sync_at: new Date().toISOString() });
   return { added, replied };
