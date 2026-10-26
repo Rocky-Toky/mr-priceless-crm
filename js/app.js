@@ -2218,6 +2218,7 @@ function openBookMeeting(pre = {}){
   const form = $("#book-meeting-form");
   if (pre.x != null){ form.dataset.x = pre.x; form.dataset.y = pre.y; }
   renderBookAvail();
+  renderBookingText();
   openModal("book-meeting-modal");
 }
 // Under the day / time pickers: what the closer already has that day (each
@@ -2244,7 +2245,7 @@ async function createPrecallMeeting(p){
   if (!IS_CONFIGURED){
     const bookedAt = new Date(), start = new Date(p.starts_at);
     const invite = !!p.email && pmTestAllows(p.email);
-    const row = { ...p, id: uid(), status: "scheduled", duration_min: 15, buffer_min: 30, booked_at: bookedAt.toISOString(),
+    const row = { ...p, id: uid(), status: "scheduled", duration_min: 15, buffer_min: 30, booked_at: bookedAt.toISOString(), tasks_from: bookedAt.toISOString(), task_log: {},
       lead_time_hours: Math.round((start - bookedAt) / 360e3) / 10, booking_window: pmWindow(bookedAt, start),
       google_event_id: "demo", buffer_event_id: "demo-b", meet_link: "https://meet.google.com/abc-defg-hij", calendar_status: "ok",
       invite_to_prospect: invite, test_mode: pmTestMode(), confirmation_status: "unconfirmed", reschedule_count: 0, created_at: bookedAt.toISOString() };
@@ -2296,11 +2297,8 @@ async function submitBookMeeting(e){
     });
     closeModal("book-meeting-modal");
     window.bookMeetingInTracker?.(company || name, x, y, slotIdx);
-    if (meeting){
-      rcToast(meeting.calendar_status === "error"
-        ? `Meeting saved, but the calendar invite didn't go out: ${meeting.calendar_error || "Google said no"}. Retry it from Upcoming Meetings.`
-        : `Booked: ${name} with ${pmPerson(closer)}, ${pmDayLabel(day)} ${pmTime(start)}.${meeting.invite_to_prospect ? " Invite sent." : email ? " Test mode: the invite only went on the closer's calendar." : ""}`);
-    }
+    // Straight to the booking text, ready to copy into a text from their phone.
+    if (meeting) openBooked(state.meetings.find(x => x.id === meeting.id) || meeting);
     renderAll();
   } finally {
     btn.disabled = false; btn.textContent = "Book Meeting";
@@ -2314,7 +2312,7 @@ function pmSeedDemo(){
     return { id: uid(), deal_id: null, first_name: first, last_name: last, business_name: business, email: first.toLowerCase() + "@example.co.nz",
       phone: "+6421555" + String(Math.floor(Math.random() * 9000) + 1000), closer, closer_email: personEmail(closer), setter, setter_email: personEmail(setter),
       starts_at: start.toISOString(), duration_min: 15, buffer_min: 30, description: "", status: "scheduled", booked_at: booked.toISOString(),
-      lead_time_hours: Math.round((start - booked) / 360e3) / 10, booking_window: pmWindow(booked, start), google_event_id: "demo", buffer_event_id: "demo-b",
+      lead_time_hours: Math.round((start - booked) / 360e3) / 10, booking_window: pmWindow(booked, start), google_event_id: "demo", buffer_event_id: "demo-b", tasks_from: booked.toISOString(), task_log: { A: { status: "done", at: booked.toISOString() } },
       meet_link: "https://meet.google.com/abc-defg-hij", calendar_status: "ok", invite_to_prospect: false, test_mode: true, ghl_status: "ok", ghl_tag: "precall-booked",
       confirmation_status: "unconfirmed", reschedule_count: 0, created_at: booked.toISOString(), ...extra };
   };
@@ -2327,7 +2325,184 @@ function pmSeedDemo(){
       calendar_flag: "moved", calendar_flag_detail: { moved: { from: nzToDate(nzAddDays(today, 2), "09:30").toISOString(), to: nzToDate(nzAddDays(today, 2), "15:00").toISOString() } } }),
   ];
   state.precallSettings = { id: 1, test_mode: true, test_allowlist: "" };
+  // One booked a few minutes ago (booking text due) and one starting about now (closer tasks).
+  const soon = new Date(Date.now() + 2 * 3600e3), now = new Date(Date.now() - 6 * 60e3);
+  state.meetings.push({ ...state.meetings[0], id: uid(), first_name: "Mia", last_name: "Hart", business_name: "Hart Tiling", starts_at: new Date(Math.ceil(soon / 9e5) * 9e5).toISOString(),
+    booked_at: new Date(Date.now() - 5 * 60e3).toISOString(), tasks_from: new Date(Date.now() - 5 * 60e3).toISOString(), booking_window: "same_day", task_log: {} });
+  state.meetings.push({ ...state.meetings[0], id: uid(), first_name: "Rangi", last_name: "Moana", business_name: "Moana Builders", starts_at: now.toISOString(), closer: "max",
+    booked_at: new Date(Date.now() - 2 * 86400e3).toISOString(), tasks_from: new Date(Date.now() - 2 * 86400e3).toISOString(), task_log: { A: { status: "done", at: new Date().toISOString() } } });
+  window.__pmTasks = pmTasks;
 }
+/* ───────── Meeting tasks: the setter's and closer's calls and texts ─────────
+   Worked out from the meeting itself (M = when it starts, B = when it was
+   booked or last moved), so they move with a reschedule and drop away once
+   they're not needed. What's been done is in meeting.task_log.
+     A  setter text, straight after booking
+     B  setter text if still unconfirmed: 10am on the day (meetings 11am+),
+        or 3pm the day before (earlier meetings). Not for same-day bookings;
+        a next-day meeting before 11am only if booked before 10am.
+     C  setter call an hour after B, if still unconfirmed (folded into D if
+        they'd land within 30 minutes of each other, or C would come after D)
+     D  setter call an hour before, unless they confirmed on the day
+        (same-day bookings only if the meeting's 3+ hours after booking)
+     E  closer text 2 minutes in, F closer call 5 minutes in, unless joined
+     G  closer records the outcome 15 minutes in
+   Calls and texts only go out 8am-6pm NZ: anything outside moves to 6pm the
+   evening before, or failing that 8am, as long as that's before the meeting. */
+const PM_NAME = { max: "Maximus", rocky: "Rocky", gabriel: "Gabriel", raheem: "Randy", thor: "Thor" };
+const pmFirstName = (key) => PM_NAME[key] || pmPerson(key);
+function pmClamp(t, from, M){
+  const p = nzParts(new Date(t)), h = p.h + p.mi / 60, day = nzDayStr(new Date(t));
+  if (h >= 8 && h <= 18) return t;
+  const eve = nzToDate(h > 18 ? day : nzAddDays(day, -1), "18:00").getTime();
+  if (eve >= from && eve < M) return eve;
+  const morn = nzToDate(h < 8 ? day : nzAddDays(day, 1), "08:00").getTime();
+  return morn < M ? Math.max(morn, from) : null;
+}
+// "today" / "tomorrow" / "Thursday", as seen from `from`.
+function pmDayWord(start, from){
+  const d = nzDayStr(new Date(start)), f = nzDayStr(new Date(from));
+  if (d === f) return "today";
+  if (d === nzAddDays(f, 1)) return "tomorrow";
+  return new Date(d + "T12:00:00Z").toLocaleDateString("en-NZ", { timeZone: "UTC", weekday: "long" });
+}
+const pmBookingText = (first, setter, closer, start, from) =>
+  `Hey ${first || "there"}, it's ${pmFirstName(setter)}. Got you in with ${pmFirstName(closer)} for ${pmDayWord(start, from)} at ${pmTime(start)}. Did the invite come through to your email ok?`;
+
+function pmTasks(m, now = Date.now()){
+  if (!m || m.status === "cancelled") return [];
+  const M = Date.parse(m.starts_at), from = Date.parse(m.tasks_from || m.booked_at || m.created_at);
+  const dayM = nzDayStr(new Date(M)), dayB = nzDayStr(new Date(from));
+  const daysOut = Math.round((Date.parse(dayM) - Date.parse(dayB)) / 86400e3);
+  const after11 = nzParts(new Date(M)).h >= 11;
+  const log = m.task_log || {};
+  const first = m.first_name || "", closer = pmFirstName(m.closer);
+  const tasks = [];
+  tasks.push({ key: "A", who: "setter", kind: "text", label: "Booking text", due: pmClamp(from, from, M) ?? from,
+    text: pmBookingText(first, m.setter, m.closer, M, from) });
+  let bDue = null;
+  if (daysOut >= 1){
+    if (after11) bDue = nzToDate(dayM, "10:00").getTime();
+    else if (daysOut >= 2 || from < nzToDate(dayB, "10:00").getTime()) bDue = nzToDate(nzAddDays(dayM, -1), "15:00").getTime();
+  }
+  if (bDue && bDue <= from) bDue = null;
+  const dDue = daysOut === 0 && M - from < 3 * 3600e3 ? null : pmClamp(M - 3600e3, from, M);
+  let merged = false;
+  if (bDue){
+    tasks.push({ key: "B", who: "setter", kind: "text", label: "Follow-up text", onlyIf: "unconfirmed", due: bDue,
+      text: `Hey ${first}, just checking you're still good for ${pmTime(M)} ${nzDayStr(new Date(bDue)) === dayM ? "today" : "tomorrow"} with ${closer}?` });
+    const cDue = pmClamp(bDue + 3600e3, from, M);
+    if (cDue && dDue && (Math.abs(cDue - dDue) <= 30 * 60e3 || cDue >= dDue)) merged = true;
+    else if (cDue && cDue < M) tasks.push({ key: "C", who: "setter", kind: "call", label: "Follow-up call", onlyIf: "unconfirmed", due: cDue });
+  }
+  if (dDue) tasks.push({ key: "D", who: "setter", kind: "call", label: merged ? "One-hour call (and unconfirmed follow-up)" : "One-hour reminder call", due: dDue });
+  tasks.push({ key: "E", who: "closer", kind: "text", label: "Late joiner text", due: M + 2 * 60e3, text: `Hey ${first}, I'm on the link now: ${m.meet_link || "(Meet link)"}` });
+  tasks.push({ key: "F", who: "closer", kind: "call", label: "Late joiner call", due: M + 5 * 60e3 });
+  tasks.push({ key: "G", who: "closer", kind: "outcome", label: "Record the outcome", due: M + 15 * 60e3 });
+  const confirmed = m.confirmation_status === "confirmed";
+  const confirmedToday = m.confirmed_today_at && nzDayStr(new Date(m.confirmed_today_at)) === dayM;
+  tasks.forEach(t => {
+    const done = log[t.key];
+    t.meeting = m;
+    t.owner = t.who === "setter" ? m.setter : m.closer;
+    if (t.key === "G" && m.outcome){ t.state = "done"; t.done = { result: m.outcome, at: m.outcome_at }; }
+    else if (done){ t.state = done.status === "dismissed" ? "dismissed" : "done"; t.done = done; }
+    else if (m.outcome || m.status === "completed") t.state = "skipped", t.why = "Meeting's done";
+    else if (t.onlyIf === "unconfirmed" && confirmed) t.state = "skipped", t.why = "They've confirmed";
+    else if (t.key === "D" && confirmedToday) t.state = "skipped", t.why = "Confirmed today";
+    else if ((t.key === "E" || t.key === "F") && m.prospect_joined_at) t.state = "skipped", t.why = "They joined";
+    else if (["A", "B", "C", "D"].includes(t.key) && now > M) t.state = "missed";
+    else if ((t.key === "E" || t.key === "F") && now > M + 15 * 60e3) t.state = "missed";
+    else t.state = now >= t.due ? (t.key === "G" && now >= M + 20 * 60e3 ? "late" : "due") : "upcoming";
+  });
+  return tasks;
+}
+// Who's logged in, as the CRM's person key (rocky, max...).
+const pmMe = () => IS_CONFIGURED ? EMAIL_TO_ASSIGNEE[(state.user?.email || "").toLowerCase()] || null : (window.getActivePerson?.() || "rocky");
+let pmTodoAll = false;
+function pmMyTasks(all = pmTodoAll){
+  const me = pmMe(), now = Date.now();
+  return state.meetings.filter(m => m.status === "scheduled" && Date.parse(m.starts_at) > now - 6 * 3600e3)
+    .flatMap(m => pmTasks(m, now)).filter(t => (all || t.owner === me) && (t.state === "due" || t.state === "late"))
+    .sort((a, b) => a.due - b.due);
+}
+function pmTaskCard(t){
+  const m = t.meeting, id = m.id;
+  const btn = (label, extra, cls = "ghost") => `<button type="button" class="btn ${cls}" data-pm-act="task" data-id="${id}" data-task="${t.key}" ${extra}>${label}</button>`;
+  const tel = m.phone ? `<a class="btn gold" href="tel:${escapeHtml(m.phone)}">Call ${escapeHtml(m.first_name)}</a>` : "";
+  const actions = {
+    A: `${btn("Copy text", `data-copy="1"`, "gold")}${btn("Mark sent", `data-status="done"`)}`,
+    B: `${btn("Copy text", `data-copy="1"`, "gold")}${btn("Mark sent", `data-status="done"`)}`,
+    C: `${tel}${btn("Confirmed", `data-status="done" data-result="confirmed"`)}${btn("No answer", `data-status="done" data-result="no_answer"`)}`,
+    D: `${tel}${btn("Answered - still good", `data-status="done" data-result="answered_ok"`)}${btn("Answered - wants to reschedule", `data-status="done" data-result="answered_reschedule"`)}${btn("No answer", `data-status="done" data-result="no_answer"`)}`,
+    E: `${btn("Copy text", `data-copy="1"`, "gold")}${btn("Mark sent", `data-status="done"`)}<button type="button" class="btn ghost" data-pm-act="joined" data-id="${id}">They joined</button>`,
+    F: `${tel}${btn("Called", `data-status="done"`)}<button type="button" class="btn ghost" data-pm-act="joined" data-id="${id}">They joined</button>`,
+    G: `${btn("Showed", `data-status="done" data-result="showed"`, "gold")}${btn("No-show", `data-status="done" data-result="noshow"`)}<button type="button" class="btn ghost" data-pm-act="resched" data-id="${id}">Rescheduled</button><button type="button" class="btn ghost" data-pm-act="cancel" data-id="${id}">Cancelled</button>`,
+  }[t.key];
+  const late = t.state === "late" || (t.key !== "G" && Date.now() - t.due > 30 * 60e3);
+  return `<div class="pm-task${late ? " late" : ""}">
+    <div class="pm-task-head"><b>${escapeHtml(t.label)}</b><span>${escapeHtml(pmName(m))}${m.business_name ? ` · ${escapeHtml(m.business_name)}` : ""} · meeting ${escapeHtml(pmWhenLong(m.starts_at))}</span>
+      <em>${pmTodoAll ? `${escapeHtml(pmPerson(t.owner))} · ` : ""}${t.key === "G" && t.state === "late" ? "Overdue" : `Due ${pmTime(t.due)}`}</em></div>
+    ${t.text ? `<p class="pm-sms-text">${escapeHtml(t.text)}</p>` : ""}
+    <div class="pm-task-actions">${actions}${t.key !== "G" ? btn("Skip", `data-status="dismissed"`, "ghost pm-skip") : ""}</div>
+  </div>`;
+}
+function pmTodoHtml(){
+  const list = pmMyTasks();
+  const me = pmMe();
+  return `<div class="card pm-todo">
+    <div class="pm-todo-head"><h3>${pmTodoAll ? "Everyone's to-do" : `Your to-do${me ? `, ${escapeHtml(pmPerson(me))}` : ""}`} <span>${list.length}</span></h3>
+      <div class="country-toggle"><button type="button" data-pm-todo="me" class="${pmTodoAll ? "" : "active"}">Mine</button><button type="button" data-pm-todo="all" class="${pmTodoAll ? "active" : ""}">Everyone</button></div></div>
+    ${list.length ? list.map(pmTaskCard).join("") : `<p class="pm-todo-empty">Nothing due right now. Calls and texts show up here when they're due.</p>`}
+  </div>`;
+}
+// The strip of tasks under each meeting: what's done, due and coming up.
+function pmTaskStrip(m){
+  const tasks = pmTasks(m);
+  if (!tasks.length) return "";
+  const icon = { done: "✓", dismissed: "–", skipped: "–", missed: "!", due: "●", late: "!", upcoming: "○" };
+  const say = (t) => t.state === "done" ? (t.done?.result ? { answered_ok: "still good", answered_reschedule: "wants to move", no_answer: "no answer", confirmed: "confirmed", showed: "showed", noshow: "no-show" }[t.done.result] || "done" : "done")
+    : t.state === "dismissed" ? "skipped" : t.state === "skipped" ? t.why : t.state === "missed" ? "missed" : t.state === "late" ? "overdue" : t.state === "due" ? "due now" : pmWhenLong(new Date(t.due).toISOString());
+  return `<div class="pm-strip">${tasks.map(t => `<span class="pm-chip ${t.state}" title="${escapeHtml(t.label)} (${t.who})${t.done?.note ? ": " + escapeHtml(t.done.note) : ""}">${icon[t.state]} ${escapeHtml(t.label)} <small>${escapeHtml(say(t))}</small></span>`).join("")}</div>`;
+}
+async function pmDoTask(m, task, status, result, note){
+  if (!IS_CONFIGURED){
+    const log = { ...(m.task_log || {}) };
+    if (task === "joined") m.prospect_joined_at = new Date().toISOString();
+    else log[task] = { status, result, note, at: new Date().toISOString(), by: "demo" };
+    m.task_log = log;
+    if (task === "G" && status === "done") Object.assign(m, { outcome: result, outcome_at: new Date().toISOString(), status: "completed" });
+    if (task === "D" && result === "no_answer") m.onehour_noanswer_at = new Date().toISOString();
+    if ((task === "D" && result === "answered_ok") || (task === "C" && result === "confirmed")) pmDemo("confirm", { meeting_id: m.id });
+    renderAll();
+    return m;
+  }
+  return pmCall("task", { meeting_id: m.id, task, status, result, note });
+}
+
+// The booking form: the booking text, filled in as it's typed, with a copy button.
+function renderBookingText(){
+  const box = $("#book-meeting-sms-text");
+  if (!box) return;
+  const day = $("#book-meeting-day").value, time = $("#book-meeting-time").value;
+  const start = day && time ? nzToDate(day, time).getTime() : null;
+  box.textContent = start ? pmBookingText($("#book-meeting-first").value.trim(), $("#book-meeting-assignee").value, $("#book-meeting-closer").value, start, Date.now())
+    : "Pick a day and time and the booking text fills in here.";
+  $("#book-meeting-copy").disabled = !start;
+}
+function openBooked(m){
+  $("#pm-booked-id").value = m.id;
+  $("#pm-booked-title").textContent = `Booked: ${pmName(m)}`;
+  $("#pm-booked-sub").textContent = `${pmWhenLong(m.starts_at)} with ${pmPerson(m.closer)}. ${m.calendar_status === "error" ? `The invite didn't go out (${m.calendar_error || "Google said no"}) - retry it from Upcoming Meetings.` : m.invite_to_prospect ? "The invite's on its way to their email." : m.email ? "Test mode: the invite only went on the closer's calendar." : "No email, so no invite - send them the Meet link."}`;
+  $("#pm-booked-text").textContent = pmTasks(m)[0]?.text || "";
+  $("#pm-booked-sent").disabled = false; $("#pm-booked-sent").textContent = "I've sent it";
+  openModal("pm-booked-modal");
+}
+async function pmCopy(text, btn, label = "Copy text"){
+  try { await navigator.clipboard.writeText(text); btn.textContent = "Copied"; setTimeout(() => { btn.textContent = label; }, 1400); }
+  catch(err){ prompt("Copy this:", text); }
+}
+
 let pmTab = "upcoming";
 const PM_REASON_LABEL = { prospect_conflict: "Prospect couldn't make it", closer_conflict: "Closer couldn't make it", no_show: "No-show", other: "Other" };
 const pmName = (m) => [m.first_name, m.last_name].filter(Boolean).join(" ");
@@ -2397,6 +2572,7 @@ function renderMeetingsPage(){
         ${m.meet_link && live ? `<a class="btn ghost" href="${escapeHtml(m.meet_link)}" target="_blank" rel="noopener">Open Meet</a><button type="button" class="btn ghost" data-pm-act="copy" data-link="${escapeHtml(m.meet_link)}">Copy link</button>` : ""}
         ${m.deal_id && state.deals.some(d => d.id === m.deal_id) ? `<button type="button" class="btn ghost" data-pm-act="deal" data-id="${m.deal_id}">Deal</button>` : ""}
       </div>
+      ${pmTaskStrip(m)}
       ${live ? pmFlagHtml(m) : ""}
       ${m.calendar_status === "error" && live ? `<p class="pm-err">${escapeHtml(m.calendar_error || "Google Calendar said no.")}</p>` : ""}
       ${m.ghl_status === "error" ? `<p class="pm-err">GHL: ${escapeHtml(m.ghl_error || "the sync didn't go through")}. It tries again every 5 minutes.</p>` : ""}
@@ -2414,6 +2590,7 @@ function renderMeetingsPage(){
       <button type="button" class="btn ${test ? "ghost" : "gold"}" data-pm-act="test">${test ? "Go live" : "Turn test mode back on"}</button>
     </div>
     ${flagged.length && pmTab === "upcoming" ? `<div class="pm-attn"><b>${flagged.length} meeting${flagged.length === 1 ? " needs" : "s need"} you.</b> ${flagged.map(m => `${escapeHtml(pmName(m))} (${{ declined: "declined", moved: "moved in Google", deleted: "deleted in Google" }[m.calendar_flag] || m.calendar_flag})`).join(", ")}. The CRM checks Google Calendar every 5 minutes.</div>` : ""}
+    ${pmTab === "upcoming" ? pmTodoHtml() : ""}
     <div class="country-toggle pm-tabs">
       <button type="button" data-pm-tab="upcoming" class="${pmTab === "upcoming" ? "active" : ""}">Upcoming (${upcoming.length})</button>
       <button type="button" data-pm-tab="past" class="${pmTab === "past" ? "active" : ""}">Past and cancelled</button>
@@ -2444,11 +2621,11 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 function pmNavCount(){
   const el = $(".nav-pm-count");
   if (!el) return;
-  const up = pmUpcoming(), flagged = up.filter(m => m.calendar_flag).length;
-  const n = flagged || up.filter(pmIsToday).length;
+  const up = pmUpcoming(), flagged = up.filter(m => m.calendar_flag).length, mine = pmMyTasks(false).length;
+  const n = flagged + mine || up.filter(pmIsToday).length;
   el.hidden = !n; el.textContent = n || "";
-  el.classList.toggle("alert", !!flagged);
-  el.title = flagged ? "Meetings that need you" : "Meetings today";
+  el.classList.toggle("alert", !!(flagged + mine));
+  el.title = flagged + mine ? "Calls, texts and meetings that need you" : "Meetings today";
 }
 async function savePrecallSettings(patch){
   const row = { id: 1, ...(state.precallSettings || {}), ...patch, updated_by: state.user?.email || "demo", updated_at: new Date().toISOString() };
@@ -2467,7 +2644,7 @@ function pmDemo(action, p){
   if (!m) return null;
   const now = new Date();
   const unconf = { confirmation_status: "unconfirmed", confirmed_at: null, confirmed_today_at: null, prospect_response: null };
-  if (action === "reschedule") Object.assign(m, { starts_at: p.starts_at, reschedule_count: (m.reschedule_count || 0) + 1, booking_window: pmWindow(now, new Date(p.starts_at)), calendar_flag: null, calendar_flag_detail: {}, ...unconf });
+  if (action === "reschedule") Object.assign(m, { task_log: {}, tasks_from: now.toISOString(), onehour_noanswer_at: null, prospect_joined_at: null, starts_at: p.starts_at, reschedule_count: (m.reschedule_count || 0) + 1, booking_window: pmWindow(now, new Date(p.starts_at)), calendar_flag: null, calendar_flag_detail: {}, ...unconf });
   if (action === "cancel") Object.assign(m, { status: "cancelled", cancel_reason: p.reason, cancelled_at: now.toISOString(), calendar_flag: null });
   if (action === "confirm") Object.assign(m, { confirmation_status: "confirmed", confirmed_at: m.confirmed_at || now.toISOString(), confirmed_today_at: pmIsToday(m) ? now.toISOString() : m.confirmed_today_at,
     confirmations: [...(m.confirmations || []), { source: "setter", at: now.toISOString(), by: "demo" }] });
@@ -2546,6 +2723,15 @@ async function submitCancel(e){
 document.addEventListener("click", async (e) => {
   const tab = e.target.closest("[data-pm-tab]");
   if (tab){ pmTab = tab.dataset.pmTab; renderMeetingsPage(); return; }
+  const todo = e.target.closest("[data-pm-todo]");
+  if (todo){ pmTodoAll = todo.dataset.pmTodo === "all"; renderMeetingsPage(); return; }
+  if (e.target.closest("#book-meeting-copy")){ pmCopy($("#book-meeting-sms-text").textContent, e.target.closest("button"), "Copy"); return; }
+  if (e.target.closest("#pm-booked-copy")){ pmCopy($("#pm-booked-text").textContent, e.target.closest("button")); return; }
+  if (e.target.closest("#pm-booked-sent")){
+    const m = state.meetings.find(x => x.id === $("#pm-booked-id").value), b2 = e.target.closest("button");
+    if (m){ b2.disabled = true; b2.textContent = "Saving…"; await pmDoTask(m, "A", "done"); }
+    closeModal("pm-booked-modal"); rcToast("Booking text marked as sent."); return;
+  }
   const chip = e.target.closest("[data-pm-reason]");
   if (chip){ $("#pm-cancel-reason").value = chip.dataset.pmReason; return; }
   const b = e.target.closest("[data-pm-act]");
@@ -2562,6 +2748,17 @@ document.addEventListener("click", async (e) => {
     await savePrecallSettings({ test_mode: !pmTestMode() });
   } else if (act === "resched" && m) openReschedule(m);
   else if (act === "cancel" && m) openCancel(m);
+  else if (act === "task" && m){
+    const t = pmTasks(m).find(x => x.key === b.dataset.task);
+    if (b.dataset.copy){ if (t?.text) pmCopy(t.text, b); return; }
+    let note = null;
+    if (b.dataset.status === "dismissed"){ note = prompt(`Skip "${t?.label || "this"}" for ${pmName(m)}? Add a note if you like:`, ""); if (note === null) return; }
+    b.disabled = true;
+    const done = await pmDoTask(m, b.dataset.task, b.dataset.status, b.dataset.result || null, note);
+    if (done && b.dataset.result === "answered_reschedule") openReschedule(state.meetings.find(x => x.id === m.id) || m);
+    else if (done) rcToast(b.dataset.result === "no_answer" && b.dataset.task === "D" ? "Noted - GHL will send them the follow-up text." : b.dataset.task === "G" ? `Outcome saved: ${b.dataset.result === "showed" ? "showed" : "no-show"}.` : "Done.");
+  }
+  else if (act === "joined" && m){ b.disabled = true; if (await pmDoTask(m, "joined")) rcToast(`${m.first_name}'s on the call.`); }
   else if (act === "retry-ghl" && m){
     b.disabled = true; b.textContent = "Trying…";
     const done = await pmCall("retry_ghl", { meeting_id: m.id });
@@ -2596,6 +2793,14 @@ document.addEventListener("change", (e) => {
   }
 });
 $("#pm-resched-form")?.addEventListener("submit", submitReschedule);
+["input", "change"].forEach(ev => $("#book-meeting-form")?.addEventListener(ev, renderBookingText));
+// Tasks fall due as time passes, so the page and menu count tick over every minute.
+setInterval(() => {
+  if (document.visibilityState !== "visible") return;
+  pmNavCount();
+  const root = $("#pm-root");
+  if (state.page === "meetings" && root && !root.contains(document.activeElement)) renderMeetingsPage();
+}, 60e3);
 $("#pm-cancel-form")?.addEventListener("submit", submitCancel);
 
 /* ───────── Render: Deals (Kanban) ───────── */

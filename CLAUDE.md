@@ -78,7 +78,8 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
   - Test mode (`precall_settings.test_mode`, toggled on the page) only invites @mrpriceless.com and the test list.
   - The workflow's manual `check_calendar` (an email) and `check_meetings` (yes) runs check Google access and how meetings, the watch and alert emails are doing (statuses only).
   - GHL sync (sql/085): every booking change upserts the prospect into our own GHL sub-account (secrets `GHL_PRECALL_TOKEN`, `GHL_PRECALL_LOCATION_ID`), sets the 11 custom fields (created by the function if missing; manual `setup_ghl` run) and leaves exactly one `precall-*` tag. GHL's workflows send the SMS/emails from those tags. Result on `meetings.ghl_status` / `ghl_error`; failures retry every 5 minutes, up to 8 times. Test mode only syncs @mrpriceless.com and the test list.
-  - Phases still to come: setter/closer task engine, message timeline, reporting.
+  - Tasks (sql/086): `pmTasks(m)` in app.js works out each meeting's setter/closer tasks A-G (booking text, follow-up text/call, one-hour call, late-joiner text/call, record outcome) from `starts_at`, `tasks_from` (booked or last moved) and confirmation state, with calls/texts kept to 8am-6pm NZ. Done/skipped is stored in `meetings.task_log` via the function's `task` action, which also handles side effects (one-hour no answer -> `precall-onehour-noanswer` tag; outcome -> `outcome`, deal `attended_meeting`, tag). A reschedule resets the tasks. The 5-minute check emails closer and setter if there's no outcome 20 minutes in. "Your to-do" sits at the top of Upcoming Meetings; the booking form shows the booking text live with a Copy button, then a "Booked" pop-up to copy / mark it sent.
+  - Phases still to come: message timeline, reporting.
 
 ## Testing before you push
 - `node --check js/app.js`
