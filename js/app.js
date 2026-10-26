@@ -1695,6 +1695,47 @@ function applyWorkspace(){
     $(`.nav-item[data-page="${landing}"]`)?.click();
   }
   if (state.page === "lead-engine" && !canAccessLeadEngine()) goPage(landing);
+  wsMenuSync();
+}
+// The workspace picker: our own dark menu in place of the browser's white
+// dropdown list. The real <select> stays (hidden) and still drives everything.
+function wsMenuSync(){
+  const select = $("#workspace-select"), pick = $(".ws-pick");
+  if (!select || !pick) return;
+  const opts = [...select.options].filter(o => o.style.display !== "none");
+  pick.querySelector(".ws-btn span").textContent = select.selectedOptions[0]?.textContent || "";
+  pick.querySelector(".ws-menu").innerHTML = opts.map(o => `<button type="button" role="option" data-ws="${o.value}" aria-selected="${o.value === select.value}" class="${o.value === select.value ? "on" : ""}">${escapeHtml(o.textContent)}</button>`).join("");
+}
+function setupWsMenu(){
+  const select = $("#workspace-select");
+  if (!select || $(".ws-pick")) return;
+  select.classList.add("ws-native");
+  select.tabIndex = -1;
+  select.setAttribute("aria-hidden", "true");
+  const pick = document.createElement("div");
+  pick.className = "ws-pick";
+  pick.innerHTML = `<button type="button" class="ws-btn" aria-haspopup="listbox" aria-expanded="false"><span></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></button><div class="ws-menu" role="listbox"></div>`;
+  select.after(pick);
+  const btn = pick.querySelector(".ws-btn");
+  const close = () => { pick.classList.remove("open"); btn.setAttribute("aria-expanded", "false"); };
+  // The menu floats over the page (fixed), so the phone's top bar can't clip it.
+  const place = () => {
+    const r = btn.getBoundingClientRect(), menu = pick.querySelector(".ws-menu"), w = Math.max(r.width, 200);
+    Object.assign(menu.style, { top: `${r.bottom + 6}px`, left: `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`, width: `${w}px` });
+  };
+  btn.addEventListener("click", () => { const open = !pick.classList.contains("open"); if (open) place(); pick.classList.toggle("open", open); btn.setAttribute("aria-expanded", String(open)); });
+  addEventListener("resize", close);
+  addEventListener("scroll", close, true);
+  pick.querySelector(".ws-menu").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ws]");
+    if (!b) return;
+    close();
+    if (b.dataset.ws !== select.value){ select.value = b.dataset.ws; select.dispatchEvent(new Event("change")); }
+  });
+  document.addEventListener("click", (e) => { if (!pick.contains(e.target)) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+  select.addEventListener("change", wsMenuSync);
+  wsMenuSync();
 }
 // Pages that live together under one menu item, switched with tabs at the top.
 const PAGE_GROUPS = {
@@ -1781,6 +1822,7 @@ function setupNav(){
   setupDragDrop(); // wires drag edge-scrolling for every board from the start
   setupPageGroups();
   $("#workspace-select")?.addEventListener("change", (e) => setWorkspace(e.target.value));
+  setupWsMenu();
   $("#coverage-industry-select")?.addEventListener("change", (e) => { state.coverageIndustry = e.target.value; renderRegionCoverage(); });
   $$(".nav-item[data-page]").forEach(btn => {
     btn.addEventListener("click", () => {
