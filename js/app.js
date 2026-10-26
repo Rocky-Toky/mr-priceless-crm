@@ -10691,6 +10691,7 @@ function renderLeadResults(){
     const stale = r?.last_ok_at && Date.now() - new Date(r.last_ok_at) > 30 * 60e3;
     const state_ = !r ? ["bad", "Not connected to GoHighLevel - connect it on their client page so leads come through"]
       : r.error ? ["bad", "Problem: " + r.error]
+      : !r.last_ok_at ? ["warn", "Connected - first check is still running"]
       : stale ? ["warn", `Hasn't checked in ${lqAgo(Date.now() - new Date(r.last_ok_at))}`]
       : r.contacts_access === false ? ["warn", "Only leads with an opportunity come through - give their GHL key Contacts access to catch every lead"]
       : ["ok", "Working"];

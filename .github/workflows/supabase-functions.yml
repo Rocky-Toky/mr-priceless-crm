@@ -60,6 +60,10 @@ on:
         description: "Give this email address a CRM login: adds them to the team and emails them a link to set their password (leave blank to skip)"
         required: false
         default: ""
+      check_lead_sync:
+        description: "Type yes to run the lead sync now and print how many clients are connected (counts only, no names)"
+        required: false
+        default: ""
 
 jobs:
   deploy:
@@ -192,3 +196,29 @@ jobs:
           code=$(curl -sS -o /tmp/r.json -w '%{http_code}' -X POST "$base/auth/v1/recover?redirect_to=https%3A%2F%2Frocky-toky.github.io%2Fmr-priceless-crm%2F" \
             -H "apikey: $key" -H "Content-Type: application/json" --data "$(jq -n --arg e "$email" '{email: $e}')")
           if [ "$code" = "200" ]; then echo "Set-password email sent to $email."; else echo "::error::Couldn't send the set-password email (HTTP $code): $(jq -r '.msg // .message // .error_description // "unknown"' /tmp/r.json)"; exit 1; fi
+      # Run by hand with check_lead_sync=yes: runs the lead sync now and
+      # prints how it went. Counts and error text only - no client names or
+      # lead details, since these logs are public.
+      - name: Check the lead sync
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_lead_sync == 'yes'
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          echo "Clients:"
+          q "select count(*) filter (where coalesce(c.stage,'') not in ('churned','archived')) as live_clients, count(g.client_id) filter (where coalesce(c.stage,'') not in ('churned','archived')) as live_connected_to_ghl, count(*) filter (where coalesce(c.stage,'') not in ('churned','archived') and g.client_id is null) as live_not_connected from clients c left join client_ghl g on g.client_id = c.id" | jq -c '.[0]'
+          echo "Connected clients by stage:"
+          q "select coalesce(c.stage,'none') as stage, count(*) from client_ghl g join clients c on c.id = g.client_id group by 1 order by 1" | jq -c '.[]'
+          echo "Sync schedule (last 5 runs):"
+          q "select status, left(coalesce(return_message,''),120) as message, start_time from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'sync-ghl-leads') order by start_time desc limit 5" | jq -c '.[]'
+          secret=$(q "select value from app_secrets where name = 'leads_cron_secret'" | jq -r '.[0].value')
+          echo "::add-mask::$secret"
+          echo "Running the sync now:"
+          curl -sS -m 160 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/sync-ghl-leads" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data '{}' -w "  (HTTP %{http_code}, %{time_total}s)"
+          echo
+          echo "Sync status after the run:"
+          q "select count(*) as rows, count(*) filter (where last_ok_at is not null and error is null) as working, count(*) filter (where error is not null) as with_error, count(*) filter (where contacts_access = false) as no_contacts_access, count(*) filter (where last_ok_at is null and error is null) as not_finished from lead_sync_status" | jq -c '.[0]'
+          echo "Errors seen (text only):"
+          q "select left(error, 160) as error, count(*) from lead_sync_status where error is not null group by 1" | jq -c '.[]'
+          echo "Leads in the last 3 days by source:"
+          q "select coalesce(source,'none') as source, count(*), count(*) filter (where jsonb_array_length(answers) > 0) as with_answers, count(*) filter (where coalesce(address,city) is not null) as with_location from client_leads where coalesce(lead_created_at, created_at) > now() - interval '3 days' group by 1" | jq -c '.[]'

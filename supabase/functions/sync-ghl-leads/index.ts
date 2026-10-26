@@ -30,7 +30,9 @@ const json = (body: unknown, status = 200) =>
 const GHL = "https://services.leadconnectorhq.com";
 const GHL_VERSION = "2021-07-28";
 const WINDOW_MS = 3 * 86400e3;
-const MAX_DETAIL_READS = 40; // contact look-ups per client per run, to stay well inside GHL's rate limit
+const MAX_DETAIL_READS = 15; // contact look-ups per client per run; anything left gets its details on the next run
+const RUN_BUDGET_MS = 100e3;  // stop starting new work well before the function's time limit
+const PARALLEL = 4;           // clients synced at once
 
 class GhlError extends Error { constructor(msg: string, public status: number) { super(msg); } }
 async function ghl(path: string, token: string, init: RequestInit = {}) {
@@ -109,7 +111,7 @@ async function contactDetails(id: string, token: string, fieldNames: () => Promi
   return { contact: c, answers, address, city };
 }
 
-async function syncClient(admin: any, conn: any, client: any) {
+async function syncClient(admin: any, conn: any, client: any, deadline: number) {
   const loc = conn.location_id, token = conn.token;
   const opps = await recentOpportunities(loc, token);
   const contacts = await recentContacts(loc, token);
@@ -160,7 +162,7 @@ async function syncClient(admin: any, conn: any, client: any) {
     const existing = byExt.get(x.ext) || (x.cid && byContact.get(x.cid));
     // Already in: just fill in its details if it hasn't got them yet.
     if (existing) {
-      if (!existing.details_at && x.cid && reads < MAX_DETAIL_READS) {
+      if (!existing.details_at && x.cid && reads < MAX_DETAIL_READS && Date.now() < deadline) {
         reads++;
         try {
           const d = await contactDetails(x.cid, token, fieldNames);
@@ -170,7 +172,7 @@ async function syncClient(admin: any, conn: any, client: any) {
       continue;
     }
     let c = x.c, d: any = null;
-    if (x.cid && reads < MAX_DETAIL_READS) {
+    if (x.cid && reads < MAX_DETAIL_READS && Date.now() < deadline) {
       reads++;
       try { d = await contactDetails(x.cid, token, fieldNames); c = { ...c, ...d.contact }; } catch { d = null; }
     }
@@ -199,34 +201,50 @@ async function syncClient(admin: any, conn: any, client: any) {
 }
 
 async function syncAll(admin: any) {
-  const [{ data: conns }, { data: clients }] = await Promise.all([
+  const deadline = Date.now() + RUN_BUDGET_MS;
+  const [{ data: conns }, { data: clients }, { data: statuses }] = await Promise.all([
     admin.from("client_ghl").select("client_id, location_id, token"),
     admin.from("clients").select("id, name, stage"),
+    admin.from("lead_sync_status").select("client_id, last_ok_at, leads_added, last_lead_at"),
   ]);
   const byId = new Map((clients || []).map((c: any) => [c.id, c]));
-  let added = 0, failed = 0, checked = 0, noContacts = 0;
-  for (const conn of conns || []) {
-    const client: any = byId.get(conn.client_id);
-    if (!client || ["churned", "archived"].includes(String(client.stage || ""))) continue;
-    checked++;
+  const prevOf = new Map((statuses || []).map((r: any) => [r.client_id, r]));
+  const todo = (conns || []).filter((cn: any) => {
+    const c: any = byId.get(cn.client_id);
+    return c && !["churned", "archived"].includes(String(c.stage || ""));
+  });
+  // Every connected client shows as connected straight away, even before its
+  // first full check finishes.
+  const started = new Date().toISOString();
+  const fresh = todo.filter((cn: any) => !prevOf.has(cn.client_id)).map((cn: any) => ({ client_id: cn.client_id, last_sync_at: started }));
+  if (fresh.length) await admin.from("lead_sync_status").upsert(fresh);
+  // Whoever waited longest goes first, so one slow client can't keep the rest waiting run after run.
+  todo.sort((x: any, y: any) => String((prevOf.get(x.client_id) as any)?.last_ok_at || "").localeCompare(String((prevOf.get(y.client_id) as any)?.last_ok_at || "")));
+
+  let added = 0, failed = 0, checked = 0, noContacts = 0, skipped = 0;
+  const one = async (conn: any) => {
+    const client: any = byId.get(conn.client_id), prev: any = prevOf.get(conn.client_id);
     const now = new Date().toISOString();
     try {
-      const r = await syncClient(admin, conn, client);
-      added += r.added;
+      const r = await syncClient(admin, conn, client, deadline);
+      checked++; added += r.added;
       if (!r.contactsAccess) noContacts++;
-      const { data: prev } = await admin.from("lead_sync_status").select("leads_added, last_lead_at").eq("client_id", client.id).maybeSingle();
       await admin.from("lead_sync_status").upsert({
-        client_id: client.id, last_sync_at: now, last_ok_at: now, error: null, contacts_access: r.contactsAccess,
+        client_id: client.id, last_sync_at: now, last_ok_at: new Date().toISOString(), error: null, contacts_access: r.contactsAccess,
         leads_added: (prev?.leads_added || 0) + r.added, last_lead_at: r.lastLead && (!prev?.last_lead_at || r.lastLead > prev.last_lead_at) ? r.lastLead : prev?.last_lead_at || null,
       });
     } catch (e) {
-      failed++;
+      checked++; failed++;
       const msg = String((e as any)?.message || e).slice(0, 200);
       console.warn("sync-ghl-leads: a client failed:", msg.slice(0, 120));
       await admin.from("lead_sync_status").upsert({ client_id: client.id, last_sync_at: now, error: msg });
     }
+  };
+  for (let i = 0; i < todo.length; i += PARALLEL) {
+    if (Date.now() > deadline) { skipped = todo.length - i; break; } // the rest go first next run
+    await Promise.all(todo.slice(i, i + PARALLEL).map(one));
   }
-  return { checked, added, failed, no_contacts_access: noContacts };
+  return { connected: todo.length, checked, added, failed, skipped, no_contacts_access: noContacts };
 }
 
 Deno.serve(async (req: Request) => {
