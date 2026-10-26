@@ -1750,7 +1750,6 @@ const FIT_PAGES = {
   "content-library": ["#vs-root"],
   reporting: ["#rp-client-list"],
   employees: ["#emp-root"],
-  "lead-queue": ["#lq-root"],
   expenses: ["#page-expenses > .card:last-child"],
   commission: ["#commission-groups"],
   statistics: ["#page-statistics > .st-scroll"],
@@ -10364,45 +10363,59 @@ function setupEmployeesUi(){
    Every lead that comes through for a client gets a call from our caller
    (Carmen), on the client's behalf, to qualify it and book the quote. Leads
    arrive in client_leads by themselves (sync-ghl-leads pulls each client's
-   GoHighLevel every 5 minutes; Meta CSV imports land here too). The queue
-   puts brand-new leads first - the first call within 5 minutes books the
-   most quotes - then retries that are due. A no-answer is tried again on a
-   set rhythm, up to 7 times, before the lead is marked unreachable. */
+   GoHighLevel every 5 minutes, with the lead's address and form answers;
+   Meta CSV imports land here too). Built for someone who isn't a computer
+   person: one person at a time, big text, big buttons, plain words. Brand-
+   new leads come first - the first call within 5 minutes books the most
+   quotes - then retries that are due. A no-answer is tried again on a set
+   rhythm, up to 7 times, before the lead is marked unreachable. */
 const LQ_OPEN = new Set(["new", "no_answer", "call_back"]);
 const LQ_OUTCOMES = {
-  booked: { label: "Booked a quote", cls: "green", final: true },
-  qualified: { label: "Interested - client to call", cls: "green", final: true },
-  no_answer: { label: "No answer", cls: "amber" },
-  call_back: { label: "Call back later", cls: "blue" },
-  not_interested: { label: "Not interested", cls: "grey", final: true },
-  disqualified: { label: "Not a fit", cls: "grey", final: true },
-  wrong_number: { label: "Wrong number", cls: "grey", final: true },
+  booked: { label: "Booked a quote", icon: "✅", hint: "They want someone to come out", cls: "green", final: true },
+  no_answer: { label: "No answer", icon: "📵", hint: "It'll come back to you later", cls: "amber" },
+  call_back: { label: "Call back later", icon: "⏰", hint: "They asked you to ring another time", cls: "blue" },
+  qualified: { label: "Interested", icon: "👍", hint: "The client should call them", cls: "green", final: true },
+  not_interested: { label: "Not interested", icon: "✋", hint: "They don't want it any more", cls: "grey", final: true },
+  disqualified: { label: "Not a fit", icon: "🚫", hint: "Wrong area, too small, not our work", cls: "grey", final: true },
+  wrong_number: { label: "Wrong number", icon: "❌", hint: "The number doesn't reach them", cls: "grey", final: true },
 };
-const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "Unreachable", old: "Old" };
+const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "Couldn't reach", old: "Old" };
 const LQ_MAX_TRIES = 7, LQ_FAST_MS = 5 * 60e3;
-let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today";
+let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
+let lqSyncRows = null, lqSyncLoading = false;
 
 const lqClient = (l) => state.clients.find(c => c.id === l.client_id) || null;
 const lqIn = (l) => new Date(l.lead_created_at || l.created_at).getTime();
 const lqIsOpen = (l) => LQ_OPEN.has(l.follow_status || "new");
 const lqDue = (l) => lqIsOpen(l) && (!l.next_attempt_at || new Date(l.next_attempt_at).getTime() <= Date.now());
-const lqWho = (email) => { const k = personKeyFromEmail(email || ""); return ASSIGNEES[k]?.label || (email ? email.split("@")[0].split(/[._]/)[0].replace(/^./, c => c.toUpperCase()) : ""); };
+const lqWho = (email) => { const k = personKeyFromEmail(email || ""); return ASSIGNEES[k]?.label || (email ? email.split("@")[0].split(/[._0-9]/)[0].replace(/^./, c => c.toUpperCase()) : ""); };
 function lqAgo(ms){
   const m = Math.max(0, Math.round(ms / 60000));
-  if (m < 60) return `${m}m`;
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"}`;
   const h = Math.floor(m / 60);
-  return h < 24 ? `${h}h${m % 60 ? " " + (m % 60) + "m" : ""}` : `${Math.floor(h / 24)}d ${h % 24}h`;
+  if (h < 24) return `${h} hour${h === 1 ? "" : "s"}${m % 60 ? ` ${m % 60} min` : ""}`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? "" : "s"}`;
 }
+const lqShortAgo = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`; };
 const lqTime = (iso) => iso ? new Date(iso).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
+const lqClock = (iso) => iso ? new Date(iso).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" }) : "";
+function lqWhenWords(iso){
+  if (!iso) return "";
+  const d = new Date(iso), day = localDayStr(d), today = localDayStr();
+  const tomorrow = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDayStr(t); })();
+  return day === today ? `today at ${lqClock(iso)}` : day === tomorrow ? `tomorrow at ${lqClock(iso)}` : lqTime(iso);
+}
 // NZ mobiles start 02, AU mobiles 04 - anything else is treated as NZ.
 const lqCountry = (phone) => /^\s*(\+?61|04)/.test(phone || "") ? "61" : "64";
 // When to try a no-answer again, kept inside calling hours (8:30am-7pm).
 function lqNextTry(attempts){
-  const now = new Date(), d = new Date(now);
+  const now = new Date();
   const at = (days, h, m) => { const x = new Date(now); x.setDate(x.getDate() + days); x.setHours(h, m, 0, 0); return x; };
   const plan = { 1: () => new Date(+now + 10 * 60e3), 2: () => new Date(+now + 60 * 60e3), 3: () => new Date(+now + 3 * 3600e3), 4: () => at(1, 9, 30), 5: () => at(1, 15, 0), 6: () => at(3, 10, 0) }[attempts];
-  let next = plan ? plan() : d;
+  const next = plan ? plan() : new Date(now);
   if (next.getHours() >= 19 || next.getHours() < 8){
     if (next.getHours() >= 19) next.setDate(next.getDate() + 1);
     next.setHours(8, 30, 0, 0);
@@ -10425,133 +10438,179 @@ function lqNavCount(){
   const n = state.clientLeads.filter(lqDue).length;
   $$(".nav-lq-count").forEach(el => { el.hidden = !n; el.textContent = n; });
 }
+// How each client's lead sync is going (lead_sync_status), for the "last
+// checked" line and the sync health list on Results.
+async function lqLoadSync(force){
+  if (lqSyncLoading || (lqSyncRows && !force)) return;
+  if (!IS_CONFIGURED){
+    lqSyncRows = state.clients.filter(c => c.stage !== "churned").map((c, i) => i === 2 ? null : { client_id: c.id, last_sync_at: new Date(Date.now() - 3 * 60e3).toISOString(), last_ok_at: new Date(Date.now() - 3 * 60e3).toISOString(), contacts_access: i !== 1, error: null, last_lead_at: new Date(Date.now() - 26 * 60e3).toISOString() }).filter(Boolean);
+    return;
+  }
+  lqSyncLoading = true;
+  try {
+    const { data, error } = await supabase.from("lead_sync_status").select("*");
+    lqSyncRows = error ? [] : (data || []);
+  } finally { lqSyncLoading = false; }
+  if (state.page === "lead-queue") renderLeadQueue();
+  if (state.page === "lead-results") renderLeadResults();
+}
+const lqLastChecked = () => (lqSyncRows || []).map(r => r.last_sync_at).filter(Boolean).sort().pop() || null;
 
 function renderLeadQueue(){
   const root = $("#lq-root");
   if (!root) return;
+  if (!lqSyncRows) lqLoadSync();
   const q = lqQueue(), now = Date.now(), today = localDayStr();
   if (lqSel && !state.clientLeads.some(l => l.id === lqSel)) lqSel = null;
   if (!lqSel) lqSel = q.due[0]?.id || q.later[0]?.id || null;
-  const newOnes = q.due.filter(l => (l.follow_status || "new") === "new");
-  const oldestNew = newOnes[0];
   const logsToday = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => x.at && localDayStr(new Date(x.at)) === today));
-  const firstToday = state.clientLeads.filter(l => l.first_called_at && localDayStr(new Date(l.first_called_at)) === today);
-  const fast = firstToday.filter(l => new Date(l.first_called_at) - lqIn(l) <= LQ_FAST_MS).length;
   const bookedToday = logsToday.filter(x => x.outcome === "booked").length;
-  const stat = (label, value, sub, cls = "") => `<div class="emp-stat ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
-  const item = (l) => {
-    const c = lqClient(l), st = l.follow_status || "new", fresh = st === "new";
-    const waited = now - lqIn(l);
-    const chip = fresh ? `<em class="lq-chip ${waited > LQ_FAST_MS ? "late" : "hot"}">New · ${lqAgo(waited)}</em>`
-      : lqIsOpen(l) ? `<em class="lq-chip ${lqDue(l) ? "due" : ""}">${st === "call_back" ? "Call back" : `Try ${l.attempts + 1}`} · ${lqDue(l) ? "due" : escapeHtml(lqTime(l.next_attempt_at))}</em>`
-      : `<em class="lq-chip done ${LQ_OUTCOMES[st]?.cls || ""}">${escapeHtml(LQ_STATUS_LABEL[st] || st)}</em>`;
-    return `<button type="button" class="lq-item${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
-      <span class="lq-item-id"><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml(c?.name || "Unknown client")}</small></span>${chip}</button>`;
+  const me = lqWho(state.user?.email || "");
+  const checked = lqLastChecked();
+  const summary = `
+    <div class="lq2-hello">
+      <div>
+        <h2>${q.due.length ? `${q.due.length} ${q.due.length === 1 ? "person" : "people"} to call now` : "You're all caught up 🎉"}</h2>
+        <p>${[me && me !== "Demo" ? `Hi ${escapeHtml(me)}` : "", q.later.length ? `${q.later.length} more later` : "", `${logsToday.length} call${logsToday.length === 1 ? "" : "s"} made today`, bookedToday ? `<b>${bookedToday} quote${bookedToday === 1 ? "" : "s"} booked today</b>` : ""].filter(Boolean).join(" · ")}</p>
+      </div>
+      <div class="lq2-hello-actions">
+        <button type="button" class="btn ghost" data-lq-act="sync" ${lqSyncing ? "disabled" : ""}>${lqSyncing ? "Checking…" : "↻ Check for new leads"}</button>
+        <button type="button" class="btn ghost" data-lq-act="add">+ Add a lead</button>
+        <small>${checked ? `New leads checked ${escapeHtml(lqShortAgo(now - new Date(checked)))} ago - they come in by themselves` : "New leads come in by themselves every 5 minutes"}</small>
+      </div>
+    </div>`;
+  const row = (l) => {
+    const c = lqClient(l), st = l.follow_status || "new", waited = now - lqIn(l);
+    const when = st === "new" ? `<em class="lq2-pill ${waited > LQ_FAST_MS ? "late" : "hot"}">New · ${lqShortAgo(waited)}</em>`
+      : lqIsOpen(l) ? `<em class="lq2-pill ${lqDue(l) ? "due" : ""}">${lqDue(l) ? (st === "call_back" ? "Call back now" : `Try ${l.attempts + 1}`) : escapeHtml(lqWhenWords(l.next_attempt_at))}</em>`
+      : `<em class="lq2-pill done">${escapeHtml(LQ_STATUS_LABEL[st] || st)}</em>`;
+    return `<button type="button" class="lq2-row${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
+      <span><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml(c?.name || "")}${l.city ? " · " + escapeHtml(l.city) : ""}</small></span>${when}</button>`;
   };
-  // While Carmen's typing (notes, a booking time, a new lead), only the numbers
-  // update, so nothing she's in the middle of is lost.
-  const typing = root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select");
   const listHtml = `
     ${lqAdding ? lqAddFormHtml() : ""}
-    <h4 class="emp-h">Call now <span class="lq-count">${q.due.length}</span></h4>
-    ${q.due.map(item).join("") || `<div class="emp-empty small">Nothing to call right now 🎉</div>`}
-    ${q.later.length ? `<h4 class="emp-h">Coming up <span class="lq-count grey">${q.later.length}</span></h4>${q.later.map(item).join("")}` : ""}
-    ${q.doneToday.length ? `<button type="button" class="emp-past-toggle" data-lq-act="done">${lqShowDone ? "▾" : "▸"} Finished today (${q.doneToday.length})</button>${lqShowDone ? q.doneToday.map(item).join("") : ""}` : ""}`;
-  const statsHtml = `
-      ${stat("Waiting for a first call", newOnes.length, oldestNew ? `longest ${lqAgo(now - lqIn(oldestNew))}` : "all called", oldestNew && now - lqIn(oldestNew) > LQ_FAST_MS ? "warn" : "")}
-      ${stat("Retries due", q.due.length - newOnes.length, `${q.later.length} more later`)}
-      ${stat("Called today", logsToday.length, firstToday.length ? `${Math.round(fast / firstToday.length * 100)}% of new leads within 5 min` : "calls made")}
-      ${stat("Quotes booked today", bookedToday, bookedToday ? "nice work" : "-", bookedToday ? "good" : "")}`;
-  if (typing && $("#lq-stats")){
-    $("#lq-stats").innerHTML = statsHtml;
+    <h3 class="lq2-side-h">Call now ${q.due.length ? `<span>${q.due.length}</span>` : ""}</h3>
+    ${q.due.map(row).join("") || `<p class="lq2-side-empty">No one to call right now.</p>`}
+    ${q.later.length ? `<h3 class="lq2-side-h">Later <span class="grey">${q.later.length}</span></h3>${q.later.map(row).join("")}` : ""}
+    ${q.doneToday.length ? `<button type="button" class="lq2-fold" data-lq-act="done">${lqShowDone ? "▾" : "▸"} Done today (${q.doneToday.length})</button>${lqShowDone ? q.doneToday.map(row).join("") : ""}` : ""}`;
+  // While Carmen's typing or picking (notes, a booking time, a new lead),
+  // only the top line updates, so nothing she's in the middle of is lost.
+  const busy = root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select");
+  if (busy && $("#lq2-top")){
+    $("#lq2-top").innerHTML = summary;
     lqNavCount();
     return;
   }
   const sel = state.clientLeads.find(l => l.id === lqSel);
   root.innerHTML = `
-    <div class="page-header">
-      <div><h2>Lead follow-up</h2><p>Call every lead, fast. The first call within 5 minutes books the most quotes.</p></div>
-      <div class="inbox-head-actions">
-        <button type="button" class="btn ghost" data-lq-act="sync" ${lqSyncing ? "disabled" : ""}>${lqSyncing ? "Checking…" : "Check for new leads"}</button>
-        <button type="button" class="btn gold" data-lq-act="add">+ Add a lead</button>
-      </div>
-    </div>
-    <div class="emp-stats" id="lq-stats">${statsHtml}</div>
-    <div class="emp-layout lq-layout">
-      <aside class="emp-list lq-list" id="lq-list">${listHtml}</aside>
-      <section class="emp-detail lq-detail" id="lq-detail" data-lead="${escapeHtml(lqSel || "")}">${sel ? lqDetailHtml(sel) : `<div class="emp-empty">No leads waiting. New ones show up here by themselves within about 5 minutes of coming in.</div>`}</section>
+    <div id="lq2-top">${summary}</div>
+    <div class="lq2-layout">
+      <section class="lq2-card" id="lq-detail" data-lead="${escapeHtml(lqSel || "")}">${sel ? lqDetailHtml(sel) : `<div class="lq2-empty"><b>No one waiting.</b><p>New leads show up here by themselves, usually within 5 minutes of someone enquiring.</p></div>`}</section>
+      <aside class="lq2-side" id="lq-list">${listHtml}</aside>
     </div>`;
   lqNavCount();
 }
 
 function lqAddFormHtml(){
-  return `<form class="emp-form card-ish lq-add" data-lq-form="add">
-    <h4 class="emp-h">Add a lead</h4>
-    <div class="field"><label>Client</label><select name="client_id" required>${state.clients.filter(c => c.stage !== "churned").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select></div>
-    <div class="field"><label>Name</label><input name="name" required></div>
-    <div class="field-row"><div class="field"><label>Phone</label><input name="phone" type="tel" required></div><div class="field"><label>Email</label><input name="email" type="email"></div></div>
-    <div class="field"><label>What they asked about</label><input name="form_name" placeholder="e.g. Deck quote"></div>
-    <div class="emp-form-foot"><button type="button" class="emp-link" data-lq-act="add-cancel">Cancel</button><button type="submit" class="btn gold sm">Add to queue</button></div>
+  return `<form class="lq2-add" data-lq-form="add">
+    <h3>Add a lead</h3>
+    <label>Which client is it for?<select name="client_id" required>${state.clients.filter(c => c.stage !== "churned").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select></label>
+    <label>Their name<input name="name" required></label>
+    <label>Phone number<input name="phone" type="tel" required></label>
+    <label>Suburb or address<input name="address"></label>
+    <label>What do they need done?<input name="form_name" placeholder="e.g. New deck"></label>
+    <div class="lq2-add-foot"><button type="button" class="btn ghost" data-lq-act="add-cancel">Cancel</button><button type="submit" class="btn gold">Add to the list</button></div>
   </form>`;
+}
+
+// Times for the booking / call-back pickers, 7am to 7:30pm.
+const LQ_TIMES = Array.from({ length: 26 }, (_, i) => { const h = 7 + Math.floor(i / 2), m = i % 2 ? 30 : 0; return [`${String(h).padStart(2, "0")}:${m ? "30" : "00"}`, `${h % 12 || 12}:${m ? "30" : "00"} ${h < 12 ? "am" : "pm"}`]; });
+function lqWhenPicker(kind){
+  const today = localDayStr(), tmr = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDayStr(t); })();
+  const quick = kind === "call_back"
+    ? [["60", "In 1 hour"], ["today-16", "Today 4pm"], ["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]]
+    : [["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]];
+  return `<div class="lq2-when">
+    <p class="lq2-label">${kind === "booked" ? "When is the quote?" : "When should you call back?"}</p>
+    <div class="lq2-quick">${quick.map(([k, l]) => `<button type="button" data-lq-quick="${k}">${l}</button>`).join("")}</div>
+    <div class="lq2-when-pick">
+      <label>Day<input type="date" name="day" value="${kind === "booked" ? tmr : today}" required></label>
+      <label>Time<select name="time" required><option value="">Pick a time</option>${LQ_TIMES.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
+    </div>
+  </div>`;
 }
 
 function lqDetailHtml(l){
   const c = lqClient(l), st = l.follow_status || "new", first = (l.name || "").split(" ")[0] || "there";
   const biz = c?.name || "the client", trade = c ? (clientIndustry(c).name || "") : "";
-  const waited = Date.now() - lqIn(l);
+  const waited = Date.now() - lqIn(l), late = waited > LQ_FAST_MS;
+  const answers = (Array.isArray(l.answers) ? l.answers : []).filter(a => a && a.a);
   const goodLead = String(c?.qualified_lead_structure || "").split("\n").map(x => x.trim()).filter(Boolean);
+  const coverage = goodLead.find(x => /^service radius:/i.test(x))?.replace(/^service radius:\s*/i, "");
   const log = (Array.isArray(l.call_log) ? l.call_log : []).slice().reverse();
-  const out = (k) => `<button type="button" class="lq-out ${LQ_OUTCOMES[k].cls}${lqPending === k ? " picked" : ""}" data-lq-out="${k}">${LQ_OUTCOMES[k].label}</button>`;
-  const say = (t) => `<blockquote class="mtg-say small"><span>Say</span><p>${t}</p></blockquote>`;
-  const b = (t) => `<b>${escapeHtml(t)}</b>`;
-  const ask = l.form_name && !/gohighlevel|facebook|meta|form/i.test(l.form_name) ? escapeHtml(l.form_name.toLowerCase()) : `the ${escapeHtml(trade ? trade.toLowerCase() + " " : "")}work`;
+  const lastTry = log[0];
+  const banner = st === "new" ? `<div class="lq2-banner ${late ? "late" : "hot"}">${late ? "⚠️" : "🔥"} New enquiry - came in <b>${escapeHtml(lqAgo(waited))} ago</b>. Call now!</div>`
+    : st === "call_back" ? `<div class="lq2-banner blue">⏰ They asked you to call back <b>${escapeHtml(lqWhenWords(l.next_attempt_at))}</b>${lqDue(l) ? " - that's now." : "."}</div>`
+    : st === "no_answer" ? `<div class="lq2-banner amber">📵 Call ${l.attempts + 1} of ${LQ_MAX_TRIES} - no answer last time${lastTry ? ` (${escapeHtml(lqWhenWords(lastTry.at))})` : ""}.</div>`
+    : `<div class="lq2-banner done">${LQ_OUTCOMES[st]?.icon || "✔"} ${escapeHtml(LQ_STATUS_LABEL[st] || st)}${l.booked_for ? ` - quote ${escapeHtml(lqWhenWords(l.booked_for))}` : ""}. Nothing more to do.</div>`;
+  const job = answers.find(a => /need|service|job|work|project|looking|interest|type/i.test(a.q))?.a || (l.form_name && !/gohighlevel|facebook|meta|instagram|form|website|lead/i.test(l.form_name) ? l.form_name : "");
+  const say = (n, title, text) => `<li><span class="lq2-n">${n}</span><div><b>${title}</b><p>${text}</p></div></li>`;
+  const B = (t) => `<b>${escapeHtml(t)}</b>`;
+  const mapQ = encodeURIComponent([l.address || l.city, "New Zealand"].filter(Boolean).join(", "));
+  const out = (k) => `<button type="button" class="lq2-out ${LQ_OUTCOMES[k].cls}${lqPending === k ? " picked" : ""}" data-lq-out="${k}"><i>${LQ_OUTCOMES[k].icon}</i><span><b>${LQ_OUTCOMES[k].label}</b><small>${LQ_OUTCOMES[k].hint}</small></span></button>`;
   return `
-    <header class="emp-head">
-      <div class="emp-head-id">
-        <h3>${escapeHtml(l.name || "No name")}</h3>
-        <p>${escapeHtml(biz)}${trade ? ` · ${escapeHtml(trade)}` : ""} · came in ${escapeHtml(lqAgo(waited))} ago${l.attempts ? ` · ${l.attempts} call${l.attempts === 1 ? "" : "s"} so far` : ""}</p>
+    ${banner}
+    <div class="lq2-who">
+      <div>
+        <h2>${escapeHtml(l.name || "No name")}</h2>
+        <p>You're calling for <b>${escapeHtml(biz)}</b>${trade ? ` <span>(${escapeHtml(trade)})</span>` : ""}</p>
       </div>
-      <span class="emp-status ${LQ_OUTCOMES[st]?.cls || (st === "new" ? "gold" : "")}">${escapeHtml(LQ_STATUS_LABEL[st] || st)}</span>
-    </header>
-    <div class="lq-callbar">
-      ${l.phone ? `<button type="button" class="btn gold lq-call" data-lq-act="call">📞 Call ${escapeHtml(formatPhone(l.phone))}</button>` : `<span class="lq-nophone">No phone number - email them instead</span>`}
-      ${l.email ? `<a class="btn ghost" href="mailto:${escapeHtml(l.email)}">✉ ${escapeHtml(l.email)}</a>` : ""}
     </div>
-    <div class="lq-facts">
-      <div><span>Asked about</span><b>${escapeHtml(l.form_name || "-")}</b></div>
-      <div><span>Came in</span><b>${escapeHtml(lqTime(l.lead_created_at || l.created_at))}</b></div>
-      <div><span>In their CRM</span><b>${escapeHtml(l.status || "-")}</b></div>
-      ${l.booked_for ? `<div><span>Quote booked for</span><b>${escapeHtml(lqTime(l.booked_for))}</b></div>` : ""}
+    ${l.phone ? `<button type="button" class="lq2-call" data-lq-act="call"><i>📞</i><span>Call ${escapeHtml(first)}<b>${escapeHtml(formatPhone(l.phone))}</b></span></button>`
+      : `<div class="lq2-banner late">No phone number came through.${l.email ? ` Email them at <a href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>.` : ""}</div>`}
+    ${l.phone && l.email ? `<p class="lq2-email">Or email: <a href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a></p>` : ""}
+
+    <div class="lq2-boxes">
+      <div class="lq2-box">
+        <h3>📋 What they're after</h3>
+        ${answers.length ? `<dl>${answers.map(a => `<dt>${escapeHtml(a.q)}</dt><dd>${escapeHtml(a.a)}</dd>`).join("")}</dl>`
+          : l.form_name && job ? `<dl><dt>They asked about</dt><dd>${escapeHtml(job)}</dd></dl>`
+          : `<p class="lq2-none">No form answers came through. Ask them what they need done.</p>`}
+        ${l.follow_notes ? `<dl><dt>Notes from earlier calls</dt><dd>${escapeHtml(l.follow_notes)}</dd></dl>` : ""}
+      </div>
+      <div class="lq2-box">
+        <h3>📍 Where they are</h3>
+        ${l.address || l.city ? `<p class="lq2-place">${escapeHtml(l.address || l.city)}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq2-sub">${escapeHtml(l.city)}</p>` : ""}
+          <a class="lq2-map" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps →</a>`
+          : `<p class="lq2-none">No address came through. Ask which suburb they're in.</p>`}
+        ${coverage ? `<p class="lq2-cover"><b>${escapeHtml(biz)} covers:</b> ${escapeHtml(coverage)}</p>` : ""}
+      </div>
     </div>
-    <div class="lq-cols">
-      <div class="lq-script">
-        <h4 class="emp-h">Script</h4>
-        <p class="lq-step">1 · Intro</p>
-        ${say(`Hi ${b(first)}, it's Carmen calling from ${b(biz)} - you just sent through an enquiry about ${ask}. Have you got a quick minute?`)}
-        <p class="lq-step">2 · The job</p>
-        ${say("Awesome. Tell me a bit about what you're looking to get done?")}
-        <p class="lq-step">3 · Check it's a fit</p>
-        ${goodLead.length ? `<ul class="lq-good">${goodLead.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : `<p class="emp-foot">Ask about the size of the job, their budget, when they want it done, and where it is.</p>`}
-        <p class="lq-step">4 · Book the quote</p>
-        ${say(`Perfect. ${b(biz)} can come out and give you a quote - would earlier in the week or later in the week suit better? Morning or afternoon?`)}
-        <p class="lq-step">5 · Lock it in</p>
-        ${say(`Done - you're booked in for [day and time] at [address]. You'll get a text to confirm, and a reminder an hour before.`)}
-        <p class="lq-step">No answer? Leave a voicemail</p>
-        ${say(`Hi ${b(first)}, it's Carmen from ${b(biz)} about your enquiry - I'll try you again shortly, no need to call back.`)}
-      </div>
-      <div class="lq-outcome">
-        <h4 class="emp-h">How did it go?</h4>
-        <div class="lq-outs">${["booked", "qualified", "no_answer", "call_back", "not_interested", "disqualified", "wrong_number"].map(out).join("")}</div>
-        <form class="emp-form" data-lq-form="outcome">
-          ${lqPending === "booked" ? `<div class="field"><label>Quote booked for</label><input type="datetime-local" name="when" required></div><p class="emp-foot">Put it in ${escapeHtml(biz)}'s calendar in GoHighLevel too, so they get the booking.</p>` : ""}
-          ${lqPending === "call_back" ? `<div class="field"><label>Call them back at</label><input type="datetime-local" name="when" required></div>` : ""}
-          <div class="field"><label>Notes</label><textarea name="note" rows="3" placeholder="What they said - the job, budget, timing, anything the client should know">${escapeHtml(lqDrafts[l.id] || "")}</textarea></div>
-          <div class="emp-form-foot"><span class="emp-foot">${lqPending ? `Saving as: <b>${escapeHtml(LQ_OUTCOMES[lqPending].label)}</b>` : "Pick what happened above"}</span><button type="submit" class="btn gold" ${lqPending ? "" : "disabled"}>Save & next lead →</button></div>
-        </form>
-        <h4 class="emp-h">History</h4>
-        ${log.length ? log.map(x => `<div class="lq-log"><b>${escapeHtml(LQ_OUTCOMES[x.outcome]?.label || x.outcome)}</b><small>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</small>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div>`).join("") : `<div class="emp-empty small">Not called yet.</div>`}
-      </div>
-    </div>`;
+
+    <div class="lq2-box lq2-script">
+      <h3>💬 What to say</h3>
+      <ol>
+        ${say(1, "Say hello", `"Hi ${B(first)}, it's Carmen calling from ${B(biz)}. You just sent through an enquiry${job ? ` about ${B(job.toLowerCase())}` : ""}. Have you got a quick minute?"`)}
+        ${say(2, "Ask about the job", `"Awesome. Tell me a bit about what you're looking to get done?"`)}
+        ${say(3, "Check it's a fit", goodLead.length ? `Make sure it suits ${escapeHtml(biz)}:<ul>${goodLead.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : "Ask how big the job is, their budget, when they want it done, and where it is.")}
+        ${say(4, "Book the quote", `"Perfect. ${B(biz)} can come out and give you a quote. Would earlier or later in the week suit better? Morning or afternoon?"`)}
+      </ol>
+      <p class="lq2-vm"><b>No answer?</b> Leave this message: "Hi ${escapeHtml(first)}, it's Carmen from ${escapeHtml(biz)} about your enquiry. I'll try you again shortly - no need to call back."</p>
+    </div>
+
+    <form class="lq2-box lq2-after" data-lq-form="outcome">
+      <h3>☎️ How did the call go?</h3>
+      <div class="lq2-outs">${["booked", "no_answer", "call_back", "qualified", "not_interested", "disqualified", "wrong_number"].map(out).join("")}</div>
+      ${lqPending === "booked" || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
+      ${lqPending === "booked" ? `<p class="lq2-tip">Remember to put it in ${escapeHtml(biz)}'s calendar in GoHighLevel too, so they get the booking.</p>` : ""}
+      <label class="lq2-label">Notes about the call<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing - anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
+      <button type="submit" class="lq2-save" ${lqPending ? "" : "disabled"}>${lqPending ? `Save "${escapeHtml(LQ_OUTCOMES[lqPending].label)}" and go to the next person →` : "Pick how the call went, then save"}</button>
+    </form>
+
+    ${log.length ? `<div class="lq2-history">
+      <button type="button" class="lq2-fold" data-lq-act="history">${lqShowHistory ? "▾" : "▸"} Earlier calls (${log.length})</button>
+      ${lqShowHistory ? log.map(x => `<div class="lq2-log"><b>${LQ_OUTCOMES[x.outcome]?.icon || ""} ${escapeHtml(LQ_OUTCOMES[x.outcome]?.label || x.outcome)}</b><span>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</span>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div>`).join("") : ""}
+    </div>` : ""}`;
 }
 
 async function lqSaveOutcome(l, outcome, note, when){
@@ -10567,11 +10626,15 @@ async function lqSaveOutcome(l, outcome, note, when){
   else { patch.follow_status = outcome; patch.next_attempt_at = null; if (outcome === "booked") patch.booked_for = when; }
   Object.assign(l, patch);
   delete lqDrafts[l.id];
-  lqPending = null;
+  lqPending = null; lqShowHistory = false;
   const next = lqQueue().due.find(x => x.id !== l.id);
   lqSel = next?.id || null;
-  rcToast(outcome === "no_answer" ? (patch.follow_status === "unreachable" ? `${LQ_MAX_TRIES} tries with no answer - marked unreachable.` : `Saved - next try ${lqTime(patch.next_attempt_at)}.`) : `Saved: ${LQ_OUTCOMES[outcome].label}.`);
+  rcToast(outcome === "no_answer"
+    ? (patch.follow_status === "unreachable" ? `That's ${LQ_MAX_TRIES} tries with no answer, so they're marked as couldn't reach.` : `Saved. They'll come back to you ${lqWhenWords(patch.next_attempt_at)}.`)
+    : `Saved: ${LQ_OUTCOMES[outcome].label}.${next ? " Here's the next person." : ""}`);
   renderLeadQueue();
+  $("#lq-root")?.scrollIntoView({ block: "start" });
+  $(".lq2-card")?.scrollTo({ top: 0 });
   if (IS_CONFIGURED){
     const { error } = await supabase.from("client_leads").update(patch).eq("id", l.id);
     if (error) rcToast("Couldn't save that call - " + error.message);
@@ -10586,14 +10649,16 @@ async function lqSync(){
     const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "sync" } });
     if (error) throw error;
     await DataLayer.fetchAll();
-    rcToast(data?.added ? `${data.added} new lead${data.added === 1 ? "" : "s"} added.` : data?.checked ? `Checked ${data.checked} client${data.checked === 1 ? "" : "s"} - no new leads.` : "No clients are connected to GoHighLevel yet.");
-  } catch(e){ rcToast("Couldn't check for leads right now."); console.warn(e); }
+    await lqLoadSync(true);
+    rcToast(data?.added ? `${data.added} new lead${data.added === 1 ? "" : "s"} added.` : data?.checked ? "Checked - no new leads right now." : "No clients are connected to GoHighLevel yet.");
+  } catch(e){ rcToast("Couldn't check for leads right now. Try again in a minute."); console.warn(e); }
   finally { lqSyncing = false; renderAll(); }
 }
 
 function renderLeadResults(){
   const root = $("#lr-root");
   if (!root) return;
+  if (!lqSyncRows) lqLoadSync();
   const today = localDayStr();
   const from = lqPeriod === "today" ? today : lqPeriod === "week" ? (() => { const d = new Date(); d.setDate(d.getDate() - 6); return localDayStr(d); })() : today.slice(0, 8) + "01";
   const inP = (iso) => iso && localDayStr(new Date(iso)) >= from;
@@ -10608,7 +10673,7 @@ function renderLeadResults(){
   const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "-";
   const tile = (label, value, sub, cls = "") => `<div class="emp-tile ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
   const byClient = new Map();
-  leads.forEach(l => { const k = l.client_id; if (!byClient.has(k)) byClient.set(k, []); byClient.get(k).push(l); });
+  leads.forEach(l => { if (!byClient.has(l.client_id)) byClient.set(l.client_id, []); byClient.get(l.client_id).push(l); });
   const rows = [...byClient.entries()].map(([id, ls]) => {
     const c = state.clients.find(x => x.id === id), cl = ls.filter(l => l.first_called_at);
     const sp = cl.map(l => new Date(l.first_called_at) - lqIn(l)).filter(x => x >= 0).sort((a, b) => a - b);
@@ -10618,22 +10683,38 @@ function renderLeadResults(){
   calls.forEach(x => { const w = lqWho(x.by) || "Unknown"; byCaller[w] = (byCaller[w] || 0) + 1; });
   const outcomes = {};
   calls.forEach(x => { outcomes[x.outcome] = (outcomes[x.outcome] || 0) + 1; });
+  // Which live clients are (and aren't) sending their leads through.
+  const live = state.clients.filter(c => !["churned", ARCHIVED_STAGE].includes(c.stage)).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const syncBy = new Map((lqSyncRows || []).map(r => [r.client_id, r]));
+  const health = live.map(c => {
+    const r = syncBy.get(c.id);
+    const stale = r?.last_ok_at && Date.now() - new Date(r.last_ok_at) > 30 * 60e3;
+    const state_ = !r ? ["bad", "Not connected to GoHighLevel - connect it on their client page so leads come through"]
+      : r.error ? ["bad", "Problem: " + r.error]
+      : stale ? ["warn", `Hasn't checked in ${lqAgo(Date.now() - new Date(r.last_ok_at))}`]
+      : r.contacts_access === false ? ["warn", "Only leads with an opportunity come through - give their GHL key Contacts access to catch every lead"]
+      : ["ok", "Working"];
+    return { c, r, cls: state_[0], text: state_[1] };
+  });
+  const problems = health.filter(h => h.cls !== "ok").length;
   root.innerHTML = `
     <div class="page-header"><div><h2>Lead results</h2><p>How fast every lead gets a call, and how many turn into booked quotes.</p></div></div>
     <div class="emp-period">${[["today", "Today"], ["week", "Last 7 days"], ["month", "This month"]].map(([k, l]) => `<button type="button" class="${k === lqPeriod ? "active" : ""}" data-lr-period="${k}">${l}</button>`).join("")}</div>
     <div class="emp-tiles">
-      ${tile("Leads in", leads.length, `${leads.filter(l => lqIsOpen(l)).length} still in the queue`)}
+      ${tile("Leads in", leads.length, `${leads.filter(l => lqIsOpen(l)).length} still to finish`)}
       ${tile("Called", called.length, `${pct(called.length, leads.length)} of leads`)}
-      ${tile("Speed to first call", median == null ? "-" : lqAgo(median), "typical (median)", median != null && median <= LQ_FAST_MS ? "hit" : median != null ? "low" : "")}
+      ${tile("Speed to first call", median == null ? "-" : lqShortAgo(median), "typical (median)", median != null && median <= LQ_FAST_MS ? "hit" : median != null ? "low" : "")}
       ${tile("Called within 5 min", pct(fast, speeds.length), `${fast} of ${speeds.length}`, speeds.length && fast / speeds.length >= 0.8 ? "hit" : "")}
       ${tile("Got through", reached.length, `${pct(reached.length, leads.length)} of leads`)}
       ${tile("Quotes booked", booked.length, `${pct(booked.length, leads.length)} of leads · ${pct(booked.length, reached.length)} of people reached`, booked.length ? "hit" : "")}
       ${tile("Calls made", calls.length, Object.entries(byCaller).map(([w, n]) => `${escapeHtml(w)} ${n}`).join(" · ") || "-")}
-      ${tile("Unreachable", leads.filter(l => l.follow_status === "unreachable").length, `after ${LQ_MAX_TRIES} tries`)}
+      ${tile("Couldn't reach", leads.filter(l => l.follow_status === "unreachable").length, `after ${LQ_MAX_TRIES} tries`)}
     </div>
+    <h4 class="emp-h">Are all clients' leads coming through? ${problems ? `<span class="lq-count">${problems} to fix</span>` : `<span class="lq-count ok">all good</span>`}</h4>
+    <div class="lr-table">${health.map(h => `<div class="lr-sync ${h.cls}"><i></i><b>${escapeHtml(h.c.name)}</b><span>${escapeHtml(h.text)}</span><small>${h.r?.last_lead_at ? `last lead ${escapeHtml(lqShortAgo(Date.now() - new Date(h.r.last_lead_at)))} ago` : ""}</small></div>`).join("") || `<div class="emp-empty">No live clients.</div>`}</div>
     <h4 class="emp-h">By client</h4>
     ${rows.length ? `<div class="lr-table"><div class="lr-row head"><span>Client</span><span>Leads</span><span>Called</span><span>Speed</span><span>Booked</span></div>
-      ${rows.map(r => `<div class="lr-row"><span>${escapeHtml(r.name)}</span><span>${r.leads}</span><span>${pct(r.called, r.leads)}</span><span>${r.speed == null ? "-" : lqAgo(r.speed)}</span><span>${r.booked} <small>(${pct(r.booked, r.leads)})</small></span></div>`).join("")}</div>` : `<div class="emp-empty">No leads in this period yet.</div>`}
+      ${rows.map(r => `<div class="lr-row"><span>${escapeHtml(r.name)}</span><span>${r.leads}</span><span>${pct(r.called, r.leads)}</span><span>${r.speed == null ? "-" : lqShortAgo(r.speed)}</span><span>${r.booked} <small>(${pct(r.booked, r.leads)})</small></span></div>`).join("")}</div>` : `<div class="emp-empty">No leads in this period yet.</div>`}
     ${calls.length ? `<h4 class="emp-h">What happened on the calls</h4><div class="lr-outcomes">${Object.entries(outcomes).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<div><span>${escapeHtml(LQ_OUTCOMES[k]?.label || k)}</span><i class="emp-bar"><i style="width:${Math.round(n / calls.length * 100)}%"></i></i><b>${n}</b></div>`).join("")}</div>` : ""}`;
 }
 
@@ -10641,16 +10722,28 @@ function setupLeadFollowUpUi(){
   const root = $("#lq-root");
   if (root){
     root.addEventListener("click", (ev) => {
-      const t = ev.target.closest("[data-lq-sel],[data-lq-act],[data-lq-out]");
+      const t = ev.target.closest("[data-lq-sel],[data-lq-act],[data-lq-out],[data-lq-quick]");
       if (!t || t.disabled) return;
-      if (t.dataset.lqSel){ lqSel = t.dataset.lqSel; lqPending = null; return renderLeadQueue(); }
+      if (t.dataset.lqSel){ lqSel = t.dataset.lqSel; lqPending = null; lqShowHistory = false; renderLeadQueue(); $(".lq2-card")?.scrollTo({ top: 0 }); return; }
       if (t.dataset.lqOut){ lqPending = lqPending === t.dataset.lqOut ? null : t.dataset.lqOut; return renderLeadQueue(); }
+      if (t.dataset.lqQuick){
+        const form = t.closest("form"), k = t.dataset.lqQuick, d = new Date();
+        if (/^\d+$/.test(k)) d.setMinutes(d.getMinutes() + Number(k) + (30 - (d.getMinutes() + Number(k)) % 30) % 30);
+        else { const [day, h] = k.split("-"); if (day === "tomorrow") d.setDate(d.getDate() + 1); d.setHours(Number(h), 0, 0, 0); }
+        form.elements.day.value = localDayStr(d);
+        const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        if (![...form.elements.time.options].some(o => o.value === hm)) form.elements.time.add(new Option(lqClock(d.toISOString()), hm));
+        form.elements.time.value = hm;
+        $$(".lq2-quick button", form).forEach(b => b.classList.toggle("picked", b === t));
+        return;
+      }
       const act = t.dataset.lqAct, l = state.clientLeads.find(x => x.id === lqSel);
       if (act === "call" && l) return placeCall(l.phone, l.name, lqCountry(l.phone));
       if (act === "sync") return lqSync();
       if (act === "add"){ lqAdding = true; return renderLeadQueue(); }
       if (act === "add-cancel"){ lqAdding = false; return renderLeadQueue(); }
       if (act === "done"){ lqShowDone = !lqShowDone; return renderLeadQueue(); }
+      if (act === "history"){ lqShowHistory = !lqShowHistory; return renderLeadQueue(); }
     });
     root.addEventListener("input", (ev) => {
       if (ev.target.matches('form[data-lq-form="outcome"] textarea[name="note"]') && lqSel) lqDrafts[lqSel] = ev.target.value;
@@ -10663,19 +10756,23 @@ function setupLeadFollowUpUi(){
       if (form.dataset.lqForm === "outcome"){
         const l = state.clientLeads.find(x => x.id === lqSel);
         if (!l || !lqPending) return;
-        const when = v.when ? new Date(v.when).toISOString() : null;
+        let when = null;
+        if (lqPending === "booked" || lqPending === "call_back"){
+          if (!v.day || !v.time){ rcToast("Pick a day and a time first."); return; }
+          when = new Date(`${v.day}T${v.time}:00`).toISOString();
+        }
         return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when);
       }
       if (form.dataset.lqForm === "add"){
-        const row = { client_id: v.client_id, name: v.name.trim(), phone: v.phone.trim(), email: (v.email || "").trim(), form_name: (v.form_name || "").trim(),
-          external_lead_id: "", status: "", source: "manual", follow_status: "new", lead_created_at: new Date().toISOString() };
+        const row = { client_id: v.client_id, name: v.name.trim(), phone: v.phone.trim(), email: "", form_name: (v.form_name || "").trim(),
+          address: (v.address || "").trim() || null, external_lead_id: "", status: "", source: "manual", follow_status: "new", lead_created_at: new Date().toISOString() };
         lqAdding = false;
         if (IS_CONFIGURED){
           const { data, error } = await supabase.from("client_leads").insert(row).select("*").single();
           if (error){ rcToast("Couldn't add the lead - " + error.message); return; }
           state.clientLeads.unshift(data); lqSel = data.id;
-        } else { const made = { id: uid(), created_at: new Date().toISOString(), attempts: 0, call_log: [], ...row }; state.clientLeads.unshift(made); lqSel = made.id; }
-        rcToast("Lead added - it's at the top of the queue.");
+        } else { const made = { id: uid(), created_at: new Date().toISOString(), attempts: 0, call_log: [], answers: [], ...row }; state.clientLeads.unshift(made); lqSel = made.id; }
+        rcToast("Lead added - they're first in the list.");
         renderLeadQueue();
       }
     });
@@ -10684,8 +10781,11 @@ function setupLeadFollowUpUi(){
     const t = ev.target.closest("[data-lr-period]");
     if (t){ lqPeriod = t.dataset.lrPeriod; renderLeadResults(); }
   });
-  // Keeps the "waiting 4m" timers ticking.
-  setInterval(() => { if (state.page === "lead-queue") renderLeadQueue(); else lqNavCount(); }, 30e3);
+  // Keeps the "came in 4 minutes ago" times ticking, and the sync line fresh.
+  setInterval(() => {
+    if (state.page === "lead-queue") renderLeadQueue(); else lqNavCount();
+    if (["lead-queue", "lead-results"].includes(state.page)) lqLoadSync(true);
+  }, 60e3);
 }
 
 // Demo mode: a few leads at different stages so the queue has something in it.
@@ -10693,14 +10793,17 @@ function lqSeedDemo(){
   state.clientLeads.forEach(l => { if (!l.follow_status) l.follow_status = "old"; });
   const c = state.clients.filter(x => x.stage !== "churned"), ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
   if (!c.length) return;
-  const base = { external_lead_id: "", status: "Rep to contact", source: "ghl", attempts: 0, call_log: [] };
+  const base = { external_lead_id: "", status: "Rep to contact", source: "ghl", attempts: 0, call_log: [], answers: [] };
   state.clientLeads.unshift(
-    { ...base, id: uid(), client_id: c[0].id, name: "Hemi Walker", phone: "021 555 0148", email: "hemi.w@example.co.nz", form_name: "Deck quote", lead_created_at: ago(3), created_at: ago(3), follow_status: "new" },
-    { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Sarah Lin", phone: "027 555 0172", email: "", form_name: "Bathroom renovation", lead_created_at: ago(26), created_at: ago(26), follow_status: "new" },
+    { ...base, id: uid(), client_id: c[0].id, name: "Hemi Walker", phone: "021 555 0148", email: "hemi.w@example.co.nz", form_name: "Facebook Lead Form", lead_created_at: ago(3), created_at: ago(3), follow_status: "new",
+      address: "12 Kauri Road, Albany, 0632", city: "Albany, Auckland",
+      answers: [{ q: "What do you need done?", a: "New deck off the back of the house" }, { q: "Roughly how big?", a: "About 6m x 4m" }, { q: "Budget", a: "$10,000 - $15,000" }, { q: "When would you like it done?", a: "Before Christmas" }] },
+    { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Sarah Lin", phone: "027 555 0172", email: "", form_name: "Website form", lead_created_at: ago(26), created_at: ago(26), follow_status: "new",
+      city: "Hamilton East, Hamilton", answers: [{ q: "What do you need done?", a: "Bathroom renovation" }, { q: "Budget", a: "Not sure yet" }] },
     { ...base, id: uid(), client_id: c[0].id, name: "Tom Fraser", phone: "022 555 0190", email: "tom@example.com", form_name: "Fence", lead_created_at: ago(240), created_at: ago(240), follow_status: "no_answer", attempts: 2, first_called_at: ago(236), last_attempt_at: ago(70), next_attempt_at: ago(10),
       call_log: [{ at: ago(236), by: "demo@mrpriceless.co.nz", outcome: "no_answer", note: "" }, { at: ago(70), by: "demo@mrpriceless.co.nz", outcome: "no_answer", note: "Left a voicemail" }] },
     { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Aroha Pene", phone: "021 555 0111", email: "", form_name: "Retaining wall", lead_created_at: ago(400), created_at: ago(400), follow_status: "call_back", attempts: 1, first_called_at: ago(395), last_attempt_at: ago(395), next_attempt_at: new Date(Date.now() + 90 * 60e3).toISOString(),
-      call_log: [{ at: ago(395), by: "demo@mrpriceless.co.nz", outcome: "call_back", note: "At work, call after 4" }] },
+      city: "Te Atatū, Auckland", follow_notes: "At work, call after 4", call_log: [{ at: ago(395), by: "demo@mrpriceless.co.nz", outcome: "call_back", note: "At work, call after 4" }] },
     { ...base, id: uid(), client_id: c[0].id, name: "Mike Doyle", phone: "021 555 0133", email: "", form_name: "Deck quote", lead_created_at: ago(180), created_at: ago(180), follow_status: "booked", attempts: 1, first_called_at: ago(177), last_attempt_at: ago(175), booked_for: new Date(Date.now() + 2 * 86400e3).toISOString(),
       call_log: [{ at: ago(175), by: "demo@mrpriceless.co.nz", outcome: "booked", note: "Wants a 6x4 deck, budget about $12k" }] },
   );
