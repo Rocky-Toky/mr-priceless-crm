@@ -10514,6 +10514,9 @@ function inboxDemo(){
     { id: uid(), client_name: "Reeve Builders", from_name: "Marlon Reeve", from_email: "marlon@reevebuilders.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Leads this week?", snippet: "Hey mate, only had two come through since Monday - is everything still running ok on your end?", received_at: ago(275), status: "new" },
     { id: uid(), client_name: "Ritchie Building", from_name: "Sam Ritchie", from_email: "sam@ritchiebuilding.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "New photos for the ads", snippet: "Just finished the Ponsonby deck, uploaded a heap of before and afters to the folder.", received_at: ago(70), status: "new" },
     { id: uid(), client_name: "Ritchie Building", from_name: "Sam Ritchie", from_email: "sam@ritchiebuilding.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Invoice", snippet: "Paid that one this morning, cheers.", received_at: ago(1500), status: "replied", replied_at: ago(1460) },
+    { id: uid(), client_name: "Ascend Financials Ltd", from_name: "Jane Holt", from_email: "jane@ascendfinancials.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Can we change the offer in the ads?", snippet: "We've got a new free review offer for November - can we swap it into the ads this week?", received_at: ago(300), status: "new" },
+    { id: uid(), client_name: "Reeve Builders", from_name: "Marlon Reeve", from_email: "marlon@reevebuilders.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Report", snippet: "Got the monthly report, looks good.", received_at: ago(200), status: "done", done_by: "demo@mrpriceless.co.nz" },
+    { id: uid(), client_name: "Summit Dental", from_name: "Dr Lee", from_email: "lee@summitdental.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Booking link", snippet: "Thanks for that.", received_at: ago(100), status: "replied", replied_at: ago(70) },
   ];
 }
 async function loadClientInbox(){
@@ -10698,7 +10701,11 @@ function inboxUnmatchableHtml(){
   const has = (v) => /[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(String(v || ""));
   const list = state.clients.filter(c => !["churned", ARCHIVED_STAGE].includes(c.stage) && !has(c.email) && !has(c.report_email) && !has(c.key_contacts) && !String(c.website || "").includes("."));
   if (!list.length) return "";
-  return `<div class="inbox-missing"><b>${list.length} client${list.length === 1 ? " has" : "s have"} no email or website saved</b>, so their emails only come through if they mention the company name: ${list.map(c => `<button type="button" data-action="view-client" data-id="${escapeHtml(c.id)}">${escapeHtml(c.name)}</button>`).join(", ")}. Add their email on the client's page.</div>`;
+  return `<section class="ib-panel ib-warn">
+    <div class="ib-panel-head"><h4>Missing an email or website</h4><span class="ib-count">${list.length}</span></div>
+    <p class="ib-muted">Their emails only come through if they mention the company name. Click one to add their email.</p>
+    <div class="ib-chips">${list.map(c => `<button type="button" data-action="view-client" data-id="${escapeHtml(c.id)}">${escapeHtml(inboxShortName(c.name))}</button>`).join("")}</div>
+  </section>`;
 }
 function inboxSetupHtml(mine){
   const stale = mine && mine.status === "ok" && mine.last_sync_at && Date.now() - new Date(mine.last_sync_at) > INBOX_STALE_MS;
@@ -10744,72 +10751,123 @@ function renderInboxAlert(){
   bar.classList.toggle("urgent", urgent);
   bar.innerHTML = `<i></i><span><b>${waiting.length} client email${waiting.length === 1 ? "" : "s"} waiting on a reply</b> · ${escapeHtml(oldest.client_name || oldest.from_email || "")} has waited ${inboxAge(oldest.received_at)}</span><em>Open client inbox →</em>`;
 }
+// The Client inbox: what's waiting on a reply, oldest first, with a client
+// filter; a side column with how replies are tracking, recently handled
+// emails and the connected Gmails.
+let inboxFilter = "", inboxHandledTab = "all";
+const inboxInitials = (name) => String(name || "?").replace(/\s+[-–|(].*$/, "").trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";
+const inboxShortName = (name) => String(name || "").replace(/\s+[-–|(].*$/, "").replace(/[,.]?\s+(pty\.?\s+)?(ltd|limited)\.?$/i, "").trim() || name || "";
+function inboxTone(e){
+  const age = Date.now() - new Date(e.received_at);
+  return age > INBOX_URGENT_MS ? "urgent" : age > INBOX_LATE_MS ? "late" : "fresh";
+}
 function renderClientInbox(){
   const root = $("#inbox-root");
   if (!root) return;
-  const waiting = inboxWaiting();
-  const handled = state.clientEmails.filter(e => e.status !== "new").sort((a, b) => new Date(b.received_at) - new Date(a.received_at));
+  const waitingAll = inboxWaiting();
+  const byClient = new Map();
+  waitingAll.forEach(e => { const k = e.client_id || e.client_name || ""; if (!byClient.has(k)) byClient.set(k, { name: e.client_name, n: 0 }); byClient.get(k).n++; });
+  if (inboxFilter && !byClient.has(inboxFilter)) inboxFilter = "";
+  const waiting = inboxFilter ? waitingAll.filter(e => (e.client_id || e.client_name || "") === inboxFilter) : waitingAll;
+  const handled = state.clientEmails.filter(e => e.status !== "new").sort((a, b) => new Date(b.replied_at || b.received_at) - new Date(a.replied_at || a.received_at));
   const me = state.user?.id || "demo";
   const mine = state.inboxConnections.find(c => c.user_id === me);
   const canNotify = "Notification" in window;
   const notifyOn = canNotify && Notification.permission === "granted";
-  const conns = state.inboxConnections.map(c => {
-    const stale = c.last_sync_at && Date.now() - new Date(c.last_sync_at) > INBOX_STALE_MS;
-    const ok = c.status === "ok" && !stale;
-    return `<span class="inbox-conn ${ok ? "ok" : "bad"}"><i></i>${escapeHtml(c.status === "waiting" ? (c.user_id === state.user?.id ? "Your Gmail" : "A teammate's Gmail") : c.email || "Inbox")}<small>${c.status === "waiting" ? "not connected yet" : c.last_sync_at ? `checked ${inboxAge(c.last_sync_at)} ago` : "connected"}</small></span>`;
-  }).join("");
+  const stale = (c) => c.last_sync_at && Date.now() - new Date(c.last_sync_at) > INBOX_STALE_MS;
+  const showSetup = !mine || mine.status !== "ok" || inboxSetupOpen || stale(mine);
+
+  // How replies are tracking.
+  const today = localDayStr();
+  const replied = handled.filter(e => e.status === "replied" && e.replied_at);
+  const repliedToday = replied.filter(e => localDayStr(new Date(e.replied_at)) === today).length;
+  const times = replied.map(e => new Date(e.replied_at) - new Date(e.received_at)).filter(x => x >= 0).sort((a, b) => a - b);
+  const typical = times.length ? times[Math.floor(times.length / 2)] : null;
+  const oldest = waitingAll[0];
+  const stat = (label, value, sub, cls = "") => `<div class="ib-stat ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
+
   const card = (e) => {
-    const age = Date.now() - new Date(e.received_at);
-    const cls = age > INBOX_URGENT_MS ? " urgent" : age > INBOX_LATE_MS ? " late" : "";
-    return `<article class="inbox-card${cls}">
-      <div class="inbox-card-top">
-        <span class="inbox-client">${e.client_id ? `<button type="button" data-action="view-client" data-id="${escapeHtml(e.client_id)}">${escapeHtml(e.client_name || "Client")}</button>` : escapeHtml(e.client_name || "Client")}</span>
-        <span class="inbox-age">Waiting ${inboxAge(e.received_at)}</span>
-      </div>
-      <h3>${escapeHtml(e.subject || "(no subject)")}</h3>
-      <p class="inbox-snippet">${escapeHtml(e.snippet || "")}</p>
-      <div class="inbox-card-foot">
-        <span class="inbox-from">${escapeHtml(e.from_name || e.from_email || "")}${e.from_name ? ` &lt;${escapeHtml(e.from_email)}&gt;` : ""} · to ${escapeHtml(e.inbox_email || "")}</span>
-        <span class="inbox-actions">
-          <button type="button" class="btn ghost sm" data-inbox-done="${escapeHtml(e.id)}">Mark handled</button>
-          <a class="btn gold sm" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail →</a>
-        </span>
+    const tone = inboxTone(e), who = e.from_name || e.from_email || "";
+    return `<article class="ib-mail ${tone}">
+      <span class="ib-av">${escapeHtml(inboxInitials(e.client_name || who))}</span>
+      <div class="ib-mail-body">
+        <div class="ib-mail-top">
+          ${e.client_id ? `<button type="button" class="ib-client" data-action="view-client" data-id="${escapeHtml(e.client_id)}">${escapeHtml(inboxShortName(e.client_name) || "Client")}</button>` : `<span class="ib-client">${escapeHtml(inboxShortName(e.client_name) || "Client")}</span>`}
+          <span class="ib-who">${escapeHtml(who)}</span>
+          <span class="ib-wait ${tone}">${tone === "fresh" ? "" : "⏱ "}${escapeHtml(inboxAge(e.received_at))}</span>
+        </div>
+        <h3>${escapeHtml(e.subject || "(no subject)")}</h3>
+        ${e.snippet ? `<p>${escapeHtml(e.snippet)}</p>` : ""}
+        <div class="ib-mail-foot">
+          <small>${escapeHtml(e.from_email || "")}${e.inbox_email ? ` → ${escapeHtml(e.inbox_email)}` : ""}</small>
+          <span class="ib-actions">
+            <button type="button" class="ib-btn ghost" data-inbox-done="${escapeHtml(e.id)}" title="No reply needed">✓ Handled</button>
+            <a class="ib-btn gold" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail →</a>
+          </span>
+        </div>
       </div>
     </article>`;
   };
-  const handledRow = (e) => `<div class="inbox-handled-row">
-      <span><b>${escapeHtml(e.client_name || e.from_email || "")}</b> · ${escapeHtml(e.subject || "(no subject)")}</span>
-      <small>${e.status === "replied" ? `Replied${e.replied_at ? ` after ${inboxDur(new Date(e.replied_at) - new Date(e.received_at))}` : ""}` : `Handled${e.done_by ? " by " + escapeHtml(ASSIGNEES[personKeyFromEmail(e.done_by)]?.label || e.done_by) : ""}`}</small>
-      ${e.status === "done" ? `<button type="button" class="inbox-undo" data-inbox-undo="${escapeHtml(e.id)}">Back to waiting</button>` : `<a class="inbox-undo" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Open</a>`}
+  const handledList = handled.filter(e => inboxHandledTab === "all" || e.status === inboxHandledTab).slice(0, 12);
+  const handledRow = (e) => `<div class="ib-done-row">
+      <span class="ib-av sm">${escapeHtml(inboxInitials(e.client_name || e.from_email))}</span>
+      <div><b>${escapeHtml(inboxShortName(e.client_name) || e.from_email || "")}</b><span>${escapeHtml(e.subject || "(no subject)")}</span>
+        <small class="${e.status}">${e.status === "replied" ? `Replied${e.replied_at ? ` in ${inboxDur(new Date(e.replied_at) - new Date(e.received_at))}` : ""}` : `Handled${e.done_by ? " by " + escapeHtml(ASSIGNEES[personKeyFromEmail(e.done_by)]?.label || e.done_by.split("@")[0]) : ""}`}</small></div>
+      ${e.status === "done" ? `<button type="button" class="ib-mini" data-inbox-undo="${escapeHtml(e.id)}" title="Put it back in waiting">Undo</button>` : `<a class="ib-mini" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Open</a>`}
     </div>`;
+  const conns = state.inboxConnections.map(c => {
+    const ok = c.status === "ok" && !stale(c);
+    const name = c.status === "waiting" ? (c.user_id === state.user?.id ? "Your Gmail" : "A teammate's Gmail") : c.email || "Inbox";
+    return `<div class="ib-conn ${ok ? "ok" : "bad"}"><i></i><div><b>${escapeHtml(name)}</b><small>${c.status === "waiting" ? "Not connected yet" : c.last_sync_at ? (Date.now() - new Date(c.last_sync_at) < 90e3 ? "Checked just now" : `Checked ${inboxAge(c.last_sync_at)} ago`) : "Connected"}</small></div></div>`;
+  }).join("");
+
   root.innerHTML = `
-    <div class="page-header">
-      <div><h2>Client inbox</h2><p>Every email from a client, or that mentions one of our clients' company names or websites. Replying in Gmail ticks it off here.</p></div>
-      <div class="inbox-head-actions">
-        ${canNotify && !notifyOn ? `<button type="button" class="btn ghost" data-inbox-act="notify">🔔 Turn on notifications</button>` : notifyOn ? `<span class="inbox-notify-on">🔔 Notifications on</span>` : ""}
-        ${mine && mine.status === "ok" && !inboxSetupOpen ? `<button type="button" class="btn ghost" data-inbox-act="setup-open">Reconnect my Gmail</button>` : ""}
+    <div class="ib-head">
+      <div>
+        <h2>Client inbox</h2>
+        <p>Emails from our clients, oldest first. Replying in Gmail ticks them off here by itself.</p>
       </div>
+      ${canNotify ? (notifyOn ? `<span class="ib-notify on">🔔 Notifications on</span>` : `<button type="button" class="ib-notify" data-inbox-act="notify">🔔 Turn on notifications</button>`) : ""}
     </div>
     ${state.inboxMissing ? `<div class="inbox-setup"><b>The client inbox is still being set up.</b> It switches on once the latest database update has run.</div>` : ""}
-    ${!mine || mine.status !== "ok" || inboxSetupOpen || (mine.last_sync_at && Date.now() - new Date(mine.last_sync_at) > INBOX_STALE_MS) ? inboxSetupHtml(mine) : ""}
-    ${conns ? `<div class="inbox-conns">${conns}</div>` : ""}
-    ${inboxUnmatchableHtml()}
-    <section class="inbox-waiting">
-      <h3 class="inbox-h">${waiting.length ? `Waiting on a reply <span>${waiting.length}</span>` : "Waiting on a reply"}</h3>
-      ${waiting.length ? waiting.map(card).join("") : `<div class="inbox-empty"><b>All caught up.</b><p>No client is waiting on a reply.</p></div>`}
-    </section>
-    ${handled.length ? `<section class="inbox-handled">
-      <button type="button" class="inbox-h toggle" data-inbox-act="handled">${inboxShowHandled ? "▾" : "▸"} Handled in the last 7 days <span>${handled.length}</span></button>
-      ${inboxShowHandled ? handled.map(handledRow).join("") : ""}
-    </section>` : ""}`;
+    ${showSetup ? inboxSetupHtml(mine) : ""}
+    <div class="ib-stats">
+      ${stat("Waiting on a reply", waitingAll.length, waitingAll.length ? `${waitingAll.filter(e => inboxTone(e) === "urgent").length} over 4 hours` : "all caught up", waitingAll.length ? "warn" : "good")}
+      ${stat("Longest wait", oldest ? escapeHtml(inboxAge(oldest.received_at)) : "-", oldest ? escapeHtml(inboxShortName(oldest.client_name) || "") : "nobody waiting", oldest && inboxTone(oldest) === "urgent" ? "bad" : "")}
+      ${stat("Replied today", repliedToday, "from Gmail")}
+      ${stat("Typical reply time", typical == null ? "-" : escapeHtml(inboxDur(typical)), "last 7 days", typical != null && typical <= INBOX_LATE_MS ? "good" : "")}
+    </div>
+    <div class="ib-layout">
+      <section class="ib-main">
+        ${byClient.size > 1 ? `<div class="ib-filters">
+          <button type="button" class="${inboxFilter ? "" : "on"}" data-inbox-filter="">All <span>${waitingAll.length}</span></button>
+          ${[...byClient.entries()].sort((a, b) => b[1].n - a[1].n).map(([k, v]) => `<button type="button" class="${inboxFilter === k ? "on" : ""}" data-inbox-filter="${escapeHtml(k)}">${escapeHtml(inboxShortName(v.name) || "Other")} <span>${v.n}</span></button>`).join("")}
+        </div>` : ""}
+        ${waiting.length ? `<div class="ib-list">${waiting.map(card).join("")}</div>` : `<div class="ib-empty">
+          <span>✓</span><h3>All caught up</h3><p>No client is waiting on a reply. New client emails show up here within a minute.</p>
+        </div>`}
+      </section>
+      <aside class="ib-side">
+        <section class="ib-panel">
+          <div class="ib-panel-head"><h4>Recently handled</h4>
+            <div class="ib-tabs">${[["all", "All"], ["replied", "Replied"], ["done", "Handled"]].map(([k, l]) => `<button type="button" class="${inboxHandledTab === k ? "on" : ""}" data-inbox-tab="${k}">${l}</button>`).join("")}</div>
+          </div>
+          ${handledList.length ? handledList.map(handledRow).join("") : `<p class="ib-muted">Nothing handled in the last 7 days.</p>`}
+        </section>
+        ${inboxUnmatchableHtml()}
+        ${conns ? `<section class="ib-panel"><div class="ib-panel-head"><h4>Connected Gmails</h4></div>${conns}</section>` : ""}
+      </aside>
+    </div>`;
 }
 function setupClientInboxUi(){
   $("#inbox-alert")?.addEventListener("click", () => goPage("client-inbox"));
   // Changing page: the bar hides on the inbox itself, and the inbox shows the latest.
   $$(".nav-item[data-page]").forEach(b => b.addEventListener("click", () => setTimeout(refreshInboxViews, 0)));
   $("#inbox-root")?.addEventListener("click", async (ev) => {
-    const t = ev.target.closest("[data-inbox-act],[data-inbox-done],[data-inbox-undo]");
+    const t = ev.target.closest("[data-inbox-act],[data-inbox-done],[data-inbox-undo],[data-inbox-filter],[data-inbox-tab]");
     if (!t) return;
+    if (t.dataset.inboxFilter !== undefined){ inboxFilter = t.dataset.inboxFilter; return renderClientInbox(); }
+    if (t.dataset.inboxTab){ inboxHandledTab = t.dataset.inboxTab; return renderClientInbox(); }
     if (t.dataset.inboxDone) return setClientEmailStatus(t.dataset.inboxDone, "done");
     if (t.dataset.inboxUndo) return setClientEmailStatus(t.dataset.inboxUndo, "new");
     const act = t.dataset.inboxAct;
