@@ -10692,6 +10692,14 @@ async function copyInboxScript(){
   }
 }
 let inboxScriptFallback = "";
+// Live clients the inbox can only find by name, because there's no email or
+// website on their record.
+function inboxUnmatchableHtml(){
+  const has = (v) => /[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(String(v || ""));
+  const list = state.clients.filter(c => !["churned", ARCHIVED_STAGE].includes(c.stage) && !has(c.email) && !has(c.report_email) && !has(c.key_contacts) && !String(c.website || "").includes("."));
+  if (!list.length) return "";
+  return `<div class="inbox-missing"><b>${list.length} client${list.length === 1 ? " has" : "s have"} no email or website saved</b>, so their emails only come through if they mention the company name: ${list.map(c => `<button type="button" data-action="view-client" data-id="${escapeHtml(c.id)}">${escapeHtml(c.name)}</button>`).join(", ")}. Add their email on the client's page.</div>`;
+}
 function inboxSetupHtml(mine){
   const stale = mine && mine.status === "ok" && mine.last_sync_at && Date.now() - new Date(mine.last_sync_at) > INBOX_STALE_MS;
   const title = !mine ? "Connect your Gmail" : mine.status === "waiting" ? "Finish connecting your Gmail" : stale ? `Your Gmail hasn't checked in for ${inboxAge(mine.last_sync_at)}` : "Connect your Gmail again";
@@ -10785,6 +10793,7 @@ function renderClientInbox(){
     ${state.inboxMissing ? `<div class="inbox-setup"><b>The client inbox is still being set up.</b> It switches on once the latest database update has run.</div>` : ""}
     ${!mine || mine.status !== "ok" || inboxSetupOpen || (mine.last_sync_at && Date.now() - new Date(mine.last_sync_at) > INBOX_STALE_MS) ? inboxSetupHtml(mine) : ""}
     ${conns ? `<div class="inbox-conns">${conns}</div>` : ""}
+    ${inboxUnmatchableHtml()}
     <section class="inbox-waiting">
       <h3 class="inbox-h">${waiting.length ? `Waiting on a reply <span>${waiting.length}</span>` : "Waiting on a reply"}</h3>
       ${waiting.length ? waiting.map(card).join("") : `<div class="inbox-empty"><b>All caught up.</b><p>No client is waiting on a reply.</p></div>`}

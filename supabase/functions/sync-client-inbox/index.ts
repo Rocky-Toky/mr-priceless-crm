@@ -53,9 +53,14 @@ const OWN_DOMAINS = new Set(["mrpriceless.com", "mrpriceless.co.nz"]);
 // person: automated senders, big companies and job applications. Emails from
 // clients always count; anyone else's only if it names one of our clients. Once per connection, the script also works through
 // what's already in the inbox (BACKFILL_QUERY), a page at a time.
-const INBOX_QUERY = "newer_than:2d -category:promotions -category:social -category:forums -in:sent -in:chats -in:spam -in:trash -in:drafts";
-const BACKFILL_QUERY = "in:inbox newer_than:60d -category:promotions -category:social -category:forums -in:chats -in:drafts";
+// No Gmail tab is left out: a client's email filed under Promotions or Updates
+// still counts, and the server's filter does the sorting.
+const INBOX_QUERY = "newer_than:2d -in:sent -in:chats -in:spam -in:trash -in:drafts";
+const BACKFILL_QUERY = "newer_than:60d -in:sent -in:chats -in:spam -in:trash -in:drafts {in:inbox newer_than:7d}";
 const BACKFILL_DAYS = 60;
+// Bump this to have every connected Gmail go through its inbox again (e.g.
+// after matching improves, so emails skipped before get another look).
+const BACKFILL_VERSION = "2";
 const backfillName = (userId: string) => `inbox_backfill:${userId}`;
 const AUTOMATED_SENDER = /^(no-?reply|do-?not-?reply|donotreply|noreply|notifications?|notify|alerts?|mailer-daemon|postmaster|bounces?|newsletters?|news|marketing|promo(tions)?|updates?|digest|automated|system|calendar-notification|invitations?|drive-shares-[a-z-]*|comments-noreply)([+._-].*)?$/;
 // Big companies and platforms: their emails are notices, not people.
@@ -77,13 +82,33 @@ const isCompany = (domain: string) => COMPANY_DOMAINS.some((d) => domain === d |
 // it has to name one of our clients (their company name or website) and come
 // from a real person, not a newsletter, automated notice, big company or job
 // application. Returns the client it's about.
+const textOf = (s: unknown) => ` ${String(s ?? "").toLowerCase().replace(/[^a-z0-9.@&']+/g, " ")} `;
 function aboutAClient(from: { name: string; email: string }, m: any, match: any) {
   if (!fromAPerson(from, m)) return null;
-  const text = ` ${[from.name, from.email, m.subject, m.snippet].join(" ").toLowerCase().replace(/[^a-z0-9.@&']+/g, " ")} `;
+  return mentions(textOf([from.name, from.email, m.subject, m.snippet].join(" ")), match);
+}
+function mentions(text: string, match: any) {
   for (const [d, c] of match.domainList) if (text.includes(d)) return c;
   for (const [name, c] of match.names) if (text.includes(` ${name} `)) return c;
   return null;
 }
+// A sender whose own domain is the client's name ("ascendfinancials.co.nz")
+// is the client, even if that address isn't saved on their record.
+function ownDomainClient(email: string, match: any) {
+  const d = domainOf(email);
+  if (!d || PERSONAL_DOMAINS.has(d) || OWN_DOMAINS.has(d) || isCompany(d)) return null;
+  const host = d.split(".")[0].replace(/[^a-z0-9]/g, "");
+  for (const [compact, c] of match.compacts) if (host.includes(compact)) return c;
+  return null;
+}
+// Words that say what a business does rather than who it is, so "Ascend
+// Financials" can also be found as "Ascend".
+const TRADE_WORDS = new Set(("and the of co company group nz new zealand au australia ltd limited services service solutions builders building build " +
+  "construction constructions concrete roofing roofers plumbing plumbers electrical electric electricians landscaping landscapes " +
+  "renovations renovation renos homes home group financial financials finance accounting accountants property properties projects " +
+  "contracting contractors painting painters decorators fencing decks decking kitchens bathrooms joinery carpentry flooring tiling " +
+  "glass glazing windows doors maintenance trades industries enterprises holdings trust partners studio design designs interiors civil " +
+  "earthworks drainage excavation scaffolding cladding insulation heating ventilation cleaning gardens pools spas steel welding engineering").split(" "));
 function fromAPerson(from: { email: string }, m: any) {
   const [local, domain] = [from.email.split("@")[0] || "", domainOf(from.email)];
   if (!domain || OWN_DOMAINS.has(domain)) return false;
@@ -109,21 +134,25 @@ const clip = (s: unknown, n: number) => String(s ?? "").slice(0, n);
 // Who counts as a client: their main email and report email, on every client
 // we're still working with.
 async function clientMatchers(admin: any) {
-  const { data } = await admin.from("clients").select("id, name, email, report_email, website, stage");
+  const { data } = await admin.from("clients").select("id, name, email, report_email, website, key_contacts, stage");
   const byEmail = new Map<string, any>(), byDomain = new Map<string, any>();
-  const names: [string, any][] = [], webDomains = new Map<string, any>();
+  const names: [string, any][] = [], webDomains = new Map<string, any>(), compacts: [string, any][] = [];
   for (const c of data || []) {
     if (["churned", "archived"].includes(String(c.stage || ""))) continue;
     // Their name as people write it: "A and B Concrete Ltd - Blade" -> "a and b concrete".
     const name = String(c.name || "").replace(/\s+[-–|(].*$/, "").replace(/[,.]?\s+(pty\.?\s+)?(ltd|limited|nz ltd)\.?$/i, "")
       .toLowerCase().replace(/[^a-z0-9.@&']+/g, " ").trim();
-    if (name.length >= 5) names.push([name, c]);
+    const variants = new Set<string>();
+    if (name.length >= 5) { variants.add(name); variants.add(name.replace(/s$/, "")); variants.add(name + "s"); }
+    const core = name.split(" ").filter((w) => !TRADE_WORDS.has(w)).join(" ");
+    if (core.length >= 5) variants.add(core);
+    for (const v of variants) if (v.length >= 5) names.push([v, c]);
+    for (const v of [name, core]) { const k = v.replace(/[^a-z0-9]/g, ""); if (k.length >= 6) compacts.push([k, c]); }
     const site = String(c.website || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#\s]/)[0];
     if (site.includes(".") && site.length >= 6) webDomains.set(site, c);
-    for (const raw of [c.email, c.report_email]) {
-      for (const part of String(raw || "").split(/[,;\s]+/)) {
-        const e = cleanEmail(part);
-        if (!e.includes("@")) continue;
+    // Every address on their record, wherever it's written ("Sam <sam@x.nz>", key contacts...).
+    for (const raw of [c.email, c.report_email, c.key_contacts]) {
+      for (const e of String(raw || "").toLowerCase().match(/[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}/g) || []) {
         const d = domainOf(e);
         if (OWN_DOMAINS.has(d)) continue;
         byEmail.set(e, c);
@@ -132,7 +161,9 @@ async function clientMatchers(admin: any) {
     }
   }
   const domainList = [...new Map([...webDomains, ...byDomain]).entries()];
-  return { byEmail, byDomain, names, domainList };
+  // Longest first, so "reeve builders" wins over a shorter name inside it.
+  names.sort((a, b) => b[0].length - a[0].length);
+  return { byEmail, byDomain, names, domainList, compacts };
 }
 
 // Which teammate a Gmail script key belongs to.
@@ -156,7 +187,7 @@ async function push(admin: any, userId: string, body: any) {
       const gmailId = clip(m.gmail_id, 100);
       if (!gmailId || known.has(gmailId)) continue;
       const from = parseFrom(clip(m.from, 300));
-      const client = match.byEmail.get(from.email) || match.byDomain.get(domainOf(from.email)) || aboutAClient(from, m, match);
+      const client = match.byEmail.get(from.email) || match.byDomain.get(domainOf(from.email)) || ownDomainClient(from.email, match) || aboutAClient(from, m, match);
       if (!client) continue;
       const received = new Date(m.received_at);
       const { error } = await admin.from("client_emails").insert({
@@ -170,6 +201,15 @@ async function push(admin: any, userId: string, body: any) {
       if (!error) added++; // a duplicate (cc'd to both of us) is skipped by the unique Message-ID
     }
   }
+  // Emails saved without a client (by an earlier, wider filter) get another
+  // look each time, now that matching knows more.
+  const { data: loose } = await admin.from("client_emails").select("id, from_email, from_name, subject, snippet")
+    .eq("user_id", userId).is("client_id", null).gte("received_at", new Date(Date.now() - 60 * 86400e3).toISOString()).limit(500);
+  for (const e of loose || []) {
+    const em = cleanEmail(e.from_email);
+    const c = match.byEmail.get(em) || match.byDomain.get(domainOf(em)) || ownDomainClient(em, match) || mentions(textOf([e.from_name, em, e.subject, e.snippet].join(" ")), match);
+    if (c) await admin.from("client_emails").update({ client_id: c.id, client_name: c.name }).eq("id", e.id);
+  }
   // Threads someone has replied in since the client's email came in.
   for (const r of Array.isArray(body.replies) ? body.replies.slice(0, 300) : []) {
     const at = new Date(r.replied_at);
@@ -178,7 +218,7 @@ async function push(admin: any, userId: string, body: any) {
       .eq("user_id", userId).eq("thread_id", clip(r.thread_id, 100)).eq("status", "new").lt("received_at", at.toISOString()).select("id");
     replied += (data || []).length;
   }
-  if (body.backfill_done) await admin.from("app_secrets").upsert({ name: backfillName(userId), value: new Date().toISOString() });
+  if (body.backfill_done) await admin.from("app_secrets").upsert({ name: backfillName(userId), value: `${BACKFILL_VERSION}:${new Date().toISOString()}` });
   await admin.from("inbox_connections").upsert({ user_id: userId, email: inbox || undefined, status: "ok", error: null, last_sync_at: new Date().toISOString() });
   return { added, replied };
 }
@@ -235,7 +275,8 @@ Deno.serve(async (req: Request) => {
     if (body.action === "senders") {
       const match = await clientMatchers(admin);
       const { data: open } = await admin.from("client_emails").select("thread_id").eq("user_id", userId).eq("status", "new").not("thread_id", "is", null).limit(200);
-      const { data: caughtUp } = await admin.from("app_secrets").select("name").eq("name", backfillName(userId)).maybeSingle();
+      const { data: done } = await admin.from("app_secrets").select("value").eq("name", backfillName(userId)).maybeSingle();
+      const caughtUp = String(done?.value || "").startsWith(`${BACKFILL_VERSION}:`);
       return json({
         query: INBOX_QUERY, max: 100, days: 2, sender_scope: "newer_than:2d",
         backfill: !caughtUp, backfill_query: BACKFILL_QUERY, backfill_days: BACKFILL_DAYS,

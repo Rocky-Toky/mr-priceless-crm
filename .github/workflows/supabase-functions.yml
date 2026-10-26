@@ -73,6 +73,10 @@ on:
         description: "Type yes to run the lead sync now and print how many clients are connected (counts only, no names)"
         required: false
         default: ""
+      check_inbox:
+        description: "Type yes to print how the Client inbox is doing: each Gmail's last check and catch-up, email counts, clients missing an email or website (counts only, no names)"
+        required: false
+        default: ""
       check_calendar:
         description: "Check the CRM can reach this person's Google Calendar for meeting invites (an @mrpriceless.com email; leave blank to skip)"
         required: false
@@ -271,6 +275,20 @@ jobs:
           q "select count(*) filter (where details_at is not null) as details_read, count(*) filter (where ghl_contact_id is not null) as with_contact_id, count(*) as total from client_leads where source = 'ghl' and coalesce(lead_created_at, created_at) > now() - interval '3 days'" | jq -c '.[0]'
           echo "Leads in the last 3 days by source:"
           q "select coalesce(source,'none') as source, count(*), count(*) filter (where jsonb_array_length(answers) > 0) as with_answers, count(*) filter (where coalesce(address,city) is not null) as with_location from client_leads where coalesce(lead_created_at, created_at) > now() - interval '3 days' group by 1" | jq -c '.[]'
+      # Run by hand with check_inbox=yes: how each connected Gmail is doing and
+      # what's come in. Statuses and counts only - these logs are public.
+      - name: Check the client inbox
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_inbox == 'yes'
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          echo "Connected Gmails (one row each):"
+          q "select row_number() over (order by i.last_sync_at nulls last) as gmail, i.status, round(extract(epoch from now() - i.last_sync_at) / 60) as minutes_since_last_check, left(coalesce(i.error,''),120) as error, (select left(value, 2) from app_secrets where name = 'inbox_backfill:' || i.user_id) as catch_up_done_version, (select count(*) from client_emails e where e.user_id = i.user_id and e.created_at > now() - interval '1 day') as saved_last_24h from inbox_connections i" | jq -c '.[]'
+          echo "Emails saved:"
+          q "select count(*) filter (where client_id is not null) as with_client, count(*) filter (where client_id is null) as without_client_hidden, count(*) filter (where client_id is not null and status = 'new') as waiting, count(*) filter (where client_id is not null and received_at > now() - interval '7 days') as client_last_7_days from client_emails" | jq -c '.[0]'
+          echo "Live clients and what the inbox can match them by:"
+          q "select count(*) as live_clients, count(*) filter (where coalesce(email,'') !~ '@' and coalesce(report_email,'') !~ '@' and coalesce(key_contacts,'') !~ '@') as no_email_saved, count(*) filter (where coalesce(website,'') !~ '[.]') as no_website_saved, count(*) filter (where coalesce(email,'') !~ '@' and coalesce(report_email,'') !~ '@' and coalesce(key_contacts,'') !~ '@' and coalesce(website,'') !~ '[.]') as name_only from clients where coalesce(stage,'') not in ('churned','archived')" | jq -c '.[0]'
+          echo "Reminder schedule (last 3 runs):"
+          q "select status, start_time from cron.job_run_details where jobid in (select jobid from cron.job where command ilike '%sync-client-inbox%') order by start_time desc limit 3" | jq -c '.[]'
       # Run by hand with check_calendar=someone@mrpriceless.com: asks Google
       # for a token as that person and looks at their calendar. Prints only
       # whether it worked (and how many upcoming events it could see, 0 or 1).
