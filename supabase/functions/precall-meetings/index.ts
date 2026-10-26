@@ -16,6 +16,8 @@
 //     { action: "resolve_flag", meeting_id, do }  accept_move | put_back | mark_cancelled | dismiss
 //     { action: "retry_ghl", meeting_id }  pushes the meeting to GHL again
 //     { action: "task", meeting_id, task: A-G | "joined", status, result, note }  see "Tasks"
+//     { action: "log", meeting_id, type: text_sent | replied | called | note, note }  manual timeline entry
+//     { action: "messages", meeting_id }  pulls that prospect's GHL messages now
 //   Each of those (and an accept / decline seen by the poll) also syncs the
 //   meeting to our GHL sub-account - see "GoHighLevel" below.
 //   Deploy workflow (header x-cron-secret = app_secrets.precall_cron_secret):
@@ -25,6 +27,7 @@
 //     { action: "poll" }  checks each upcoming invite: an accept confirms the
 //       meeting; a decline, or the event moved / deleted in Google, is flagged
 //       and emailed to the setter. Nothing about the meeting itself changes.
+//       It also pulls recent prospects' GHL messages (see "Messages").
 //
 // Test mode (precall_settings.test_mode, on until someone turns it off):
 // the prospect is only added to the invite if their email is one of ours
@@ -242,11 +245,11 @@ const GHL_FIELDS: [string, string][] = [
 ];
 class GhlError extends Error { constructor(msg: string, public status = 0) { super(msg); } }
 // Retries what's worth retrying (rate limits, GHL hiccups) with backoff: 1s, 3s.
-async function ghl(path: string, init: RequestInit = {}) {
+async function ghl(path: string, init: RequestInit = {}, version = "2021-07-28") {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(GHL + path, {
       ...init,
-      headers: { Authorization: `Bearer ${GHL_TOKEN}`, Version: "2021-07-28", Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
+      headers: { Authorization: `Bearer ${GHL_TOKEN}`, Version: version, Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
     });
     const body = await res.json().catch(() => ({}));
     if (res.ok) return body;
@@ -368,6 +371,55 @@ function toE164(raw: string) {
   const d = s.replace(/\D/g, "");
   if (d.startsWith("64") || d.startsWith("61")) return "+" + d;
   return "+64" + d.replace(/^0/, "");
+}
+
+/* ───────── Messages: what GHL sent each prospect, and their replies ─────────
+   Read from the prospect's GHL conversation (the token's View Conversations
+   permission) into precall_messages: every text and email, its delivery
+   status, and any replies. Replies come in unread. */
+const CHANNEL: Record<string, string> = { TYPE_SMS: "sms", TYPE_EMAIL: "email", TYPE_CALL: "call", TYPE_WHATSAPP: "sms" };
+async function syncMessages(admin: SupabaseClient, m: any) {
+  if (!GHL_TOKEN || !GHL_LOCATION || !m.ghl_contact_id) return { added: 0 };
+  let convId = m.ghl_conversation_id;
+  if (!convId) {
+    const found = await ghl(`/conversations/search?locationId=${GHL_LOCATION}&contactId=${m.ghl_contact_id}&limit=1`, {}, "2021-04-15");
+    convId = found?.conversations?.[0]?.id;
+    if (!convId) { await admin.from("meetings").update({ messages_synced_at: nowIso() }).eq("id", m.id); return { added: 0 }; }
+  }
+  const body = await ghl(`/conversations/${convId}/messages?limit=50`, {}, "2021-04-15");
+  const list: any[] = body?.messages?.messages || body?.messages || [];
+  // Only from around when this meeting was booked, so an old conversation's history doesn't pile in.
+  const since = Date.parse(m.booked_at || m.created_at) - 3600e3;
+  const rows = list.filter((x) => x?.id && Date.parse(x.dateAdded || "") >= since).map((x) => ({
+    meeting_id: m.id, ghl_contact_id: m.ghl_contact_id, ghl_message_id: String(x.id),
+    channel: CHANNEL[x.messageType] || (String(x.messageType || "").toLowerCase().includes("email") ? "email" : "other"),
+    direction: x.direction === "inbound" ? "inbound" : "outbound",
+    subject: x.meta?.email?.subject || x.subject || null,
+    body: String(x.body || x.meta?.email?.body || "").slice(0, 4000) || null,
+    status: x.status || null, error: x.error ? String(x.error).slice(0, 300) : null,
+    at: new Date(x.dateAdded).toISOString(),
+  }));
+  const { data: have } = rows.length ? await admin.from("precall_messages").select("ghl_message_id").in("ghl_message_id", rows.map((r) => r.ghl_message_id)) : { data: [] };
+  const known = new Set((have || []).map((r: any) => r.ghl_message_id));
+  const fresh = rows.filter((r) => !known.has(r.ghl_message_id));
+  if (fresh.length) await admin.from("precall_messages").insert(fresh);
+  // Delivery status changes (sent -> delivered / failed) on ones already in.
+  for (const r of rows.filter((r) => known.has(r.ghl_message_id))) {
+    await admin.from("precall_messages").update({ status: r.status, error: r.error }).eq("ghl_message_id", r.ghl_message_id);
+  }
+  await admin.from("meetings").update({ ghl_conversation_id: convId, messages_synced_at: nowIso() }).eq("id", m.id);
+  return { added: fresh.length };
+}
+// Every meeting coming up, or in the last two days, with a GHL contact.
+async function syncAllMessages(admin: SupabaseClient) {
+  const now = Date.now();
+  const { data: list } = await admin.from("meetings").select("*").not("ghl_contact_id", "is", null)
+    .gt("starts_at", new Date(now - 2 * 86400e3).toISOString()).neq("status", "cancelled").limit(60);
+  let added = 0, errors = 0;
+  for (const m of list || []) {
+    try { added += (await syncMessages(admin, m)).added; } catch (e) { errors++; console.log(`messages sync error for meeting ${m.id}: ${String((e as Error)?.message || e).slice(0, 200)}`); }
+  }
+  return { meetings: (list || []).length, added, errors };
 }
 
 /* ───────── Reschedule, cancel, confirm ───────── */
@@ -615,7 +667,8 @@ async function poll(admin: SupabaseClient) {
   const { data: retryGone } = await admin.from("meetings").select("*").eq("status", "cancelled").eq("ghl_status", "error").lt("ghl_attempts", 8).limit(25);
   for (const m of [...(retry || []), ...(retryGone || [])]) await syncGhl(admin, m, "retry");
   if (alertsQueued) await kickEmailSender(admin);
-  return { checked, changed, errors, alerts: alertsQueued, ghl_retried: (retry || []).length + (retryGone || []).length };
+  const messages = await syncAllMessages(admin);
+  return { checked, changed, errors, alerts: alertsQueued, ghl_retried: (retry || []).length + (retryGone || []).length, messages };
 }
 
 // What the setter does about a flag: take the new time from Google, put a
@@ -718,6 +771,22 @@ Deno.serve(async (req: Request) => {
     return json(await synced({ meeting: await confirmMeeting(admin, m, "setter", email, clean(body.note, 500)) }));
   }
   if (body.action === "resolve_flag") return json(await synced(await resolveFlag(admin, body, email)));
+  // Texts and calls from the setter's own phone, logged by hand.
+  if (body.action === "log") {
+    const m = await loadMeeting(admin, body.meeting_id);
+    if (!m) return json({ error: "That meeting wasn't found." }, 404);
+    const type = ["text_sent", "replied", "called", "note"].includes(body.type) ? body.type : "note";
+    const note = clean(body.note, 2000);
+    if (type === "replied" && !note) return json({ error: "Add what they said." });
+    await logEvent(admin, m, "manual", email, { type, note: note || null });
+    return json({ meeting: m });
+  }
+  // Fresh messages for one prospect (when their timeline is opened).
+  if (body.action === "messages") {
+    const m = await loadMeeting(admin, body.meeting_id);
+    if (!m) return json({ error: "That meeting wasn't found." }, 404);
+    try { return json({ meeting: m, ...(await syncMessages(admin, m)) }); } catch (e) { return json({ meeting: m, error_detail: String((e as Error)?.message || e) }); }
+  }
   if (body.action === "task") {
     const r = await doTask(admin, body, email);
     // Only changes GHL cares about get synced (tag or confirmation).

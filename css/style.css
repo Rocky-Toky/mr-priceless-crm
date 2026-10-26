@@ -3946,3 +3946,34 @@ body.workspace-leads .inbox-alert{display:none !important;}
 .pm-chip.late,.pm-chip.missed{color:var(--danger);border-color:rgba(179,69,46,0.3);}
 .pm-chip.skipped,.pm-chip.dismissed{opacity:.6;}
 @media (max-width: 900px){ .pm-strip{grid-column:1 / -1;} }
+/* Prospect timeline and unread replies */
+.pm-tl-modal{max-width:680px;}
+.pm-tl-modal .modal-header .pm-modal-note{margin:2px 0 0;}
+.pm-tl-quick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.pm-tl-quick .btn{padding:6px 11px;font-size:12.5px;}
+.pm-tl-h{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin:6px 0 6px;}
+.pm-tl-h small{text-transform:none;letter-spacing:0;font-weight:400;}
+.pm-tl{list-style:none;margin:0 0 14px;padding:0;}
+.pm-tl li{display:grid;grid-template-columns:118px minmax(0,1fr);gap:10px;padding:8px 10px;border-left:3px solid var(--line);font-size:13px;}
+.pm-tl li + li{margin-top:2px;}
+.pm-tl li time{color:var(--text2);font-size:12px;}
+.pm-tl li span{overflow-wrap:anywhere;}
+.pm-tl li q{display:block;margin-top:4px;padding:7px 9px;border-radius:8px;background:var(--paper);border:1px solid var(--line);quotes:none;color:var(--text);white-space:pre-wrap;}
+.pm-tl li.reply{border-left-color:var(--gold);background:var(--gold-soft);font-weight:600;}
+.pm-tl li.reply q{font-weight:400;background:var(--white);}
+.pm-tl li.good{border-left-color:var(--success);}
+.pm-tl li.bad{border-left-color:var(--danger);}
+.pm-tl li.ghl{border-left-color:var(--pending);}
+.pm-tl.coming li{border-left-style:dashed;}
+.pm-tl.coming li.due{border-left-color:var(--gold);border-left-style:solid;}
+.pm-unread{padding:14px 18px;margin-bottom:14px;border-color:var(--gold-border);}
+.pm-unread h3{display:flex;align-items:center;gap:8px;font-size:15px;margin-bottom:6px;}
+.pm-unread h3 span{font-size:12px;font-weight:700;color:#fff;background:var(--danger);border-radius:999px;padding:1px 8px;}
+.pm-unread-row{display:grid;grid-template-columns:minmax(110px,auto) minmax(0,1fr) auto;gap:4px 12px;align-items:baseline;width:100%;text-align:left;padding:9px 0;border:none;border-top:1px solid var(--line);background:none;font:inherit;font-size:13px;color:var(--text);cursor:pointer;}
+.pm-unread-row span{color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pm-unread-row em{font-style:normal;color:var(--text2);font-size:12px;white-space:nowrap;}
+@media (max-width: 600px){
+  .pm-tl li{grid-template-columns:1fr;gap:2px;}
+  .pm-unread-row{grid-template-columns:1fr;}
+  .pm-unread-row span{white-space:normal;}
+}
