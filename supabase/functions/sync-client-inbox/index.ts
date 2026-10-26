@@ -1,6 +1,7 @@
 // Edge Function: sync-client-inbox
-// Emails from clients (and anyone else who's a real person - not promotions,
-// automated notices, big companies or job applications), sent in by a small Google Apps Script that runs every
+// Emails from clients, or that name one of our clients (company name or
+// website) - not promotions, automated notices, big companies or job
+// applications - sent in by a small Google Apps Script that runs every
 // minute inside each teammate's own Gmail (the CRM's Client inbox page
 // hands it out). Saved to client_emails so the CRM can show what's waiting on
 // a reply. A reply sent from Gmail in the same thread ticks it off by itself.
@@ -50,7 +51,7 @@ const OWN_DOMAINS = new Set(["mrpriceless.com", "mrpriceless.co.nz"]);
 // threads that changed): every recent email except Gmail's Promotions, Social
 // and Forums tabs. push() then drops what's left that isn't from a real
 // person: automated senders, big companies and job applications. Emails from
-// clients always count. Once per connection, the script also works through
+// clients always count; anyone else's only if it names one of our clients. Once per connection, the script also works through
 // what's already in the inbox (BACKFILL_QUERY), a page at a time.
 const INBOX_QUERY = "newer_than:2d -category:promotions -category:social -category:forums -in:sent -in:chats -in:spam -in:trash -in:drafts";
 const BACKFILL_QUERY = "in:inbox newer_than:60d -category:promotions -category:social -category:forums -in:chats -in:drafts";
@@ -72,7 +73,17 @@ const COMPANY_DOMAINS = [
 ];
 const JOB_APPLICATION = /\b(job application|application for|applying for|applied for|apply for the|my (cv|resume)|curriculum vitae|cover letter|resume attached|cv attached|interested in the (role|position)|position of|the (role|position) (of|you advertised)|vacancy|job (ad|listing|opening)|candidate)\b/i;
 const isCompany = (domain: string) => COMPANY_DOMAINS.some((d) => domain === d || domain.endsWith("." + d));
-// Whether an email from someone who isn't a known client belongs in the inbox.
+// Whether an email from someone who isn't on a client's record still counts:
+// it has to name one of our clients (their company name or website) and come
+// from a real person, not a newsletter, automated notice, big company or job
+// application. Returns the client it's about.
+function aboutAClient(from: { name: string; email: string }, m: any, match: any) {
+  if (!fromAPerson(from, m)) return null;
+  const text = ` ${[from.name, from.email, m.subject, m.snippet].join(" ").toLowerCase().replace(/[^a-z0-9.@&']+/g, " ")} `;
+  for (const [d, c] of match.domainList) if (text.includes(d)) return c;
+  for (const [name, c] of match.names) if (text.includes(` ${name} `)) return c;
+  return null;
+}
 function fromAPerson(from: { email: string }, m: any) {
   const [local, domain] = [from.email.split("@")[0] || "", domainOf(from.email)];
   if (!domain || OWN_DOMAINS.has(domain)) return false;
@@ -98,10 +109,17 @@ const clip = (s: unknown, n: number) => String(s ?? "").slice(0, n);
 // Who counts as a client: their main email and report email, on every client
 // we're still working with.
 async function clientMatchers(admin: any) {
-  const { data } = await admin.from("clients").select("id, name, email, report_email, stage");
+  const { data } = await admin.from("clients").select("id, name, email, report_email, website, stage");
   const byEmail = new Map<string, any>(), byDomain = new Map<string, any>();
+  const names: [string, any][] = [], webDomains = new Map<string, any>();
   for (const c of data || []) {
     if (["churned", "archived"].includes(String(c.stage || ""))) continue;
+    // Their name as people write it: "A and B Concrete Ltd - Blade" -> "a and b concrete".
+    const name = String(c.name || "").replace(/\s+[-–|(].*$/, "").replace(/[,.]?\s+(pty\.?\s+)?(ltd|limited|nz ltd)\.?$/i, "")
+      .toLowerCase().replace(/[^a-z0-9.@&']+/g, " ").trim();
+    if (name.length >= 5) names.push([name, c]);
+    const site = String(c.website || "").toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#\s]/)[0];
+    if (site.includes(".") && site.length >= 6) webDomains.set(site, c);
     for (const raw of [c.email, c.report_email]) {
       for (const part of String(raw || "").split(/[,;\s]+/)) {
         const e = cleanEmail(part);
@@ -113,7 +131,8 @@ async function clientMatchers(admin: any) {
       }
     }
   }
-  return { byEmail, byDomain };
+  const domainList = [...new Map([...webDomains, ...byDomain]).entries()];
+  return { byEmail, byDomain, names, domainList };
 }
 
 // Which teammate a Gmail script key belongs to.
@@ -137,12 +156,12 @@ async function push(admin: any, userId: string, body: any) {
       const gmailId = clip(m.gmail_id, 100);
       if (!gmailId || known.has(gmailId)) continue;
       const from = parseFrom(clip(m.from, 300));
-      const client = match.byEmail.get(from.email) || match.byDomain.get(domainOf(from.email));
-      if (!client && !fromAPerson(from, m)) continue;
+      const client = match.byEmail.get(from.email) || match.byDomain.get(domainOf(from.email)) || aboutAClient(from, m, match);
+      if (!client) continue;
       const received = new Date(m.received_at);
       const { error } = await admin.from("client_emails").insert({
         user_id: userId, inbox_email: inbox, gmail_id: gmailId, thread_id: clip(m.thread_id, 100) || null,
-        message_id: clip(m.message_id, 300) || null, client_id: client?.id || null, client_name: client?.name || null,
+        message_id: clip(m.message_id, 300) || null, client_id: client.id, client_name: client.name,
         from_email: from.email, from_name: from.name, subject: clip(m.subject, 300), snippet: clip(m.snippet, 400),
         received_at: isNaN(received.getTime()) ? new Date().toISOString() : received.toISOString(),
         // Older emails from the catch-up don't each set off a 2-hour reminder.
@@ -170,7 +189,7 @@ async function remind(admin: any) {
   if (!RESEND_API_KEY || !EMAIL_FROM) return 0;
   const hour = Number(new Intl.DateTimeFormat("en-NZ", { timeZone: "Pacific/Auckland", hour: "numeric", hourCycle: "h23" }).format(new Date()));
   if (hour < 7 || hour >= 20) return 0;
-  const { data } = await admin.from("client_emails").select("*").eq("status", "new").is("reminded_at", null)
+  const { data } = await admin.from("client_emails").select("*").eq("status", "new").is("reminded_at", null).not("client_id", "is", null)
     .lt("received_at", new Date(Date.now() - REMIND_AFTER_MS).toISOString()).limit(20);
   let sent = 0;
   for (const e of data || []) {

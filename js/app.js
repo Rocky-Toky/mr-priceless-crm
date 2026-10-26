@@ -10490,7 +10490,7 @@ function renderTeamFocusPanel(){
 // straight away and the rest just after, while the browser is idle, so a
 // save or a live update never stalls the screen redrawing pages nobody's on.
 /* ───────── Client inbox ─────────
-   Emails from clients (and other real people), pulled out of each teammate's connected Gmail every
+   Emails from clients (or naming one of our clients), pulled out of each teammate's connected Gmail every
    minute by the sync-client-inbox function. Anything waiting on a reply
    is top priority: a count in the menu, a bar across every page, and a
    desktop notification the moment a new one lands. Replying in Gmail ticks
@@ -10527,7 +10527,8 @@ async function loadClientInbox(){
   }
   const since = new Date(Date.now() - 7 * 86400e3).toISOString();
   const [em, ic] = await Promise.all([
-    supabase.from("client_emails").select("*").or(`status.eq.new,received_at.gte.${since}`).order("received_at", { ascending: false }).limit(300),
+    // Client emails only (a short-lived earlier version also saved other people's).
+    supabase.from("client_emails").select("*").not("client_id", "is", null).or(`status.eq.new,received_at.gte.${since}`).order("received_at", { ascending: false }).limit(300),
     supabase.from("inbox_connections").select("*"),
   ]);
   state.clientEmails = em.data || [];
@@ -10556,7 +10557,7 @@ function setupClientInbox(){
   let t = null;
   const reload = () => { clearTimeout(t); t = setTimeout(() => loadClientInbox().then(refreshInboxViews), 300); };
   supabase.channel("client-inbox")
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "client_emails" }, (p) => { notifyClientEmail(p.new); reload(); })
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "client_emails" }, (p) => { if (p.new?.client_id) notifyClientEmail(p.new); reload(); })
     .on("postgres_changes", { event: "UPDATE", schema: "public", table: "client_emails" }, reload)
     .on("postgres_changes", { event: "*", schema: "public", table: "inbox_connections" }, (p) => {
       if (p.new?.user_id === state.user?.id && p.new?.status === "ok" && inboxSetupOpen){ inboxSetupOpen = false; inboxScriptFallback = ""; rcToast("Your Gmail is connected."); }
@@ -10775,7 +10776,7 @@ function renderClientInbox(){
     </div>`;
   root.innerHTML = `
     <div class="page-header">
-      <div><h2>Client inbox</h2><p>Every email that needs a reply - from clients and anyone else, but not promotions, automated emails, big companies or job applications. Replying in Gmail ticks it off here.</p></div>
+      <div><h2>Client inbox</h2><p>Every email from a client, or that mentions one of our clients' company names or websites. Replying in Gmail ticks it off here.</p></div>
       <div class="inbox-head-actions">
         ${canNotify && !notifyOn ? `<button type="button" class="btn ghost" data-inbox-act="notify">🔔 Turn on notifications</button>` : notifyOn ? `<span class="inbox-notify-on">🔔 Notifications on</span>` : ""}
         ${mine && mine.status === "ok" && !inboxSetupOpen ? `<button type="button" class="btn ghost" data-inbox-act="setup-open">Reconnect my Gmail</button>` : ""}
