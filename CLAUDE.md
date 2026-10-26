@@ -61,6 +61,8 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
   - `sync-ghl-leads` pulls new opportunities from each client's GoHighLevel every 5 minutes (sql/078 cron) into `client_leads`.
   - Calling state lives on `client_leads`: `follow_status`, `attempts`, `next_attempt_at`, `call_log`, `booked_for`.
   - The queue and results pages are in `js/app.js` (search for "Lead Follow Up").
+  - Queue order: fresh uncalled enquiries (goal: called within 3 minutes, `LQ_FAST_MS`), then due retries / call-backs, then older leads sitting in Rep to contact or Stuck (the sync pulls those in at any age). Longest waiting first within each.
+  - No-answers come back in alternating waves (`lqNextTry`): morning wave 9am, afternoon wave 2pm, 5 calls in all, then "No answer" in GHL.
   - Outcomes go back into the client's GoHighLevel via `sync-ghl-leads` action `outcome`: site visit / consultation call move the opportunity to that stage and book the client's calendar; not interested / not a fit / wrong number move to Disqualified; 5 unanswered calls move to No answer. Stages and calendars are matched by name unless set per client in `lead_stage_map` (Results → Stages). What happened is recorded on `client_leads.ghl_sync`.
   - GHL keys need: View Contacts, Edit Contacts, View/Edit Opportunities, View Forms, View Custom Fields, View Calendars, Edit Calendar Events.
   - Workspaces are `sales`, `delivery`, `employees` and `leads`. The last two are in `SOLO_WORKSPACES`, so shared menu items are hidden there.
