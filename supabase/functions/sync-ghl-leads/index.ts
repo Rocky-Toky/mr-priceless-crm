@@ -247,6 +247,51 @@ async function syncAll(admin: any) {
   return { connected: todo.length, checked, added, failed, skipped, no_contacts_access: noContacts };
 }
 
+// Where a client's lead details live in GHL, by shape only - counts and
+// yes/no, never names or answers - for the workflow's sync check.
+async function inspect(admin: any) {
+  const { data: conns } = await admin.from("client_ghl").select("client_id, location_id, token");
+  const out: any[] = [];
+  let n = 0;
+  for (const conn of conns || []) {
+    n++;
+    const { data: leads } = await admin.from("client_leads").select("external_lead_id, ghl_contact_id, details_at")
+      .eq("client_id", conn.client_id).like("external_lead_id", "ghl%").order("created_at", { ascending: false }).limit(2);
+    const samples: any[] = [];
+    for (const l of leads || []) {
+      const s: any = { details_at: Boolean(l.details_at) };
+      const oppId = String(l.external_lead_id).startsWith("ghl:") ? String(l.external_lead_id).slice(4) : null;
+      let cid = l.ghl_contact_id;
+      if (oppId) {
+        try {
+          const o = (await ghl(`/opportunities/${encodeURIComponent(oppId)}`, conn.token))?.opportunity || {};
+          cid = cid || o.contactId;
+          const cf = o.customFields || [];
+          s.opp = { keys: Object.keys(o).sort(), custom_fields: cf.length, custom_filled: cf.filter((f: any) => valueText(f.fieldValue ?? f.value ?? f.fieldValueString ?? f.fieldValueArray)).length, has_notes: Boolean(o.notes) };
+        } catch (e) { s.opp = { error: (e as any)?.status || String(e).slice(0, 60) }; }
+      }
+      if (cid) {
+        try {
+          const c = (await ghl(`/contacts/${encodeURIComponent(cid)}`, conn.token))?.contact || {};
+          const cf = c.customFields || [];
+          s.contact = { keys: Object.keys(c).sort(), custom_fields: cf.length, custom_filled: cf.filter((f: any) => valueText(f.value)).length, address1: Boolean(c.address1), city: Boolean(c.city), postal: Boolean(c.postalCode), tags: (c.tags || []).length, attribution: Boolean(c.attributionSource) };
+        } catch (e) { s.contact = { error: (e as any)?.status || String(e).slice(0, 60) }; }
+        try {
+          const notes = (await ghl(`/contacts/${encodeURIComponent(cid)}/notes`, conn.token))?.notes || [];
+          s.notes = { count: notes.length, longest: Math.max(0, ...notes.map((x: any) => String(x.body || "").length)) };
+        } catch (e) { s.notes = { error: (e as any)?.status || String(e).slice(0, 60) }; }
+        try {
+          const subs = await ghl(`/forms/submissions?locationId=${encodeURIComponent(conn.location_id)}&q=${encodeURIComponent(cid)}&limit=5`, conn.token);
+          s.form_submissions = { count: (subs?.submissions || []).length };
+        } catch (e) { s.form_submissions = { error: (e as any)?.status || String(e).slice(0, 60) }; }
+      }
+      samples.push(s);
+    }
+    out.push({ client: n, samples });
+  }
+  return out;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -259,6 +304,9 @@ Deno.serve(async (req: Request) => {
   if (cronHeader) {
     const { data: secret } = await admin.from("app_secrets").select("value").eq("name", "leads_cron_secret").maybeSingle();
     if (!secret?.value || secret.value !== cronHeader) return json({ error: "Unauthorized." }, 401);
+    let cb: any = {};
+    try { cb = (await req.json()) ?? {}; } catch { cb = {}; }
+    if (cb.action === "inspect") return json(await inspect(admin));
     return json(await syncAll(admin));
   }
 
