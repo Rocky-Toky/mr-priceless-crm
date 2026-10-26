@@ -15,6 +15,7 @@
 //     { action: "confirm", meeting_id, note }  the setter heard back from them
 //     { action: "resolve_flag", meeting_id, do }  accept_move | put_back | mark_cancelled | dismiss
 //     { action: "retry_ghl", meeting_id }  pushes the meeting to GHL again
+//     { action: "task", meeting_id, task: A-G | "joined", status, result, note }  see "Tasks"
 //   Each of those (and an accept / decline seen by the poll) also syncs the
 //   meeting to our GHL sub-account - see "GoHighLevel" below.
 //   Deploy workflow (header x-cron-secret = app_secrets.precall_cron_secret):
@@ -211,6 +212,7 @@ async function book(admin: SupabaseClient, b: any, caller: string) {
     starts_at: startsAt.toISOString(),
     description: clean(b.description, 4000) || null,
     booked_at: bookedAt.toISOString(),
+    tasks_from: bookedAt.toISOString(),
     lead_time_hours: Math.round(((startsAt.getTime() - bookedAt.getTime()) / 3600e3) * 10) / 10,
     booking_window: bookingWindow(bookedAt, startsAt),
     created_by: caller,
@@ -393,6 +395,8 @@ async function save(admin: SupabaseClient, m: any, patch: any) {
 }
 // A new time means the old confirmation no longer counts.
 const unconfirmed = () => ({ confirmation_status: "unconfirmed", confirmed_at: null, confirmed_today_at: null, prospect_response: null });
+// A new time means the tasks start again from now (a new booking text, etc).
+const freshTasks = () => ({ task_log: {}, tasks_from: nowIso(), onehour_noanswer_at: null, prospect_joined_at: null, outcome_alerted_at: null });
 
 // Moves the invite (same event, same Meet link - the prospect gets the
 // update) and the buffer after it. status "confirmed" also brings back an
@@ -428,7 +432,7 @@ async function reschedule(admin: SupabaseClient, b: any, caller: string) {
   const flags = { ...(m.calendar_flag_detail || {}) };
   delete flags.moved; delete flags.deleted; delete flags.declined;
   const saved = await save(admin, m, {
-    starts_at: start.toISOString(), reschedule_count: (m.reschedule_count || 0) + 1, ...unconfirmed(),
+    starts_at: start.toISOString(), reschedule_count: (m.reschedule_count || 0) + 1, ...unconfirmed(), ...freshTasks(),
     booking_window: bookingWindow(now, start), lead_time_hours: Math.round(((start.getTime() - now.getTime()) / 3600e3) * 10) / 10,
     calendar_flag: null, calendar_flag_detail: flags,
   });
@@ -470,6 +474,41 @@ async function confirmMeeting(admin: SupabaseClient, m: any, source: string, by:
   return saved;
 }
 
+/* ───────── Tasks: what the setter and closer have done ─────────
+   The CRM works out each meeting's tasks from the meeting itself; this
+   records what was done with one, and anything that follows from it:
+     D (one-hour call) answered_ok      -> confirmed (today, on the day)
+     D no_answer                        -> GHL tag precall-onehour-noanswer
+     G (outcome) showed / noshow        -> outcome, the deal's attended flag, GHL tag
+     joined                             -> the prospect's on the call (stops E and F) */
+const TASK_KEYS = ["A", "B", "C", "D", "E", "F", "G"];
+async function doTask(admin: SupabaseClient, b: any, caller: string) {
+  const m = await loadMeeting(admin, b.meeting_id);
+  if (!m) return { error: "That meeting wasn't found." };
+  if (b.task === "joined") {
+    const saved = await save(admin, m, { prospect_joined_at: m.prospect_joined_at || nowIso() });
+    await logEvent(admin, m, "prospect_joined", caller);
+    return { meeting: saved };
+  }
+  if (!TASK_KEYS.includes(b.task)) return { error: "Unknown task." };
+  const status = b.status === "dismissed" ? "dismissed" : "done";
+  const result = clean(b.result, 40) || null, note = clean(b.note, 1000) || null;
+  const entry = { status, result, note, at: nowIso(), by: caller };
+  let patch: any = { task_log: { ...(m.task_log || {}), [b.task]: entry } };
+  if (b.task === "G" && status === "done") {
+    if (!["showed", "noshow"].includes(result || "")) return { error: "Pick Showed or No-show." };
+    if (m.status !== "scheduled") return { error: "That meeting isn't scheduled any more." };
+    patch = { ...patch, outcome: result, outcome_at: nowIso(), outcome_by: caller, status: "completed" };
+    if (m.deal_id) await admin.from("deals").update({ attended_meeting: result === "showed", updated_at: nowIso() }).eq("id", m.deal_id);
+  }
+  if (b.task === "D" && result === "no_answer") patch.onehour_noanswer_at = nowIso();
+  let saved = await save(admin, m, patch);
+  await logEvent(admin, m, b.task === "G" && status === "done" ? "outcome" : "task", caller, { task: b.task, status, result, note });
+  if (b.task === "D" && result === "answered_ok") saved = await confirmMeeting(admin, saved, "setter", caller, "One-hour call: still good");
+  if (b.task === "C" && result === "confirmed") saved = await confirmMeeting(admin, saved, "setter", caller, "Follow-up call");
+  return { meeting: saved };
+}
+
 /* ───────── Watching Google Calendar (every 5 minutes) ───────── */
 let alertsQueued = 0;
 // calendar_flag_detail keeps what's been seen: { moved: {from, to, at}, deleted: {at}, declined: {at} },
@@ -479,21 +518,30 @@ const topFlag = (flags: any) => FLAG_ORDER.find((k) => flags[k] && !flags[k].dis
 const CRM_URL = "https://rocky-toky.github.io/mr-priceless-crm/";
 
 async function alertSetter(admin: SupabaseClient, m: any, kind: string, extra = "") {
-  const to = m.setter_email || m.created_by;
-  if (!to) return;
-  alertsQueued++;
   const who = fullName(m) + (m.business_name ? ` (${m.business_name})` : "");
   const what: Record<string, string> = {
     declined: `${who} declined the calendar invite for ${nzWhen(m.starts_at)}.`,
     moved: `${who}'s meeting was moved in Google Calendar${extra ? ` to ${nzWhen(extra)}` : ""}. It was booked for ${nzWhen(m.starts_at)}.`,
     deleted: `${who}'s meeting on ${nzWhen(m.starts_at)} was deleted from Google Calendar.`,
+    no_outcome: `${who}'s meeting at ${nzWhen(m.starts_at)} hasn't had its outcome recorded yet. Did they show?`,
   };
-  await admin.from("scheduled_emails").insert({
-    kind: "precall_alert", to_email: to,
-    subject: kind === "declined" ? `${fullName(m)} declined their meeting` : `${fullName(m)}'s meeting changed in Google Calendar`,
-    body: `Hey,\n\n${what[kind]}\n\nNothing's been changed in the CRM. Open Upcoming Meetings to sort it out${kind === "declined" ? " - give them a call" : ""}:\n${CRM_URL}\n\nMr Priceless CRM`,
-    send_at: nowIso(), created_by: "precall-watch",
-  });
+  const subject: Record<string, string> = {
+    declined: `${fullName(m)} declined their meeting`,
+    no_outcome: `Outcome needed: ${fullName(m)}`,
+  };
+  const next = kind === "no_outcome" ? "Open Upcoming Meetings and pick Showed, No-show, Rescheduled or Cancelled"
+    : `Nothing's been changed in the CRM. Open Upcoming Meetings to sort it out${kind === "declined" ? " - give them a call" : ""}`;
+  // The outcome nudge goes to the closer and the setter; the rest to the setter.
+  const to = [...new Set((kind === "no_outcome" ? [m.closer_email, m.setter_email] : [m.setter_email || m.created_by]).filter(Boolean))];
+  for (const email of to) {
+    alertsQueued++;
+    await admin.from("scheduled_emails").insert({
+      kind: "precall_alert", to_email: email,
+      subject: subject[kind] || `${fullName(m)}'s meeting changed in Google Calendar`,
+      body: `Hey,\n\n${what[kind]}\n\n${next}:\n${CRM_URL}\n\nMr Priceless CRM`,
+      send_at: nowIso(), created_by: "precall-watch",
+    });
+  }
 }
 
 // The email sender normally runs every 5 minutes; nudge it so an alert goes
@@ -554,6 +602,14 @@ async function poll(admin: SupabaseClient) {
     const { data: saved } = await admin.from("meetings").update(patch).eq("id", m.id).select().single();
     if (saved && saved.confirmation_status !== before) await syncGhl(admin, saved, "google");
   }
+  // 20 minutes after a meeting starts with no outcome recorded, nudge the closer and setter (once).
+  const { data: noOutcome } = await admin.from("meetings").select("*").eq("status", "scheduled").is("outcome", null).is("outcome_alerted_at", null)
+    .lt("starts_at", new Date(now - 20 * 60e3).toISOString()).gt("starts_at", new Date(now - 6 * 3600e3).toISOString()).limit(25);
+  for (const m of noOutcome || []) {
+    await alertSetter(admin, m, "no_outcome");
+    await admin.from("meetings").update({ outcome_alerted_at: nowIso() }).eq("id", m.id);
+    await logEvent(admin, m, "outcome_overdue", "crm");
+  }
   // GHL syncs that failed get another go (up to 8 tries, 5 minutes apart).
   const { data: retry } = await admin.from("meetings").select("*").eq("status", "scheduled").eq("ghl_status", "error").lt("ghl_attempts", 8).limit(25);
   const { data: retryGone } = await admin.from("meetings").select("*").eq("status", "cancelled").eq("ghl_status", "error").lt("ghl_attempts", 8).limit(25);
@@ -576,7 +632,7 @@ async function resolveFlag(admin: SupabaseClient, b: any, caller: string) {
     delete flags.moved;
     const now = new Date();
     const saved = await save(admin, m, {
-      starts_at: start.toISOString(), reschedule_count: (m.reschedule_count || 0) + 1, ...unconfirmed(),
+      starts_at: start.toISOString(), reschedule_count: (m.reschedule_count || 0) + 1, ...unconfirmed(), ...freshTasks(),
       booking_window: bookingWindow(now, start), lead_time_hours: Math.round(((start.getTime() - now.getTime()) / 3600e3) * 10) / 10,
       calendar_flag_detail: flags, calendar_flag: topFlag(flags),
     });
@@ -662,5 +718,11 @@ Deno.serve(async (req: Request) => {
     return json(await synced({ meeting: await confirmMeeting(admin, m, "setter", email, clean(body.note, 500)) }));
   }
   if (body.action === "resolve_flag") return json(await synced(await resolveFlag(admin, body, email)));
+  if (body.action === "task") {
+    const r = await doTask(admin, body, email);
+    // Only changes GHL cares about get synced (tag or confirmation).
+    const ghlCares = (body.task === "G" && body.status !== "dismissed") || (body.task === "D" && ["no_answer", "answered_ok"].includes(body.result)) || (body.task === "C" && body.result === "confirmed");
+    return json(ghlCares ? await synced(r) : r);
+  }
   return json({ error: "Unknown action." }, 400);
 });

@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=314">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=314">
+<link rel="stylesheet" href="css/style.css?v=315">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=315">
 </head>
 <body>
 
@@ -1946,12 +1946,35 @@
       </div>
       <div class="bm-avail" id="book-meeting-avail" aria-live="polite"></div>
       <div class="field"><label>Invite description <small class="bm-hint">goes in the calendar invite</small></label><textarea id="book-meeting-desc" rows="3" placeholder="e.g. Quick chat about getting Reeve Builders more quote requests from Facebook ads."></textarea></div>
+      <div class="pm-sms" id="book-meeting-sms">
+        <div class="pm-sms-head"><b>Booking text</b><small>text this from your phone once it's booked</small><button type="button" class="btn ghost" id="book-meeting-copy">Copy</button></div>
+        <p class="pm-sms-text" id="book-meeting-sms-text"></p>
+      </div>
       <div class="field"><label>Lead source</label><select id="book-meeting-source"><option value="outbound">Outbound (we called them)</option><option value="inbound">Inbound (they came to us)</option></select></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="book-meeting-modal">Cancel</button>
         <button type="submit" class="btn gold">Book Meeting</button>
       </div>
     </form>
+  </div>
+</div>
+
+<div class="overlay" id="pm-booked-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="pm-booked-title">Booked</h3><button class="modal-close" data-close="pm-booked-modal">&times;</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="pm-booked-id">
+      <p class="pm-modal-note" id="pm-booked-sub"></p>
+      <div class="pm-sms">
+        <div class="pm-sms-head"><b>Now text them from your phone</b></div>
+        <p class="pm-sms-text" id="pm-booked-text"></p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="pm-booked-modal">Later</button>
+        <button type="button" class="btn ghost" id="pm-booked-copy">Copy text</button>
+        <button type="button" class="btn gold" id="pm-booked-sent">I've sent it</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2869,17 +2892,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=314"></script>
-<script src="js/supabaseClient.js?v=314"></script>
-<script src="js/report-pdf.js?v=314"></script>
-<script src="js/plan-pdf.js?v=314"></script>
-<script src="js/workshop-pdf.js?v=314"></script>
-<script src="js/receipt-pdf.js?v=314"></script>
-<script src="js/welcome-pdf.js?v=314"></script>
-<script src="js/builtin-playbooks.js?v=314"></script>
-<script src="js/builtin-email-templates.js?v=314"></script>
-<script src="js/app.js?v=314"></script>
-<script src="js/meetings-tracker.js?v=314"></script>
-<script src="js/todo.js?v=314"></script>
+<script src="js/config.js?v=315"></script>
+<script src="js/supabaseClient.js?v=315"></script>
+<script src="js/report-pdf.js?v=315"></script>
+<script src="js/plan-pdf.js?v=315"></script>
+<script src="js/workshop-pdf.js?v=315"></script>
+<script src="js/receipt-pdf.js?v=315"></script>
+<script src="js/welcome-pdf.js?v=315"></script>
+<script src="js/builtin-playbooks.js?v=315"></script>
+<script src="js/builtin-email-templates.js?v=315"></script>
+<script src="js/app.js?v=315"></script>
+<script src="js/meetings-tracker.js?v=315"></script>
+<script src="js/todo.js?v=315"></script>
 </body>
 </html>

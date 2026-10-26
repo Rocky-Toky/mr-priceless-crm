@@ -3917,3 +3917,32 @@ body.workspace-leads .inbox-alert{display:none !important;}
 .emp-resp-row .emp-link{margin-top:10px;}
 @media(max-width:640px){ .emp-resp-row{grid-template-columns:1fr;} .emp-resp-row .emp-link{margin-top:0;justify-self:start;} }
 .emp-page-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;max-width:1100px;margin-top:14px;font-size:13px;color:var(--text2);}
+/* Meeting tasks: booking text, to-do list, task strip */
+.pm-sms{margin:0 0 14px;padding:11px 13px;border-radius:var(--r-sm);background:var(--gold-soft);border:1px solid var(--gold-border);}
+.pm-sms-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:13px;}
+.pm-sms-head small{color:var(--text2);font-size:12px;flex:1;min-width:0;}
+.pm-sms-head .btn{padding:5px 12px;font-size:12.5px;}
+.pm-sms-text{font-size:14px;line-height:1.45;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;}
+.pm-todo{padding:14px 18px;margin-bottom:14px;}
+.pm-todo-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+.pm-todo-head h3{display:flex;align-items:center;gap:8px;font-size:15px;}
+.pm-todo-head h3 span{font-size:12px;font-weight:700;color:#fff;background:var(--danger);border-radius:999px;padding:1px 8px;}
+.pm-todo-empty{color:var(--text2);font-size:13px;padding:6px 0 2px;}
+.pm-task{padding:11px 0;border-top:1px solid var(--line);}
+.pm-task.late .pm-task-head em{color:var(--danger);}
+.pm-task-head{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;font-size:13px;margin-bottom:7px;}
+.pm-task-head b{font-size:14px;}
+.pm-task-head span{color:var(--text2);flex:1;min-width:0;}
+.pm-task-head em{font-style:normal;font-weight:600;color:var(--gold-deep);white-space:nowrap;}
+.pm-task .pm-sms-text{margin-bottom:8px;padding:9px 11px;border-radius:var(--r-sm);background:var(--paper);border:1px solid var(--line);}
+.pm-task-actions{display:flex;flex-wrap:wrap;gap:6px;}
+.pm-task-actions .btn{padding:6px 11px;font-size:12.5px;text-decoration:none;}
+.pm-task-actions .pm-skip{color:var(--text2);}
+.pm-strip{grid-column:2 / -1;display:flex;flex-wrap:wrap;gap:5px;}
+.pm-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11.5px;border:1px solid var(--line);background:var(--white);color:var(--text2);white-space:nowrap;}
+.pm-chip small{font-size:11px;opacity:.85;}
+.pm-chip.done{color:var(--success);border-color:rgba(63,125,85,0.3);}
+.pm-chip.due{color:var(--gold-deep);border-color:var(--gold-border);background:var(--gold-soft);font-weight:600;}
+.pm-chip.late,.pm-chip.missed{color:var(--danger);border-color:rgba(179,69,46,0.3);}
+.pm-chip.skipped,.pm-chip.dismissed{opacity:.6;}
+@media (max-width: 900px){ .pm-strip{grid-column:1 / -1;} }
