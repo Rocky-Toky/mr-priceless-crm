@@ -1629,6 +1629,7 @@ const WORKSPACE_KEY = "mp_workspace";
 const WORKSPACE_COPY = {
   sales: { title: "Sales", sub: "Prospecting, booking meetings, and closing deals.", dashboardTitle: "Dashboard", dashboardSub: "MRR and closed won jobs at a glance." },
   delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients.", dashboardTitle: "Dashboard", dashboardSub: "Client health and delivery at a glance." },
+  employees: { title: "Employees", sub: "The team, how they're tracking, onboarding, 1:1s and leave.", dashboardTitle: "Dashboard", dashboardSub: "The team at a glance." },
 };
 function getWorkspace(){ return localStorage.getItem(WORKSPACE_KEY) || "sales"; }
 let workspaceLanded = false;
@@ -1650,6 +1651,7 @@ function applyWorkspace(){
   }
   document.body.classList.toggle("workspace-sales", ws === "sales");
   document.body.classList.toggle("workspace-delivery", ws === "delivery");
+  document.body.classList.toggle("workspace-employees", ws === "employees");
   $$("[data-workspace]").forEach(el => {
     el.style.display = (el.dataset.workspace === "both" || el.dataset.workspace === ws) ? "" : "none";
   });
@@ -1671,8 +1673,8 @@ function applyWorkspace(){
   if (dashTitleEl) dashTitleEl.textContent = copy.dashboardTitle;
   if (dashSubEl) dashSubEl.textContent = copy.dashboardSub;
   // If the page we're on isn't part of this workspace, fall back to Dashboard.
-  // Each workspace opens on its main page: Meetings Booked, or Clients.
-  const landing = ws === "delivery" ? "clients" : "cold-calls";
+  // Each workspace opens on its main page: Meetings Booked, Clients, or Employees.
+  const landing = ws === "delivery" ? "clients" : ws === "employees" ? "employees" : "cold-calls";
   const pageBtns = $$(`.nav-item[data-page="${state.page}"]`);
   if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => b.dataset.workspace === "both" || b.dataset.workspace === ws))){
     workspaceLanded = true;
