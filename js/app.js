@@ -10381,11 +10381,11 @@ const LQ_OUTCOMES = {
   disqualified: { label: "Not a fit", icon: "🚫", hint: "Wrong area, too small, not our work", cls: "grey", final: true },
   wrong_number: { label: "Wrong number", icon: "❌", hint: "The number doesn't reach them", cls: "grey", final: true },
 };
-const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", site_visit: "Site visit booked", consult_call: "Consultation booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer - 5 tries", old: "Old" };
+const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", site_visit: "Site visit booked", consult_call: "Consultation booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer - 5 tries", in_ghl: "Moved on in GoHighLevel", old: "Old" };
 // What a booking is, and which outcomes also move the lead in the client's GoHighLevel.
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
 const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable"]);
-const LQ_MAX_TRIES = 5, LQ_FAST_MS = 5 * 60e3;
+const LQ_MAX_TRIES = 5, LQ_FAST_MS = 5 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
@@ -10395,6 +10395,9 @@ const lqClient = (l) => state.clients.find(c => c.id === l.client_id) || null;
 const lqIn = (l) => new Date(l.lead_created_at || l.created_at).getTime();
 const lqIsOpen = (l) => LQ_OPEN.has(l.follow_status || "new");
 const lqDue = (l) => lqIsOpen(l) && (!l.next_attempt_at || new Date(l.next_attempt_at).getTime() <= Date.now());
+// An older lead pulled in because it's sat in the client's "Rep to contact" or
+// "Stuck" stage - still worth a call, but after the fresh ones.
+const lqBacklog = (l) => (l.follow_status || "new") === "new" && Date.now() - lqIn(l) > LQ_FRESH_MS;
 const lqWho = (email) => { const k = personKeyFromEmail(email || ""); return ASSIGNEES[k]?.label || (email ? email.split("@")[0].split(/[._0-9]/)[0].replace(/^./, c => c.toUpperCase()) : ""); };
 function lqAgo(ms){
   const m = Math.max(0, Math.round(ms / 60000));
@@ -10431,10 +10434,13 @@ function lqNextTry(attempts){
 }
 function lqQueue(){
   const all = state.clientLeads.filter(l => l.follow_status !== "old");
+  // Fresh enquiries first (longest waiting at the top), then retries that are
+  // due, then the older backlog newest first.
+  const tier = (l) => lqBacklog(l) ? 2 : (l.follow_status || "new") === "new" ? 0 : 1;
   const due = all.filter(lqDue).sort((a, b) => {
-    const an = (a.follow_status || "new") === "new", bn = (b.follow_status || "new") === "new";
-    if (an !== bn) return an ? -1 : 1; // first calls before retries
-    return an ? lqIn(a) - lqIn(b) : new Date(a.next_attempt_at || 0) - new Date(b.next_attempt_at || 0);
+    const ta = tier(a), tb = tier(b);
+    if (ta !== tb) return ta - tb;
+    return ta === 0 ? lqIn(a) - lqIn(b) : ta === 2 ? lqIn(b) - lqIn(a) : new Date(a.next_attempt_at || 0) - new Date(b.next_attempt_at || 0);
   });
   const later = all.filter(l => lqIsOpen(l) && !lqDue(l)).sort((a, b) => new Date(a.next_attempt_at) - new Date(b.next_attempt_at));
   const today = localDayStr();
@@ -10509,7 +10515,7 @@ function renderLeadQueue(){
   if (!lqSel) lqSel = q.due[0]?.id || q.later[0]?.id || null;
   const logsToday = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => x.at && localDayStr(new Date(x.at)) === today));
   const bookedToday = logsToday.filter(x => LQ_BOOKED.has(x.outcome)).length;
-  const waiting = q.due.filter(l => (l.follow_status || "new") === "new");
+  const waiting = q.due.filter(l => (l.follow_status || "new") === "new" && !lqBacklog(l));
   const longest = waiting.length ? now - lqIn(waiting[0]) : 0;
   const me = lqWho(state.user?.email || "");
   const checked = lqLastChecked();
@@ -10528,7 +10534,7 @@ function renderLeadQueue(){
     </div>`;
   const row = (l) => {
     const c = lqClient(l), st = l.follow_status || "new", waited = now - lqIn(l);
-    const tone = st === "new" ? (waited > LQ_FAST_MS ? "late" : "hot") : lqIsOpen(l) ? (lqDue(l) ? "due" : "later") : "done";
+    const tone = st === "new" ? (lqBacklog(l) ? "due" : waited > LQ_FAST_MS ? "late" : "hot") : lqIsOpen(l) ? (lqDue(l) ? "due" : "later") : "done";
     const when = st === "new" ? lqShortAgo(waited) : lqIsOpen(l) ? (lqDue(l) ? (st === "call_back" ? "Now" : `Try ${l.attempts + 1}`) : lqClock(l.next_attempt_at)) : (LQ_STATUS_LABEL[st] || st);
     return `<button type="button" class="lq3-row ${tone}${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
       <span class="lq3-av">${escapeHtml(lqInitials(l.name))}</span>
@@ -10602,7 +10608,8 @@ function lqDetailHtml(l){
   const checks = goodLead.filter(x => !/^service radius:/i.test(x));
   const log = (Array.isArray(l.call_log) ? l.call_log : []).slice().reverse();
   const lastTry = log[0];
-  const status = st === "new" ? { tone: late ? "late" : "hot", text: `New enquiry · ${lqAgo(waited)} ago${late ? " · call now" : ""}` }
+  const status = st === "new" && lqBacklog(l) ? { tone: "amber", text: `${l.status ? `In their "${l.status}" stage` : "Older lead"} · enquired ${lqAgo(waited)} ago` }
+    : st === "new" ? { tone: late ? "late" : "hot", text: `New enquiry · ${lqAgo(waited)} ago${late ? " · call now" : ""}` }
     : st === "call_back" ? { tone: "blue", text: `Call back ${lqWhenWords(l.next_attempt_at)}` }
     : st === "no_answer" ? { tone: "amber", text: `Call ${l.attempts + 1} of ${LQ_MAX_TRIES} · no answer ${lastTry ? lqWhenWords(lastTry.at) : "last time"}` }
     : { tone: "done", text: `${LQ_STATUS_LABEL[st] || st}${l.booked_for ? ` · quote ${lqWhenWords(l.booked_for)}` : ""}` };
@@ -10630,6 +10637,7 @@ function lqDetailHtml(l){
         <span class="lq3-status"><i></i>${escapeHtml(status.text)}</span>
         <h2>${escapeHtml(l.name || "No name")}</h2>
         <p>Calling for <b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}</p>
+        ${l.status && l.source === "ghl" && lqIsOpen(l) && !lqBacklog(l) ? `<p class="lq3-ghl">In their pipeline: <b>${escapeHtml(l.status)}</b></p>` : ""}
         ${l.ghl_sync?.at && !l.ghl_sync.skipped ? `<p class="lq3-ghl ${l.ghl_sync.errors?.length ? "bad" : ""}">${l.ghl_sync.errors?.length ? `⚠ GoHighLevel: ${escapeHtml(l.ghl_sync.errors[0])}` : `✓ In GoHighLevel: ${escapeHtml([l.ghl_sync.moved ? `moved to "${l.ghl_sync.stage}"` : "", l.ghl_sync.appointment ? `booked in ${l.ghl_sync.calendar || "their calendar"}` : ""].filter(Boolean).join(" · "))}`}</p>` : ""}
       </div>
       <div class="lq3-hero-call">
@@ -10994,6 +11002,8 @@ function lqSeedDemo(){
       city: "Te Atatū, Auckland", follow_notes: "At work, call after 4", call_log: [{ at: ago(395), by: "demo@mrpriceless.co.nz", outcome: "call_back", note: "At work, call after 4" }] },
     { ...base, id: uid(), client_id: c[0].id, name: "Mike Doyle", phone: "021 555 0133", email: "", form_name: "Deck quote", lead_created_at: ago(180), created_at: ago(180), follow_status: "booked", attempts: 1, first_called_at: ago(177), last_attempt_at: ago(175), booked_for: new Date(Date.now() + 2 * 86400e3).toISOString(),
       call_log: [{ at: ago(175), by: "demo@mrpriceless.co.nz", outcome: "booked", note: "Wants a 6x4 deck, budget about $12k" }] },
+    { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Grant Ellis", phone: "027 555 0164", email: "", form_name: "Bathroom", lead_created_at: ago(9 * 1440), created_at: ago(9 * 1440), follow_status: "new", status: "Stuck",
+      city: "Mount Maunganui, Tauranga", answers: [{ q: "What are you looking to renovate?", a: "Bathroom" }] },
   );
 }
 
