@@ -10051,7 +10051,7 @@ function renderTeamFocusPanel(){
 // straight away and the rest just after, while the browser is idle, so a
 // save or a live update never stalls the screen redrawing pages nobody's on.
 /* ───────── Client inbox ─────────
-   Emails from clients, pulled out of each teammate's connected Gmail every
+   Emails from clients (and other real people), pulled out of each teammate's connected Gmail every
    5 minutes by the sync-client-inbox function. Anything waiting on a reply
    is top priority: a count in the menu, a bar across every page, and a
    desktop notification the moment a new one lands. Replying in Gmail ticks
@@ -10134,7 +10134,9 @@ let inboxSetupOpen = false, inboxCopying = false;
 function inboxScript(key){
   return [
     "// Mr Priceless CRM - client inbox.",
-    "// Sends emails from our clients in this Gmail to the CRM every 5 minutes.",
+    "// Sends the emails in this Gmail's Primary tab that need a reply to the CRM",
+    "// every 5 minutes. The CRM skips promotions, automated emails, big companies",
+    "// and job applications.",
     "// Only reads - it never sends, changes or deletes anything in Gmail.",
     "// First time: pick \"setup\" in the menu at the top, click Run, then Allow.",
     "// When Google asks for permission, tick \"Select all\" - it needs every box.",
@@ -10167,6 +10169,8 @@ function inboxScript(key){
     "  const fromMe = function (from) { from = from.toLowerCase(); return mine.some(function (a) { return from.indexOf(a) !== -1; }); };",
     "  const cfg = crm_({ action: \"senders\" });",
     "  const senders = cfg.senders || [], threads = {};",
+    "  // The CRM says what to look for, so this script never needs changing.",
+    "  if (cfg.query) GmailApp.search(cfg.query, 0, 100).forEach(function (t) { threads[t.getId()] = t; });",
     "  for (let i = 0; i < senders.length; i += 25) {",
     "    const q = \"newer_than:2d -in:sent -in:chats -in:spam -in:trash {\" + senders.slice(i, i + 25).map(function (s) { return \"from:\" + s; }).join(\" \") + \"}\";",
     "    GmailApp.search(q, 0, 50).forEach(function (t) { threads[t.getId()] = t; });",
@@ -10186,6 +10190,7 @@ function inboxScript(key){
     "        gmail_id: m.getId(), thread_id: id, message_id: m.getHeader(\"Message-ID\") || null,",
     "        from: m.getFrom(), subject: m.getSubject(), received_at: new Date(when).toISOString(),",
     "        snippet: m.getPlainBody().replace(/\\s+/g, \" \").slice(0, 300),",
+    "        bulk: Boolean(m.getHeader(\"List-Unsubscribe\")) || /bulk|list|junk/i.test(m.getHeader(\"Precedence\") || \"\") || /^auto/i.test(m.getHeader(\"Auto-Submitted\") || \"\"),",
     "      });",
     "    });",
     "    if (lastFromMe) replies.push({ thread_id: id, replied_at: new Date(lastFromMe).toISOString() });",
@@ -10302,7 +10307,7 @@ function renderClientInbox(){
     </div>`;
   root.innerHTML = `
     <div class="page-header">
-      <div><h2>Client inbox</h2><p>Every email from a client, from both inboxes. Reply first - replying in Gmail ticks it off here.</p></div>
+      <div><h2>Client inbox</h2><p>Every email that needs a reply - from clients and anyone else, but not promotions, automated emails, big companies or job applications. Replying in Gmail ticks it off here.</p></div>
       <div class="inbox-head-actions">
         ${canNotify && !notifyOn ? `<button type="button" class="btn ghost" data-inbox-act="notify">🔔 Turn on notifications</button>` : notifyOn ? `<span class="inbox-notify-on">🔔 Notifications on</span>` : ""}
         ${mine && mine.status === "ok" && !inboxSetupOpen ? `<button type="button" class="btn ghost" data-inbox-act="setup-open">Reconnect my Gmail</button>` : ""}

@@ -1,5 +1,6 @@
 // Edge Function: sync-client-inbox
-// Emails from clients, sent in by a small Google Apps Script that runs every
+// Emails from clients (and anyone else who's a real person - not promotions,
+// automated notices, big companies or job applications), sent in by a small Google Apps Script that runs every
 // 5 minutes inside each teammate's own Gmail (the CRM's Client inbox page
 // hands it out). Saved to client_emails so the CRM can show what's waiting on
 // a reply. A reply sent from Gmail in the same thread ticks it off by itself.
@@ -9,8 +10,8 @@
 //   Signed-in allowlisted user, body { action: "make_key" }: a new key for
 //     their Gmail script (the old one stops working). Returns it once.
 //   Gmail script, header x-inbox-key:
-//     { action: "senders" } -> who counts as a client, and the threads still
-//                              waiting on a reply in this inbox
+//     { action: "senders" } -> what to search for, who counts as a client, and
+//                              the threads still waiting on a reply in this inbox
 //     { action: "push", inbox, messages, replies } -> saves them
 //   Scheduled (sql/075 pg_cron, every 5 minutes): header x-cron-secret
 //     matches app_secrets.inbox_cron_secret. Sends the 2-hour reminders.
@@ -44,6 +45,38 @@ const PERSONAL_DOMAINS = new Set([
   "bigpond.com", "bigpond.net.au", "optusnet.com.au", "iinet.net.au", "tpg.com.au", "internode.on.net",
 ]);
 const OWN_DOMAINS = new Set(["mrpriceless.com", "mrpriceless.co.nz"]);
+
+// What the Gmail script searches: every recent email in the Primary tab
+// (Gmail already files promotions, social and updates elsewhere). push() then
+// drops what's left that isn't from a real person: automated senders, big
+// companies and job applications. Emails from clients always count.
+const INBOX_QUERY = "newer_than:2d category:primary -in:sent -in:chats -in:spam -in:trash -in:drafts";
+const AUTOMATED_SENDER = /^(no-?reply|do-?not-?reply|donotreply|noreply|notifications?|notify|alerts?|mailer-daemon|postmaster|bounces?|newsletters?|news|marketing|promo(tions)?|updates?|digest|automated|system|calendar-notification|invitations?|drive-shares-[a-z-]*|comments-noreply)([+._-].*)?$/;
+// Big companies and platforms: their emails are notices, not people.
+const COMPANY_DOMAINS = [
+  "facebook.com", "facebookmail.com", "meta.com", "metamail.com", "instagram.com", "whatsapp.com", "fb.com",
+  "google.com", "youtube.com", "linkedin.com", "microsoft.com", "office.com", "office365.com", "apple.com", "amazon.com", "amazonaws.com", "aws.com", "tiktok.com", "x.com", "twitter.com", "pinterest.com", "snapchat.com",
+  "xero.com", "myob.com", "quickbooks.com", "intuit.com", "stripe.com", "paypal.com", "square.com", "afterpay.com", "wise.com",
+  "shopify.com", "wix.com", "squarespace.com", "wordpress.com", "godaddy.com", "namecheap.com", "cloudflare.com", "hostinger.com",
+  "canva.com", "slack.com", "zoom.us", "notion.so", "atlassian.com", "atlassian.net", "github.com", "gitlab.com", "figma.com", "adobe.com", "dropbox.com", "docusign.net", "docusign.com",
+  "gohighlevel.com", "leadconnectorhq.com", "msgsndr.com", "hubspot.com", "hubspotemail.net", "mailchimp.com", "mcsv.net", "sendgrid.net", "klaviyo.com", "intercom.io", "calendly.com", "typeform.com", "zapier.com", "openai.com", "anthropic.com", "supabase.com", "supabase.io", "resend.com", "twilio.com",
+  "seek.co.nz", "seek.com.au", "indeed.com", "trademe.co.nz", "builderscrack.co.nz", "nocowboys.co.nz", "hipages.com.au", "airtasker.com", "upwork.com", "fiverr.com",
+  "uber.com", "airbnb.com", "booking.com", "airnewzealand.co.nz", "qantas.com", "jetstar.com",
+  "anz.co.nz", "asb.co.nz", "westpac.co.nz", "bnz.co.nz", "kiwibank.co.nz", "commbank.com.au", "nab.com.au",
+  "govt.nz", "nzpost.co.nz", "spark.co.nz", "one.nz", "2degrees.nz", "vodafone.co.nz", "mercury.co.nz", "contact.co.nz", "genesisenergy.co.nz",
+];
+const JOB_APPLICATION = /\b(job application|application for|applying for|applied for|apply for the|my (cv|resume)|curriculum vitae|cover letter|resume attached|cv attached|interested in the (role|position)|position of|the (role|position) (of|you advertised)|vacancy|job (ad|listing|opening)|candidate)\b/i;
+const isCompany = (domain: string) => COMPANY_DOMAINS.some((d) => domain === d || domain.endsWith("." + d));
+// Whether an email from someone who isn't a known client belongs in the inbox.
+function fromAPerson(from: { email: string }, m: any) {
+  const [local, domain] = [from.email.split("@")[0] || "", domainOf(from.email)];
+  if (!domain || OWN_DOMAINS.has(domain)) return false;
+  if (m.bulk) return false; // newsletters and mailing lists (List-Unsubscribe, Precedence: bulk)
+  if (AUTOMATED_SENDER.test(local)) return false;
+  if (isCompany(domain)) return false;
+  if (JOB_APPLICATION.test(`${m.subject || ""} ${m.snippet || ""}`)) return false;
+  return true;
+}
 
 const cleanEmail = (s: string) => String(s || "").trim().toLowerCase();
 const domainOf = (e: string) => e.split("@")[1] || "";
@@ -100,11 +133,11 @@ async function push(admin: any, userId: string, body: any) {
       if (!gmailId || known.has(gmailId)) continue;
       const from = parseFrom(clip(m.from, 300));
       const client = match.byEmail.get(from.email) || match.byDomain.get(domainOf(from.email));
-      if (!client) continue;
+      if (!client && !fromAPerson(from, m)) continue;
       const received = new Date(m.received_at);
       const { error } = await admin.from("client_emails").insert({
         user_id: userId, inbox_email: inbox, gmail_id: gmailId, thread_id: clip(m.thread_id, 100) || null,
-        message_id: clip(m.message_id, 300) || null, client_id: client.id, client_name: client.name,
+        message_id: clip(m.message_id, 300) || null, client_id: client?.id || null, client_name: client?.name || null,
         from_email: from.email, from_name: from.name, subject: clip(m.subject, 300), snippet: clip(m.snippet, 400),
         received_at: isNaN(received.getTime()) ? new Date().toISOString() : received.toISOString(),
       });
@@ -176,6 +209,7 @@ Deno.serve(async (req: Request) => {
       const match = await clientMatchers(admin);
       const { data: open } = await admin.from("client_emails").select("thread_id").eq("user_id", userId).eq("status", "new").not("thread_id", "is", null).limit(200);
       return json({
+        query: INBOX_QUERY,
         senders: [...match.byEmail.keys(), ...match.byDomain.keys()],
         open_threads: [...new Set((open || []).map((o: any) => o.thread_id))],
       });

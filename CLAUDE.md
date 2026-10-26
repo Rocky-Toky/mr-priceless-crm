@@ -52,6 +52,7 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
 ## Features worth knowing
 - **Client inbox:**
   - Each person connects their Gmail with an Apps Script copied from the Client inbox page. The script runs every 5 minutes and posts to `sync-client-inbox` with a per-user key (stored hashed in `app_secrets`).
+  - The script searches what the server's `senders` reply says (`INBOX_QUERY`: recent Primary-tab mail, plus known client senders), so search changes don't need a new script. `push` keeps clients' emails plus any real person's, dropping bulk/automated senders, big-company domains (`COMPANY_DOMAINS`) and job applications.
   - Client emails go into `client_emails`; replies are detected from the Gmail thread; there's a 2-hour reminder email.
 - **Receipts / billing:**
   - Due dates come from `rcNextDue`, and are stored in `clients.onboarding_progress.billing` / `.invoices`.
