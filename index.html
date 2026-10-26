@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=306">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=306">
+<link rel="stylesheet" href="css/style.css?v=307">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=307">
 </head>
 <body>
 
@@ -1954,6 +1954,58 @@
   </div>
 </div>
 
+<div class="overlay" id="pm-resched-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="pm-resched-title">Reschedule</h3><button class="modal-close" data-close="pm-resched-modal">&times;</button></div>
+    <form id="pm-resched-form" class="modal-body">
+      <input type="hidden" id="pm-resched-id">
+      <p class="pm-modal-note" id="pm-resched-now"></p>
+      <div class="field-row">
+        <div class="field"><label>New day <small class="bm-hint">NZ time</small></label><input type="date" id="pm-resched-day" required></div>
+        <div class="field"><label>Time</label><select id="pm-resched-time" required></select></div>
+      </div>
+      <div class="bm-avail" id="pm-resched-avail" aria-live="polite"></div>
+      <div class="field"><label>Why is it moving?</label>
+        <select id="pm-resched-reason" required>
+          <option value="">Pick one</option>
+          <option value="prospect_conflict">Prospect can't make it</option>
+          <option value="closer_conflict">Closer can't make it</option>
+          <option value="no_show">They didn't show</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field"><label>Note <small class="bm-hint">optional</small></label><input type="text" id="pm-resched-note" placeholder="e.g. On a job site Thursday, wants Friday arvo"></div>
+      <div class="pm-warn" id="pm-resched-warn" hidden></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="pm-resched-modal">Back</button>
+        <button type="submit" class="btn gold">Move meeting</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="overlay" id="pm-cancel-modal">
+  <div class="modal">
+    <div class="modal-header"><h3 id="pm-cancel-title">Cancel meeting</h3><button class="modal-close" data-close="pm-cancel-modal">&times;</button></div>
+    <form id="pm-cancel-form" class="modal-body">
+      <input type="hidden" id="pm-cancel-id">
+      <p class="pm-modal-note" id="pm-cancel-now"></p>
+      <div class="field"><label>Why is it cancelled?</label><input type="text" id="pm-cancel-reason" required placeholder="Pick one below or type your own"></div>
+      <div class="pm-chips">
+        <button type="button" data-pm-reason="Not interested any more">Not interested any more</button>
+        <button type="button" data-pm-reason="Going with someone else">Going with someone else</button>
+        <button type="button" data-pm-reason="Too busy right now - follow up later">Too busy - follow up later</button>
+        <button type="button" data-pm-reason="Not a fit">Not a fit</button>
+        <button type="button" data-pm-reason="Booked by mistake">Booked by mistake</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close="pm-cancel-modal">Back</button>
+        <button type="submit" class="btn gold">Cancel meeting</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="overlay" id="deal-modal">
   <div class="modal">
     <div class="modal-header"><h3 id="deal-modal-title">New Deal</h3><button class="modal-close" data-close="deal-modal">&times;</button></div>
@@ -2816,17 +2868,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=306"></script>
-<script src="js/supabaseClient.js?v=306"></script>
-<script src="js/report-pdf.js?v=306"></script>
-<script src="js/plan-pdf.js?v=306"></script>
-<script src="js/workshop-pdf.js?v=306"></script>
-<script src="js/receipt-pdf.js?v=306"></script>
-<script src="js/welcome-pdf.js?v=306"></script>
-<script src="js/builtin-playbooks.js?v=306"></script>
-<script src="js/builtin-email-templates.js?v=306"></script>
-<script src="js/app.js?v=306"></script>
-<script src="js/meetings-tracker.js?v=306"></script>
-<script src="js/todo.js?v=306"></script>
+<script src="js/config.js?v=307"></script>
+<script src="js/supabaseClient.js?v=307"></script>
+<script src="js/report-pdf.js?v=307"></script>
+<script src="js/plan-pdf.js?v=307"></script>
+<script src="js/workshop-pdf.js?v=307"></script>
+<script src="js/receipt-pdf.js?v=307"></script>
+<script src="js/welcome-pdf.js?v=307"></script>
+<script src="js/builtin-playbooks.js?v=307"></script>
+<script src="js/builtin-email-templates.js?v=307"></script>
+<script src="js/app.js?v=307"></script>
+<script src="js/meetings-tracker.js?v=307"></script>
+<script src="js/todo.js?v=307"></script>
 </body>
 </html>
