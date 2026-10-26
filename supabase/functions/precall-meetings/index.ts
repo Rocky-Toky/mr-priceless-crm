@@ -91,6 +91,9 @@ function bookingWindow(bookedAt: Date, startsAt: Date) {
 const eventId = (m: any) => String(m.id).replace(/-/g, "");
 const bufferId = (m: any) => eventId(m) + "b";
 const fullName = (m: any) => [m.first_name, m.last_name].filter(Boolean).join(" ");
+// The closer's name as it reads in the invite title ("Sarah Tane x Maximus").
+const CLOSER_NAME: Record<string, string> = { max: "Maximus", rocky: "Rocky", gabriel: "Gabriel", raheem: "Randy", thor: "Thor" };
+const closerName = (m: any) => CLOSER_NAME[m.closer] || String(m.closer_email || "").split(/[.@]/)[0].replace(/^./, (c) => c.toUpperCase());
 
 async function testAllows(admin: SupabaseClient, email: string) {
   const { data } = await admin.from("precall_settings").select("test_mode, test_allowlist").eq("id", 1).maybeSingle();
@@ -121,7 +124,7 @@ async function makeEvents(admin: SupabaseClient, m: any, by: string) {
   const who = m.business_name ? `${fullName(m)} (${m.business_name})` : fullName(m);
   try {
     let ev = await createOrFind(m.closer_email, eventId(m), "?conferenceDataVersion=1&sendUpdates=all", {
-      summary: `Mr Priceless x ${m.business_name || fullName(m)}`,
+      summary: `${fullName(m)} x ${closerName(m)}`,
       description: m.description || "",
       start: { dateTime: start.toISOString(), timeZone: TZ },
       end: { dateTime: end.toISOString(), timeZone: TZ },
