@@ -103,6 +103,8 @@ function valueText(v: any): string {
 const SUBMISSION_NOISE = /^(event_?data|fields_?ori|signature|form_?id|location_?id|contact_?id|id|type|product_?type|source|last_?attribution|attribution|facebook_?(lead_?id|form_?id|page|ad)|lead_?id|ad_?(set)?_?(id|name)|campaign|timezone|time_?zone|ip|user_?agent|session|captcha|recaptcha|page|url|referrer|medium|utm_|fbclid|gclid|full_?name|first_?name|last_?name|name|email|e_?mail|phone|phone_?number|mobile|terms|consent|privacy|submission|created|date_?added|is_?organic|platform|__)/i;
 const ADDRESS_KEYS: Record<string, string> = { address: "street", address1: "street", street_address: "street", full_address: "street", street: "street", city: "city", suburb: "suburb", town: "city", postal_code: "postal", post_code: "postal", postcode: "postal", zip: "postal", zip_code: "postal", state: "state", region: "state", province: "state" };
 const LOCATION_QUESTION = /(what|which)_(area|suburb|town|city|region)|suburb|where_(is|are|abouts)|whereabouts|location|located|property_in|address|postcode|post_code/;
+// Facebook sends multiple-choice answers as slugs ("next_3_months").
+const tidyAnswer = (a: string) => { const t = a.replace(/_+/g, " ").replace(/\s+/g, " ").trim(); return t === t.toLowerCase() ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
 const humanise = (k: string) => k.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
 const keyOf = (k: string) => k.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
@@ -160,7 +162,7 @@ async function contactDetails(id: string, token: string, fieldNames: () => Promi
       const label = clean(q, 120);
       // "What area is the property in?" and the like: that's where they are.
       if (LOCATION_QUESTION.test(k) && !place.suburb) place.suburb = a;
-      if (label && !answers.some((x) => x.q.toLowerCase() === label.toLowerCase())) answers.push({ q: label, a });
+      if (label && !answers.some((x) => x.q.toLowerCase() === label.toLowerCase())) answers.push({ q: label, a: tidyAnswer(a) });
     }
   } catch { /* no Forms access on this key: custom fields only */ }
   const town = place.suburb || place.city;

@@ -10371,10 +10371,10 @@ function setupEmployeesUi(){
    rhythm, up to 7 times, before the lead is marked unreachable. */
 const LQ_OPEN = new Set(["new", "no_answer", "call_back"]);
 const LQ_OUTCOMES = {
-  booked: { label: "Booked a quote", icon: "✅", hint: "They want someone to come out", cls: "green", final: true },
-  no_answer: { label: "No answer", icon: "📵", hint: "It'll come back to you later", cls: "amber" },
-  call_back: { label: "Call back later", icon: "⏰", hint: "They asked you to ring another time", cls: "blue" },
-  qualified: { label: "Interested", icon: "👍", hint: "The client should call them", cls: "green", final: true },
+  booked: { label: "Booked a quote", icon: "✅", hint: "Someone's coming out", cls: "green", final: true },
+  no_answer: { label: "No answer", icon: "📵", hint: "They'll come back later", cls: "amber" },
+  call_back: { label: "Call back later", icon: "⏰", hint: "Pick a time to ring", cls: "blue" },
+  qualified: { label: "Interested - client to call", icon: "👍", hint: "The client should call them", cls: "green", final: true },
   not_interested: { label: "Not interested", icon: "✋", hint: "They don't want it any more", cls: "grey", final: true },
   disqualified: { label: "Not a fit", icon: "🚫", hint: "Wrong area, too small, not our work", cls: "grey", final: true },
   wrong_number: { label: "Wrong number", icon: "❌", hint: "The number doesn't reach them", cls: "grey", final: true },
@@ -10383,7 +10383,7 @@ const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call b
 const LQ_MAX_TRIES = 7, LQ_FAST_MS = 5 * 60e3;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
-let lqSyncRows = null, lqSyncLoading = false;
+let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false;
 
 const lqClient = (l) => state.clients.find(c => c.id === l.client_id) || null;
 const lqIn = (l) => new Date(l.lead_created_at || l.created_at).getTime();
@@ -10456,6 +10456,40 @@ async function lqLoadSync(force){
 }
 const lqLastChecked = () => (lqSyncRows || []).map(r => r.last_sync_at).filter(Boolean).sort().pop() || null;
 
+// Line icons for the call screen (same style as the menu).
+const LQ_ICONS = {
+  phone: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
+  booked: '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>',
+  no_answer: '<path d="M23 1l-6 6M17 1l6 6"/><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
+  call_back: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  qualified: '<path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/>',
+  not_interested: '<circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>',
+  disqualified: '<circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/>',
+  wrong_number: '<path d="M10.68 13.31a16 16 0 003.41 2.6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7 2 2 0 011.72 2v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.42 19.42 0 01-3.33-2.67m-2.67-3.34a19.79 19.79 0 01-3.07-8.63A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91"/><path d="M23 1L1 23"/>',
+  pin: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>',
+  list: '<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12h6M9 16h4"/>',
+  chat: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
+  mail: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/>',
+  refresh: '<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  arrow: '<path d="M5 12h14M12 5l7 7-7 7"/>',
+  tick: '<path d="M20 6L9 17l-5-5"/>',
+};
+const lqIcon = (k, cls = "") => `<svg class="lq3-ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LQ_ICONS[k] || ""}</svg>`;
+// Form questions and answers arrive as slugs ("when_are_you_hoping_to_get_it_done",
+// "next_3_months") - turn them back into normal words.
+function lqNice(text){
+  let t = String(text ?? "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  if (t && t === t.toLowerCase()) t = t.charAt(0).toUpperCase() + t.slice(1);
+  return t;
+}
+function lqQuestion(text){
+  let t = lqNice(text).replace(/\s+\?$/, "?");
+  if (/^(what|when|where|which|who|why|how|roughly|do|does|are|is|have|has|can|would|will)\b/i.test(t) && !/[?.]$/.test(t)) t += "?";
+  return t;
+}
+const lqInitials = (name) => String(name || "?").trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";
+
 function renderLeadQueue(){
   const root = $("#lq-root");
   if (!root) return;
@@ -10465,61 +10499,69 @@ function renderLeadQueue(){
   if (!lqSel) lqSel = q.due[0]?.id || q.later[0]?.id || null;
   const logsToday = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => x.at && localDayStr(new Date(x.at)) === today));
   const bookedToday = logsToday.filter(x => x.outcome === "booked").length;
+  const waiting = q.due.filter(l => (l.follow_status || "new") === "new");
+  const longest = waiting.length ? now - lqIn(waiting[0]) : 0;
   const me = lqWho(state.user?.email || "");
   const checked = lqLastChecked();
-  const summary = `
-    <div class="lq2-hello">
-      <div>
-        <h2>${q.due.length ? `${q.due.length} ${q.due.length === 1 ? "person" : "people"} to call now` : "You're all caught up 🎉"}</h2>
-        <p>${[me && me !== "Demo" ? `Hi ${escapeHtml(me)}` : "", q.later.length ? `${q.later.length} more later` : "", `${logsToday.length} call${logsToday.length === 1 ? "" : "s"} made today`, bookedToday ? `<b>${bookedToday} quote${bookedToday === 1 ? "" : "s"} booked today</b>` : ""].filter(Boolean).join(" · ")}</p>
+  const top = `
+    <div class="lq3-top">
+      <div class="lq3-top-title">
+        <span class="lq3-kicker">${me && me !== "Demo" ? `Kia ora ${escapeHtml(me)}` : "Lead follow-up"}</span>
+        <h2>${q.due.length ? `${q.due.length} ${q.due.length === 1 ? "person" : "people"} to call` : "All caught up"}</h2>
+        <p>${checked ? `New leads arrive by themselves · last checked ${escapeHtml(lqShortAgo(now - new Date(checked)))} ago` : "New leads arrive by themselves every 5 minutes"}</p>
       </div>
-      <div class="lq2-hello-actions">
-        <button type="button" class="btn ghost" data-lq-act="sync" ${lqSyncing ? "disabled" : ""}>${lqSyncing ? "Checking…" : "↻ Check for new leads"}</button>
-        <button type="button" class="btn ghost" data-lq-act="add">+ Add a lead</button>
-        <small>${checked ? `New leads checked ${escapeHtml(lqShortAgo(now - new Date(checked)))} ago - they come in by themselves` : "New leads come in by themselves every 5 minutes"}</small>
+      <div class="lq3-kpis">
+        <div class="lq3-kpi ${longest > LQ_FAST_MS ? "bad" : ""}"><b>${waiting.length ? escapeHtml(lqShortAgo(longest)) : "-"}</b><span>longest wait</span></div>
+        <div class="lq3-kpi"><b>${logsToday.length}</b><span>calls today</span></div>
+        <div class="lq3-kpi ${bookedToday ? "good" : ""}"><b>${bookedToday}</b><span>quotes booked</span></div>
       </div>
     </div>`;
   const row = (l) => {
     const c = lqClient(l), st = l.follow_status || "new", waited = now - lqIn(l);
-    const when = st === "new" ? `<em class="lq2-pill ${waited > LQ_FAST_MS ? "late" : "hot"}">New · ${lqShortAgo(waited)}</em>`
-      : lqIsOpen(l) ? `<em class="lq2-pill ${lqDue(l) ? "due" : ""}">${lqDue(l) ? (st === "call_back" ? "Call back now" : `Try ${l.attempts + 1}`) : escapeHtml(lqWhenWords(l.next_attempt_at))}</em>`
-      : `<em class="lq2-pill done">${escapeHtml(LQ_STATUS_LABEL[st] || st)}</em>`;
-    return `<button type="button" class="lq2-row${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
-      <span><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml(c?.name || "")}${l.city ? " · " + escapeHtml(l.city) : ""}</small></span>${when}</button>`;
+    const tone = st === "new" ? (waited > LQ_FAST_MS ? "late" : "hot") : lqIsOpen(l) ? (lqDue(l) ? "due" : "later") : "done";
+    const when = st === "new" ? lqShortAgo(waited) : lqIsOpen(l) ? (lqDue(l) ? (st === "call_back" ? "Now" : `Try ${l.attempts + 1}`) : lqClock(l.next_attempt_at)) : (LQ_STATUS_LABEL[st] || st);
+    return `<button type="button" class="lq3-row ${tone}${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
+      <span class="lq3-av">${escapeHtml(lqInitials(l.name))}</span>
+      <span class="lq3-row-id"><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml(c?.name || "")}${l.city ? " · " + escapeHtml(l.city.split(",")[0]) : ""}</small></span>
+      <em>${escapeHtml(when)}</em></button>`;
   };
-  const listHtml = `
+  const side = `
+    <div class="lq3-side-actions">
+      <button type="button" class="lq3-mini" data-lq-act="sync" ${lqSyncing ? "disabled" : ""}>${lqIcon("refresh")}${lqSyncing ? "Checking…" : "Check now"}</button>
+      <button type="button" class="lq3-mini" data-lq-act="add">${lqIcon("plus")}Add a lead</button>
+    </div>
     ${lqAdding ? lqAddFormHtml() : ""}
-    <h3 class="lq2-side-h">Call now ${q.due.length ? `<span>${q.due.length}</span>` : ""}</h3>
-    ${q.due.map(row).join("") || `<p class="lq2-side-empty">No one to call right now.</p>`}
-    ${q.later.length ? `<h3 class="lq2-side-h">Later <span class="grey">${q.later.length}</span></h3>${q.later.map(row).join("")}` : ""}
-    ${q.doneToday.length ? `<button type="button" class="lq2-fold" data-lq-act="done">${lqShowDone ? "▾" : "▸"} Done today (${q.doneToday.length})</button>${lqShowDone ? q.doneToday.map(row).join("") : ""}` : ""}`;
+    <h3 class="lq3-side-h">Call now <span>${q.due.length}</span></h3>
+    ${q.due.map(row).join("") || `<p class="lq3-side-empty">Nobody waiting right now.</p>`}
+    ${q.later.length ? `<h3 class="lq3-side-h">Later <span class="soft">${q.later.length}</span></h3>${q.later.map(row).join("")}` : ""}
+    ${q.doneToday.length ? `<button type="button" class="lq3-fold" data-lq-act="done">${lqShowDone ? "Hide" : "Show"} done today (${q.doneToday.length})</button>${lqShowDone ? q.doneToday.map(row).join("") : ""}` : ""}`;
   // While Carmen's typing or picking (notes, a booking time, a new lead),
   // only the top line updates, so nothing she's in the middle of is lost.
   const busy = root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select");
-  if (busy && $("#lq2-top")){
-    $("#lq2-top").innerHTML = summary;
+  if (busy && $("#lq3-top")){
+    $("#lq3-top").innerHTML = top;
     lqNavCount();
     return;
   }
   const sel = state.clientLeads.find(l => l.id === lqSel);
   root.innerHTML = `
-    <div id="lq2-top">${summary}</div>
-    <div class="lq2-layout">
-      <section class="lq2-card" id="lq-detail" data-lead="${escapeHtml(lqSel || "")}">${sel ? lqDetailHtml(sel) : `<div class="lq2-empty"><b>No one waiting.</b><p>New leads show up here by themselves, usually within 5 minutes of someone enquiring.</p></div>`}</section>
-      <aside class="lq2-side" id="lq-list">${listHtml}</aside>
+    <div id="lq3-top">${top}</div>
+    <div class="lq3-layout">
+      <div class="lq3-main" id="lq-detail" data-lead="${escapeHtml(lqSel || "")}">${sel ? lqDetailHtml(sel) : `<div class="lq3-empty">${lqIcon("tick", "big")}<h3>Nobody waiting</h3><p>New leads show up here by themselves, usually within 5 minutes of someone enquiring.</p></div>`}</div>
+      <aside class="lq3-side" id="lq-list">${side}</aside>
     </div>`;
   lqNavCount();
 }
 
 function lqAddFormHtml(){
-  return `<form class="lq2-add" data-lq-form="add">
+  return `<form class="lq3-add" data-lq-form="add">
     <h3>Add a lead</h3>
     <label>Which client is it for?<select name="client_id" required>${state.clients.filter(c => c.stage !== "churned").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select></label>
     <label>Their name<input name="name" required></label>
     <label>Phone number<input name="phone" type="tel" required></label>
     <label>Suburb or address<input name="address"></label>
     <label>What do they need done?<input name="form_name" placeholder="e.g. New deck"></label>
-    <div class="lq2-add-foot"><button type="button" class="btn ghost" data-lq-act="add-cancel">Cancel</button><button type="submit" class="btn gold">Add to the list</button></div>
+    <div class="lq3-add-foot"><button type="button" class="lq3-mini" data-lq-act="add-cancel">Cancel</button><button type="submit" class="lq3-btn">Add to the list</button></div>
   </form>`;
 }
 
@@ -10528,12 +10570,12 @@ const LQ_TIMES = Array.from({ length: 26 }, (_, i) => { const h = 7 + Math.floor
 function lqWhenPicker(kind){
   const today = localDayStr(), tmr = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDayStr(t); })();
   const quick = kind === "call_back"
-    ? [["60", "In 1 hour"], ["today-16", "Today 4pm"], ["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]]
+    ? [["60", "In an hour"], ["today-16", "Today 4pm"], ["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]]
     : [["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]];
-  return `<div class="lq2-when">
-    <p class="lq2-label">${kind === "booked" ? "When is the quote?" : "When should you call back?"}</p>
-    <div class="lq2-quick">${quick.map(([k, l]) => `<button type="button" data-lq-quick="${k}">${l}</button>`).join("")}</div>
-    <div class="lq2-when-pick">
+  return `<div class="lq3-when">
+    <p>${kind === "booked" ? "When is the quote?" : "When should you call back?"}</p>
+    <div class="lq3-chips">${quick.map(([k, l]) => `<button type="button" data-lq-quick="${k}">${l}</button>`).join("")}</div>
+    <div class="lq3-when-pick">
       <label>Day<input type="date" name="day" value="${kind === "booked" ? tmr : today}" required></label>
       <label>Time<select name="time" required><option value="">Pick a time</option>${LQ_TIMES.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
     </div>
@@ -10544,73 +10586,81 @@ function lqDetailHtml(l){
   const c = lqClient(l), st = l.follow_status || "new", first = (l.name || "").split(" ")[0] || "there";
   const biz = c?.name || "the client", trade = c ? (clientIndustry(c).name || "") : "";
   const waited = Date.now() - lqIn(l), late = waited > LQ_FAST_MS;
-  const answers = (Array.isArray(l.answers) ? l.answers : []).filter(a => a && a.a);
+  const answers = (Array.isArray(l.answers) ? l.answers : []).filter(a => a && a.a).map(a => ({ q: lqQuestion(a.q), a: lqNice(a.a) }));
   const goodLead = String(c?.qualified_lead_structure || "").split("\n").map(x => x.trim()).filter(Boolean);
   const coverage = goodLead.find(x => /^service radius:/i.test(x))?.replace(/^service radius:\s*/i, "");
+  const checks = goodLead.filter(x => !/^service radius:/i.test(x));
   const log = (Array.isArray(l.call_log) ? l.call_log : []).slice().reverse();
   const lastTry = log[0];
-  const banner = st === "new" ? `<div class="lq2-banner ${late ? "late" : "hot"}">${late ? "⚠️" : "🔥"} New enquiry - came in <b>${escapeHtml(lqAgo(waited))} ago</b>. Call now!</div>`
-    : st === "call_back" ? `<div class="lq2-banner blue">⏰ They asked you to call back <b>${escapeHtml(lqWhenWords(l.next_attempt_at))}</b>${lqDue(l) ? " - that's now." : "."}</div>`
-    : st === "no_answer" ? `<div class="lq2-banner amber">📵 Call ${l.attempts + 1} of ${LQ_MAX_TRIES} - no answer last time${lastTry ? ` (${escapeHtml(lqWhenWords(lastTry.at))})` : ""}.</div>`
-    : `<div class="lq2-banner done">${LQ_OUTCOMES[st]?.icon || "✔"} ${escapeHtml(LQ_STATUS_LABEL[st] || st)}${l.booked_for ? ` - quote ${escapeHtml(lqWhenWords(l.booked_for))}` : ""}. Nothing more to do.</div>`;
-  const job = answers.find(a => /need|service|job|work|project|looking|interest|type/i.test(a.q))?.a || (l.form_name && !/gohighlevel|facebook|meta|instagram|form|website|lead/i.test(l.form_name) ? l.form_name : "");
-  const say = (n, title, text) => `<li><span class="lq2-n">${n}</span><div><b>${title}</b><p>${text}</p></div></li>`;
+  const status = st === "new" ? { tone: late ? "late" : "hot", text: `New enquiry · ${lqAgo(waited)} ago${late ? " · call now" : ""}` }
+    : st === "call_back" ? { tone: "blue", text: `Call back ${lqWhenWords(l.next_attempt_at)}` }
+    : st === "no_answer" ? { tone: "amber", text: `Call ${l.attempts + 1} of ${LQ_MAX_TRIES} · no answer ${lastTry ? lqWhenWords(lastTry.at) : "last time"}` }
+    : { tone: "done", text: `${LQ_STATUS_LABEL[st] || st}${l.booked_for ? ` · quote ${lqWhenWords(l.booked_for)}` : ""}` };
+  const jobAnswer = answers.find(a => /need|looking|renovat|service|job|work|project|type|concret|build|install/i.test(a.q))?.a;
+  const job = jobAnswer || (l.form_name && !/gohighlevel|facebook|meta|instagram|website|lead|form$/i.test(l.form_name) ? lqNice(l.form_name) : "");
+  const place = l.address || l.city || "";
+  const mapQ = encodeURIComponent([place, "New Zealand"].filter(Boolean).join(", "));
   const B = (t) => `<b>${escapeHtml(t)}</b>`;
-  const mapQ = encodeURIComponent([l.address || l.city, "New Zealand"].filter(Boolean).join(", "));
-  const out = (k) => `<button type="button" class="lq2-out ${LQ_OUTCOMES[k].cls}${lqPending === k ? " picked" : ""}" data-lq-out="${k}"><i>${LQ_OUTCOMES[k].icon}</i><span><b>${LQ_OUTCOMES[k].label}</b><small>${LQ_OUTCOMES[k].hint}</small></span></button>`;
+  const step = (n, title, body) => `<li><span class="lq3-n">${n}</span><div><h4>${title}</h4>${body}</div></li>`;
+  const quote = (html) => `<p class="lq3-say">${html}</p>`;
+  const bigOut = (k) => `<button type="button" class="lq3-out ${k}${lqPending === k ? " picked" : ""}" data-lq-out="${k}">${lqIcon(k)}<span><b>${LQ_OUTCOMES[k].label}</b><small>${LQ_OUTCOMES[k].hint}</small></span></button>`;
+  const smallOut = (k) => `<button type="button" class="lq3-pill ${lqPending === k ? "picked" : ""}" data-lq-out="${k}">${lqIcon(k)}${LQ_OUTCOMES[k].label}</button>`;
   return `
-    ${banner}
-    <div class="lq2-who">
-      <div>
+    <header class="lq3-hero ${status.tone}">
+      <div class="lq3-hero-id">
+        <span class="lq3-status"><i></i>${escapeHtml(status.text)}</span>
         <h2>${escapeHtml(l.name || "No name")}</h2>
-        <p>You're calling for <b>${escapeHtml(biz)}</b>${trade ? ` <span>(${escapeHtml(trade)})</span>` : ""}</p>
+        <p>Calling for <b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}</p>
       </div>
-    </div>
-    ${l.phone ? `<button type="button" class="lq2-call" data-lq-act="call"><i>📞</i><span>Call ${escapeHtml(first)}<b>${escapeHtml(formatPhone(l.phone))}</b></span></button>`
-      : `<div class="lq2-banner late">No phone number came through.${l.email ? ` Email them at <a href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>.` : ""}</div>`}
-    ${l.phone && l.email ? `<p class="lq2-email">Or email: <a href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a></p>` : ""}
+      <div class="lq3-hero-call">
+        ${l.phone ? `<button type="button" class="lq3-call" data-lq-act="call">${lqIcon("phone")}<span><small>Call ${escapeHtml(first)}</small><b>${escapeHtml(formatPhone(l.phone))}</b></span></button>` : `<p class="lq3-nophone">No phone number came through</p>`}
+        ${l.email ? `<a class="lq3-email" href="mailto:${escapeHtml(l.email)}">${lqIcon("mail")}${escapeHtml(l.email)}</a>` : ""}
+      </div>
+    </header>
 
-    <div class="lq2-boxes">
-      <div class="lq2-box">
-        <h3>📋 What they're after</h3>
-        ${answers.length ? `<dl>${answers.map(a => `<dt>${escapeHtml(a.q)}</dt><dd>${escapeHtml(a.a)}</dd>`).join("")}</dl>`
-          : l.form_name && job ? `<dl><dt>They asked about</dt><dd>${escapeHtml(job)}</dd></dl>`
-          : `<p class="lq2-none">No form answers came through. Ask them what they need done.</p>`}
-        ${l.follow_notes ? `<dl><dt>Notes from earlier calls</dt><dd>${escapeHtml(l.follow_notes)}</dd></dl>` : ""}
-      </div>
-      <div class="lq2-box">
-        <h3>📍 Where they are</h3>
-        ${l.address || l.city ? `<p class="lq2-place">${escapeHtml(l.address || l.city)}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq2-sub">${escapeHtml(l.city)}</p>` : ""}
-          <a class="lq2-map" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps →</a>`
-          : `<p class="lq2-none">No address came through. Ask which suburb they're in.</p>`}
-        ${coverage ? `<p class="lq2-cover"><b>${escapeHtml(biz)} covers:</b> ${escapeHtml(coverage)}</p>` : ""}
-      </div>
+    <div class="lq3-info">
+      <section class="lq3-panel">
+        <h3>${lqIcon("list")}What they're after</h3>
+        ${answers.length ? `<dl class="lq3-answers">${answers.map(a => `<div><dt>${escapeHtml(a.q)}</dt><dd>${escapeHtml(a.a)}</dd></div>`).join("")}</dl>`
+          : job ? `<dl class="lq3-answers"><div><dt>They asked about</dt><dd>${escapeHtml(job)}</dd></div></dl>`
+          : `<p class="lq3-muted">No form answers came through. Ask them what they need done.</p>`}
+        ${l.follow_notes ? `<div class="lq3-note"><span>Notes from last time</span>${escapeHtml(l.follow_notes)}</div>` : ""}
+      </section>
+      <section class="lq3-panel">
+        <h3>${lqIcon("pin")}Where they are</h3>
+        ${place ? `<p class="lq3-place">${escapeHtml(lqNice(l.address || l.city))}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq3-muted">${escapeHtml(l.city)}</p>` : ""}
+          <div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=12&output=embed"></iframe></div>
+          <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>`
+          : `<p class="lq3-muted">No location came through. Ask which suburb the job is in.</p>`}
+        ${coverage ? `<p class="lq3-cover"><span>${escapeHtml(biz)} covers</span>${escapeHtml(coverage)}</p>` : ""}
+      </section>
     </div>
 
-    <div class="lq2-box lq2-script">
-      <h3>💬 What to say</h3>
-      <ol>
-        ${say(1, "Say hello", `"Hi ${B(first)}, it's Carmen calling from ${B(biz)}. You just sent through an enquiry${job ? ` about ${B(job.toLowerCase())}` : ""}. Have you got a quick minute?"`)}
-        ${say(2, "Ask about the job", `"Awesome. Tell me a bit about what you're looking to get done?"`)}
-        ${say(3, "Check it's a fit", goodLead.length ? `Make sure it suits ${escapeHtml(biz)}:<ul>${goodLead.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : "Ask how big the job is, their budget, when they want it done, and where it is.")}
-        ${say(4, "Book the quote", `"Perfect. ${B(biz)} can come out and give you a quote. Would earlier or later in the week suit better? Morning or afternoon?"`)}
+    <section class="lq3-panel lq3-script">
+      <h3>${lqIcon("chat")}What to say</h3>
+      <ol class="lq3-steps">
+        ${step(1, "Say hello", quote(`Hi ${B(first)}, it's Carmen from ${B(biz)}. You just sent through an enquiry${job ? ` about ${B(job.toLowerCase())}` : ""}. Have you got a quick minute?`))}
+        ${step(2, "Ask about the job", quote(`Awesome. Tell me a bit about what you're looking to get done?`))}
+        ${step(3, "Check it's a fit", checks.length ? `<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : `<p class="lq3-muted">How big is the job, what's the budget, when do they want it done, and where is it?</p>`)}
+        ${step(4, "Book the quote", quote(`Perfect. ${B(biz)} can come out and give you a quote. Does earlier or later in the week suit, morning or afternoon?`))}
       </ol>
-      <p class="lq2-vm"><b>No answer?</b> Leave this message: "Hi ${escapeHtml(first)}, it's Carmen from ${escapeHtml(biz)} about your enquiry. I'll try you again shortly - no need to call back."</p>
-    </div>
+      <details class="lq3-vm"><summary>If nobody answers, leave this message</summary>${quote(`Hi ${escapeHtml(first)}, it's Carmen from ${escapeHtml(biz)} about your enquiry. I'll try you again shortly, no need to call back.`)}</details>
+    </section>
 
-    <form class="lq2-box lq2-after" data-lq-form="outcome">
-      <h3>☎️ How did the call go?</h3>
-      <div class="lq2-outs">${["booked", "no_answer", "call_back", "qualified", "not_interested", "disqualified", "wrong_number"].map(out).join("")}</div>
+    <form class="lq3-panel lq3-outcome" data-lq-form="outcome">
+      <h3>${lqIcon("phone")}How did the call go?</h3>
+      <div class="lq3-outs">${["booked", "no_answer", "call_back"].map(bigOut).join("")}</div>
+      <div class="lq3-pills">${["qualified", "not_interested", "disqualified", "wrong_number"].map(smallOut).join("")}</div>
       ${lqPending === "booked" || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
-      ${lqPending === "booked" ? `<p class="lq2-tip">Remember to put it in ${escapeHtml(biz)}'s calendar in GoHighLevel too, so they get the booking.</p>` : ""}
-      <label class="lq2-label">Notes about the call<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing - anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
-      <button type="submit" class="lq2-save" ${lqPending ? "" : "disabled"}>${lqPending ? `Save "${escapeHtml(LQ_OUTCOMES[lqPending].label)}" and go to the next person →` : "Pick how the call went, then save"}</button>
+      ${lqPending === "booked" ? `<p class="lq3-tip">Put it in ${escapeHtml(biz)}'s calendar in GoHighLevel too, so they get the booking.</p>` : ""}
+      <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
+      <button type="submit" class="lq3-save" ${lqPending ? "" : "disabled"}>${lqPending ? `Save and go to the next person ${lqIcon("arrow")}` : "Choose how the call went"}</button>
     </form>
 
-    ${log.length ? `<div class="lq2-history">
-      <button type="button" class="lq2-fold" data-lq-act="history">${lqShowHistory ? "▾" : "▸"} Earlier calls (${log.length})</button>
-      ${lqShowHistory ? log.map(x => `<div class="lq2-log"><b>${LQ_OUTCOMES[x.outcome]?.icon || ""} ${escapeHtml(LQ_OUTCOMES[x.outcome]?.label || x.outcome)}</b><span>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</span>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div>`).join("") : ""}
-    </div>` : ""}`;
+    ${log.length ? `<section class="lq3-history">
+      <button type="button" class="lq3-fold" data-lq-act="history">${lqShowHistory ? "Hide" : "Show"} earlier calls (${log.length})</button>
+      ${lqShowHistory ? `<ol>${log.map(x => `<li class="${x.outcome}">${lqIcon(x.outcome)}<div><b>${escapeHtml(LQ_OUTCOMES[x.outcome]?.label || x.outcome)}</b><span>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</span>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div></li>`).join("")}</ol>` : ""}
+    </section>` : ""}`;
 }
 
 async function lqSaveOutcome(l, outcome, note, when){
@@ -10634,7 +10684,6 @@ async function lqSaveOutcome(l, outcome, note, when){
     : `Saved: ${LQ_OUTCOMES[outcome].label}.${next ? " Here's the next person." : ""}`);
   renderLeadQueue();
   $("#lq-root")?.scrollIntoView({ block: "start" });
-  $(".lq2-card")?.scrollTo({ top: 0 });
   if (IS_CONFIGURED){
     const { error } = await supabase.from("client_leads").update(patch).eq("id", l.id);
     if (error) rcToast("Couldn't save that call - " + error.message);
@@ -10689,11 +10738,11 @@ function renderLeadResults(){
   const health = live.map(c => {
     const r = syncBy.get(c.id);
     const stale = r?.last_ok_at && Date.now() - new Date(r.last_ok_at) > 30 * 60e3;
-    const state_ = !r ? ["bad", "Not connected to GoHighLevel - connect it on their client page so leads come through"]
+    const state_ = !r ? ["bad", "Not connected to GoHighLevel yet - click Connect so their leads come through"]
       : r.error ? ["bad", "Problem: " + r.error]
       : !r.last_ok_at ? ["warn", "Connected - first check is still running"]
       : stale ? ["warn", `Hasn't checked in ${lqAgo(Date.now() - new Date(r.last_ok_at))}`]
-      : r.contacts_access === false ? ["warn", "Only leads with an opportunity come through - give their GHL key Contacts access to catch every lead"]
+      : r.contacts_access === false ? ["warn", "Their key can't read contacts or forms, so leads come in without answers - click Update key"]
       : ["ok", "Working"];
     return { c, r, cls: state_[0], text: state_[1] };
   });
@@ -10712,7 +10761,12 @@ function renderLeadResults(){
       ${tile("Couldn't reach", leads.filter(l => l.follow_status === "unreachable").length, `after ${LQ_MAX_TRIES} tries`)}
     </div>
     <h4 class="emp-h">Are all clients' leads coming through? ${problems ? `<span class="lq-count">${problems} to fix</span>` : `<span class="lq-count ok">all good</span>`}</h4>
-    <div class="lr-table">${health.map(h => `<div class="lr-sync ${h.cls}"><i></i><b>${escapeHtml(h.c.name)}</b><span>${escapeHtml(h.text)}</span><small>${h.r?.last_lead_at ? `last lead ${escapeHtml(lqShortAgo(Date.now() - new Date(h.r.last_lead_at)))} ago` : ""}</small></div>`).join("") || `<div class="emp-empty">No live clients.</div>`}</div>
+    <div class="lr-table">${health.map(h => `<div class="lr-sync ${h.cls}"><i></i><b>${escapeHtml(h.c.name)}</b><span>${escapeHtml(h.text)}</span><small>${h.r?.last_lead_at ? `last lead ${escapeHtml(lqShortAgo(Date.now() - new Date(h.r.last_lead_at)))} ago` : ""}${h.cls !== "ok" ? `<button type="button" class="lq3-mini" data-lr-connect="${escapeHtml(h.c.id)}">${!h.r ? "Connect" : "Update key"}</button>` : ""}</small></div>
+      ${lqConnectFor === h.c.id ? `<form class="lr-connect" data-lr-form="${escapeHtml(h.c.id)}">
+        <p>Paste these from <b>${escapeHtml(h.c.name)}</b>'s GoHighLevel. The Location ID is in <b>Settings → Business Profile</b>, and the key comes from <b>Settings → Private Integrations</b> (tick View Contacts, Opportunities, Forms and Custom Fields when you make it).</p>
+        <div class="lr-connect-row"><label>Location ID<input name="location_id" required autocomplete="off"></label><label>Private Integration key<input name="token" type="password" required autocomplete="off"></label>
+        <button type="submit" class="lq3-btn" ${lqConnecting ? "disabled" : ""}>${lqConnecting ? "Connecting…" : "Connect"}</button><button type="button" class="lq3-mini" data-lr-connect="">Cancel</button></div>
+      </form>` : ""}`).join("") || `<div class="emp-empty">No live clients.</div>`}</div>
     <h4 class="emp-h">By client</h4>
     ${rows.length ? `<div class="lr-table"><div class="lr-row head"><span>Client</span><span>Leads</span><span>Called</span><span>Speed</span><span>Booked</span></div>
       ${rows.map(r => `<div class="lr-row"><span>${escapeHtml(r.name)}</span><span>${r.leads}</span><span>${pct(r.called, r.leads)}</span><span>${r.speed == null ? "-" : lqShortAgo(r.speed)}</span><span>${r.booked} <small>(${pct(r.booked, r.leads)})</small></span></div>`).join("")}</div>` : `<div class="emp-empty">No leads in this period yet.</div>`}
@@ -10725,7 +10779,7 @@ function setupLeadFollowUpUi(){
     root.addEventListener("click", (ev) => {
       const t = ev.target.closest("[data-lq-sel],[data-lq-act],[data-lq-out],[data-lq-quick]");
       if (!t || t.disabled) return;
-      if (t.dataset.lqSel){ lqSel = t.dataset.lqSel; lqPending = null; lqShowHistory = false; renderLeadQueue(); $(".lq2-card")?.scrollTo({ top: 0 }); return; }
+      if (t.dataset.lqSel){ lqSel = t.dataset.lqSel; lqPending = null; lqShowHistory = false; renderLeadQueue(); $("#lq-root")?.scrollIntoView({ block: "start" }); return; }
       if (t.dataset.lqOut){ lqPending = lqPending === t.dataset.lqOut ? null : t.dataset.lqOut; return renderLeadQueue(); }
       if (t.dataset.lqQuick){
         const form = t.closest("form"), k = t.dataset.lqQuick, d = new Date();
@@ -10735,7 +10789,7 @@ function setupLeadFollowUpUi(){
         const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
         if (![...form.elements.time.options].some(o => o.value === hm)) form.elements.time.add(new Option(lqClock(d.toISOString()), hm));
         form.elements.time.value = hm;
-        $$(".lq2-quick button", form).forEach(b => b.classList.toggle("picked", b === t));
+        $$(".lq3-chips button", form).forEach(b => b.classList.toggle("picked", b === t));
         return;
       }
       const act = t.dataset.lqAct, l = state.clientLeads.find(x => x.id === lqSel);
@@ -10779,8 +10833,30 @@ function setupLeadFollowUpUi(){
     });
   }
   $("#lr-root")?.addEventListener("click", (ev) => {
-    const t = ev.target.closest("[data-lr-period]");
-    if (t){ lqPeriod = t.dataset.lrPeriod; renderLeadResults(); }
+    const t = ev.target.closest("[data-lr-period],[data-lr-connect]");
+    if (!t) return;
+    if (t.dataset.lrPeriod){ lqPeriod = t.dataset.lrPeriod; return renderLeadResults(); }
+    lqConnectFor = t.dataset.lrConnect || null;
+    renderLeadResults();
+    $(`form[data-lr-form] input[name="location_id"]`)?.focus();
+  });
+  // Connect a client's GoHighLevel right from the sync list, then pull their leads.
+  $("#lr-root")?.addEventListener("submit", async (ev) => {
+    const form = ev.target.closest("[data-lr-form]");
+    if (!form) return;
+    ev.preventDefault();
+    const client_id = form.dataset.lrForm, location_id = form.elements.location_id.value.trim(), token = form.elements.token.value.trim();
+    if (!location_id || !token) return;
+    if (!IS_CONFIGURED){ rcToast("Demo mode - connect Supabase first."); return; }
+    lqConnecting = true; renderLeadResults();
+    const r = await ghlCall({ action: "connect", client_id, location_id, token });
+    lqConnecting = false;
+    if (r.error){ renderLeadResults(); rcToast("Couldn't connect: " + r.error); return; }
+    lqConnectFor = null;
+    rcToast(`Connected to ${r.location_name || "GoHighLevel"} - pulling their leads now.`);
+    renderLeadResults();
+    await lqSync();
+    renderLeadResults();
   });
   // Keeps the "came in 4 minutes ago" times ticking, and the sync line fresh.
   setInterval(() => {
@@ -10800,7 +10876,7 @@ function lqSeedDemo(){
       address: "12 Kauri Road, Albany, 0632", city: "Albany, Auckland",
       answers: [{ q: "What do you need done?", a: "New deck off the back of the house" }, { q: "Roughly how big?", a: "About 6m x 4m" }, { q: "Budget", a: "$10,000 - $15,000" }, { q: "When would you like it done?", a: "Before Christmas" }] },
     { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Sarah Lin", phone: "027 555 0172", email: "", form_name: "Website form", lead_created_at: ago(26), created_at: ago(26), follow_status: "new",
-      city: "Hamilton East, Hamilton", answers: [{ q: "What do you need done?", a: "Bathroom renovation" }, { q: "Budget", a: "Not sure yet" }] },
+      city: "Hamilton East, Hamilton", answers: [{ q: "what_are_you_looking_to_renovate", a: "bathroom" }, { q: "when_are_you_hoping_to_complete_the_project", a: "next_3_months" }, { q: "what_area_is_the_property_in", a: "Hamilton East" }] },
     { ...base, id: uid(), client_id: c[0].id, name: "Tom Fraser", phone: "022 555 0190", email: "tom@example.com", form_name: "Fence", lead_created_at: ago(240), created_at: ago(240), follow_status: "no_answer", attempts: 2, first_called_at: ago(236), last_attempt_at: ago(70), next_attempt_at: ago(10),
       call_log: [{ at: ago(236), by: "demo@mrpriceless.co.nz", outcome: "no_answer", note: "" }, { at: ago(70), by: "demo@mrpriceless.co.nz", outcome: "no_answer", note: "Left a voicemail" }] },
     { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Aroha Pene", phone: "021 555 0111", email: "", form_name: "Retaining wall", lead_created_at: ago(400), created_at: ago(400), follow_status: "call_back", attempts: 1, first_called_at: ago(395), last_attempt_at: ago(395), next_attempt_at: new Date(Date.now() + 90 * 60e3).toISOString(),
