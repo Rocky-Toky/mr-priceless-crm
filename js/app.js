@@ -498,6 +498,8 @@ const state = {
   creativeSnapshots: [],
   clientLeads: [],
   completedVerticals: [],
+  meetings: [],
+  precallSettings: null,
   playbookUsage: [],
   selectedClientId: null,
   selectedDealId: null,
@@ -1075,7 +1077,7 @@ function autoLowPerformers(){
 /* A copy of the last data load, kept in this browser (IndexedDB), so the
    CRM opens straight away next time while the fresh data loads behind it.
    One copy per signed-in person; cleared on sign out. */
-const CRM_CACHE_DB = "mp-crm-cache", CRM_CACHE_VERSION = 1;
+const CRM_CACHE_DB = "mp-crm-cache", CRM_CACHE_VERSION = 2;
 function crmCacheDb(){
   return new Promise((resolve, reject) => {
     if (!window.indexedDB) return reject(new Error("no indexedDB"));
@@ -1153,6 +1155,8 @@ const DataLayer = {
       allRows(() => supabase.from("creative_weekly_snapshots").select("*")),
       allRows(() => supabase.from("client_leads").select("*").order("created_at",{ascending:false})),
       allRows(() => supabase.from("completed_verticals").select("*").order("completed_at",{ascending:false})),
+      allRows(() => supabase.from("meetings").select("*").order("starts_at",{ascending:true})),
+      supabase.from("precall_settings").select("*").eq("id", 1).maybeSingle(),
     ]);
     DataLayer._apply(results);
     crmCacheSave(results);
@@ -1160,7 +1164,7 @@ const DataLayer = {
   // Puts a fetch's results into state - from the live database, or from the
   // copy saved in this browser last time (so the CRM opens instantly).
   _apply(results){
-    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv] = results;
+    const [c, cc, d, r, p, cl, ccon, cad, camp, dc, tk, crep, nt, pb, ru, et, ex, ca, pu, tf, cws, clead, cv, mt, pcs] = results;
     state.contacts = c.data || [];
     state.coldCalls = cc.data || [];
     state.deals = d.data || [];
@@ -1193,6 +1197,8 @@ const DataLayer = {
     state.creativeSnapshots = cws.data || [];
     state.clientLeads = clead.data || [];
     state.completedVerticals = cv.data || [];
+    state.meetings = mt?.data || [];
+    state.precallSettings = pcs?.data || null;
     dropArchivedClientData();
   },
   async insert(table, row){
@@ -1268,6 +1274,7 @@ function stateArray(table){
     rules: state.rules, email_templates: state.emailTemplates,
     expenses: state.expenses, call_activity: state.callActivity, playbook_usage: state.playbookUsage,
     client_leads: state.clientLeads, completed_verticals: state.completedVerticals,
+    meetings: state.meetings,
   }[table];
 }
 
@@ -1289,7 +1296,7 @@ function subscribeRealtime(){
       await DataLayer.fetchAll(); renderAll();
     }, 350);
   };
-  const LIVE_TABLES = ["contacts", "cold_calls", "deals", "prospecting_regions", "dial_prospects", "clients", "client_content", "client_ad_creatives", "client_campaigns", "deal_contacts", "tasks", "client_reports", "notes", "playbooks", "rules", "email_templates", "expenses", "call_activity", "playbook_usage", "creative_weekly_snapshots", "team_focus", "client_leads", "completed_verticals"];
+  const LIVE_TABLES = ["contacts", "cold_calls", "deals", "prospecting_regions", "dial_prospects", "clients", "client_content", "client_ad_creatives", "client_campaigns", "deal_contacts", "tasks", "client_reports", "notes", "playbooks", "rules", "email_templates", "expenses", "call_activity", "playbook_usage", "creative_weekly_snapshots", "team_focus", "client_leads", "completed_verticals", "meetings", "precall_settings"];
   const channel = supabase.channel("crm-live");
   LIVE_TABLES.forEach(table => channel.on("postgres_changes", { event:"*", schema:"public", table }, liveRefresh));
   channel
@@ -1312,6 +1319,7 @@ async function initAuth(){
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
     lqSeedDemo();
+    pmSeedDemo();
     showApp();
     setupClientInbox();
     setupEmployees();
@@ -2083,6 +2091,295 @@ function renderMeetingsPipeline(){
       </tr>`;
   }).join("");
 }
+
+/* ───────── Upcoming Meetings: sales meetings booked from the CRM ─────────
+   The setter books a prospect in with a closer. The precall-meetings Edge
+   Function puts a 15-minute Google Meet invite on the closer's calendar
+   (the prospect gets the invite) and a private 30-minute buffer straight
+   after, so each meeting holds the closer for 45 minutes. Times are stored
+   in UTC and always shown in NZ time, whatever timezone the browser's in. */
+const NZ_TZ = "Pacific/Auckland";
+const PM_BLOCK_MIN = 45;
+const PM_WINDOW_LABEL = { same_day: "Same day", next_day: "Next day", "2_3_days": "2-3 days out", "4_days": "4+ days out" };
+// 7am to 7:45pm, every 15 minutes.
+const PM_TIMES = Array.from({ length: 52 }, (_, i) => { const t = 420 + i * 15, h = Math.floor(t / 60), m = t % 60; return [`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`, `${h % 12 || 12}:${String(m).padStart(2, "0")}${h < 12 ? "am" : "pm"}`]; });
+function nzParts(d){
+  const o = {};
+  new Intl.DateTimeFormat("en-NZ", { timeZone: NZ_TZ, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    .formatToParts(d).forEach(p => { o[p.type] = p.value; });
+  return { y: +o.year, m: +o.month, d: +o.day, h: +o.hour % 24, mi: +o.minute };
+}
+const nzDayStr = (d = new Date()) => { const p = nzParts(d); return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`; };
+const nzAddDays = (day, n) => { const t = new Date(day + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+// "2026-10-29" + "14:00" in NZ -> that moment.
+function nzToDate(day, time){
+  const [y, m, d] = day.split("-").map(Number), [h, mi] = time.split(":").map(Number);
+  const want = Date.UTC(y, m - 1, d, h, mi);
+  let t = want;
+  for (let i = 0; i < 2; i++){ const p = nzParts(new Date(t)); t += want - Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi); }
+  return new Date(t);
+}
+const pmTime = (d) => { const p = nzParts(new Date(d)); return `${p.h % 12 || 12}:${String(p.mi).padStart(2, "0")}${p.h < 12 ? "am" : "pm"}`; };
+function pmDayLabel(day){
+  const today = nzDayStr();
+  if (day === today) return "Today";
+  if (day === nzAddDays(today, 1)) return "Tomorrow";
+  return new Date(day + "T12:00:00Z").toLocaleDateString("en-NZ", { timeZone: "UTC", weekday: "long", day: "numeric", month: "short" });
+}
+const pmEnd = (m) => Date.parse(m.starts_at) + ((m.duration_min || 15) + (m.buffer_min || 30)) * 60e3;
+function pmWindow(bookedAt, startsAt){
+  const days = Math.round((Date.parse(nzDayStr(startsAt)) - Date.parse(nzDayStr(bookedAt))) / 86400e3);
+  return days <= 0 ? "same_day" : days === 1 ? "next_day" : days <= 3 ? "2_3_days" : "4_days";
+}
+// NZ mobiles to E.164: 021 123 4567 -> +64211234567.
+function toE164NZ(raw){
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (s.startsWith("+")) return "+" + s.replace(/\D/g, "");
+  const d = s.replace(/\D/g, "");
+  if (d.startsWith("00")) return "+" + d.slice(2);
+  if (d.startsWith("64") || d.startsWith("61")) return "+" + d;
+  return "+64" + d.replace(/^0/, "");
+}
+// The calendar invites go on someone's work (Workspace) calendar.
+function personEmail(key){
+  const all = Object.keys(EMAIL_TO_ASSIGNEE).filter(e => EMAIL_TO_ASSIGNEE[e] === key);
+  return all.find(e => e.endsWith("@mrpriceless.com")) || all[0] || "";
+}
+const pmPerson = (key) => ASSIGNEES[key]?.label || key || "-";
+const pmTestMode = () => state.precallSettings ? state.precallSettings.test_mode !== false : true;
+const pmTestAllows = (email) => !pmTestMode() || /@mrpriceless\.com$/i.test(email) || String(state.precallSettings?.test_allowlist || "").toLowerCase().split(/[,\s]+/).includes(email.toLowerCase());
+// The closer's other meetings that overlap a 45-minute block starting at `start`.
+function pmClashes(closer, start){
+  const s = start.getTime(), e = s + PM_BLOCK_MIN * 60e3;
+  return state.meetings.filter(m => m.status === "scheduled" && m.closer === closer && Date.parse(m.starts_at) < e && pmEnd(m) > s);
+}
+
+function openBookMeeting(pre = {}){
+  $("#book-meeting-form").reset();
+  $("#book-meeting-slot-idx").value = pre.slotIdx ?? "";
+  const [first, ...rest] = String(pre.name || "").trim().split(/\s+/);
+  $("#book-meeting-first").value = first || "";
+  $("#book-meeting-last").value = rest.join(" ");
+  $("#book-meeting-company").value = pre.company || "";
+  $("#book-meeting-phone").value = pre.phone || "";
+  $("#book-meeting-email").value = pre.email || "";
+  const setter = $("#book-meeting-assignee");
+  if (setter && window.getActivePerson && window.getActivePerson()) setter.value = window.getActivePerson();
+  let closer = "max"; try { closer = localStorage.getItem("mp_pm_closer") || closer; } catch(e){}
+  $("#book-meeting-closer").value = ASSIGNEES[closer] ? closer : "max";
+  const today = nzDayStr();
+  $("#book-meeting-day").min = today;
+  $("#book-meeting-day").value = nzAddDays(today, 1);
+  $("#book-meeting-time").innerHTML = `<option value="">Pick a time</option>` + PM_TIMES.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  const form = $("#book-meeting-form");
+  if (pre.x != null){ form.dataset.x = pre.x; form.dataset.y = pre.y; }
+  renderBookAvail();
+  openModal("book-meeting-modal");
+}
+// Under the day / time pickers: what the closer already has that day (each
+// meeting as its 45-minute block) and a warning if the picked time clashes.
+function renderBookAvail(){
+  const box = $("#book-meeting-avail");
+  if (!box) return;
+  const closer = $("#book-meeting-closer").value, day = $("#book-meeting-day").value, time = $("#book-meeting-time").value;
+  if (!day){ box.innerHTML = ""; return; }
+  const booked = state.meetings.filter(m => m.status === "scheduled" && m.closer === closer && nzDayStr(new Date(m.starts_at)) === day)
+    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  const start = time ? nzToDate(day, time) : null;
+  const clash = start ? pmClashes(closer, start) : [];
+  const past = start && start.getTime() < Date.now();
+  box.innerHTML = `
+    <div class="bm-avail-head">${escapeHtml(pmPerson(closer))} on ${escapeHtml(pmDayLabel(day).replace(/^Today|^Tomorrow/, s => s.toLowerCase()))}: ${booked.length ? `${booked.length} meeting${booked.length === 1 ? "" : "s"} booked` : "nothing booked yet"}</div>
+    ${booked.length ? `<div class="bm-avail-slots">${booked.map(m => `<span class="${clash.includes(m) ? "clash" : ""}">${pmTime(m.starts_at)} - ${pmTime(pmEnd(m))}</span>`).join("")}</div>` : ""}
+    ${past ? `<p class="bm-avail-warn">That time has already passed.</p>` : clash.length ? `<p class="bm-avail-warn">That clashes with ${escapeHtml(pmPerson(closer))}'s ${pmTime(clash[0].starts_at)} meeting. Each meeting blocks 45 minutes (15 + a 30-minute buffer).</p>` : start ? `<p class="bm-avail-ok">${pmTime(start)} - ${pmTime(start.getTime() + PM_BLOCK_MIN * 60e3)} is free.</p>` : ""}`;
+}
+
+// Saves the meeting and sends the calendar invite (the Edge Function does
+// both). In demo mode it's made up here instead.
+async function createPrecallMeeting(p){
+  if (!IS_CONFIGURED){
+    const bookedAt = new Date(), start = new Date(p.starts_at);
+    const invite = !!p.email && pmTestAllows(p.email);
+    const row = { ...p, id: uid(), status: "scheduled", duration_min: 15, buffer_min: 30, booked_at: bookedAt.toISOString(),
+      lead_time_hours: Math.round((start - bookedAt) / 360e3) / 10, booking_window: pmWindow(bookedAt, start),
+      google_event_id: "demo", buffer_event_id: "demo-b", meet_link: "https://meet.google.com/abc-defg-hij", calendar_status: "ok",
+      invite_to_prospect: invite, test_mode: pmTestMode(), confirmation_status: "unconfirmed", reschedule_count: 0, created_at: bookedAt.toISOString() };
+    state.meetings.push(row);
+    return row;
+  }
+  const { data, error } = await supabase.functions.invoke("precall-meetings", { body: { action: "book", ...p } });
+  if (error || !data || data.error){
+    alert("The deal's saved, but the meeting wasn't booked: " + (data?.error || error?.message || "unknown error") + "\n\nBook it again from Upcoming Meetings once that's sorted.");
+    return null;
+  }
+  await DataLayer.fetchAll();
+  return data.meeting;
+}
+async function submitBookMeeting(e){
+  e.preventDefault();
+  const form = e.target;
+  const first = $("#book-meeting-first").value.trim(), last = $("#book-meeting-last").value.trim();
+  const name = [first, last].filter(Boolean).join(" ");
+  const phone = $("#book-meeting-phone").value.trim();
+  const company = $("#book-meeting-company").value.trim();
+  const email = $("#book-meeting-email").value.trim();
+  const person = $("#book-meeting-assignee").value;
+  const closer = $("#book-meeting-closer").value;
+  const day = $("#book-meeting-day").value, time = $("#book-meeting-time").value;
+  const source = $("#book-meeting-source")?.value || "outbound";
+  const slotIdx = $("#book-meeting-slot-idx").value;
+  if (!first || !day || !time) return;
+  const start = nzToDate(day, time);
+  if (start.getTime() < Date.now() - 5 * 60e3){ alert("That meeting time has already passed - pick another."); return; }
+  const closerEmail = personEmail(closer);
+  if (!closerEmail){ alert(`${pmPerson(closer)} doesn't have a CRM login yet, so the invite can't go on their calendar.`); return; }
+  const clash = pmClashes(closer, start);
+  if (clash.length && !confirm(`${pmPerson(closer)} already has a meeting at ${pmTime(clash[0].starts_at)} (each one blocks 45 minutes). Book this anyway?`)) return;
+  try { localStorage.setItem("mp_pm_closer", closer); } catch(err){}
+  const btn = form.querySelector('[type="submit"]');
+  btn.disabled = true; btn.textContent = "Booking…";
+  try {
+    const btnRect = ($("#book-meeting-btn") || btn).getBoundingClientRect();
+    const x = form.dataset.x ? Number(form.dataset.x) : btnRect.left + btnRect.width / 2;
+    const y = form.dataset.y ? Number(form.dataset.y) : btnRect.top + btnRect.height / 2;
+    delete form.dataset.x; delete form.dataset.y;
+    const deal = await bookMeeting(name, phone, person, { company, email, stage: "qualified", source });
+    if (!deal) return;
+    const meeting = await createPrecallMeeting({
+      deal_id: deal.id, contact_id: deal.contact_id || null, first_name: first, last_name: last, business_name: company,
+      email, phone: toE164NZ(phone), closer, closer_email: closerEmail, setter: person, setter_email: personEmail(person),
+      starts_at: start.toISOString(), description: $("#book-meeting-desc").value.trim(),
+    });
+    closeModal("book-meeting-modal");
+    window.bookMeetingInTracker?.(company || name, x, y, slotIdx);
+    if (meeting){
+      rcToast(meeting.calendar_status === "error"
+        ? `Meeting saved, but the calendar invite didn't go out: ${meeting.calendar_error || "Google said no"}. Retry it from Upcoming Meetings.`
+        : `Booked: ${name} with ${pmPerson(closer)}, ${pmDayLabel(day)} ${pmTime(start)}.${meeting.invite_to_prospect ? " Invite sent." : email ? " Test mode: the invite only went on the closer's calendar." : ""}`);
+    }
+    renderAll();
+  } finally {
+    btn.disabled = false; btn.textContent = "Book Meeting";
+  }
+}
+
+function pmSeedDemo(){
+  const today = nzDayStr(), booked = new Date(Date.now() - 86400e3);
+  const mk = (day, time, first, last, business, closer, setter, extra = {}) => {
+    const start = nzToDate(day, time);
+    return { id: uid(), deal_id: null, first_name: first, last_name: last, business_name: business, email: first.toLowerCase() + "@example.co.nz",
+      phone: "+6421555" + String(Math.floor(Math.random() * 9000) + 1000), closer, closer_email: personEmail(closer), setter, setter_email: personEmail(setter),
+      starts_at: start.toISOString(), duration_min: 15, buffer_min: 30, description: "", status: "scheduled", booked_at: booked.toISOString(),
+      lead_time_hours: Math.round((start - booked) / 360e3) / 10, booking_window: pmWindow(booked, start), google_event_id: "demo", buffer_event_id: "demo-b",
+      meet_link: "https://meet.google.com/abc-defg-hij", calendar_status: "ok", invite_to_prospect: false, test_mode: true,
+      confirmation_status: "unconfirmed", reschedule_count: 0, created_at: booked.toISOString(), ...extra };
+  };
+  state.meetings = [
+    mk(today, "16:30", "Hemi", "Walker", "Walker Roofing", "max", "rocky"),
+    mk(nzAddDays(today, 1), "10:00", "Sarah", "Tane", "Tane Plumbing & Gas", "max", "rocky"),
+    mk(nzAddDays(today, 1), "13:15", "Josh", "Kerr", "Kerr Electrical", "max", "rocky", { calendar_status: "error", meet_link: null, google_event_id: null, calendar_error: "Google hasn't switched on calendar access for the CRM yet. It can take up to 24 hours after setting it up - try again later." }),
+    mk(nzAddDays(today, 3), "11:30", "Lena", "Fisher", "Fisher Landscapes", "max", "rocky"),
+  ];
+  state.precallSettings = { id: 1, test_mode: true, test_allowlist: "" };
+}
+let pmTab = "upcoming";
+function renderMeetingsPage(){
+  const root = $("#pm-root");
+  if (!root) return;
+  if (root.contains(document.activeElement) && document.activeElement.matches("input")) return;
+  const now = Date.now();
+  const all = state.meetings.slice().sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  const upcoming = all.filter(m => m.status === "scheduled" && Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3 > now);
+  const past = all.filter(m => !upcoming.includes(m)).reverse().slice(0, 60);
+  const list = pmTab === "past" ? past : upcoming;
+  const test = pmTestMode();
+  const days = [];
+  list.forEach(m => { const d = nzDayStr(new Date(m.starts_at)); let g = days.find(x => x.day === d); if (!g) days.push(g = { day: d, rows: [] }); g.rows.push(m); });
+  const calPill = (m) => {
+    if (m.status === "cancelled") return `<span class="pm-pill gray">Cancelled</span>`;
+    if (m.calendar_status === "error") return `<span class="pm-pill red" title="${escapeHtml(m.calendar_error || "")}">Invite didn't send</span>`;
+    if (m.calendar_status !== "ok") return `<span class="pm-pill gray">Sending invite…</span>`;
+    if (m.invite_to_prospect) return `<span class="pm-pill green">Invite sent</span>`;
+    return m.email ? `<span class="pm-pill gold" title="Test mode was on, so the prospect wasn't invited">Test: closer only</span>` : `<span class="pm-pill gray">No email, not invited</span>`;
+  };
+  const row = (m) => {
+    const name = [m.first_name, m.last_name].filter(Boolean).join(" ");
+    return `<div class="pm-row${m.calendar_status === "error" ? " err" : ""}">
+      <div class="pm-when"><b>${pmTime(m.starts_at)}</b><small>to ${pmTime(Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3)}</small></div>
+      <div class="pm-who"><b>${escapeHtml(name)}</b><small>${escapeHtml([m.business_name, m.phone].filter(Boolean).join(" · "))}</small></div>
+      <div class="pm-people"><span>Closer <b>${escapeHtml(pmPerson(m.closer))}</b></span><span>Set by <b>${escapeHtml(pmPerson(m.setter))}</b></span></div>
+      <div class="pm-tags">${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${calPill(m)}</div>
+      <div class="pm-actions">
+        ${m.calendar_status === "error" && m.status === "scheduled" ? `<button type="button" class="btn ghost" data-pm-act="retry" data-id="${m.id}">Retry invite</button>` : ""}
+        ${m.meet_link ? `<a class="btn ghost" href="${escapeHtml(m.meet_link)}" target="_blank" rel="noopener">Open Meet</a><button type="button" class="btn ghost" data-pm-act="copy" data-link="${escapeHtml(m.meet_link)}">Copy link</button>` : ""}
+        ${m.deal_id && state.deals.some(d => d.id === m.deal_id) ? `<button type="button" class="btn ghost" data-pm-act="deal" data-id="${m.deal_id}">Deal</button>` : ""}
+      </div>
+      ${m.calendar_status === "error" ? `<p class="pm-err">${escapeHtml(m.calendar_error || "Google Calendar said no.")}</p>` : ""}
+    </div>`;
+  };
+  root.innerHTML = `
+    <div class="page-header">
+      <div><h2>Upcoming Meetings</h2><p>Book here and the Google Meet invite goes on the closer's calendar, with a 30-minute buffer after. All times NZ.</p></div>
+      <button type="button" class="btn gold" data-pm-act="book">+ Book Meeting</button>
+    </div>
+    <div class="pm-test${test ? " on" : ""}">
+      <div><b>Test mode is ${test ? "on" : "off"}.</b> ${test ? "Invites only go to @mrpriceless.com emails and the test list below, so no real prospect gets anything yet." : "Prospects get real calendar invites."}</div>
+      ${test ? `<label class="pm-test-list">Test list <input type="text" id="pm-test-list" placeholder="other emails to allow, comma separated" value="${escapeHtml(state.precallSettings?.test_allowlist || "")}"></label>` : ""}
+      <button type="button" class="btn ${test ? "ghost" : "gold"}" data-pm-act="test">${test ? "Go live" : "Turn test mode back on"}</button>
+    </div>
+    <div class="country-toggle pm-tabs">
+      <button type="button" data-pm-tab="upcoming" class="${pmTab === "upcoming" ? "active" : ""}">Upcoming (${upcoming.length})</button>
+      <button type="button" data-pm-tab="past" class="${pmTab === "past" ? "active" : ""}">Past and cancelled</button>
+    </div>
+    ${days.length ? days.map(g => `<div class="card pm-day"><h3>${escapeHtml(pmDayLabel(g.day))}<span>${g.rows.length}</span></h3>${g.rows.map(row).join("")}</div>`).join("")
+      : `<div class="card">${emptyState(pmTab === "past" ? "No past meetings yet." : "No meetings coming up. Book one with + Book Meeting.")}</div>`}`;
+  pmNavCount();
+}
+function pmNavCount(){
+  const el = $(".nav-pm-count");
+  if (!el) return;
+  const today = nzDayStr(), now = Date.now();
+  const n = state.meetings.filter(m => m.status === "scheduled" && nzDayStr(new Date(m.starts_at)) === today && Date.parse(m.starts_at) + 15 * 60e3 > now).length;
+  el.hidden = !n; el.textContent = n || "";
+}
+async function savePrecallSettings(patch){
+  const row = { id: 1, ...(state.precallSettings || {}), ...patch, updated_by: state.user?.email || "demo", updated_at: new Date().toISOString() };
+  state.precallSettings = row;
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("precall_settings").upsert(row);
+    if (error){ alert(error.message); await DataLayer.fetchAll(); }
+  }
+  renderMeetingsPage();
+}
+document.addEventListener("click", async (e) => {
+  const tab = e.target.closest("[data-pm-tab]");
+  if (tab){ pmTab = tab.dataset.pmTab; renderMeetingsPage(); return; }
+  const b = e.target.closest("[data-pm-act]");
+  if (!b) return;
+  const act = b.dataset.pmAct;
+  if (act === "book") openBookMeeting();
+  else if (act === "copy"){
+    try { await navigator.clipboard.writeText(b.dataset.link); b.textContent = "Copied"; setTimeout(() => { b.textContent = "Copy link"; }, 1400); } catch(err){}
+  } else if (act === "deal"){
+    state.selectedDealId = b.dataset.id; goPage("deals"); renderDeals();
+  } else if (act === "test"){
+    if (pmTestMode() && !confirm("Go live? Prospects will start getting real Google Calendar invites when you book them.")) return;
+    await savePrecallSettings({ test_mode: !pmTestMode() });
+  } else if (act === "retry"){
+    b.disabled = true; b.textContent = "Trying…";
+    if (!IS_CONFIGURED){ const m = state.meetings.find(x => x.id === b.dataset.id); if (m) Object.assign(m, { calendar_status: "ok", calendar_error: null, meet_link: "https://meet.google.com/abc-defg-hij", invite_to_prospect: !!m.email && pmTestAllows(m.email) }); renderMeetingsPage(); return; }
+    const { data, error } = await supabase.functions.invoke("precall-meetings", { body: { action: "retry_calendar", meeting_id: b.dataset.id } });
+    if (error || data?.error) alert(data?.error || error.message);
+    await DataLayer.fetchAll(); renderAll();
+    const m = state.meetings.find(x => x.id === b.dataset.id);
+    if (m) rcToast(m.calendar_status === "ok" ? "Invite sent." : "Still not working: " + (m.calendar_error || "Google said no."));
+  }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.id === "pm-test-list") savePrecallSettings({ test_allowlist: e.target.value.trim() });
+  if (["book-meeting-closer", "book-meeting-day", "book-meeting-time"].includes(e.target.id)) renderBookAvail();
+});
 
 /* ───────── Render: Deals (Kanban) ───────── */
 function renderDeals(){
@@ -3022,16 +3319,7 @@ async function bumpCallActivity(personKey, outcome){
 // just confirm assignee/stage and submit to create the actual Contact + Deal.
 function openBookMeetingModalFromProspect(p){
   if (!p) return;
-  $("#book-meeting-form").reset();
-  $("#book-meeting-slot-idx").value = "";
-  $("#book-meeting-name").value = p.name || p.company || "";
-  $("#book-meeting-phone").value = p.phone || "";
-  $("#book-meeting-company").value = p.company || "";
-  $("#book-meeting-email").value = p.email || "";
-  $("#book-meeting-stage").value = "qualified";
-  const assigneeSelect = $("#book-meeting-assignee");
-  if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
-  openModal("book-meeting-modal");
+  openBookMeeting({ name: p.name || "", company: p.company || "", phone: p.phone || "", email: p.email || "" });
 }
 // opts.correct: changing the outcome of the last call (picked the wrong one,
 // or they rang back) - it isn't a new dial, so the call count stays put and
@@ -11019,6 +11307,7 @@ const RENDERERS = [
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
   [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [lqNavCount, ["*"]],
+  [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -12920,47 +13209,12 @@ function setupModals(){
     if (!IS_CONFIGURED) return; renderAll();
   });
 
-  $("#book-meeting-btn")?.addEventListener("click", () => {
-    $("#book-meeting-form").reset();
-    $("#book-meeting-slot-idx").value = "";
-    $("#book-meeting-stage").value = "qualified";
-    const assigneeSelect = $("#book-meeting-assignee");
-    if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
-    openModal("book-meeting-modal");
-  });
+  $("#book-meeting-btn")?.addEventListener("click", () => openBookMeeting());
   // Also opened directly from a "Meeting booked N" checklist row (see
   // window.openMeetingBookedPrompt below) - same modal, but pre-armed with
   // which slot to mark done so the celebration lands on the right row.
-  window.openMeetingBookedPrompt = function(idx, x, y){
-    $("#book-meeting-form").reset();
-    $("#book-meeting-slot-idx").value = idx;
-    $("#book-meeting-stage").value = "qualified";
-    const assigneeSelect = $("#book-meeting-assignee");
-    if (assigneeSelect && window.getActivePerson) assigneeSelect.value = window.getActivePerson();
-    $("#book-meeting-form").dataset.x = x; $("#book-meeting-form").dataset.y = y;
-    openModal("book-meeting-modal");
-  };
-  $("#book-meeting-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const name = $("#book-meeting-name").value.trim();
-    const phone = $("#book-meeting-phone").value.trim();
-    const company = $("#book-meeting-company").value.trim();
-    const email = $("#book-meeting-email").value.trim();
-    const person = $("#book-meeting-assignee").value;
-    const stage = $("#book-meeting-stage").value;
-    const source = $("#book-meeting-source")?.value || "outbound";
-    const slotIdx = $("#book-meeting-slot-idx").value;
-    if (!name) return;
-    const btnRect = $("#book-meeting-btn").getBoundingClientRect();
-    const x = form.dataset.x ? Number(form.dataset.x) : btnRect.left + btnRect.width/2;
-    const y = form.dataset.y ? Number(form.dataset.y) : btnRect.top + btnRect.height/2;
-    delete form.dataset.x; delete form.dataset.y;
-    const deal = await bookMeeting(name, phone, person, { company, email, stage, source });
-    closeModal("book-meeting-modal");
-    if (deal) window.bookMeetingInTracker?.(company || name, x, y, slotIdx);
-    if (!IS_CONFIGURED) return; renderAll();
-  });
+  window.openMeetingBookedPrompt = function(idx, x, y){ openBookMeeting({ slotIdx: idx, x, y }); };
+  $("#book-meeting-form")?.addEventListener("submit", submitBookMeeting);
 
   $("#add-deal-btn").addEventListener("click", () => {
     $("#deal-form").reset();

@@ -25,6 +25,7 @@ on:
       - "supabase/functions/send-scheduled-emails/**"
       - "supabase/functions/sync-client-inbox/**"
       - "supabase/functions/sync-ghl-leads/**"
+      - "supabase/functions/precall-meetings/**"
       - "supabase/functions/_shared/**"
       - "sql/056_ghl_connections.sql"
       - "sql/057_nurture_and_jarvis.sql"
@@ -51,6 +52,7 @@ on:
       - "sql/079_lead_details_and_sync.sql"
       - "sql/080_lead_ad_info.sql"
       - "sql/081_lead_ghl_outcomes.sql"
+      - "sql/082_precall_meetings.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
     inputs:
@@ -66,6 +68,10 @@ on:
         description: "Type yes to run the lead sync now and print how many clients are connected (counts only, no names)"
         required: false
         default: ""
+      check_calendar:
+        description: "Check the CRM can reach this person's Google Calendar for meeting invites (an @mrpriceless.com email; leave blank to skip)"
+        required: false
+        default: ""
 
 jobs:
   deploy:
@@ -77,6 +83,7 @@ jobs:
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
       EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       PROJECT_REF: chaexdenosljtdwuyjnw
     steps:
       - name: Check for the Supabase token
@@ -99,7 +106,7 @@ jobs:
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
@@ -136,10 +143,23 @@ jobs:
           supabase secrets set RESEND_API_KEY="$RESEND_API_KEY" --project-ref "$PROJECT_REF"
           if [ -n "$EMAIL_FROM" ]; then supabase secrets set EMAIL_FROM="$EMAIL_FROM" --project-ref "$PROJECT_REF"; fi
           if [ -n "$EMAIL_REPLY_TO" ]; then supabase secrets set EMAIL_REPLY_TO="$EMAIL_REPLY_TO" --project-ref "$PROJECT_REF"; fi
+      # Meeting invites on the closer's Google Calendar: the service account key
+      # file from Google Cloud, pasted whole as the GOOGLE_SERVICE_ACCOUNT_JSON
+      # repo secret. It's passed on base64-encoded (so nothing in it gets
+      # mangled on the way) and never printed.
+      - name: Pass the meeting booker its Google key
+        if: steps.token.outputs.ok == 'true' && env.GOOGLE_SERVICE_ACCOUNT_JSON != ''
+        run: |
+          if ! sa=$(printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" | jq -ce 'select(.client_email and .private_key)' 2>/dev/null); then
+            echo "::error::GOOGLE_SERVICE_ACCOUNT_JSON isn't a Google service account key file. Paste the whole .json file into the secret again."
+            exit 1
+          fi
+          supabase secrets set GOOGLE_SERVICE_ACCOUNT_B64="$(printf '%s' "$sa" | base64 -w0)" --project-ref "$PROJECT_REF" > /dev/null
+          echo "Google key set."
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
-          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads; do
+          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings; do
             supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --no-verify-jwt
           done
       # Run this workflow by hand with a test_email to check sending works.
@@ -230,3 +250,19 @@ jobs:
           q "select count(*) filter (where details_at is not null) as details_read, count(*) filter (where ghl_contact_id is not null) as with_contact_id, count(*) as total from client_leads where source = 'ghl' and coalesce(lead_created_at, created_at) > now() - interval '3 days'" | jq -c '.[0]'
           echo "Leads in the last 3 days by source:"
           q "select coalesce(source,'none') as source, count(*), count(*) filter (where jsonb_array_length(answers) > 0) as with_answers, count(*) filter (where coalesce(address,city) is not null) as with_location from client_leads where coalesce(lead_created_at, created_at) > now() - interval '3 days' group by 1" | jq -c '.[]'
+      # Run by hand with check_calendar=someone@mrpriceless.com: asks Google
+      # for a token as that person and looks at their calendar. Prints only
+      # whether it worked (and how many upcoming events it could see, 0 or 1).
+      - name: Check calendar access
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_calendar != ''
+        env:
+          CHECK_EMAIL: ${{ inputs.check_calendar }}
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          secret=$(q "select value from app_secrets where name = 'precall_cron_secret'" | jq -r '.[0].value')
+          echo "::add-mask::$secret"
+          sleep 5
+          curl -sS -m 60 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/precall-meetings" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data "$(jq -n --arg e "$CHECK_EMAIL" '{action: "check_calendar", email: $e}')"
+          echo

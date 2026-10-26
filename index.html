@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=301">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=301">
+<link rel="stylesheet" href="css/style.css?v=302">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=302">
 </head>
 <body>
 
@@ -197,6 +197,10 @@
       <button class="nav-item" data-page="cold-calls" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         <span>Meetings Booked</span>
+      </button>
+      <button class="nav-item" data-page="meetings" data-workspace="sales">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M12 13v3l2 1"/></svg>
+        <span>Upcoming Meetings</span><span class="nav-count nav-pm-count" hidden title="Meetings today"></span>
       </button>
       <button class="nav-item" data-page="dialer" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="6" cy="5" r="1.7"/><circle cx="12" cy="5" r="1.7"/><circle cx="18" cy="5" r="1.7"/><circle cx="6" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18" cy="12" r="1.7"/><circle cx="6" cy="19" r="1.7"/><circle cx="12" cy="19" r="1.7"/><circle cx="18" cy="19" r="1.7"/></svg>
@@ -493,6 +497,11 @@
         <div class="mtr-week-grid" id="week-grid"></div>
       </div>
 
+    </section>
+
+    <!-- Upcoming sales meetings: booked here, invite on the closer's Google Calendar -->
+    <section class="page" id="page-meetings">
+      <div id="pm-root"></div>
     </section>
 
     <!-- Calendar -->
@@ -1894,15 +1903,17 @@
     <div class="modal-header"><h3>Book a Meeting</h3><button class="modal-close" data-close="book-meeting-modal">&times;</button></div>
     <form id="book-meeting-form" class="modal-body">
       <input type="hidden" id="book-meeting-slot-idx">
-      <div class="field"><label>Name</label><input type="text" id="book-meeting-name" required placeholder="e.g. Marlon Reeve"></div>
       <div class="field-row">
-        <div class="field"><label>Company</label><input type="text" id="book-meeting-company" placeholder="e.g. Reeve Builders"></div>
-        <div class="field"><label>Phone</label><input type="tel" id="book-meeting-phone" placeholder="e.g. 021 123 4567"></div>
+        <div class="field"><label>First name</label><input type="text" id="book-meeting-first" required placeholder="e.g. Marlon" autocomplete="off"></div>
+        <div class="field"><label>Last name</label><input type="text" id="book-meeting-last" placeholder="e.g. Reeve" autocomplete="off"></div>
       </div>
-      <div class="field"><label>Email</label><input type="email" id="book-meeting-email" placeholder="e.g. marlon@reevebuilders.co.nz"></div>
-      <div class="field"><label>Lead source</label><select id="book-meeting-source"><option value="outbound">Outbound (we called them)</option><option value="inbound">Inbound (they came to us)</option></select></div>
       <div class="field-row">
-        <div class="field"><label>Assigned To</label>
+        <div class="field"><label>Business</label><input type="text" id="book-meeting-company" placeholder="e.g. Reeve Builders"></div>
+        <div class="field"><label>Mobile</label><input type="tel" id="book-meeting-phone" placeholder="e.g. 021 123 4567"></div>
+      </div>
+      <div class="field"><label>Email <small class="bm-hint">the Google Meet invite goes here</small></label><input type="email" id="book-meeting-email" placeholder="e.g. marlon@reevebuilders.co.nz"></div>
+      <div class="field-row">
+        <div class="field"><label>Setter</label>
           <select id="book-meeting-assignee">
             <option value="rocky">Rocky</option>
             <option value="max">Max</option>
@@ -1911,22 +1922,23 @@
             <option value="thor">Thor</option>
           </select>
         </div>
-        <div class="field"><label>Pipeline Stage</label>
-          <select id="book-meeting-stage">
-            <option value="qualified">Meeting Booked</option>
-            <option value="no_show">No Show</option>
-            <option value="proposal">Proposal Meeting</option>
-            <option value="negotiation">Negotiation</option>
-            <option value="onboarding">Onboarding</option>
-            <option value="pending_results">Pending Results</option>
-            <option value="closed_won">Closed Won MRR</option>
-            <option value="closed_won_adhoc">Closed Won Adhoc</option>
-            <option value="closed_lost">Closed Lost</option>
-            <option value="disqualified">Disqualified</option>
-            <option value="ghosted">Ghosted</option>
+        <div class="field"><label>Closer</label>
+          <select id="book-meeting-closer">
+            <option value="max">Max</option>
+            <option value="rocky">Rocky</option>
+            <option value="gabriel">Gabriel</option>
+            <option value="raheem">Randy</option>
+            <option value="thor">Thor</option>
           </select>
         </div>
       </div>
+      <div class="field-row">
+        <div class="field"><label>Meeting day <small class="bm-hint">NZ time</small></label><input type="date" id="book-meeting-day" required></div>
+        <div class="field"><label>Time</label><select id="book-meeting-time" required></select></div>
+      </div>
+      <div class="bm-avail" id="book-meeting-avail" aria-live="polite"></div>
+      <div class="field"><label>Invite description <small class="bm-hint">goes in the calendar invite</small></label><textarea id="book-meeting-desc" rows="3" placeholder="e.g. Quick chat about getting Reeve Builders more quote requests from Facebook ads."></textarea></div>
+      <div class="field"><label>Lead source</label><select id="book-meeting-source"><option value="outbound">Outbound (we called them)</option><option value="inbound">Inbound (they came to us)</option></select></div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="book-meeting-modal">Cancel</button>
         <button type="submit" class="btn gold">Book Meeting</button>
@@ -2797,17 +2809,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=301"></script>
-<script src="js/supabaseClient.js?v=301"></script>
-<script src="js/report-pdf.js?v=301"></script>
-<script src="js/plan-pdf.js?v=301"></script>
-<script src="js/workshop-pdf.js?v=301"></script>
-<script src="js/receipt-pdf.js?v=301"></script>
-<script src="js/welcome-pdf.js?v=301"></script>
-<script src="js/builtin-playbooks.js?v=301"></script>
-<script src="js/builtin-email-templates.js?v=301"></script>
-<script src="js/app.js?v=301"></script>
-<script src="js/meetings-tracker.js?v=301"></script>
-<script src="js/todo.js?v=301"></script>
+<script src="js/config.js?v=302"></script>
+<script src="js/supabaseClient.js?v=302"></script>
+<script src="js/report-pdf.js?v=302"></script>
+<script src="js/plan-pdf.js?v=302"></script>
+<script src="js/workshop-pdf.js?v=302"></script>
+<script src="js/receipt-pdf.js?v=302"></script>
+<script src="js/welcome-pdf.js?v=302"></script>
+<script src="js/builtin-playbooks.js?v=302"></script>
+<script src="js/builtin-email-templates.js?v=302"></script>
+<script src="js/app.js?v=302"></script>
+<script src="js/meetings-tracker.js?v=302"></script>
+<script src="js/todo.js?v=302"></script>
 </body>
 </html>
