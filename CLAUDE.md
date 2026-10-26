@@ -76,7 +76,8 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
   - pg_cron (sql/083) calls it every 5 minutes (`action: "poll"`): an accept confirms; a decline, or a move/delete in Google, sets `calendar_flag` and emails the setter via `scheduled_emails` (kind `precall_alert`). It never changes the meeting by itself.
   - Test mode (`precall_settings.test_mode`, toggled on the page) only invites @mrpriceless.com and the test list.
   - The workflow's manual `check_calendar` (an email) and `check_meetings` (yes) runs check Google access and how meetings, the watch and alert emails are doing (statuses only).
-  - Phases still to come: GHL sync, setter/closer task engine, message timeline, reporting.
+  - GHL sync (sql/085): every booking change upserts the prospect into our own GHL sub-account (secrets `GHL_PRECALL_TOKEN`, `GHL_PRECALL_LOCATION_ID`), sets the 11 custom fields (created by the function if missing; manual `setup_ghl` run) and leaves exactly one `precall-*` tag. GHL's workflows send the SMS/emails from those tags. Result on `meetings.ghl_status` / `ghl_error`; failures retry every 5 minutes, up to 8 times. Test mode only syncs @mrpriceless.com and the test list.
+  - Phases still to come: setter/closer task engine, message timeline, reporting.
 
 ## Testing before you push
 - `node --check js/app.js`

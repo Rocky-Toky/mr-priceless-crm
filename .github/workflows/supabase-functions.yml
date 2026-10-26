@@ -55,6 +55,7 @@ on:
       - "sql/082_precall_meetings.sql"
       - "sql/083_precall_reschedule_and_watch.sql"
       - "sql/084_employee_responsibilities.sql"
+      - "sql/085_precall_ghl_sync.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
     inputs:
@@ -74,6 +75,10 @@ on:
         description: "Check the CRM can reach this person's Google Calendar for meeting invites (an @mrpriceless.com email; leave blank to skip)"
         required: false
         default: ""
+      setup_ghl:
+        description: "Type yes to create the pre-call custom fields in our GHL sub-account (if missing) and list what's there"
+        required: false
+        default: ""
       check_meetings:
         description: "Type yes to print how booked meetings are doing: live updates, the 5-minute calendar check, alert emails (counts and statuses only, no names)"
         required: false
@@ -90,6 +95,8 @@ jobs:
       EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
       EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GHL_PRECALL_TOKEN: ${{ secrets.GHL_PRECALL_TOKEN }}
+      GHL_PRECALL_LOCATION_ID: ${{ secrets.GHL_PRECALL_LOCATION_ID }}
       PROJECT_REF: chaexdenosljtdwuyjnw
     steps:
       - name: Check for the Supabase token
@@ -112,7 +119,7 @@ jobs:
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
@@ -162,6 +169,12 @@ jobs:
           fi
           supabase secrets set GOOGLE_SERVICE_ACCOUNT_B64="$(printf '%s' "$sa" | base64 -w0)" --project-ref "$PROJECT_REF" > /dev/null
           echo "Google key set."
+      # Booked meetings sync to our own GoHighLevel sub-account: a Private
+      # Integration token and the location ID, as the GHL_PRECALL_TOKEN and
+      # GHL_PRECALL_LOCATION_ID repo secrets.
+      - name: Pass the meeting booker its GHL key
+        if: steps.token.outputs.ok == 'true' && env.GHL_PRECALL_TOKEN != '' && env.GHL_PRECALL_LOCATION_ID != ''
+        run: supabase secrets set GHL_PRECALL_TOKEN="$GHL_PRECALL_TOKEN" GHL_PRECALL_LOCATION_ID="$GHL_PRECALL_LOCATION_ID" --project-ref "$PROJECT_REF" > /dev/null
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
@@ -290,3 +303,17 @@ jobs:
           q "select status, left(coalesce(error,''),160) as error, case when to_email like '%@mrpriceless.com' then 'team' else 'other' end as to_email, send_at, sent_at from scheduled_emails where kind = 'precall_alert' order by created_at desc limit 10" | jq -c '.[]'
           echo "Email sender (last 3 runs):"
           q "select status, left(coalesce(return_message,''),120) as message, start_time from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'send-scheduled-emails') order by start_time desc limit 3" | jq -c '.[]'
+          echo "GHL sync:"
+          q "select status, ghl_status, ghl_tag, left(coalesce(ghl_error,''),160) as ghl_error, ghl_attempts from meetings order by created_at desc limit 10" | jq -c '.[]'
+      # Run by hand with setup_ghl=yes: makes the pre-call custom fields in
+      # our GHL sub-account if they're missing, and lists the fields and tags.
+      - name: Set up GHL fields
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.setup_ghl == 'yes'
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          secret=$(q "select value from app_secrets where name = 'precall_cron_secret'" | jq -r '.[0].value')
+          echo "::add-mask::$secret"
+          sleep 5
+          curl -sS -m 90 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/precall-meetings" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data '{"action":"setup_ghl"}' | jq .
