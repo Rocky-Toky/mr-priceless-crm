@@ -2335,6 +2335,17 @@ function pmSeedDemo(){
   state.meetings.push({ ...state.meetings[0], id: uid(), first_name: "Rangi", last_name: "Moana", business_name: "Moana Builders", starts_at: now.toISOString(), closer: "max",
     booked_at: new Date(Date.now() - 2 * 86400e3).toISOString(), tasks_from: new Date(Date.now() - 2 * 86400e3).toISOString(), task_log: { A: { status: "done", at: new Date().toISOString() } } });
   window.__pmTasks = pmTasks;
+  const past = (d, h, extra) => ({ ...state.meetings[0], id: uid(), first_name: ["Tama", "Kate", "Liam", "Ana", "Josh", "Ella", "Nik", "Sione"][d % 8], last_name: "Demo", business_name: "Demo Trades",
+    starts_at: new Date(Date.now() - d * 86400e3 - h * 3600e3).toISOString(), booked_at: new Date(Date.now() - (d + 2) * 86400e3).toISOString(), status: "completed", task_log: {}, ...extra });
+  state.meetings.push(
+    past(2, 1, { outcome: "showed", confirmation_status: "confirmed", booking_window: "next_day", task_log: { D: { status: "done", result: "answered_ok" } } }),
+    past(3, 2, { outcome: "showed", confirmation_status: "confirmed", booking_window: "2_3_days", task_log: { D: { status: "done", result: "answered_ok" }, E: { status: "done" } } }),
+    past(4, 3, { outcome: "noshow", confirmation_status: "unconfirmed", booking_window: "4_days", task_log: { D: { status: "done", result: "no_answer" }, E: { status: "done" }, F: { status: "done" } } }),
+    past(5, 1, { outcome: "showed", confirmation_status: "unconfirmed", booking_window: "same_day", reschedule_count: 1 }),
+    past(6, 4, { outcome: "noshow", confirmation_status: "unconfirmed", booking_window: "2_3_days", task_log: { D: { status: "done", result: "no_answer" } } }),
+    past(8, 2, { status: "cancelled", cancel_reason: "Not interested any more", booking_window: "next_day" }),
+    past(9, 2, { status: "scheduled", booking_window: "next_day" }),
+  );
   const sarah = state.meetings[1], lena = state.meetings.find(m => m.first_name === "Lena");
   const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
   state.precallMessages = [
@@ -2654,6 +2665,54 @@ function pmUnreadHtml(){
   }).join("")}</div>`;
 }
 
+/* ───────── Meetings report ─────────
+   Booked = booked in the range. Everything else is about meetings that
+   were due in the range: show rate = showed / (showed + no-show), split by
+   booking window, confirmation, and whether the one-hour call was answered;
+   late joiners saved = showed after the closer's late-joiner text or call. */
+let pmRep = null;
+function pmReportHtml(){
+  if (!pmRep){ const to = nzDayStr(); pmRep = { from: nzAddDays(to, -29), to, setter: "", closer: "", noTest: false }; }
+  const f = pmRep, start = nzToDate(f.from, "00:00").getTime(), end = nzToDate(nzAddDays(f.to, 1), "00:00").getTime();
+  const pick = state.meetings.filter(m => (!f.setter || m.setter === f.setter) && (!f.closer || m.closer === f.closer) && (!f.noTest || !m.test_mode));
+  const inRange = (t) => { const x = Date.parse(t); return x >= start && x < end; };
+  const booked = pick.filter(m => inRange(m.booked_at || m.created_at));
+  const due = pick.filter(m => inRange(m.starts_at) && Date.parse(m.starts_at) < Date.now());
+  const sat = due.filter(m => m.outcome === "showed" || m.outcome === "noshow");
+  const pending = due.filter(m => m.status === "scheduled" && !m.outcome);
+  const rate = (list) => { const s = list.filter(m => m.outcome === "showed").length, n = list.filter(m => m.outcome === "showed" || m.outcome === "noshow").length; return { s, n, pct: n ? Math.round(s / n * 100) : null }; };
+  const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "-";
+  const row = (label, list) => { const r = rate(list); return `<tr><td>${escapeHtml(label)}</td><td>${r.n}</td><td>${r.s}</td><td><div class="pm-bar"><i style="width:${r.pct || 0}%"></i></div><b>${r.pct == null ? "-" : r.pct + "%"}</b></td></tr>`; };
+  const table = (title, rows) => `<div class="card pm-rep-card"><h3>${title}</h3><table class="pm-rep-table"><thead><tr><th></th><th>Meetings</th><th>Showed</th><th>Show rate</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+  const calledD = (m, ok) => { const r = m.task_log?.D?.result; return ok ? r === "answered_ok" || r === "answered_reschedule" : r === "no_answer"; };
+  const late = sat.filter(m => ["E", "F"].some(k => m.task_log?.[k]?.status === "done"));
+  const saved = late.filter(m => m.outcome === "showed");
+  const show = rate(sat);
+  const people = (key, val) => `<select data-pm-rep="${key}"><option value="">Everyone</option>${Object.entries(ASSIGNEES).map(([k, a]) => `<option value="${k}" ${val === k ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")}</select>`;
+  return `
+    <div class="card pm-rep-filters">
+      <label>From <input type="date" data-pm-rep="from" value="${f.from}"></label>
+      <label>To <input type="date" data-pm-rep="to" value="${f.to}"></label>
+      <label>Setter ${people("setter", f.setter)}</label>
+      <label>Closer ${people("closer", f.closer)}</label>
+      <label class="pm-rep-check"><input type="checkbox" data-pm-rep="noTest" ${f.noTest ? "checked" : ""}> Leave out test-mode bookings</label>
+    </div>
+    <div class="pm-kpis">
+      <div class="pm-kpi"><b>${booked.length}</b><span>meetings booked</span></div>
+      <div class="pm-kpi ${show.pct == null ? "" : show.pct >= 70 ? "good" : show.pct < 50 ? "bad" : ""}"><b>${show.pct == null ? "-" : show.pct + "%"}</b><span>show rate (${show.s} of ${show.n})</span></div>
+      <div class="pm-kpi"><b>${saved.length}</b><span>late joiners saved${late.length ? ` (of ${late.length} chased)` : ""}</span></div>
+      <div class="pm-kpi"><b>${pct(booked.filter(m => m.reschedule_count > 0).length, booked.length)}</b><span>rescheduled at least once</span></div>
+      <div class="pm-kpi"><b>${pct(booked.filter(m => m.status === "cancelled").length, booked.length)}</b><span>cancelled</span></div>
+      <div class="pm-kpi ${pending.length ? "bad" : ""}"><b>${pending.length}</b><span>outcomes not recorded</span></div>
+    </div>
+    <div class="pm-rep-grid">
+      ${table("By how far ahead it was booked", Object.entries(PM_WINDOW_LABEL).map(([k, l]) => row(l, sat.filter(m => m.booking_window === k))))}
+      ${table("Confirmed or not", [row("Confirmed", sat.filter(m => m.confirmation_status === "confirmed")), row("Not confirmed", sat.filter(m => m.confirmation_status !== "confirmed"))])}
+      ${table("One-hour reminder call", [row("Answered", sat.filter(m => calledD(m, true))), row("No answer", sat.filter(m => calledD(m, false))), row("Not called / not needed", sat.filter(m => !calledD(m, true) && !calledD(m, false)))])}
+    </div>
+    <p class="pm-rep-note">Show rates only count meetings with an outcome recorded (Showed or No-show). Booked, rescheduled and cancelled count meetings booked between the dates; the rest count meetings that were due between them.</p>`;
+}
+
 let pmTab = "upcoming";
 const PM_REASON_LABEL = { prospect_conflict: "Prospect couldn't make it", closer_conflict: "Closer couldn't make it", no_show: "No-show", other: "Other" };
 const pmName = (m) => [m.first_name, m.last_name].filter(Boolean).join(" ");
@@ -2677,7 +2736,7 @@ function renderMeetingsPage(){
   const root = $("#pm-root");
   if (!root) return;
   if (Date.now() - pmLastRefresh > 30e3) pmRefresh();
-  if (root.contains(document.activeElement) && document.activeElement.matches("input")) return;
+  if (root.contains(document.activeElement) && document.activeElement.matches("input:not([data-pm-rep])")) return;
   const all = state.meetings.slice().sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const upcoming = pmUpcoming().sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const past = all.filter(m => !upcoming.includes(m)).reverse().slice(0, 60);
@@ -2747,8 +2806,9 @@ function renderMeetingsPage(){
     <div class="country-toggle pm-tabs">
       <button type="button" data-pm-tab="upcoming" class="${pmTab === "upcoming" ? "active" : ""}">Upcoming (${upcoming.length})</button>
       <button type="button" data-pm-tab="past" class="${pmTab === "past" ? "active" : ""}">Past and cancelled</button>
+      <button type="button" data-pm-tab="report" class="${pmTab === "report" ? "active" : ""}">Report</button>
     </div>
-    ${days.length ? days.map(g => `<div class="card pm-day"><h3>${escapeHtml(pmDayLabel(g.day))}<span>${g.rows.length}</span></h3>${g.rows.map(row).join("")}</div>`).join("")
+    ${pmTab === "report" ? pmReportHtml() : days.length ? days.map(g => `<div class="card pm-day"><h3>${escapeHtml(pmDayLabel(g.day))}<span>${g.rows.length}</span></h3>${g.rows.map(row).join("")}</div>`).join("")
       : `<div class="card">${emptyState(pmTab === "past" ? "No past meetings yet." : "No meetings coming up. Book one with + Book Meeting.")}</div>`}`;
   pmNavCount();
 }
@@ -2942,6 +3002,8 @@ document.addEventListener("click", async (e) => {
   }
 });
 document.addEventListener("change", (e) => {
+  const rf = e.target.closest?.("[data-pm-rep]");
+  if (rf && pmRep){ pmRep[rf.dataset.pmRep] = rf.type === "checkbox" ? rf.checked : rf.value; renderMeetingsPage(); return; }
   if (e.target.id === "pm-test-list") savePrecallSettings({ test_allowlist: e.target.value.trim() });
   if (["book-meeting-closer", "book-meeting-day", "book-meeting-time"].includes(e.target.id)) renderBookAvail();
   if (["pm-resched-day", "pm-resched-time"].includes(e.target.id)){
