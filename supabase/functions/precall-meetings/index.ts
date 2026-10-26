@@ -320,6 +320,7 @@ async function confirmMeeting(admin: SupabaseClient, m: any, source: string, by:
 }
 
 /* ───────── Watching Google Calendar (every 5 minutes) ───────── */
+let alertsQueued = 0;
 // calendar_flag_detail keeps what's been seen: { moved: {from, to, at}, deleted: {at}, declined: {at} },
 // each with dismissed: true once someone's dealt with it. calendar_flag is the one that needs attention.
 const FLAG_ORDER = ["deleted", "moved", "declined"];
@@ -329,6 +330,7 @@ const CRM_URL = "https://rocky-toky.github.io/mr-priceless-crm/";
 async function alertSetter(admin: SupabaseClient, m: any, kind: string, extra = "") {
   const to = m.setter_email || m.created_by;
   if (!to) return;
+  alertsQueued++;
   const who = fullName(m) + (m.business_name ? ` (${m.business_name})` : "");
   const what: Record<string, string> = {
     declined: `${who} declined the calendar invite for ${nzWhen(m.starts_at)}.`,
@@ -343,11 +345,26 @@ async function alertSetter(admin: SupabaseClient, m: any, kind: string, extra = 
   });
 }
 
+// The email sender normally runs every 5 minutes; nudge it so an alert goes
+// out now rather than up to 5 minutes later.
+async function kickEmailSender(admin: SupabaseClient) {
+  const { data } = await admin.from("app_secrets").select("value").eq("name", "email_cron_secret").maybeSingle();
+  if (!data?.value) return;
+  try {
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/send-scheduled-emails`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_ANON_KEY")}`, "x-cron-secret": data.value },
+      body: "{}",
+    });
+  } catch { /* the 5-minute run picks it up anyway */ }
+}
+
 async function poll(admin: SupabaseClient) {
   const now = Date.now();
   const { data: list } = await admin.from("meetings").select("*").eq("status", "scheduled").not("google_event_id", "is", null)
     .gt("starts_at", new Date(now - 2 * 3600e3).toISOString()).lt("starts_at", new Date(now + 120 * 86400e3).toISOString()).order("starts_at").limit(300);
   let checked = 0, changed = 0, errors = 0;
+  alertsQueued = 0;
   for (const m of list || []) {
     let ev: any = null;
     try { ev = await cal(m.closer_email, "/" + m.google_event_id); } catch (e) {
@@ -384,7 +401,8 @@ async function poll(admin: SupabaseClient) {
     if (patch.calendar_flag !== m.calendar_flag || patch.prospect_response) changed++;
     await admin.from("meetings").update(patch).eq("id", m.id);
   }
-  return { checked, changed, errors };
+  if (alertsQueued) await kickEmailSender(admin);
+  return { checked, changed, errors, alerts: alertsQueued };
 }
 
 // What the setter does about a flag: take the new time from Google, put a
