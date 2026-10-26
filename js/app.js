@@ -1311,6 +1311,7 @@ async function initAuth(){
     await repairNzProspectCountryCodes();
     state.user = { email: "demo@mrpriceless.co.nz" };
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
+    lqSeedDemo();
     showApp();
     setupClientInbox();
     setupEmployees();
@@ -1630,8 +1631,12 @@ const WORKSPACE_COPY = {
   sales: { title: "Sales", sub: "Prospecting, booking meetings, and closing deals.", dashboardTitle: "Dashboard", dashboardSub: "MRR and closed won jobs at a glance." },
   delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients.", dashboardTitle: "Dashboard", dashboardSub: "Client health and delivery at a glance." },
   employees: { title: "Employees", sub: "The team, how they're tracking, onboarding, 1:1s and leave.", dashboardTitle: "Dashboard", dashboardSub: "The team at a glance." },
+  leads: { title: "Lead Follow Up", sub: "Calling every lead that comes through for our clients, fast.", dashboardTitle: "Dashboard", dashboardSub: "Lead follow-up at a glance." },
 };
-function getWorkspace(){ return localStorage.getItem(WORKSPACE_KEY) || "sales"; }
+// Sections of their own: none of the shared Sales / Delivery items show in these.
+const SOLO_WORKSPACES = new Set(["employees", "leads"]);
+// Carmen does lead follow-up, so that's where she starts.
+function getWorkspace(){ return localStorage.getItem(WORKSPACE_KEY) || (/^carmen/i.test(state.user?.email || "") ? "leads" : "sales"); }
 let workspaceLanded = false;
 function setWorkspace(w){
   try { localStorage.setItem(WORKSPACE_KEY, w); } catch(e){}
@@ -1652,9 +1657,9 @@ function applyWorkspace(){
   document.body.classList.toggle("workspace-sales", ws === "sales");
   document.body.classList.toggle("workspace-delivery", ws === "delivery");
   document.body.classList.toggle("workspace-employees", ws === "employees");
+  document.body.classList.toggle("workspace-leads", ws === "leads");
   $$("[data-workspace]").forEach(el => {
-    // Employees is a section of its own: none of the shared Sales / Delivery items show there.
-    el.style.display = ((el.dataset.workspace === "both" && ws !== "employees") || el.dataset.workspace === ws) ? "" : "none";
+    el.style.display = ((el.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || el.dataset.workspace === ws) ? "" : "none";
   });
   // Lead Engine is Rocky/Max only regardless of workspace - override the
   // workspace loop above rather than fold it into data-workspace, since
@@ -1674,10 +1679,10 @@ function applyWorkspace(){
   if (dashTitleEl) dashTitleEl.textContent = copy.dashboardTitle;
   if (dashSubEl) dashSubEl.textContent = copy.dashboardSub;
   // If the page we're on isn't part of this workspace, fall back to Dashboard.
-  // Each workspace opens on its main page: Meetings Booked, Clients, or Employees.
-  const landing = ws === "delivery" ? "clients" : ws === "employees" ? "employees" : "cold-calls";
+  // Each workspace opens on its main page: Meetings Booked, Clients, Employees, or the call queue.
+  const landing = ws === "delivery" ? "clients" : ws === "employees" ? "employees" : ws === "leads" ? "lead-queue" : "cold-calls";
   const pageBtns = $$(`.nav-item[data-page="${state.page}"]`);
-  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => (b.dataset.workspace === "both" && ws !== "employees") || b.dataset.workspace === ws))){
+  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => (b.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || b.dataset.workspace === ws))){
     workspaceLanded = true;
     $(`.nav-item[data-page="${landing}"]`)?.click();
   }
@@ -1745,6 +1750,7 @@ const FIT_PAGES = {
   "content-library": ["#vs-root"],
   reporting: ["#rp-client-list"],
   employees: ["#emp-root"],
+  "lead-queue": ["#lq-root"],
   expenses: ["#page-expenses > .card:last-child"],
   commission: ["#commission-groups"],
   statistics: ["#page-statistics > .st-scroll"],
@@ -3716,7 +3722,8 @@ async function importClientLeads(clientId, leads){
     };
     const match = byKey.get(leadDedupKey(l));
     if (match) toUpdate.push({ id: match.id, patch });
-    else toInsert.push(patch);
+    // New to the CRM: recent ones go in Carmen's call queue, older ones are just history.
+    else toInsert.push({ ...patch, source: "csv", follow_status: patch.lead_created_at && Date.now() - new Date(patch.lead_created_at) > 2 * 86400e3 ? "old" : "new" });
   });
   if (!IS_CONFIGURED){
     toInsert.forEach(patch => state.clientLeads.unshift({ id:uid(), imported_at:new Date().toISOString(), ...patch }));
@@ -10353,6 +10360,352 @@ function setupEmployeesUi(){
   });
 }
 
+/* ───────── Lead Follow Up ─────────
+   Every lead that comes through for a client gets a call from our caller
+   (Carmen), on the client's behalf, to qualify it and book the quote. Leads
+   arrive in client_leads by themselves (sync-ghl-leads pulls each client's
+   GoHighLevel every 5 minutes; Meta CSV imports land here too). The queue
+   puts brand-new leads first - the first call within 5 minutes books the
+   most quotes - then retries that are due. A no-answer is tried again on a
+   set rhythm, up to 7 times, before the lead is marked unreachable. */
+const LQ_OPEN = new Set(["new", "no_answer", "call_back"]);
+const LQ_OUTCOMES = {
+  booked: { label: "Booked a quote", cls: "green", final: true },
+  qualified: { label: "Interested - client to call", cls: "green", final: true },
+  no_answer: { label: "No answer", cls: "amber" },
+  call_back: { label: "Call back later", cls: "blue" },
+  not_interested: { label: "Not interested", cls: "grey", final: true },
+  disqualified: { label: "Not a fit", cls: "grey", final: true },
+  wrong_number: { label: "Wrong number", cls: "grey", final: true },
+};
+const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "Unreachable", old: "Old" };
+const LQ_MAX_TRIES = 7, LQ_FAST_MS = 5 * 60e3;
+let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today";
+const lqDrafts = {};
+
+const lqClient = (l) => state.clients.find(c => c.id === l.client_id) || null;
+const lqIn = (l) => new Date(l.lead_created_at || l.created_at).getTime();
+const lqIsOpen = (l) => LQ_OPEN.has(l.follow_status || "new");
+const lqDue = (l) => lqIsOpen(l) && (!l.next_attempt_at || new Date(l.next_attempt_at).getTime() <= Date.now());
+const lqWho = (email) => { const k = personKeyFromEmail(email || ""); return ASSIGNEES[k]?.label || (email ? email.split("@")[0].split(/[._]/)[0].replace(/^./, c => c.toUpperCase()) : ""); };
+function lqAgo(ms){
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h${m % 60 ? " " + (m % 60) + "m" : ""}` : `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+const lqTime = (iso) => iso ? new Date(iso).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
+// NZ mobiles start 02, AU mobiles 04 - anything else is treated as NZ.
+const lqCountry = (phone) => /^\s*(\+?61|04)/.test(phone || "") ? "61" : "64";
+// When to try a no-answer again, kept inside calling hours (8:30am-7pm).
+function lqNextTry(attempts){
+  const now = new Date(), d = new Date(now);
+  const at = (days, h, m) => { const x = new Date(now); x.setDate(x.getDate() + days); x.setHours(h, m, 0, 0); return x; };
+  const plan = { 1: () => new Date(+now + 10 * 60e3), 2: () => new Date(+now + 60 * 60e3), 3: () => new Date(+now + 3 * 3600e3), 4: () => at(1, 9, 30), 5: () => at(1, 15, 0), 6: () => at(3, 10, 0) }[attempts];
+  let next = plan ? plan() : d;
+  if (next.getHours() >= 19 || next.getHours() < 8){
+    if (next.getHours() >= 19) next.setDate(next.getDate() + 1);
+    next.setHours(8, 30, 0, 0);
+  }
+  return next.toISOString();
+}
+function lqQueue(){
+  const all = state.clientLeads.filter(l => l.follow_status !== "old");
+  const due = all.filter(lqDue).sort((a, b) => {
+    const an = (a.follow_status || "new") === "new", bn = (b.follow_status || "new") === "new";
+    if (an !== bn) return an ? -1 : 1; // first calls before retries
+    return an ? lqIn(a) - lqIn(b) : new Date(a.next_attempt_at || 0) - new Date(b.next_attempt_at || 0);
+  });
+  const later = all.filter(l => lqIsOpen(l) && !lqDue(l)).sort((a, b) => new Date(a.next_attempt_at) - new Date(b.next_attempt_at));
+  const today = localDayStr();
+  const doneToday = all.filter(l => !lqIsOpen(l) && l.last_attempt_at && localDayStr(new Date(l.last_attempt_at)) === today).sort((a, b) => new Date(b.last_attempt_at) - new Date(a.last_attempt_at));
+  return { due, later, doneToday };
+}
+function lqNavCount(){
+  const n = state.clientLeads.filter(lqDue).length;
+  $$(".nav-lq-count").forEach(el => { el.hidden = !n; el.textContent = n; });
+}
+
+function renderLeadQueue(){
+  const root = $("#lq-root");
+  if (!root) return;
+  const q = lqQueue(), now = Date.now(), today = localDayStr();
+  if (lqSel && !state.clientLeads.some(l => l.id === lqSel)) lqSel = null;
+  if (!lqSel) lqSel = q.due[0]?.id || q.later[0]?.id || null;
+  const newOnes = q.due.filter(l => (l.follow_status || "new") === "new");
+  const oldestNew = newOnes[0];
+  const logsToday = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => x.at && localDayStr(new Date(x.at)) === today));
+  const firstToday = state.clientLeads.filter(l => l.first_called_at && localDayStr(new Date(l.first_called_at)) === today);
+  const fast = firstToday.filter(l => new Date(l.first_called_at) - lqIn(l) <= LQ_FAST_MS).length;
+  const bookedToday = logsToday.filter(x => x.outcome === "booked").length;
+  const stat = (label, value, sub, cls = "") => `<div class="emp-stat ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
+  const item = (l) => {
+    const c = lqClient(l), st = l.follow_status || "new", fresh = st === "new";
+    const waited = now - lqIn(l);
+    const chip = fresh ? `<em class="lq-chip ${waited > LQ_FAST_MS ? "late" : "hot"}">New · ${lqAgo(waited)}</em>`
+      : lqIsOpen(l) ? `<em class="lq-chip ${lqDue(l) ? "due" : ""}">${st === "call_back" ? "Call back" : `Try ${l.attempts + 1}`} · ${lqDue(l) ? "due" : escapeHtml(lqTime(l.next_attempt_at))}</em>`
+      : `<em class="lq-chip done ${LQ_OUTCOMES[st]?.cls || ""}">${escapeHtml(LQ_STATUS_LABEL[st] || st)}</em>`;
+    return `<button type="button" class="lq-item${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
+      <span class="lq-item-id"><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml(c?.name || "Unknown client")}</small></span>${chip}</button>`;
+  };
+  // While Carmen's typing (notes, a booking time, a new lead), only the numbers
+  // update, so nothing she's in the middle of is lost.
+  const typing = root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select");
+  const listHtml = `
+    ${lqAdding ? lqAddFormHtml() : ""}
+    <h4 class="emp-h">Call now <span class="lq-count">${q.due.length}</span></h4>
+    ${q.due.map(item).join("") || `<div class="emp-empty small">Nothing to call right now 🎉</div>`}
+    ${q.later.length ? `<h4 class="emp-h">Coming up <span class="lq-count grey">${q.later.length}</span></h4>${q.later.map(item).join("")}` : ""}
+    ${q.doneToday.length ? `<button type="button" class="emp-past-toggle" data-lq-act="done">${lqShowDone ? "▾" : "▸"} Finished today (${q.doneToday.length})</button>${lqShowDone ? q.doneToday.map(item).join("") : ""}` : ""}`;
+  const statsHtml = `
+      ${stat("Waiting for a first call", newOnes.length, oldestNew ? `longest ${lqAgo(now - lqIn(oldestNew))}` : "all called", oldestNew && now - lqIn(oldestNew) > LQ_FAST_MS ? "warn" : "")}
+      ${stat("Retries due", q.due.length - newOnes.length, `${q.later.length} more later`)}
+      ${stat("Called today", logsToday.length, firstToday.length ? `${Math.round(fast / firstToday.length * 100)}% of new leads within 5 min` : "calls made")}
+      ${stat("Quotes booked today", bookedToday, bookedToday ? "nice work" : "-", bookedToday ? "good" : "")}`;
+  if (typing && $("#lq-stats")){
+    $("#lq-stats").innerHTML = statsHtml;
+    lqNavCount();
+    return;
+  }
+  const sel = state.clientLeads.find(l => l.id === lqSel);
+  root.innerHTML = `
+    <div class="page-header">
+      <div><h2>Lead follow-up</h2><p>Call every lead, fast. The first call within 5 minutes books the most quotes.</p></div>
+      <div class="inbox-head-actions">
+        <button type="button" class="btn ghost" data-lq-act="sync" ${lqSyncing ? "disabled" : ""}>${lqSyncing ? "Checking…" : "Check for new leads"}</button>
+        <button type="button" class="btn gold" data-lq-act="add">+ Add a lead</button>
+      </div>
+    </div>
+    <div class="emp-stats" id="lq-stats">${statsHtml}</div>
+    <div class="emp-layout lq-layout">
+      <aside class="emp-list lq-list" id="lq-list">${listHtml}</aside>
+      <section class="emp-detail lq-detail" id="lq-detail" data-lead="${escapeHtml(lqSel || "")}">${sel ? lqDetailHtml(sel) : `<div class="emp-empty">No leads waiting. New ones show up here by themselves within about 5 minutes of coming in.</div>`}</section>
+    </div>`;
+  lqNavCount();
+}
+
+function lqAddFormHtml(){
+  return `<form class="emp-form card-ish lq-add" data-lq-form="add">
+    <h4 class="emp-h">Add a lead</h4>
+    <div class="field"><label>Client</label><select name="client_id" required>${state.clients.filter(c => c.stage !== "churned").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}</select></div>
+    <div class="field"><label>Name</label><input name="name" required></div>
+    <div class="field-row"><div class="field"><label>Phone</label><input name="phone" type="tel" required></div><div class="field"><label>Email</label><input name="email" type="email"></div></div>
+    <div class="field"><label>What they asked about</label><input name="form_name" placeholder="e.g. Deck quote"></div>
+    <div class="emp-form-foot"><button type="button" class="emp-link" data-lq-act="add-cancel">Cancel</button><button type="submit" class="btn gold sm">Add to queue</button></div>
+  </form>`;
+}
+
+function lqDetailHtml(l){
+  const c = lqClient(l), st = l.follow_status || "new", first = (l.name || "").split(" ")[0] || "there";
+  const biz = c?.name || "the client", trade = c ? (clientIndustry(c).name || "") : "";
+  const waited = Date.now() - lqIn(l);
+  const goodLead = String(c?.qualified_lead_structure || "").split("\n").map(x => x.trim()).filter(Boolean);
+  const log = (Array.isArray(l.call_log) ? l.call_log : []).slice().reverse();
+  const out = (k) => `<button type="button" class="lq-out ${LQ_OUTCOMES[k].cls}${lqPending === k ? " picked" : ""}" data-lq-out="${k}">${LQ_OUTCOMES[k].label}</button>`;
+  const say = (t) => `<blockquote class="mtg-say small"><span>Say</span><p>${t}</p></blockquote>`;
+  const b = (t) => `<b>${escapeHtml(t)}</b>`;
+  const ask = l.form_name && !/gohighlevel|facebook|meta|form/i.test(l.form_name) ? escapeHtml(l.form_name.toLowerCase()) : `the ${escapeHtml(trade ? trade.toLowerCase() + " " : "")}work`;
+  return `
+    <header class="emp-head">
+      <div class="emp-head-id">
+        <h3>${escapeHtml(l.name || "No name")}</h3>
+        <p>${escapeHtml(biz)}${trade ? ` · ${escapeHtml(trade)}` : ""} · came in ${escapeHtml(lqAgo(waited))} ago${l.attempts ? ` · ${l.attempts} call${l.attempts === 1 ? "" : "s"} so far` : ""}</p>
+      </div>
+      <span class="emp-status ${LQ_OUTCOMES[st]?.cls || (st === "new" ? "gold" : "")}">${escapeHtml(LQ_STATUS_LABEL[st] || st)}</span>
+    </header>
+    <div class="lq-callbar">
+      ${l.phone ? `<button type="button" class="btn gold lq-call" data-lq-act="call">📞 Call ${escapeHtml(formatPhone(l.phone))}</button>` : `<span class="lq-nophone">No phone number - email them instead</span>`}
+      ${l.email ? `<a class="btn ghost" href="mailto:${escapeHtml(l.email)}">✉ ${escapeHtml(l.email)}</a>` : ""}
+    </div>
+    <div class="lq-facts">
+      <div><span>Asked about</span><b>${escapeHtml(l.form_name || "-")}</b></div>
+      <div><span>Came in</span><b>${escapeHtml(lqTime(l.lead_created_at || l.created_at))}</b></div>
+      <div><span>In their CRM</span><b>${escapeHtml(l.status || "-")}</b></div>
+      ${l.booked_for ? `<div><span>Quote booked for</span><b>${escapeHtml(lqTime(l.booked_for))}</b></div>` : ""}
+    </div>
+    <div class="lq-cols">
+      <div class="lq-script">
+        <h4 class="emp-h">Script</h4>
+        <p class="lq-step">1 · Intro</p>
+        ${say(`Hi ${b(first)}, it's Carmen calling from ${b(biz)} - you just sent through an enquiry about ${ask}. Have you got a quick minute?`)}
+        <p class="lq-step">2 · The job</p>
+        ${say("Awesome. Tell me a bit about what you're looking to get done?")}
+        <p class="lq-step">3 · Check it's a fit</p>
+        ${goodLead.length ? `<ul class="lq-good">${goodLead.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : `<p class="emp-foot">Ask about the size of the job, their budget, when they want it done, and where it is.</p>`}
+        <p class="lq-step">4 · Book the quote</p>
+        ${say(`Perfect. ${b(biz)} can come out and give you a quote - would earlier in the week or later in the week suit better? Morning or afternoon?`)}
+        <p class="lq-step">5 · Lock it in</p>
+        ${say(`Done - you're booked in for [day and time] at [address]. You'll get a text to confirm, and a reminder an hour before.`)}
+        <p class="lq-step">No answer? Leave a voicemail</p>
+        ${say(`Hi ${b(first)}, it's Carmen from ${b(biz)} about your enquiry - I'll try you again shortly, no need to call back.`)}
+      </div>
+      <div class="lq-outcome">
+        <h4 class="emp-h">How did it go?</h4>
+        <div class="lq-outs">${["booked", "qualified", "no_answer", "call_back", "not_interested", "disqualified", "wrong_number"].map(out).join("")}</div>
+        <form class="emp-form" data-lq-form="outcome">
+          ${lqPending === "booked" ? `<div class="field"><label>Quote booked for</label><input type="datetime-local" name="when" required></div><p class="emp-foot">Put it in ${escapeHtml(biz)}'s calendar in GoHighLevel too, so they get the booking.</p>` : ""}
+          ${lqPending === "call_back" ? `<div class="field"><label>Call them back at</label><input type="datetime-local" name="when" required></div>` : ""}
+          <div class="field"><label>Notes</label><textarea name="note" rows="3" placeholder="What they said - the job, budget, timing, anything the client should know">${escapeHtml(lqDrafts[l.id] || "")}</textarea></div>
+          <div class="emp-form-foot"><span class="emp-foot">${lqPending ? `Saving as: <b>${escapeHtml(LQ_OUTCOMES[lqPending].label)}</b>` : "Pick what happened above"}</span><button type="submit" class="btn gold" ${lqPending ? "" : "disabled"}>Save & next lead →</button></div>
+        </form>
+        <h4 class="emp-h">History</h4>
+        ${log.length ? log.map(x => `<div class="lq-log"><b>${escapeHtml(LQ_OUTCOMES[x.outcome]?.label || x.outcome)}</b><small>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</small>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div>`).join("") : `<div class="emp-empty small">Not called yet.</div>`}
+      </div>
+    </div>`;
+}
+
+async function lqSaveOutcome(l, outcome, note, when){
+  const nowIso = new Date().toISOString(), by = state.user?.email || "demo";
+  const attempts = (Number(l.attempts) || 0) + 1;
+  const patch = { attempts, last_attempt_at: nowIso, called_by: by, first_called_at: l.first_called_at || nowIso,
+    call_log: [...(Array.isArray(l.call_log) ? l.call_log : []), { at: nowIso, by, outcome, note: note || "", ...(when ? { when } : {}) }] };
+  if (note) patch.follow_notes = note;
+  if (outcome === "no_answer"){
+    if (attempts >= LQ_MAX_TRIES){ patch.follow_status = "unreachable"; patch.next_attempt_at = null; }
+    else { patch.follow_status = "no_answer"; patch.next_attempt_at = lqNextTry(attempts); }
+  } else if (outcome === "call_back"){ patch.follow_status = "call_back"; patch.next_attempt_at = when; }
+  else { patch.follow_status = outcome; patch.next_attempt_at = null; if (outcome === "booked") patch.booked_for = when; }
+  Object.assign(l, patch);
+  delete lqDrafts[l.id];
+  lqPending = null;
+  const next = lqQueue().due.find(x => x.id !== l.id);
+  lqSel = next?.id || null;
+  rcToast(outcome === "no_answer" ? (patch.follow_status === "unreachable" ? `${LQ_MAX_TRIES} tries with no answer - marked unreachable.` : `Saved - next try ${lqTime(patch.next_attempt_at)}.`) : `Saved: ${LQ_OUTCOMES[outcome].label}.`);
+  renderLeadQueue();
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("client_leads").update(patch).eq("id", l.id);
+    if (error) rcToast("Couldn't save that call - " + error.message);
+  }
+}
+
+async function lqSync(){
+  if (lqSyncing) return;
+  if (!IS_CONFIGURED){ rcToast("Demo mode - connect Supabase to pull real leads."); return; }
+  lqSyncing = true; renderLeadQueue();
+  try {
+    const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "sync" } });
+    if (error) throw error;
+    await DataLayer.fetchAll();
+    rcToast(data?.added ? `${data.added} new lead${data.added === 1 ? "" : "s"} added.` : data?.checked ? `Checked ${data.checked} client${data.checked === 1 ? "" : "s"} - no new leads.` : "No clients are connected to GoHighLevel yet.");
+  } catch(e){ rcToast("Couldn't check for leads right now."); console.warn(e); }
+  finally { lqSyncing = false; renderAll(); }
+}
+
+function renderLeadResults(){
+  const root = $("#lr-root");
+  if (!root) return;
+  const today = localDayStr();
+  const from = lqPeriod === "today" ? today : lqPeriod === "week" ? (() => { const d = new Date(); d.setDate(d.getDate() - 6); return localDayStr(d); })() : today.slice(0, 8) + "01";
+  const inP = (iso) => iso && localDayStr(new Date(iso)) >= from;
+  const leads = state.clientLeads.filter(l => l.follow_status !== "old" && inP(l.lead_created_at || l.created_at));
+  const called = leads.filter(l => l.first_called_at);
+  const speeds = called.map(l => new Date(l.first_called_at) - lqIn(l)).filter(x => x >= 0).sort((a, b) => a - b);
+  const median = speeds.length ? speeds[Math.floor(speeds.length / 2)] : null;
+  const fast = speeds.filter(x => x <= LQ_FAST_MS).length;
+  const reached = leads.filter(l => ["booked", "qualified", "not_interested", "disqualified", "call_back"].includes(l.follow_status));
+  const booked = leads.filter(l => l.follow_status === "booked");
+  const calls = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => inP(x.at)));
+  const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "-";
+  const tile = (label, value, sub, cls = "") => `<div class="emp-tile ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
+  const byClient = new Map();
+  leads.forEach(l => { const k = l.client_id; if (!byClient.has(k)) byClient.set(k, []); byClient.get(k).push(l); });
+  const rows = [...byClient.entries()].map(([id, ls]) => {
+    const c = state.clients.find(x => x.id === id), cl = ls.filter(l => l.first_called_at);
+    const sp = cl.map(l => new Date(l.first_called_at) - lqIn(l)).filter(x => x >= 0).sort((a, b) => a - b);
+    return { name: c?.name || "Unknown client", leads: ls.length, called: cl.length, speed: sp.length ? sp[Math.floor(sp.length / 2)] : null, booked: ls.filter(l => l.follow_status === "booked").length };
+  }).sort((a, b) => b.leads - a.leads);
+  const byCaller = {};
+  calls.forEach(x => { const w = lqWho(x.by) || "Unknown"; byCaller[w] = (byCaller[w] || 0) + 1; });
+  const outcomes = {};
+  calls.forEach(x => { outcomes[x.outcome] = (outcomes[x.outcome] || 0) + 1; });
+  root.innerHTML = `
+    <div class="page-header"><div><h2>Lead results</h2><p>How fast every lead gets a call, and how many turn into booked quotes.</p></div></div>
+    <div class="emp-period">${[["today", "Today"], ["week", "Last 7 days"], ["month", "This month"]].map(([k, l]) => `<button type="button" class="${k === lqPeriod ? "active" : ""}" data-lr-period="${k}">${l}</button>`).join("")}</div>
+    <div class="emp-tiles">
+      ${tile("Leads in", leads.length, `${leads.filter(l => lqIsOpen(l)).length} still in the queue`)}
+      ${tile("Called", called.length, `${pct(called.length, leads.length)} of leads`)}
+      ${tile("Speed to first call", median == null ? "-" : lqAgo(median), "typical (median)", median != null && median <= LQ_FAST_MS ? "hit" : median != null ? "low" : "")}
+      ${tile("Called within 5 min", pct(fast, speeds.length), `${fast} of ${speeds.length}`, speeds.length && fast / speeds.length >= 0.8 ? "hit" : "")}
+      ${tile("Got through", reached.length, `${pct(reached.length, leads.length)} of leads`)}
+      ${tile("Quotes booked", booked.length, `${pct(booked.length, leads.length)} of leads · ${pct(booked.length, reached.length)} of people reached`, booked.length ? "hit" : "")}
+      ${tile("Calls made", calls.length, Object.entries(byCaller).map(([w, n]) => `${escapeHtml(w)} ${n}`).join(" · ") || "-")}
+      ${tile("Unreachable", leads.filter(l => l.follow_status === "unreachable").length, `after ${LQ_MAX_TRIES} tries`)}
+    </div>
+    <h4 class="emp-h">By client</h4>
+    ${rows.length ? `<div class="lr-table"><div class="lr-row head"><span>Client</span><span>Leads</span><span>Called</span><span>Speed</span><span>Booked</span></div>
+      ${rows.map(r => `<div class="lr-row"><span>${escapeHtml(r.name)}</span><span>${r.leads}</span><span>${pct(r.called, r.leads)}</span><span>${r.speed == null ? "-" : lqAgo(r.speed)}</span><span>${r.booked} <small>(${pct(r.booked, r.leads)})</small></span></div>`).join("")}</div>` : `<div class="emp-empty">No leads in this period yet.</div>`}
+    ${calls.length ? `<h4 class="emp-h">What happened on the calls</h4><div class="lr-outcomes">${Object.entries(outcomes).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<div><span>${escapeHtml(LQ_OUTCOMES[k]?.label || k)}</span><i class="emp-bar"><i style="width:${Math.round(n / calls.length * 100)}%"></i></i><b>${n}</b></div>`).join("")}</div>` : ""}`;
+}
+
+function setupLeadFollowUpUi(){
+  const root = $("#lq-root");
+  if (root){
+    root.addEventListener("click", (ev) => {
+      const t = ev.target.closest("[data-lq-sel],[data-lq-act],[data-lq-out]");
+      if (!t || t.disabled) return;
+      if (t.dataset.lqSel){ lqSel = t.dataset.lqSel; lqPending = null; return renderLeadQueue(); }
+      if (t.dataset.lqOut){ lqPending = lqPending === t.dataset.lqOut ? null : t.dataset.lqOut; return renderLeadQueue(); }
+      const act = t.dataset.lqAct, l = state.clientLeads.find(x => x.id === lqSel);
+      if (act === "call" && l) return placeCall(l.phone, l.name, lqCountry(l.phone));
+      if (act === "sync") return lqSync();
+      if (act === "add"){ lqAdding = true; return renderLeadQueue(); }
+      if (act === "add-cancel"){ lqAdding = false; return renderLeadQueue(); }
+      if (act === "done"){ lqShowDone = !lqShowDone; return renderLeadQueue(); }
+    });
+    root.addEventListener("input", (ev) => {
+      if (ev.target.matches('form[data-lq-form="outcome"] textarea[name="note"]') && lqSel) lqDrafts[lqSel] = ev.target.value;
+    });
+    root.addEventListener("submit", async (ev) => {
+      const form = ev.target.closest("[data-lq-form]");
+      if (!form) return;
+      ev.preventDefault();
+      const v = Object.fromEntries(new FormData(form).entries());
+      if (form.dataset.lqForm === "outcome"){
+        const l = state.clientLeads.find(x => x.id === lqSel);
+        if (!l || !lqPending) return;
+        const when = v.when ? new Date(v.when).toISOString() : null;
+        return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when);
+      }
+      if (form.dataset.lqForm === "add"){
+        const row = { client_id: v.client_id, name: v.name.trim(), phone: v.phone.trim(), email: (v.email || "").trim(), form_name: (v.form_name || "").trim(),
+          external_lead_id: "", status: "", source: "manual", follow_status: "new", lead_created_at: new Date().toISOString() };
+        lqAdding = false;
+        if (IS_CONFIGURED){
+          const { data, error } = await supabase.from("client_leads").insert(row).select("*").single();
+          if (error){ rcToast("Couldn't add the lead - " + error.message); return; }
+          state.clientLeads.unshift(data); lqSel = data.id;
+        } else { const made = { id: uid(), created_at: new Date().toISOString(), attempts: 0, call_log: [], ...row }; state.clientLeads.unshift(made); lqSel = made.id; }
+        rcToast("Lead added - it's at the top of the queue.");
+        renderLeadQueue();
+      }
+    });
+  }
+  $("#lr-root")?.addEventListener("click", (ev) => {
+    const t = ev.target.closest("[data-lr-period]");
+    if (t){ lqPeriod = t.dataset.lrPeriod; renderLeadResults(); }
+  });
+  // Keeps the "waiting 4m" timers ticking.
+  setInterval(() => { if (state.page === "lead-queue") renderLeadQueue(); else lqNavCount(); }, 30e3);
+}
+
+// Demo mode: a few leads at different stages so the queue has something in it.
+function lqSeedDemo(){
+  state.clientLeads.forEach(l => { if (!l.follow_status) l.follow_status = "old"; });
+  const c = state.clients.filter(x => x.stage !== "churned"), ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
+  if (!c.length) return;
+  const base = { external_lead_id: "", status: "Rep to contact", source: "ghl", attempts: 0, call_log: [] };
+  state.clientLeads.unshift(
+    { ...base, id: uid(), client_id: c[0].id, name: "Hemi Walker", phone: "021 555 0148", email: "hemi.w@example.co.nz", form_name: "Deck quote", lead_created_at: ago(3), created_at: ago(3), follow_status: "new" },
+    { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Sarah Lin", phone: "027 555 0172", email: "", form_name: "Bathroom renovation", lead_created_at: ago(26), created_at: ago(26), follow_status: "new" },
+    { ...base, id: uid(), client_id: c[0].id, name: "Tom Fraser", phone: "022 555 0190", email: "tom@example.com", form_name: "Fence", lead_created_at: ago(240), created_at: ago(240), follow_status: "no_answer", attempts: 2, first_called_at: ago(236), last_attempt_at: ago(70), next_attempt_at: ago(10),
+      call_log: [{ at: ago(236), by: "demo@mrpriceless.co.nz", outcome: "no_answer", note: "" }, { at: ago(70), by: "demo@mrpriceless.co.nz", outcome: "no_answer", note: "Left a voicemail" }] },
+    { ...base, id: uid(), client_id: c[1 % c.length].id, name: "Aroha Pene", phone: "021 555 0111", email: "", form_name: "Retaining wall", lead_created_at: ago(400), created_at: ago(400), follow_status: "call_back", attempts: 1, first_called_at: ago(395), last_attempt_at: ago(395), next_attempt_at: new Date(Date.now() + 90 * 60e3).toISOString(),
+      call_log: [{ at: ago(395), by: "demo@mrpriceless.co.nz", outcome: "call_back", note: "At work, call after 4" }] },
+    { ...base, id: uid(), client_id: c[0].id, name: "Mike Doyle", phone: "021 555 0133", email: "", form_name: "Deck quote", lead_created_at: ago(180), created_at: ago(180), follow_status: "booked", attempts: 1, first_called_at: ago(177), last_attempt_at: ago(175), booked_for: new Date(Date.now() + 2 * 86400e3).toISOString(),
+      call_log: [{ at: ago(175), by: "demo@mrpriceless.co.nz", outcome: "booked", note: "Wants a 6x4 deck, budget about $12k" }] },
+  );
+}
+
 const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
@@ -10364,6 +10717,7 @@ const RENDERERS = [
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
+  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [lqNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -13340,6 +13694,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupMeetingStructure();
   setupClientInboxUi();
   setupEmployeesUi();
+  setupLeadFollowUpUi();
   setupSitRate();
   setupNav();
   setupModals();

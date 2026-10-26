@@ -29,7 +29,7 @@ Never: commit API keys or passwords, print client data or secrets in logs, bulk-
 - `js/builtin-playbooks.js`: built-in playbooks (Meeting Structure, Meeting Sit Rate Process). These are only seeded into the DB when the title is missing, so changes to an existing playbook also need a guarded SQL `update`.
 - `css/style.css`: tokens on `:root`, gold/black theme.
 - `sql/NNN_*.sql`: migrations. They must be safe to re-run. **New ones are added to `.github/workflows/supabase-functions.yml` in two places** (the `paths:` list and the `for f in` loop), and every one in that loop re-runs on each deploy.
-- `supabase/functions/*`: Edge Functions. The workflow deploys `sync-client-ads`, `ghl-report-data`, `jarvis`, `send-scheduled-emails` and `sync-client-inbox` (with `--no-verify-jwt`; each checks its own caller).
+- `supabase/functions/*`: Edge Functions. The workflow deploys `sync-client-ads`, `ghl-report-data`, `jarvis`, `send-scheduled-emails`, `sync-client-inbox` and `sync-ghl-leads` (with `--no-verify-jwt`; each checks its own caller).
 
 ## Access the workflow already has (no keys needed in chat)
 GitHub repo secrets: `SUPABASE_ACCESS_TOKEN`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO` (+ optional AI keys). `supabase-functions.yml` uses them to:
@@ -57,6 +57,11 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
   - Due dates come from `rcNextDue`, and are stored in `clients.onboarding_progress.billing` / `.invoices`.
   - Payment reminder emails are queued in `scheduled_emails` (kind `billing_reminder`) by the browser and sent by `send-scheduled-emails`.
 - **Meeting structure and Sit Rate pages:** rendered from the playbooks above.
+- **Lead Follow Up workspace** (Carmen calls every client lead):
+  - `sync-ghl-leads` pulls new opportunities from each client's GoHighLevel every 5 minutes (sql/078 cron) into `client_leads`.
+  - Calling state lives on `client_leads`: `follow_status`, `attempts`, `next_attempt_at`, `call_log`, `booked_for`.
+  - The queue and results pages are in `js/app.js` (search for "Lead Follow Up").
+  - Workspaces are `sales`, `delivery`, `employees` and `leads`. The last two are in `SOLO_WORKSPACES`, so shared menu items are hidden there.
 
 ## Testing before you push
 - `node --check js/app.js`
