@@ -1832,6 +1832,7 @@ function setupNav(){
       $$(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + state.page));
       showJarvisFab();
       syncPageGroup();
+      empNavRender(); // lights up (or clears) the person picked in the Employees menu
       $$(".nav-dropdown.open").forEach(d => d.classList.remove("open"));
     });
   });
@@ -10438,25 +10439,25 @@ function empOnbProgress(e){
 }
 function empDemo(){
   const day = (n) => empAddDays(localDayStr(), n);
-  const base = { targets: {}, onboarding: {}, checkins: [], leave: [], notes: "" };
+  const base = { targets: {}, onboarding: {}, checkins: [], leave: [], notes: "", responsibilities: [] };
+  const resp = (...rows) => rows.map(([title, detail]) => ({ title, detail }));
   return [
-    { ...base, id: "emp-rocky", person_key: "rocky", name: "Rocky O'Neill", role: "Co-founder", team: "both", email: "rocky.oneill@mrpriceless.com", status: "active", employment_type: "full_time", start_date: "2024-03-01", location: "Auckland" },
-    { ...base, id: "emp-max", person_key: "max", name: "Max Smith", role: "Co-founder", team: "both", email: "maximus.smith@mrpriceless.com", status: "active", employment_type: "full_time", start_date: "2024-03-01", location: "Auckland",
-      leave: [{ id: "lv1", type: "annual", from: day(9), to: day(13), note: "Queenstown" }] },
-    { ...base, id: "emp-gabriel", person_key: "gabriel", name: "Gabriel Irvan", role: "Sales rep", team: "sales", email: "gabriel.irvan@mrpriceless.com", status: "active", employment_type: "commission_only", start_date: "2026-06-02", manager: "rocky", targets: { dials_per_day: 80, meetings_per_week: 5 },
-      onboarding: Object.fromEntries(EMP_ONB_KEYS.map(k => [k, "2026-06-10"])), next_checkin: day(-2),
-      checkins: [{ id: "ci1", date: day(-16), by: "rocky", wins: "Booked 6 meetings, best week yet", blockers: "Struggling to get past gatekeepers", actions: "Practise the gatekeeper opener with Rocky" }] },
-    { ...base, id: "emp-randy", person_key: "raheem", name: "Randy Khawaja", role: "Sales rep", team: "sales", email: "raheem.raza.khawaja@gmail.com", status: "active", employment_type: "part_time", start_date: "2026-08-18", manager: "rocky", targets: { dials_per_day: 60, meetings_per_week: 3 },
-      leave: [{ id: "lv2", type: "sick", from: day(0), to: day(0), note: "" }], next_checkin: day(5) },
-    { ...base, id: "emp-sophie", person_key: null, name: "Sophie Tane", role: "Media buyer", team: "delivery", email: "", status: "onboarding", employment_type: "contractor", start_date: day(7), manager: "max",
-      onboarding: { contract: day(-3), email: day(-2) } },
+    { ...base, id: "emp-rocky", person_key: "rocky", name: "Rocky", role: "Appointment Setting & Running Ads", team: "both", email: "rocky.oneill@mrpriceless.com", status: "active", employment_type: "full_time", start_date: "2024-03-01", location: "Auckland",
+      responsibilities: resp(["Appointment Setting", "Booking meetings with tradies who need more work: cold calls, follow-ups, and getting them into the calendar with a closer."], ["Running Ads", "Building, launching and looking after every client's Meta ads so they bring in good leads at a good cost."]) },
+    { ...base, id: "emp-max", person_key: "max", name: "Max", role: "Closing & Process Improvement", team: "both", email: "maximus.smith@mrpriceless.com", status: "active", employment_type: "full_time", start_date: "2024-03-01", location: "Auckland",
+      leave: [{ id: "lv1", type: "annual", from: day(9), to: day(13), note: "Queenstown" }],
+      responsibilities: resp(["Closing", "Running the sales meetings and turning booked appointments into signed clients."], ["Process Improvement", "Finding what slows the team down and fixing it: playbooks, systems and the way we work."]) },
+    { ...base, id: "emp-carmen", person_key: "carmen", name: "Carmen", role: "Lead Follow Up", team: "delivery", email: "", status: "active", start_date: day(-20), manager: "rocky", next_checkin: day(2),
+      onboarding: { contract: day(-21), email: day(-21), crm_login: day(-20) },
+      responsibilities: resp(["Lead Follow Up", "Calling every lead that comes through for our clients, on the client's behalf, and booking site visits or consultation calls."], ["3-minute response", "Every new enquiry gets a call within 3 minutes. Missed calls are tried again in morning and afternoon waves, 5 calls in all."]) },
+    { ...base, id: "emp-gabriel", person_key: "gabriel", name: "Gabriel Irvan", role: "Sales rep", team: "sales", email: "gabriel.irvan@mrpriceless.com", status: "left", employment_type: "commission_only", start_date: "2026-06-02", end_date: day(-1), manager: "rocky" },
   ];
 }
 async function loadEmployees(){
   if (!IS_CONFIGURED){
     if (!state.empLoaded){
       state.employees = empDemo();
-      state.employeePrivate = { "emp-gabriel": { employee_id: "emp-gabriel", pay_unit: "week", pay_rate: null, commission_pct: 10, emergency_name: "Ana Irvan", emergency_phone: "021 555 0100" } };
+      state.employeePrivate = {};
       state.empLoaded = true;
     }
     return;
@@ -10563,55 +10564,71 @@ function empPerf(e){
 
 // Count in the menu: 1:1s due for managers.
 function empNavCount(){
-  const due = empIsManager() ? state.employees.filter(e => { const d = empCheckinDue(e); return d && d <= localDayStr(); }).length : 0;
-  $$(".nav-emp-count").forEach(el => { el.hidden = !due; el.textContent = due; });
+  empNavRender();
+}
+
+// The team in the Employees menu: one item per person, founders first.
+const EMP_ORDER = ["rocky", "max", "carmen"];
+const empOrdered = (list) => list.slice().sort((a, b) => {
+  const ia = EMP_ORDER.indexOf(a.person_key), ib = EMP_ORDER.indexOf(b.person_key);
+  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a.name || "").localeCompare(b.name || "");
+});
+function empNavRender(){
+  const box = $(".nav-emp-list");
+  if (!box) return;
+  const mgr = empIsManager(), today = localDayStr();
+  box.innerHTML = empOrdered(state.employees.filter(empCurrent)).map(e => {
+    const due = mgr ? empCheckinDue(e) : null;
+    return `<button type="button" class="nav-item nav-emp${state.page === "employees" && e.id === empSel ? " active" : ""}" data-emp-nav="${escapeHtml(e.id)}" title="${escapeHtml(e.name)}">
+      <i class="nav-emp-av ${empColour(e)}">${escapeHtml(empInitials(e.name))}</i>
+      <span class="nav-emp-id"><b>${escapeHtml(e.name)}</b><small>${escapeHtml(e.role || "")}</small></span>
+      ${due && due <= today ? `<span class="nav-count">1:1</span>` : ""}
+    </button>`;
+  }).join("");
 }
 
 function renderEmployees(){
   const root = $("#emp-root");
+  empNavRender();
   if (!root) return;
   if (!state.empLoaded){ root.innerHTML = `<div class="emp-empty">Loading the team…</div>`; return; }
-  const mgr = empIsManager(), today = localDayStr();
-  const current = state.employees.filter(empCurrent), past = state.employees.filter(e => !empCurrent(e));
+  const mgr = empIsManager();
+  const current = empOrdered(state.employees.filter(empCurrent)), past = state.employees.filter(e => !empCurrent(e));
   if (empSel && !state.employees.some(e => e.id === empSel)) empSel = null;
-  if (!empSel) empSel = (empMe() || current[0] || past[0])?.id || null;
+  if (!empSel){ const me = empMe(); empSel = (me && empCurrent(me) ? me : current[0] || past[0])?.id || null; empNavRender(); }
   const sel = state.employees.find(e => e.id === empSel);
-  const off = current.filter(empOffToday);
-  const dueSoon = current.filter(e => { const d = empCheckinDue(e); return d && d <= empAddDays(today, 3); });
-  const onboarding = current.filter(e => e.status === "onboarding");
-  const stat = (label, value, sub, cls = "") => `<div class="emp-stat ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
-
-  const card = (e) => {
-    const lv = empOffToday(e), due = empCheckinDue(e), onb = empOnbProgress(e);
-    const line = lv ? `Off today · ${escapeHtml(EMP_LEAVE_TYPES[lv.type] || "Leave")}`
-      : e.status === "onboarding" ? `Onboarding ${onb.done}/${onb.total}`
-      : mgr && due && due <= today ? `1:1 overdue` : mgr && due && due <= empAddDays(today, 3) ? `1:1 ${due === today ? "today" : empShortDay(due)}` : escapeHtml(EMP_TEAMS[e.team] || "");
-    return `<button type="button" class="emp-card${e.id === empSel ? " active" : ""}" data-emp-sel="${escapeHtml(e.id)}">
-      <span class="emp-av ${empColour(e)}">${escapeHtml(empInitials(e.name))}</span>
-      <span class="emp-card-id"><b>${escapeHtml(e.name)}</b><small>${escapeHtml(e.role || "No role yet")}</small><em class="${lv || (mgr && due && due <= today) ? "warn" : ""}">${line}</em></span>
-      <span class="emp-status ${EMP_STATUS[e.status]?.cls || ""}">${EMP_STATUS[e.status]?.label || e.status}</span>
-    </button>`;
-  };
-
   root.innerHTML = `
-    <div class="page-header">
-      <div><h2>Employees</h2><p>Everyone on the team - who they are, how they're tracking, and what's coming up.</p></div>
-      ${mgr ? `<button type="button" class="btn gold" data-emp-act="add">+ Add employee</button>` : ""}
-    </div>
     ${state.empMissing ? `<div class="inbox-setup"><b>Employees is still being set up.</b> It switches on once the latest database update has run.</div>` : ""}
-    <div class="emp-stats">
-      ${stat("On the team", current.length, `${current.filter(e => ["sales", "both"].includes(e.team)).length} sales · ${current.filter(e => ["delivery", "both"].includes(e.team)).length} delivery`)}
-      ${stat("Off today", off.length ? off.map(e => escapeHtml(e.name.split(" ")[0])).join(", ") : "Everyone's in", off.length ? "on leave" : "no one on leave", off.length ? "warn" : "")}
-      ${stat("1:1s due", dueSoon.length, dueSoon.length ? `in the next 3 days${dueSoon.some(e => empCheckinDue(e) < today) ? " · some overdue" : ""}` : "all up to date", dueSoon.some(e => empCheckinDue(e) < today) ? "warn" : "")}
-      ${stat("Onboarding", onboarding.length, onboarding.length ? onboarding.map(e => escapeHtml(e.name.split(" ")[0])).join(", ") : "no one new")}
-    </div>
-    <div class="emp-layout">
-      <aside class="emp-list">
-        ${current.map(card).join("") || `<div class="emp-empty">No one yet.${mgr ? " Click + Add employee." : ""}</div>`}
-        ${past.length ? `<button type="button" class="emp-past-toggle" data-emp-act="past">${empShowLeft ? "▾" : "▸"} Past employees (${past.length})</button>${empShowLeft ? past.map(card).join("") : ""}` : ""}
-      </aside>
-      <section class="emp-detail">${sel ? empDetailHtml(sel) : `<div class="emp-empty">Pick someone on the left.</div>`}</section>
-    </div>`;
+    <section class="emp-detail emp-solo">${sel ? empDetailHtml(sel) : `<div class="emp-empty">No one on the team yet.${mgr ? " Click + Add employee." : ""}</div>`}</section>
+    ${past.length || mgr ? `<div class="emp-page-foot">
+      <span>${past.length ? `Past employees: ${past.map(e => `<button type="button" class="emp-link" data-emp-sel="${escapeHtml(e.id)}">${escapeHtml(e.name)}</button>`).join(" · ")}` : ""}</span>
+      ${mgr ? `<button type="button" class="btn ghost sm" data-emp-act="add">+ Add employee</button>` : ""}
+    </div>` : ""}`;
+}
+
+// What someone's responsible for, at the top of their page.
+let empRespDraft = null;
+function empRespHtml(e){
+  const list = (Array.isArray(e.responsibilities) ? e.responsibilities : []).filter(x => x && (x.title || x.detail));
+  if (empRespDraft){
+    return `<form class="emp-resp editing" data-emp-form="resp">
+      <div class="emp-resp-head"><h4>Responsibilities</h4></div>
+      ${empRespDraft.map((x, i) => `<div class="emp-resp-row">
+        <input name="title_${i}" value="${escapeHtml(x.title || "")}" placeholder="e.g. Closing" required>
+        <textarea name="detail_${i}" rows="2" placeholder="What this covers, in a sentence or two">${escapeHtml(x.detail || "")}</textarea>
+        <button type="button" class="emp-link danger" data-emp-act="resp-del" data-i="${i}">Remove</button>
+      </div>`).join("")}
+      <div class="emp-form-foot">
+        <button type="button" class="emp-link" data-emp-act="resp-add">+ Add a responsibility</button>
+        <span><button type="button" class="btn ghost" data-emp-act="resp-cancel">Cancel</button> <button type="submit" class="btn gold">Save</button></span>
+      </div>
+    </form>`;
+  }
+  return `<section class="emp-resp">
+    <div class="emp-resp-head"><h4>Responsibilities</h4>${empCanEdit() ? `<button type="button" class="emp-link" data-emp-act="resp-edit">Edit</button>` : ""}</div>
+    ${list.length ? `<div class="emp-resp-grid">${list.map((x, i) => `<article class="emp-resp-card"><span class="emp-resp-n">${i + 1}</span><div><h5>${escapeHtml(x.title || "")}</h5>${x.detail ? `<p>${escapeHtml(x.detail)}</p>` : ""}</div></article>`).join("")}</div>`
+      : `<p class="emp-text">Nothing written down yet.${empCanEdit() ? " Click Edit to add what they're responsible for." : ""}</p>`}
+  </section>`;
 }
 
 function empDetailHtml(e){
@@ -10629,6 +10646,7 @@ function empDetailHtml(e){
       <span class="emp-status ${EMP_STATUS[e.status]?.cls || ""}">${EMP_STATUS[e.status]?.label || e.status}</span>
       ${mgr && !empEditing ? `<button type="button" class="btn ghost sm" data-emp-act="edit">Edit</button>` : ""}
     </header>
+    ${e.status === "left" ? "" : empRespHtml(e)}
     <nav class="emp-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="${k === empTab ? "active" : ""}" data-emp-tab="${k}">${l}</button>`).join("")}</nav>
     <div class="emp-body">${body}</div>`;
 }
@@ -10673,7 +10691,7 @@ function empEditHtml(e){
     <div class="field-row">${f("Work email", inp("email", e.email, "email"))}${f("Phone", inp("phone", e.phone, "tel"))}</div>
     <div class="field-row">${f("Start date", inp("start_date", e.start_date, "date"))}${f("End date", inp("end_date", e.end_date, "date"), "Only if they've left")}</div>
     <div class="field-row">${f("Employment type", `<select name="employment_type">${opt(EMP_TYPES, e.employment_type, "-")}</select>`)}${f("Reports to", `<select name="manager">${opt(Object.fromEntries(Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label])), e.manager, "No one")}</select>`)}</div>
-    <div class="field-row">${f("Location", inp("location", e.location))}${f("Name in the CRM", `<select name="person_key">${opt(Object.fromEntries(Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label])), e.person_key, "Not linked")}</select>`, "Links their deals, calls and tasks to this profile")}</div>
+    <div class="field-row">${f("Location", inp("location", e.location))}${f("Name in the CRM", `<select name="person_key">${opt(Object.fromEntries([...Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label]), ...(e.person_key && !ASSIGNEES[e.person_key] ? [[e.person_key, e.name]] : [])]), e.person_key, "Not linked")}</select>`, "Links their deals, calls and tasks to this profile")}</div>
     <div class="field-row">${f("Target: dials a day", inp("dials_per_day", t.dials_per_day, "number", 'min="0"'))}${f("Target: meetings booked a week", inp("meetings_per_week", t.meetings_per_week, "number", 'min="0"'))}</div>
     ${f("Notes", `<textarea name="notes" rows="3">${escapeHtml(e.notes || "")}</textarea>`)}
     <div class="emp-form-foot">
@@ -10780,13 +10798,20 @@ function empPayHtml(e){
 }
 
 function setupEmployeesUi(){
+  $(".nav-emp-list")?.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-emp-nav]");
+    if (!b) return;
+    empSel = b.dataset.empNav; empTab = "overview"; empEditing = false; empRespDraft = null;
+    if (state.page !== "employees") goPage("employees");
+    renderEmployees();
+  });
   const root = $("#emp-root");
   if (!root) return;
   root.addEventListener("click", (ev) => {
     const t = ev.target.closest("[data-emp-sel],[data-emp-tab],[data-emp-act],[data-emp-period],[data-emp-tick],[data-emp-del-ci],[data-emp-del-leave]");
     if (!t || t.disabled) return;
     const e = state.employees.find(x => x.id === empSel);
-    if (t.dataset.empSel){ empSel = t.dataset.empSel; empEditing = false; return renderEmployees(); }
+    if (t.dataset.empSel){ empSel = t.dataset.empSel; empEditing = false; empRespDraft = null; return renderEmployees(); }
     if (t.dataset.empTab){ empTab = t.dataset.empTab; empEditing = false; return renderEmployees(); }
     if (t.dataset.empPeriod){ empPeriod = t.dataset.empPeriod; return renderEmployees(); }
     if (t.dataset.empTick && e){
@@ -10804,6 +10829,15 @@ function setupEmployeesUi(){
     if (act === "past"){ empShowLeft = !empShowLeft; return renderEmployees(); }
     if (act === "edit"){ empEditing = true; empTab = "overview"; return renderEmployees(); }
     if (act === "cancel"){ empEditing = false; return renderEmployees(); }
+    if (act === "resp-edit" && e){ empRespDraft = (Array.isArray(e.responsibilities) && e.responsibilities.length ? e.responsibilities : [{ title: "", detail: "" }]).map(x => ({ ...x })); return renderEmployees(); }
+    if (act === "resp-cancel"){ empRespDraft = null; return renderEmployees(); }
+    if (act === "resp-add" || act === "resp-del"){
+      // Keep what's been typed before redrawing the rows.
+      const form = root.querySelector('[data-emp-form="resp"]');
+      if (form) empRespDraft = empRespDraft.map((x, i) => ({ title: form.elements["title_" + i]?.value ?? x.title, detail: form.elements["detail_" + i]?.value ?? x.detail }));
+      if (act === "resp-add") empRespDraft.push({ title: "", detail: "" }); else empRespDraft.splice(Number(t.dataset.i), 1);
+      return renderEmployees();
+    }
     if (act === "delete" && e) return empDelete(e.id);
   });
   root.addEventListener("submit", (ev) => {
@@ -10829,6 +10863,12 @@ function setupEmployeesUi(){
       return empSave(e.id, patch);
     }
     if (kind === "next") return empSave(e.id, { next_checkin: v.next_checkin || null });
+    if (kind === "resp"){
+      const list = (empRespDraft || []).map((_, i) => ({ title: (v["title_" + i] || "").trim(), detail: (v["detail_" + i] || "").trim() })).filter(x => x.title);
+      empRespDraft = null;
+      rcToast("Responsibilities saved.");
+      return empSave(e.id, { responsibilities: list });
+    }
     if (kind === "checkin"){
       if (!(v.wins || v.blockers || v.actions).trim()){ rcToast("Add a note before saving the 1:1."); return; }
       const by = personKeyFromEmail(state.user?.email || "");

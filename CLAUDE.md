@@ -57,6 +57,7 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
   - Due dates come from `rcNextDue`, and are stored in `clients.onboarding_progress.billing` / `.invoices`.
   - Payment reminder emails are queued in `scheduled_emails` (kind `billing_reminder`) by the browser and sent by `send-scheduled-emails`.
 - **Meeting structure and Sit Rate pages:** rendered from the playbooks above.
+- **Employees workspace:** one menu item per current employee (`empNavRender`, `.nav-emp-list`), opening their page with their responsibilities (`employees.responsibilities`, sql/084) above the tabs. The team is Rocky (Appointment Setting & Running Ads), Max (Closing & Process Improvement) and Carmen (Lead Follow Up); people set to "Left" sit under Past employees.
 - **Lead Follow Up workspace** (Carmen calls every client lead):
   - `sync-ghl-leads` pulls new opportunities from each client's GoHighLevel every 5 minutes (sql/078 cron) into `client_leads`.
   - Calling state lives on `client_leads`: `follow_status`, `attempts`, `next_attempt_at`, `call_log`, `booked_for`.
