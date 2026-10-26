@@ -35,10 +35,10 @@ const RUN_BUDGET_MS = 100e3;  // stop starting new work well before the function
 const PARALLEL = 4;           // clients synced at once
 
 class GhlError extends Error { constructor(msg: string, public status: number) { super(msg); } }
-async function ghl(path: string, token: string, init: RequestInit = {}) {
+async function ghl(path: string, token: string, init: RequestInit = {}, version = GHL_VERSION) {
   const res = await fetch(GHL + path, {
     ...init,
-    headers: { Authorization: `Bearer ${token}`, Version: GHL_VERSION, Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
+    headers: { Authorization: `Bearer ${token}`, Version: version, Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new GhlError(res.status === 401 ? "GHL rejected the key" : String(Array.isArray(body?.message) ? body.message.join(", ") : body?.message || `GHL returned ${res.status}`), res.status);
@@ -388,6 +388,120 @@ async function inspect(admin: any) {
   return out;
 }
 
+// ───────── Call outcomes back into GoHighLevel ─────────
+// What each of Carmen's outcomes does in the client's GHL:
+//   site_visit / consult_call  -> move to that stage, and book it in their calendar
+//   not_interested / disqualified / wrong_number -> move to Disqualified
+//   unreachable (5 calls, no answer) -> move to No answer
+// The stage and calendar come from lead_stage_map when set for that client,
+// otherwise the best match by name. Every move also leaves a note on the contact.
+const CAL_VERSION = "2021-04-15";
+const OUTCOME_STAGE: Record<string, "site_visit" | "consult" | "disqualified" | "no_answer"> = {
+  site_visit: "site_visit", consult_call: "consult", not_interested: "disqualified", disqualified: "disqualified", wrong_number: "disqualified", unreachable: "no_answer",
+};
+const STAGE_MATCH: Record<string, RegExp[]> = {
+  site_visit: [/site\s*visit.*(booked|arranged|scheduled|confirmed)/i, /(booked|arranged|scheduled).*site\s*visit/i, /site\s*visit/i, /quote\s*(visit|booked|appointment)/i, /measure|appointment\s*booked/i],
+  consult: [/consult.*(booked|scheduled|confirmed)/i, /consult/i, /(phone|discovery|zoom|video)\s*call/i, /call\s*booked/i],
+  disqualified: [/disqual/i, /not\s*a\s*fit|unqualified|junk|spam/i],
+  no_answer: [/no\s*answer/i, /unreach|no\s*response|unresponsive|not\s*answering|no\s*contact/i, /stuck/i],
+};
+const CAL_MATCH: Record<string, RegExp[]> = {
+  site_visit: [/site|visit|quote|measure|onsite|on-site|inspection/i],
+  consult: [/consult|call|phone|discovery|zoom|video/i],
+};
+function bestStage(stages: any[], kind: string) {
+  for (const re of STAGE_MATCH[kind] || []) { const hit = stages.find((st: any) => re.test(st.name || "") && !/to\s*be\s*booked|not\s*booked/i.test(st.name || "")); if (hit) return hit; }
+  return null;
+}
+function bestCalendar(cals: any[], kind: string) {
+  for (const re of CAL_MATCH[kind] || []) { const hit = cals.find((c: any) => re.test(c.name || "")); if (hit) return hit; }
+  return cals.length === 1 ? cals[0] : null;
+}
+
+// The pipelines and calendars of a client's GHL, with what we'd match to
+// each outcome - for the Results page's "Stages" picker.
+async function clientSetup(admin: any, clientId: string) {
+  const { data: conn } = await admin.from("client_ghl").select("location_id, token").eq("client_id", clientId).maybeSingle();
+  if (!conn) return { error: "This client isn't connected to GoHighLevel yet." };
+  const pipes = (await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(conn.location_id)}`, conn.token))?.pipelines || [];
+  let calendars: any[] = [], calendarError = null;
+  try { calendars = (await ghl(`/calendars/?locationId=${encodeURIComponent(conn.location_id)}`, conn.token, {}, CAL_VERSION))?.calendars || []; }
+  catch (e) { calendarError = (e as any)?.status === 401 || (e as any)?.status === 403 ? "The key can't see calendars - tick View Calendars and Edit Calendar Events on it." : String((e as any)?.message || e); }
+  const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", clientId).maybeSingle();
+  const allStages = pipes.flatMap((p: any) => (p.stages || []).map((st: any) => ({ id: st.id, name: st.name, pipeline: p.name, pipeline_id: p.id })));
+  const main = pipes[0]?.stages || [];
+  const suggest: any = {};
+  for (const k of ["site_visit", "consult", "disqualified", "no_answer"]) suggest[k + "_stage"] = bestStage(main, k)?.id || bestStage(allStages, k)?.id || null;
+  for (const k of ["site_visit", "consult"]) suggest[k + "_calendar"] = bestCalendar(calendars, k)?.id || null;
+  return { stages: allStages, calendars: calendars.map((c: any) => ({ id: c.id, name: c.name })), calendar_error: calendarError, map: map || {}, suggest };
+}
+
+async function applyOutcome(admin: any, leadId: string, outcome: string, when: string | null, note: string, by: string) {
+  const kind = OUTCOME_STAGE[outcome];
+  if (!kind) return { skipped: true };
+  const { data: lead } = await admin.from("client_leads").select("id, client_id, name, external_lead_id, ghl_contact_id").eq("id", leadId).maybeSingle();
+  if (!lead) return { error: "Lead not found." };
+  const isGhl = String(lead.external_lead_id || "").startsWith("ghl");
+  if (!isGhl && !lead.ghl_contact_id) return { skipped: true, reason: "This lead didn't come from GoHighLevel." };
+  const { data: conn } = await admin.from("client_ghl").select("location_id, token").eq("client_id", lead.client_id).maybeSingle();
+  if (!conn) return { error: "This client isn't connected to GoHighLevel." };
+  const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", lead.client_id).maybeSingle();
+  const result: any = { at: new Date().toISOString(), outcome, errors: [] as string[] };
+  const loc = conn.location_id, token = conn.token;
+  const oppId = String(lead.external_lead_id).startsWith("ghl:") ? String(lead.external_lead_id).slice(4) : null;
+  let contactId = lead.ghl_contact_id || (String(lead.external_lead_id).startsWith("ghlc:") ? String(lead.external_lead_id).slice(5) : null);
+
+  // Which stage: the client's pick, else the best match in the lead's own pipeline.
+  try {
+    const pipes = (await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(loc)}`, token))?.pipelines || [];
+    let opp: any = null;
+    if (oppId) { opp = (await ghl(`/opportunities/${encodeURIComponent(oppId)}`, token))?.opportunity || null; contactId = contactId || opp?.contactId; }
+    const pipe = pipes.find((p: any) => p.id === opp?.pipelineId) || pipes[0];
+    const picked = map?.[kind + "_stage"];
+    const all = pipes.flatMap((p: any) => (p.stages || []).map((st: any) => ({ ...st, pipeline_id: p.id })));
+    const stage = (picked && all.find((st: any) => st.id === picked)) || bestStage((pipe?.stages || []).map((st: any) => ({ ...st, pipeline_id: pipe.id })), kind);
+    const KIND_NAME: Record<string, string> = { site_visit: "Site visit booked", consult: "Consultation call booked", disqualified: "Disqualified", no_answer: "No answer" };
+    if (!stage) result.errors.push(`Couldn't find a "${KIND_NAME[kind]}" stage in their pipeline - pick one under Stages on the Results page.`);
+    else if (opp) {
+      await ghl(`/opportunities/${encodeURIComponent(opp.id)}`, token, { method: "PUT", body: JSON.stringify({ pipelineId: stage.pipeline_id, pipelineStageId: stage.id, status: "open" }) });
+      result.stage = stage.name; result.moved = true;
+    } else if (contactId) {
+      const made = await ghl(`/opportunities/`, token, { method: "POST", body: JSON.stringify({ locationId: loc, pipelineId: stage.pipeline_id, pipelineStageId: stage.id, contactId, name: lead.name || "New lead", status: "open" }) });
+      result.stage = stage.name; result.moved = true; result.created_opportunity = made?.opportunity?.id || true;
+    }
+  } catch (e) { result.errors.push("Couldn't move the stage: " + String((e as any)?.message || e).slice(0, 160)); }
+
+  // Bookings go in their calendar too.
+  if ((kind === "site_visit" || kind === "consult") && when && contactId) {
+    try {
+      const cals = (await ghl(`/calendars/?locationId=${encodeURIComponent(loc)}`, token, {}, CAL_VERSION))?.calendars || [];
+      const picked = map?.[kind + "_calendar"];
+      const cal = (picked && cals.find((c: any) => c.id === picked)) || bestCalendar(cals, kind);
+      if (!cal) result.errors.push(`No calendar found for a ${kind === "consult" ? "consultation call" : "site visit"} - pick one under Stages on the Results page.`);
+      else {
+        const mins = Number(cal.slotDuration) && /hour/i.test(String(cal.slotDurationUnit || "")) ? Number(cal.slotDuration) * 60 : Number(cal.slotDuration) || (kind === "consult" ? 30 : 60);
+        const start = new Date(when), end = new Date(start.getTime() + mins * 60e3);
+        const appt = await ghl(`/calendars/events/appointments`, token, { method: "POST", body: JSON.stringify({
+          calendarId: cal.id, locationId: loc, contactId, startTime: start.toISOString(), endTime: end.toISOString(),
+          title: `${kind === "consult" ? "Consultation call" : "Site visit"} - ${lead.name || "new lead"}`, appointmentStatus: "confirmed", ignoreFreeSlotValidation: true, toNotify: true,
+        }) }, CAL_VERSION);
+        result.appointment = appt?.id || appt?.appointment?.id || true; result.calendar = cal.name;
+      }
+    } catch (e) { result.errors.push("Couldn't book it in their calendar: " + String((e as any)?.message || e).slice(0, 160)); }
+  }
+
+  // Leave Carmen's notes on the contact so the client sees them.
+  if (contactId) {
+    const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer after 5 calls" };
+    const whenText = when ? ` for ${new Date(when).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "";
+    try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: `${label[outcome] || outcome}${whenText} - called by ${by} (Mr Priceless).${note ? "\n\n" + note : ""}` }) }); result.note = true; }
+    catch { /* a note is a nice-to-have */ }
+  }
+  if (!result.errors.length) delete result.errors;
+  await admin.from("client_leads").update({ ghl_sync: result }).eq("id", lead.id);
+  return result;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -415,5 +529,14 @@ Deno.serve(async (req: Request) => {
   let body: any = {};
   try { body = (await req.json()) ?? {}; } catch { body = {}; }
   if (body.action === "sync") return json(await syncAll(admin));
+  if (body.action === "outcome"){
+    if (!body.lead_id || !body.outcome) return json({ error: "lead_id and outcome are needed." }, 400);
+    const who = String(email).split("@")[0].split(/[._0-9]/)[0];
+    return json(await applyOutcome(admin, body.lead_id, body.outcome, body.when || null, String(body.note || "").slice(0, 2000), who.charAt(0).toUpperCase() + who.slice(1)));
+  }
+  if (body.action === "setup"){
+    if (!body.client_id) return json({ error: "client_id is needed." }, 400);
+    try { return json(await clientSetup(admin, body.client_id)); } catch (e) { return json({ error: String((e as any)?.message || e) }); }
+  }
   return json({ error: "Unknown action." }, 400);
 });

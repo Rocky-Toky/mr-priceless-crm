@@ -10371,7 +10371,9 @@ function setupEmployeesUi(){
    rhythm, up to 7 times, before the lead is marked unreachable. */
 const LQ_OPEN = new Set(["new", "no_answer", "call_back"]);
 const LQ_OUTCOMES = {
-  booked: { label: "Booked a quote", icon: "✅", hint: "Someone's coming out", cls: "green", final: true },
+  site_visit: { label: "Site visit booked", icon: "🏠", hint: "Someone's going out to quote", cls: "green", final: true, booking: true },
+  consult_call: { label: "Consultation call booked", icon: "📞", hint: "The client will ring them", cls: "green", final: true, booking: true },
+  booked: { label: "Booked a quote", icon: "✅", hint: "Someone's coming out", cls: "green", final: true, booking: true }, // older calls
   no_answer: { label: "No answer", icon: "📵", hint: "They'll come back later", cls: "amber" },
   call_back: { label: "Call back later", icon: "⏰", hint: "Pick a time to ring", cls: "blue" },
   qualified: { label: "Interested - client to call", icon: "👍", hint: "The client should call them", cls: "green", final: true },
@@ -10379,11 +10381,15 @@ const LQ_OUTCOMES = {
   disqualified: { label: "Not a fit", icon: "🚫", hint: "Wrong area, too small, not our work", cls: "grey", final: true },
   wrong_number: { label: "Wrong number", icon: "❌", hint: "The number doesn't reach them", cls: "grey", final: true },
 };
-const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "Couldn't reach", old: "Old" };
-const LQ_MAX_TRIES = 7, LQ_FAST_MS = 5 * 60e3;
+const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", site_visit: "Site visit booked", consult_call: "Consultation booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer - 5 tries", old: "Old" };
+// What a booking is, and which outcomes also move the lead in the client's GoHighLevel.
+const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
+const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable"]);
+const LQ_MAX_TRIES = 5, LQ_FAST_MS = 5 * 60e3;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
-let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false;
+let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
+const lqSetupCache = {};
 
 const lqClient = (l) => state.clients.find(c => c.id === l.client_id) || null;
 const lqIn = (l) => new Date(l.lead_created_at || l.created_at).getTime();
@@ -10414,7 +10420,8 @@ const lqCountry = (phone) => /^\s*(\+?61|04)/.test(phone || "") ? "61" : "64";
 function lqNextTry(attempts){
   const now = new Date();
   const at = (days, h, m) => { const x = new Date(now); x.setDate(x.getDate() + days); x.setHours(h, m, 0, 0); return x; };
-  const plan = { 1: () => new Date(+now + 10 * 60e3), 2: () => new Date(+now + 60 * 60e3), 3: () => new Date(+now + 3 * 3600e3), 4: () => at(1, 9, 30), 5: () => at(1, 15, 0), 6: () => at(3, 10, 0) }[attempts];
+  // 5 calls in all: then an hour later, later that day, the next morning, and two days on.
+  const plan = { 1: () => new Date(+now + 60 * 60e3), 2: () => new Date(+now + 4 * 3600e3), 3: () => at(1, 10, 0), 4: () => at(3, 15, 0) }[attempts];
   const next = plan ? plan() : new Date(now);
   if (next.getHours() >= 19 || next.getHours() < 8){
     if (next.getHours() >= 19) next.setDate(next.getDate() + 1);
@@ -10462,6 +10469,9 @@ const LQ_ICONS = {
   booked: '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>',
   no_answer: '<path d="M23 1l-6 6M17 1l6 6"/><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
   call_back: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  site_visit: '<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 22V12h6v10"/>',
+  consult_call: '<path d="M3 18v-6a9 9 0 0118 0v6"/><path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/>',
+  unreachable: '<path d="M23 1l-6 6M17 1l6 6"/><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
   qualified: '<path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3zM7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/>',
   not_interested: '<circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>',
   disqualified: '<circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/>',
@@ -10498,7 +10508,7 @@ function renderLeadQueue(){
   if (lqSel && !state.clientLeads.some(l => l.id === lqSel)) lqSel = null;
   if (!lqSel) lqSel = q.due[0]?.id || q.later[0]?.id || null;
   const logsToday = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => x.at && localDayStr(new Date(x.at)) === today));
-  const bookedToday = logsToday.filter(x => x.outcome === "booked").length;
+  const bookedToday = logsToday.filter(x => LQ_BOOKED.has(x.outcome)).length;
   const waiting = q.due.filter(l => (l.follow_status || "new") === "new");
   const longest = waiting.length ? now - lqIn(waiting[0]) : 0;
   const me = lqWho(state.user?.email || "");
@@ -10513,7 +10523,7 @@ function renderLeadQueue(){
       <div class="lq3-kpis">
         <div class="lq3-kpi ${longest > LQ_FAST_MS ? "bad" : ""}"><b>${waiting.length ? escapeHtml(lqShortAgo(longest)) : "-"}</b><span>longest wait</span></div>
         <div class="lq3-kpi"><b>${logsToday.length}</b><span>calls today</span></div>
-        <div class="lq3-kpi ${bookedToday ? "good" : ""}"><b>${bookedToday}</b><span>quotes booked</span></div>
+        <div class="lq3-kpi ${bookedToday ? "good" : ""}"><b>${bookedToday}</b><span>booked today</span></div>
       </div>
     </div>`;
   const row = (l) => {
@@ -10573,10 +10583,10 @@ function lqWhenPicker(kind){
     ? [["60", "In an hour"], ["today-16", "Today 4pm"], ["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]]
     : [["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]];
   return `<div class="lq3-when">
-    <p>${kind === "booked" ? "When is the quote?" : "When should you call back?"}</p>
+    <p>${kind === "site_visit" ? "When is the site visit?" : kind === "consult_call" ? "When is the consultation call?" : "When should you call back?"}</p>
     <div class="lq3-chips">${quick.map(([k, l]) => `<button type="button" data-lq-quick="${k}">${l}</button>`).join("")}</div>
     <div class="lq3-when-pick">
-      <label>Day<input type="date" name="day" value="${kind === "booked" ? tmr : today}" required></label>
+      <label>Day<input type="date" name="day" value="${kind === "call_back" ? today : tmr}" required></label>
       <label>Time<select name="time" required><option value="">Pick a time</option>${LQ_TIMES.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
     </div>
   </div>`;
@@ -10620,6 +10630,7 @@ function lqDetailHtml(l){
         <span class="lq3-status"><i></i>${escapeHtml(status.text)}</span>
         <h2>${escapeHtml(l.name || "No name")}</h2>
         <p>Calling for <b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}</p>
+        ${l.ghl_sync?.at && !l.ghl_sync.skipped ? `<p class="lq3-ghl ${l.ghl_sync.errors?.length ? "bad" : ""}">${l.ghl_sync.errors?.length ? `⚠ GoHighLevel: ${escapeHtml(l.ghl_sync.errors[0])}` : `✓ In GoHighLevel: ${escapeHtml([l.ghl_sync.moved ? `moved to "${l.ghl_sync.stage}"` : "", l.ghl_sync.appointment ? `booked in ${l.ghl_sync.calendar || "their calendar"}` : ""].filter(Boolean).join(" · "))}`}</p>` : ""}
       </div>
       <div class="lq3-hero-call">
         ${l.phone ? `<button type="button" class="lq3-call" data-lq-act="call">${lqIcon("phone")}<span><small>Call ${escapeHtml(first)}</small><b>${escapeHtml(formatPhone(l.phone))}</b></span></button>` : `<p class="lq3-nophone">No phone number came through</p>`}
@@ -10673,10 +10684,12 @@ function lqDetailHtml(l){
 
     <form class="lq3-panel lq3-outcome" data-lq-form="outcome">
       <h3>${lqIcon("phone")}How did the call go?</h3>
-      <div class="lq3-outs">${["booked", "no_answer", "call_back"].map(bigOut).join("")}</div>
+      <div class="lq3-outs">${["site_visit", "consult_call", "no_answer", "call_back"].map(bigOut).join("")}</div>
       <div class="lq3-pills">${["qualified", "not_interested", "disqualified", "wrong_number"].map(smallOut).join("")}</div>
-      ${lqPending === "booked" || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
-      ${lqPending === "booked" ? `<p class="lq3-tip">Put it in ${escapeHtml(biz)}'s calendar in GoHighLevel too, so they get the booking.</p>` : ""}
+      ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
+      ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" ? "site visit" : "consultation"} stage and the time's booked in their calendar.</p>` : ""}
+      ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's the 5th call. They'll move to "No answer" in ${escapeHtml(biz)}'s GoHighLevel.` : `They'll come back to you ${escapeHtml(lqWhenWords(lqNextTry(l.attempts + 1)))} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`}</p>` : ""}
+      ${["not_interested", "disqualified", "wrong_number"].includes(lqPending) ? `<p class="lq3-tip">They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.</p>` : ""}
       <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
       <button type="submit" class="lq3-save" ${lqPending ? "" : "disabled"}>${lqPending ? `Save and go to the next person ${lqIcon("arrow")}` : "Choose how the call went"}</button>
     </form>
@@ -10697,21 +10710,45 @@ async function lqSaveOutcome(l, outcome, note, when){
     if (attempts >= LQ_MAX_TRIES){ patch.follow_status = "unreachable"; patch.next_attempt_at = null; }
     else { patch.follow_status = "no_answer"; patch.next_attempt_at = lqNextTry(attempts); }
   } else if (outcome === "call_back"){ patch.follow_status = "call_back"; patch.next_attempt_at = when; }
-  else { patch.follow_status = outcome; patch.next_attempt_at = null; if (outcome === "booked") patch.booked_for = when; }
+  else { patch.follow_status = outcome; patch.next_attempt_at = null; if (LQ_BOOKED.has(outcome)) patch.booked_for = when; }
   Object.assign(l, patch);
   delete lqDrafts[l.id];
   lqPending = null; lqShowHistory = false;
   const next = lqQueue().due.find(x => x.id !== l.id);
   lqSel = next?.id || null;
   rcToast(outcome === "no_answer"
-    ? (patch.follow_status === "unreachable" ? `That's ${LQ_MAX_TRIES} tries with no answer, so they're marked as couldn't reach.` : `Saved. They'll come back to you ${lqWhenWords(patch.next_attempt_at)}.`)
+    ? (patch.follow_status === "unreachable" ? `That's ${LQ_MAX_TRIES} calls with no answer, so they're marked "No answer".` : `Saved. They'll come back to you ${lqWhenWords(patch.next_attempt_at)}.`)
     : `Saved: ${LQ_OUTCOMES[outcome].label}.${next ? " Here's the next person." : ""}`);
   renderLeadQueue();
   $("#lq-root")?.scrollIntoView({ block: "start" });
   if (IS_CONFIGURED){
     const { error } = await supabase.from("client_leads").update(patch).eq("id", l.id);
-    if (error) rcToast("Couldn't save that call - " + error.message);
+    if (error){ rcToast("Couldn't save that call - " + error.message); return; }
   }
+  // Move them in the client's GoHighLevel (and book the calendar for a booking).
+  const ghlOutcome = patch.follow_status === "unreachable" ? "unreachable" : outcome;
+  if (LQ_TO_GHL.has(ghlOutcome)) lqSendToGhl(l, ghlOutcome, when, note);
+}
+async function lqSendToGhl(l, outcome, when, note){
+  const biz = lqClient(l)?.name || "the client";
+  if (!IS_CONFIGURED){
+    l.ghl_sync = { at: new Date().toISOString(), outcome, moved: true, stage: { site_visit: "Site Visit Booked", consult_call: "Consultation Booked", unreachable: "No Answer" }[outcome] || "Disqualified", ...(LQ_BOOKED.has(outcome) ? { appointment: true, calendar: "Bookings" } : {}) };
+    return;
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "outcome", lead_id: l.id, outcome, when, note } });
+    if (error) throw error;
+    l.ghl_sync = data || {};
+    if (data?.skipped) return;
+    const done = [data?.moved ? `moved to "${data.stage}"` : "", data?.appointment ? `booked in ${data.calendar ? `the ${data.calendar} calendar` : "their calendar"}` : ""].filter(Boolean).join(" and ");
+    if (data?.errors?.length) rcToast(`${done ? `In ${biz}'s GoHighLevel: ${done}. ` : ""}${data.errors[0]}`);
+    else if (done) rcToast(`Done - ${done} in ${biz}'s GoHighLevel.`);
+  } catch(e){
+    console.warn(e);
+    l.ghl_sync = { at: new Date().toISOString(), outcome, errors: ["Couldn't reach GoHighLevel"] };
+    rcToast(`Saved here, but couldn't update ${biz}'s GoHighLevel right now.`);
+  }
+  if (state.page === "lead-queue") renderLeadQueue();
 }
 
 async function lqSync(){
@@ -10740,8 +10777,8 @@ function renderLeadResults(){
   const speeds = called.map(l => new Date(l.first_called_at) - lqIn(l)).filter(x => x >= 0).sort((a, b) => a - b);
   const median = speeds.length ? speeds[Math.floor(speeds.length / 2)] : null;
   const fast = speeds.filter(x => x <= LQ_FAST_MS).length;
-  const reached = leads.filter(l => ["booked", "qualified", "not_interested", "disqualified", "call_back"].includes(l.follow_status));
-  const booked = leads.filter(l => l.follow_status === "booked");
+  const reached = leads.filter(l => LQ_BOOKED.has(l.follow_status) || ["qualified", "not_interested", "disqualified", "call_back"].includes(l.follow_status));
+  const booked = leads.filter(l => LQ_BOOKED.has(l.follow_status));
   const calls = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => inP(x.at)));
   const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "-";
   const tile = (label, value, sub, cls = "") => `<div class="emp-tile ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
@@ -10750,7 +10787,7 @@ function renderLeadResults(){
   const rows = [...byClient.entries()].map(([id, ls]) => {
     const c = state.clients.find(x => x.id === id), cl = ls.filter(l => l.first_called_at);
     const sp = cl.map(l => new Date(l.first_called_at) - lqIn(l)).filter(x => x >= 0).sort((a, b) => a - b);
-    return { name: c?.name || "Unknown client", leads: ls.length, called: cl.length, speed: sp.length ? sp[Math.floor(sp.length / 2)] : null, booked: ls.filter(l => l.follow_status === "booked").length };
+    return { name: c?.name || "Unknown client", leads: ls.length, called: cl.length, speed: sp.length ? sp[Math.floor(sp.length / 2)] : null, booked: ls.filter(l => LQ_BOOKED.has(l.follow_status)).length };
   }).sort((a, b) => b.leads - a.leads);
   const byCaller = {};
   calls.forEach(x => { const w = lqWho(x.by) || "Unknown"; byCaller[w] = (byCaller[w] || 0) + 1; });
@@ -10780,12 +10817,13 @@ function renderLeadResults(){
       ${tile("Speed to first call", median == null ? "-" : lqShortAgo(median), "typical (median)", median != null && median <= LQ_FAST_MS ? "hit" : median != null ? "low" : "")}
       ${tile("Called within 5 min", pct(fast, speeds.length), `${fast} of ${speeds.length}`, speeds.length && fast / speeds.length >= 0.8 ? "hit" : "")}
       ${tile("Got through", reached.length, `${pct(reached.length, leads.length)} of leads`)}
-      ${tile("Quotes booked", booked.length, `${pct(booked.length, leads.length)} of leads · ${pct(booked.length, reached.length)} of people reached`, booked.length ? "hit" : "")}
+      ${tile("Booked", booked.length, `${pct(booked.length, leads.length)} of leads · ${pct(booked.length, reached.length)} of people reached`, booked.length ? "hit" : "")}
       ${tile("Calls made", calls.length, Object.entries(byCaller).map(([w, n]) => `${escapeHtml(w)} ${n}`).join(" · ") || "-")}
-      ${tile("Couldn't reach", leads.filter(l => l.follow_status === "unreachable").length, `after ${LQ_MAX_TRIES} tries`)}
+      ${tile("No answer", leads.filter(l => l.follow_status === "unreachable").length, `after ${LQ_MAX_TRIES} calls`)}
     </div>
     <h4 class="emp-h">Are all clients' leads coming through? ${problems ? `<span class="lq-count">${problems} to fix</span>` : `<span class="lq-count ok">all good</span>`}</h4>
-    <div class="lr-table">${health.map(h => `<div class="lr-sync ${h.cls}"><i></i><b>${escapeHtml(h.c.name)}</b><span>${escapeHtml(h.text)}</span><small>${h.r?.last_lead_at ? `last lead ${escapeHtml(lqShortAgo(Date.now() - new Date(h.r.last_lead_at)))} ago` : ""}${h.cls !== "ok" ? `<button type="button" class="lq3-mini" data-lr-connect="${escapeHtml(h.c.id)}">${!h.r ? "Connect" : "Update key"}</button>` : ""}</small></div>
+    <div class="lr-table">${health.map(h => `<div class="lr-sync ${h.cls}"><i></i><b>${escapeHtml(h.c.name)}</b><span>${escapeHtml(h.text)}</span><small>${h.r?.last_lead_at ? `last lead ${escapeHtml(lqShortAgo(Date.now() - new Date(h.r.last_lead_at)))} ago` : ""}${h.r ? `<button type="button" class="lq3-mini" data-lr-stages="${escapeHtml(h.c.id)}">Stages</button>` : ""}${h.cls !== "ok" ? `<button type="button" class="lq3-mini" data-lr-connect="${escapeHtml(h.c.id)}">${!h.r ? "Connect" : "Update key"}</button>` : ""}</small></div>
+      ${lqStagesFor === h.c.id ? lqStagesHtml(h.c) : ""}
       ${lqConnectFor === h.c.id ? `<form class="lr-connect" data-lr-form="${escapeHtml(h.c.id)}">
         <p>Paste these from <b>${escapeHtml(h.c.name)}</b>'s GoHighLevel. The Location ID is in <b>Settings → Business Profile</b>, and the key comes from <b>Settings → Private Integrations</b> (tick View Contacts, Opportunities, Forms and Custom Fields when you make it).</p>
         <div class="lr-connect-row"><label>Location ID<input name="location_id" required autocomplete="off"></label><label>Private Integration key<input name="token" type="password" required autocomplete="off"></label>
@@ -10795,6 +10833,35 @@ function renderLeadResults(){
     ${rows.length ? `<div class="lr-table"><div class="lr-row head"><span>Client</span><span>Leads</span><span>Called</span><span>Speed</span><span>Booked</span></div>
       ${rows.map(r => `<div class="lr-row"><span>${escapeHtml(r.name)}</span><span>${r.leads}</span><span>${pct(r.called, r.leads)}</span><span>${r.speed == null ? "-" : lqShortAgo(r.speed)}</span><span>${r.booked} <small>(${pct(r.booked, r.leads)})</small></span></div>`).join("")}</div>` : `<div class="emp-empty">No leads in this period yet.</div>`}
     ${calls.length ? `<h4 class="emp-h">What happened on the calls</h4><div class="lr-outcomes">${Object.entries(outcomes).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<div><span>${escapeHtml(LQ_OUTCOMES[k]?.label || k)}</span><i class="emp-bar"><i style="width:${Math.round(n / calls.length * 100)}%"></i></i><b>${n}</b></div>`).join("")}</div>` : ""}`;
+}
+
+// Which stage and calendar each outcome goes to in a client's GoHighLevel.
+// Blank = matched by name automatically (shown as "Automatic: ...").
+const LQ_STAGE_FIELDS = [["site_visit_stage", "Site visit booked", "stage"], ["consult_stage", "Consultation call booked", "stage"], ["disqualified_stage", "Not interested / Not a fit / Wrong number", "stage"], ["no_answer_stage", "No answer after 5 calls", "stage"], ["site_visit_calendar", "Calendar for site visits", "calendar"], ["consult_calendar", "Calendar for consultation calls", "calendar"]];
+function lqStagesHtml(c){
+  const d = lqSetupCache[c.id];
+  if (!d) return `<div class="lr-connect"><p>Loading ${escapeHtml(c.name)}'s pipeline and calendars…</p></div>`;
+  if (d.error) return `<div class="lr-connect"><p>${escapeHtml(d.error)}</p></div>`;
+  const nameOf = (kind, id) => (kind === "stage" ? d.stages : d.calendars).find(x => x.id === id);
+  const label = (x) => x ? (x.pipeline && d.stages.some(y => y.pipeline !== x.pipeline) ? `${x.pipeline} → ${x.name}` : x.name) : "";
+  return `<form class="lr-connect lr-stages" data-lr-stages-form="${escapeHtml(c.id)}">
+    <p>When Carmen picks an outcome, the lead moves here in <b>${escapeHtml(c.name)}</b>'s GoHighLevel. "Automatic" is our best match by name - change any that are wrong.</p>
+    ${d.calendar_error ? `<p class="lr-warn">${escapeHtml(d.calendar_error)}</p>` : ""}
+    <div class="lr-stage-grid">${LQ_STAGE_FIELDS.map(([k, l, kind]) => {
+      const list = kind === "stage" ? d.stages : d.calendars, auto = nameOf(kind, d.suggest?.[k]);
+      return `<label>${l}<select name="${k}"><option value="">${auto ? `Automatic: ${escapeHtml(label(auto))}` : "Automatic: nothing matches - pick one"}</option>${list.map(x => `<option value="${escapeHtml(x.id)}" ${d.map?.[k] === x.id ? "selected" : ""}>${escapeHtml(label(x))}</option>`).join("")}</select></label>`;
+    }).join("")}</div>
+    <div class="lr-connect-row"><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-mini" data-lr-stages="">Close</button></div>
+  </form>`;
+}
+async function lqLoadSetup(clientId){
+  if (!IS_CONFIGURED){
+    lqSetupCache[clientId] = { stages: [{ id: "a", name: "Rep to contact", pipeline: "Leads" }, { id: "b", name: "Disqualified", pipeline: "Leads" }, { id: "c", name: "Site Visit Booked", pipeline: "Leads" }, { id: "d", name: "Quote Sent", pipeline: "Leads" }], calendars: [{ id: "k1", name: "Site Visits" }], map: {}, suggest: { site_visit_stage: "c", disqualified_stage: "b", site_visit_calendar: "k1" } };
+    return renderLeadResults();
+  }
+  const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "setup", client_id: clientId } });
+  lqSetupCache[clientId] = error ? { error: "Couldn't load their GoHighLevel right now." } : (data || {});
+  renderLeadResults();
 }
 
 function setupLeadFollowUpUi(){
@@ -10836,7 +10903,7 @@ function setupLeadFollowUpUi(){
         const l = state.clientLeads.find(x => x.id === lqSel);
         if (!l || !lqPending) return;
         let when = null;
-        if (lqPending === "booked" || lqPending === "call_back"){
+        if (LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back"){
           if (!v.day || !v.time){ rcToast("Pick a day and a time first."); return; }
           when = new Date(`${v.day}T${v.time}:00`).toISOString();
         }
@@ -10857,15 +10924,34 @@ function setupLeadFollowUpUi(){
     });
   }
   $("#lr-root")?.addEventListener("click", (ev) => {
-    const t = ev.target.closest("[data-lr-period],[data-lr-connect]");
+    const t = ev.target.closest("[data-lr-period],[data-lr-connect],[data-lr-stages]");
     if (!t) return;
     if (t.dataset.lrPeriod){ lqPeriod = t.dataset.lrPeriod; return renderLeadResults(); }
+    if (t.dataset.lrStages !== undefined){
+      lqStagesFor = t.dataset.lrStages || null; lqConnectFor = null;
+      if (lqStagesFor && !lqSetupCache[lqStagesFor]) lqLoadSetup(lqStagesFor);
+      return renderLeadResults();
+    }
     lqConnectFor = t.dataset.lrConnect || null;
     renderLeadResults();
     $(`form[data-lr-form] input[name="location_id"]`)?.focus();
   });
   // Connect a client's GoHighLevel right from the sync list, then pull their leads.
   $("#lr-root")?.addEventListener("submit", async (ev) => {
+    const stagesForm = ev.target.closest("[data-lr-stages-form]");
+    if (stagesForm){
+      ev.preventDefault();
+      const client_id = stagesForm.dataset.lrStagesForm, v = Object.fromEntries(new FormData(stagesForm).entries());
+      const row = { client_id, updated_at: new Date().toISOString() };
+      LQ_STAGE_FIELDS.forEach(([k]) => { row[k] = v[k] || null; });
+      if (IS_CONFIGURED){
+        const { error } = await supabase.from("lead_stage_map").upsert(row);
+        if (error){ rcToast("Couldn't save - " + error.message); return; }
+      }
+      if (lqSetupCache[client_id]) lqSetupCache[client_id].map = row;
+      lqStagesFor = null; rcToast("Saved - Carmen's outcomes will go to those stages."); renderLeadResults();
+      return;
+    }
     const form = ev.target.closest("[data-lr-form]");
     if (!form) return;
     ev.preventDefault();
