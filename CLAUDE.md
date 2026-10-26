@@ -53,7 +53,7 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
 - **Client inbox:**
   - Each person connects their Gmail with an Apps Script copied from the Client inbox page. The script runs every minute (Apps Script only allows 1/5/10/15/30), only looks at threads changed since its last run, and posts to `sync-client-inbox` with a per-user key (stored hashed in `app_secrets`).
   - Once per key it also catches up on the last 60 days of the inbox (`BACKFILL_QUERY`), 50 threads a page, tracked by `app_secrets` `inbox_backfill:<user>` (cleared when a new script is copied). Caught-up emails older than 2 hours don't trigger reminders.
-  - The script searches what the server's `senders` reply says (`INBOX_QUERY`: recent Primary-tab mail, plus known client senders), so search changes don't need a new script. `push` keeps clients' emails plus any real person's, dropping bulk/automated senders, big-company domains (`COMPANY_DOMAINS`) and job applications.
+  - The script searches what the server's `senders` reply says (`INBOX_QUERY`: recent Primary-tab mail, plus known client senders), so search changes don't need a new script. `push` keeps only client emails: from a client's address/domain, or (`aboutAClient`) naming a live client's company name or website, and then only from a real person (no bulk/automated senders, big-company domains (`COMPANY_DOMAINS`) or job applications). Rocky wants nothing else in there. The page and reminders ignore rows without a `client_id`.
   - Client emails go into `client_emails`; replies are detected from the Gmail thread; there's a 2-hour reminder email.
 - **Receipts / billing:**
   - Due dates come from `rcNextDue`, and are stored in `clients.onboarding_progress.billing` / `.invoices`.
