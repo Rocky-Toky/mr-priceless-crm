@@ -10,8 +10,16 @@
 //   Signed-in allowlisted user:
 //     { action: "book", ... }            saves the meeting, then makes the events
 //     { action: "retry_calendar", meeting_id }  tries the calendar again after a failure
+//     { action: "reschedule", meeting_id, starts_at, reason, note }  moves the invite + buffer
+//     { action: "cancel", meeting_id, reason }  cancels both (the prospect is told)
+//     { action: "confirm", meeting_id, note }  the setter heard back from them
+//     { action: "resolve_flag", meeting_id, do }  accept_move | put_back | mark_cancelled | dismiss
 //   Deploy workflow (header x-cron-secret = app_secrets.precall_cron_secret):
 //     { action: "check_calendar", email }  can the CRM reach that person's calendar?
+//   pg_cron every 5 minutes (sql/083), same header:
+//     { action: "poll" }  checks each upcoming invite: an accept confirms the
+//       meeting; a decline, or the event moved / deleted in Google, is flagged
+//       and emailed to the setter. Nothing about the meeting itself changes.
 //
 // Test mode (precall_settings.test_mode, on until someone turns it off):
 // the prospect is only added to the invite if their email is one of ours
@@ -209,6 +217,214 @@ async function book(admin: SupabaseClient, b: any, caller: string) {
   return { meeting: await makeEvents(admin, m, caller) };
 }
 
+/* ───────── Reschedule, cancel, confirm ───────── */
+const REASONS: Record<string, string> = {
+  prospect_conflict: "Prospect couldn't make it",
+  closer_conflict: "Closer couldn't make it",
+  no_show: "No-show",
+  other: "Other",
+};
+const nowIso = () => new Date().toISOString();
+const nzWhen = (iso: string) => new Intl.DateTimeFormat("en-NZ", { timeZone: TZ, weekday: "long", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(iso));
+const slot = (start: Date, mins: number) => ({ dateTime: new Date(start.getTime() + mins * 60e3).toISOString(), timeZone: TZ });
+const gone = (e: unknown) => [404, 410].includes((e as GoogleError).status);
+
+async function loadMeeting(admin: SupabaseClient, id: unknown) {
+  const { data } = await admin.from("meetings").select("*").eq("id", String(id || "")).maybeSingle();
+  return data;
+}
+async function logEvent(admin: SupabaseClient, m: any, kind: string, by: string, detail: any = {}) {
+  await admin.from("meeting_events").insert({ meeting_id: m.id, kind, by, detail });
+}
+async function save(admin: SupabaseClient, m: any, patch: any) {
+  const { data } = await admin.from("meetings").update({ ...patch, updated_at: nowIso() }).eq("id", m.id).select().single();
+  return data;
+}
+// A new time means the old confirmation no longer counts.
+const unconfirmed = () => ({ confirmation_status: "unconfirmed", confirmed_at: null, confirmed_today_at: null, prospect_response: null });
+
+// Moves the invite (same event, same Meet link - the prospect gets the
+// update) and the buffer after it. status "confirmed" also brings back an
+// event someone deleted in Google.
+async function moveEvents(m: any, start: Date, moveMain = true) {
+  if (moveMain && m.google_event_id) {
+    await cal(m.closer_email, `/${m.google_event_id}?sendUpdates=all&conferenceDataVersion=1`, {
+      method: "PATCH", body: JSON.stringify({ start: slot(start, 0), end: slot(start, m.duration_min), status: "confirmed" }),
+    });
+  }
+  if (m.buffer_event_id) {
+    try {
+      await cal(m.closer_email, `/${m.buffer_event_id}?sendUpdates=none`, {
+        method: "PATCH", body: JSON.stringify({ start: slot(start, m.duration_min), end: slot(start, m.duration_min + m.buffer_min), status: "confirmed" }),
+      });
+    } catch (e) { if (!gone(e)) throw e; }
+  }
+}
+
+async function reschedule(admin: SupabaseClient, b: any, caller: string) {
+  const m = await loadMeeting(admin, b.meeting_id);
+  if (!m) return { error: "That meeting wasn't found." };
+  if (m.status !== "scheduled") return { error: "That meeting isn't scheduled any more." };
+  const start = new Date(b.starts_at);
+  if (isNaN(start.getTime())) return { error: "Pick the new date and time." };
+  if (start.getTime() < Date.now() - 10 * 60e3) return { error: "That time has already passed." };
+  const reason = REASONS[b.reason] ? b.reason : "";
+  if (!reason) return { error: "Pick why it's being moved." };
+  if (m.google_event_id) {
+    try { await moveEvents(m, start); } catch (e) { return { error: "Google Calendar didn't take the new time, so nothing's changed: " + String((e as Error)?.message || e) }; }
+  }
+  const now = new Date();
+  const flags = { ...(m.calendar_flag_detail || {}) };
+  delete flags.moved; delete flags.deleted; delete flags.declined;
+  const saved = await save(admin, m, {
+    starts_at: start.toISOString(), reschedule_count: (m.reschedule_count || 0) + 1, ...unconfirmed(),
+    booking_window: bookingWindow(now, start), lead_time_hours: Math.round(((start.getTime() - now.getTime()) / 3600e3) * 10) / 10,
+    calendar_flag: null, calendar_flag_detail: flags,
+  });
+  await logEvent(admin, m, "rescheduled", caller, { from: m.starts_at, to: start.toISOString(), reason, note: clean(b.note, 1000) || null, count: saved?.reschedule_count });
+  // No invite yet (it failed at booking): try making it now, at the new time.
+  return { meeting: m.google_event_id ? saved : await makeEvents(admin, saved, caller) };
+}
+
+async function deleteEvents(m: any) {
+  for (const [id, notify] of [[m.google_event_id, "all"], [m.buffer_event_id, "none"]]) {
+    if (!id) continue;
+    try { await cal(m.closer_email, `/${id}?sendUpdates=${notify}`, { method: "DELETE" }); } catch (e) { if (!gone(e)) throw e; }
+  }
+}
+async function cancel(admin: SupabaseClient, b: any, caller: string) {
+  const m = await loadMeeting(admin, b.meeting_id);
+  if (!m) return { error: "That meeting wasn't found." };
+  if (m.status !== "scheduled") return { error: "That meeting isn't scheduled any more." };
+  const reason = clean(b.reason, 500);
+  if (!reason) return { error: "Say why it's being cancelled." };
+  try { await deleteEvents(m); } catch (e) { return { error: "Google Calendar didn't cancel the invite, so nothing's changed: " + String((e as Error)?.message || e) }; }
+  const saved = await save(admin, m, { status: "cancelled", cancel_reason: reason, cancelled_at: nowIso(), cancelled_by: caller, calendar_flag: null });
+  await logEvent(admin, m, "cancelled", caller, { reason });
+  return { meeting: saved };
+}
+
+async function confirmMeeting(admin: SupabaseClient, m: any, source: string, by: string, note = "") {
+  const now = new Date();
+  const today = nzDay(now) === nzDay(new Date(m.starts_at));
+  const entry = { source, at: now.toISOString(), by, note: note || null, meeting_day: today };
+  const saved = await save(admin, m, {
+    confirmation_status: "confirmed",
+    confirmed_at: m.confirmed_at || now.toISOString(),
+    // Only the setter hearing from them on the day counts as "confirmed today".
+    ...(today && source === "setter" ? { confirmed_today_at: now.toISOString() } : {}),
+    confirmations: [...(Array.isArray(m.confirmations) ? m.confirmations : []), entry],
+  });
+  await logEvent(admin, m, "confirmed", by, { source, note: note || null, meeting_day: today });
+  return saved;
+}
+
+/* ───────── Watching Google Calendar (every 5 minutes) ───────── */
+// calendar_flag_detail keeps what's been seen: { moved: {from, to, at}, deleted: {at}, declined: {at} },
+// each with dismissed: true once someone's dealt with it. calendar_flag is the one that needs attention.
+const FLAG_ORDER = ["deleted", "moved", "declined"];
+const topFlag = (flags: any) => FLAG_ORDER.find((k) => flags[k] && !flags[k].dismissed) || null;
+const CRM_URL = "https://rocky-toky.github.io/mr-priceless-crm/";
+
+async function alertSetter(admin: SupabaseClient, m: any, kind: string, extra = "") {
+  const to = m.setter_email || m.created_by;
+  if (!to) return;
+  const who = fullName(m) + (m.business_name ? ` (${m.business_name})` : "");
+  const what: Record<string, string> = {
+    declined: `${who} declined the calendar invite for ${nzWhen(m.starts_at)}.`,
+    moved: `${who}'s meeting was moved in Google Calendar${extra ? ` to ${nzWhen(extra)}` : ""}. It was booked for ${nzWhen(m.starts_at)}.`,
+    deleted: `${who}'s meeting on ${nzWhen(m.starts_at)} was deleted from Google Calendar.`,
+  };
+  await admin.from("scheduled_emails").insert({
+    kind: "precall_alert", to_email: to,
+    subject: kind === "declined" ? `${fullName(m)} declined their meeting` : `${fullName(m)}'s meeting changed in Google Calendar`,
+    body: `Hey,\n\n${what[kind]}\n\nNothing's been changed in the CRM. Open Upcoming Meetings to sort it out${kind === "declined" ? " - give them a call" : ""}:\n${CRM_URL}\n\nMr Priceless CRM`,
+    send_at: nowIso(), created_by: "precall-watch",
+  });
+}
+
+async function poll(admin: SupabaseClient) {
+  const now = Date.now();
+  const { data: list } = await admin.from("meetings").select("*").eq("status", "scheduled").not("google_event_id", "is", null)
+    .gt("starts_at", new Date(now - 2 * 3600e3).toISOString()).lt("starts_at", new Date(now + 120 * 86400e3).toISOString()).order("starts_at").limit(300);
+  let checked = 0, changed = 0, errors = 0;
+  for (const m of list || []) {
+    let ev: any = null;
+    try { ev = await cal(m.closer_email, "/" + m.google_event_id); } catch (e) {
+      if (!gone(e)) { errors++; continue; }
+      ev = { status: "cancelled" };
+    }
+    checked++;
+    const flags = JSON.parse(JSON.stringify(m.calendar_flag_detail || {}));
+    const patch: any = { calendar_checked_at: nowIso() };
+    const at = nowIso();
+    if (ev.status === "cancelled") {
+      if (!flags.deleted) { flags.deleted = { at }; await logEvent(admin, m, "deleted_in_google", "google"); await alertSetter(admin, m, "deleted"); }
+    } else {
+      delete flags.deleted;
+      const gStart = Date.parse(ev.start?.dateTime || ev.start?.date || "");
+      if (gStart && Math.abs(gStart - Date.parse(m.starts_at)) > 60e3) {
+        const to = new Date(gStart).toISOString();
+        if (flags.moved?.to !== to) { flags.moved = { from: m.starts_at, to, at }; await logEvent(admin, m, "moved_in_google", "google", { from: m.starts_at, to }); await alertSetter(admin, m, "moved", to); }
+      } else delete flags.moved;
+      const att = m.email ? (ev.attendees || []).find((a: any) => String(a.email || "").toLowerCase() === m.email) : null;
+      const resp = att?.responseStatus || null;
+      if (resp && resp !== m.prospect_response) {
+        patch.prospect_response = resp;
+        if (resp !== "needsAction") await logEvent(admin, m, "invite_" + resp, "google");
+        if (resp === "accepted" && m.confirmation_status !== "confirmed") Object.assign(m, await confirmMeeting(admin, m, "calendar", "google"));
+      }
+      if (resp === "declined") {
+        if (m.confirmation_status === "confirmed" && resp !== m.prospect_response) Object.assign(patch, { confirmation_status: "unconfirmed", confirmed_today_at: null });
+        if (!flags.declined) { flags.declined = { at }; await alertSetter(admin, m, "declined"); }
+      } else delete flags.declined;
+    }
+    patch.calendar_flag_detail = flags;
+    patch.calendar_flag = topFlag(flags);
+    if (patch.calendar_flag !== m.calendar_flag || patch.prospect_response) changed++;
+    await admin.from("meetings").update(patch).eq("id", m.id);
+  }
+  return { checked, changed, errors };
+}
+
+// What the setter does about a flag: take the new time from Google, put a
+// deleted invite back, cancel it, or just mark it seen.
+async function resolveFlag(admin: SupabaseClient, b: any, caller: string) {
+  const m = await loadMeeting(admin, b.meeting_id);
+  if (!m) return { error: "That meeting wasn't found." };
+  const flags = { ...(m.calendar_flag_detail || {}) };
+  const kind = m.calendar_flag;
+  if (!kind || !flags[kind]) return { meeting: m };
+  if (b.do === "accept_move" && kind === "moved") {
+    const start = new Date(flags.moved.to);
+    try { await moveEvents(m, start, false); } catch (e) { return { error: "Couldn't move the buffer: " + String((e as Error)?.message || e) }; }
+    delete flags.moved;
+    const now = new Date();
+    const saved = await save(admin, m, {
+      starts_at: start.toISOString(), reschedule_count: (m.reschedule_count || 0) + 1, ...unconfirmed(),
+      booking_window: bookingWindow(now, start), lead_time_hours: Math.round(((start.getTime() - now.getTime()) / 3600e3) * 10) / 10,
+      calendar_flag_detail: flags, calendar_flag: topFlag(flags),
+    });
+    await logEvent(admin, m, "rescheduled", caller, { from: m.starts_at, to: start.toISOString(), reason: "closer_conflict", note: "Moved in Google Calendar", count: saved?.reschedule_count });
+    return { meeting: saved };
+  }
+  if (b.do === "put_back" && kind === "deleted") {
+    try { await moveEvents(m, new Date(m.starts_at)); } catch (e) { return { error: "Google wouldn't bring the invite back: " + String((e as Error)?.message || e) }; }
+    delete flags.deleted;
+    await logEvent(admin, m, "restored", caller);
+    return { meeting: await save(admin, m, { calendar_flag_detail: flags, calendar_flag: topFlag(flags) }) };
+  }
+  if (b.do === "mark_cancelled" && kind === "deleted") {
+    return await cancel(admin, { meeting_id: m.id, reason: "Deleted in Google Calendar" }, caller);
+  }
+  if (b.do === "dismiss") {
+    flags[kind] = { ...flags[kind], dismissed: true, by: caller };
+    await logEvent(admin, m, "flag_dismissed", caller, { flag: kind });
+    return { meeting: await save(admin, m, { calendar_flag_detail: flags, calendar_flag: topFlag(flags) }) };
+  }
+  return { error: "That can't be done for this meeting." };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -232,6 +448,7 @@ Deno.serve(async (req: Request) => {
         return json({ ok: false, error: String((e as Error)?.message || e) });
       }
     }
+    if (body.action === "poll") return json(await poll(admin));
     return json({ error: "Unknown action." }, 400);
   }
 
@@ -247,5 +464,13 @@ Deno.serve(async (req: Request) => {
     if (m.status !== "scheduled") return json({ error: "That meeting isn't scheduled any more." });
     return json({ meeting: await makeEvents(admin, m, email) });
   }
+  if (body.action === "reschedule") return json(await reschedule(admin, body, email));
+  if (body.action === "cancel") return json(await cancel(admin, body, email));
+  if (body.action === "confirm") {
+    const m = await loadMeeting(admin, body.meeting_id);
+    if (!m || m.status !== "scheduled") return json({ error: "That meeting isn't scheduled any more." });
+    return json({ meeting: await confirmMeeting(admin, m, "setter", email, clean(body.note, 500)) });
+  }
+  if (body.action === "resolve_flag") return json(await resolveFlag(admin, body, email));
   return json({ error: "Unknown action." }, 400);
 });

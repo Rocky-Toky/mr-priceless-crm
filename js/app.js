@@ -2150,9 +2150,9 @@ const pmPerson = (key) => ASSIGNEES[key]?.label || key || "-";
 const pmTestMode = () => state.precallSettings ? state.precallSettings.test_mode !== false : true;
 const pmTestAllows = (email) => !pmTestMode() || /@mrpriceless\.com$/i.test(email) || String(state.precallSettings?.test_allowlist || "").toLowerCase().split(/[,\s]+/).includes(email.toLowerCase());
 // The closer's other meetings that overlap a 45-minute block starting at `start`.
-function pmClashes(closer, start){
+function pmClashes(closer, start, ignoreId){
   const s = start.getTime(), e = s + PM_BLOCK_MIN * 60e3;
-  return state.meetings.filter(m => m.status === "scheduled" && m.closer === closer && Date.parse(m.starts_at) < e && pmEnd(m) > s);
+  return state.meetings.filter(m => m.id !== ignoreId && m.status === "scheduled" && m.closer === closer && Date.parse(m.starts_at) < e && pmEnd(m) > s);
 }
 
 function openBookMeeting(pre = {}){
@@ -2179,21 +2179,21 @@ function openBookMeeting(pre = {}){
 }
 // Under the day / time pickers: what the closer already has that day (each
 // meeting as its 45-minute block) and a warning if the picked time clashes.
-function renderBookAvail(){
-  const box = $("#book-meeting-avail");
+function renderAvail(sel, closer, day, time, ignoreId){
+  const box = $(sel);
   if (!box) return;
-  const closer = $("#book-meeting-closer").value, day = $("#book-meeting-day").value, time = $("#book-meeting-time").value;
   if (!day){ box.innerHTML = ""; return; }
-  const booked = state.meetings.filter(m => m.status === "scheduled" && m.closer === closer && nzDayStr(new Date(m.starts_at)) === day)
+  const booked = state.meetings.filter(m => m.id !== ignoreId && m.status === "scheduled" && m.closer === closer && nzDayStr(new Date(m.starts_at)) === day)
     .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const start = time ? nzToDate(day, time) : null;
-  const clash = start ? pmClashes(closer, start) : [];
+  const clash = start ? pmClashes(closer, start, ignoreId) : [];
   const past = start && start.getTime() < Date.now();
   box.innerHTML = `
-    <div class="bm-avail-head">${escapeHtml(pmPerson(closer))} on ${escapeHtml(pmDayLabel(day).replace(/^Today|^Tomorrow/, s => s.toLowerCase()))}: ${booked.length ? `${booked.length} meeting${booked.length === 1 ? "" : "s"} booked` : "nothing booked yet"}</div>
+    <div class="bm-avail-head">${escapeHtml(pmPerson(closer))} on ${escapeHtml(pmDayLabel(day).replace(/^Today|^Tomorrow/, s => s.toLowerCase()))}: ${booked.length ? `${booked.length} ${ignoreId ? "other " : ""}meeting${booked.length === 1 ? "" : "s"} booked` : "nothing else booked"}</div>
     ${booked.length ? `<div class="bm-avail-slots">${booked.map(m => `<span class="${clash.includes(m) ? "clash" : ""}">${pmTime(m.starts_at)} - ${pmTime(pmEnd(m))}</span>`).join("")}</div>` : ""}
     ${past ? `<p class="bm-avail-warn">That time has already passed.</p>` : clash.length ? `<p class="bm-avail-warn">That clashes with ${escapeHtml(pmPerson(closer))}'s ${pmTime(clash[0].starts_at)} meeting. Each meeting blocks 45 minutes (15 + a 30-minute buffer).</p>` : start ? `<p class="bm-avail-ok">${pmTime(start)} - ${pmTime(start.getTime() + PM_BLOCK_MIN * 60e3)} is free.</p>` : ""}`;
 }
+const renderBookAvail = () => renderAvail("#book-meeting-avail", $("#book-meeting-closer").value, $("#book-meeting-day").value, $("#book-meeting-time").value);
 
 // Saves the meeting and sends the calendar invite (the Edge Function does
 // both). In demo mode it's made up here instead.
@@ -2279,19 +2279,38 @@ function pmSeedDemo(){
     mk(today, "16:30", "Hemi", "Walker", "Walker Roofing", "max", "rocky"),
     mk(nzAddDays(today, 1), "10:00", "Sarah", "Tane", "Tane Plumbing & Gas", "max", "rocky"),
     mk(nzAddDays(today, 1), "13:15", "Josh", "Kerr", "Kerr Electrical", "max", "rocky", { calendar_status: "error", meet_link: null, google_event_id: null, calendar_error: "Google hasn't switched on calendar access for the CRM yet. It can take up to 24 hours after setting it up - try again later." }),
-    mk(nzAddDays(today, 3), "11:30", "Lena", "Fisher", "Fisher Landscapes", "max", "rocky"),
+    mk(nzAddDays(today, 3), "11:30", "Lena", "Fisher", "Fisher Landscapes", "max", "rocky", { invite_to_prospect: true, prospect_response: "declined", calendar_flag: "declined", calendar_flag_detail: { declined: { at: booked.toISOString() } } }),
+    mk(nzAddDays(today, 2), "09:30", "Tom", "Reid", "Reid Concrete", "max", "rocky", { invite_to_prospect: true, prospect_response: "accepted", confirmation_status: "confirmed", confirmations: [{ source: "calendar", at: booked.toISOString() }], reschedule_count: 2,
+      calendar_flag: "moved", calendar_flag_detail: { moved: { from: nzToDate(nzAddDays(today, 2), "09:30").toISOString(), to: nzToDate(nzAddDays(today, 2), "15:00").toISOString() } } }),
   ];
   state.precallSettings = { id: 1, test_mode: true, test_allowlist: "" };
 }
 let pmTab = "upcoming";
+const PM_REASON_LABEL = { prospect_conflict: "Prospect couldn't make it", closer_conflict: "Closer couldn't make it", no_show: "No-show", other: "Other" };
+const pmName = (m) => [m.first_name, m.last_name].filter(Boolean).join(" ");
+const pmWhenLong = (iso) => `${pmDayLabel(nzDayStr(new Date(iso)))} ${pmTime(iso)}`;
+const pmIsToday = (m) => nzDayStr(new Date(m.starts_at)) === nzDayStr();
+const pmUpcoming = () => { const now = Date.now(); return state.meetings.filter(m => m.status === "scheduled" && Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3 > now); };
+// What the flag on a meeting says, and what the setter can do about it.
+function pmFlagHtml(m){
+  const f = m.calendar_flag, d = (m.calendar_flag_detail || {})[f] || {};
+  if (!f || m.status !== "scheduled") return "";
+  const btn = (doIt, label, cls = "ghost") => `<button type="button" class="btn ${cls}" data-pm-act="flag" data-do="${doIt}" data-id="${m.id}">${label}</button>`;
+  const body = {
+    declined: [`${escapeHtml(m.first_name)} declined the invite. Give them a call.`, `<button type="button" class="btn gold" data-pm-act="resched" data-id="${m.id}">Reschedule</button><button type="button" class="btn ghost" data-pm-act="cancel" data-id="${m.id}">Cancel</button>${btn("dismiss", "Still on")}`],
+    moved: [`Moved in Google Calendar to <b>${escapeHtml(d.to ? pmWhenLong(d.to) : "another time")}</b>. The CRM still has the old time.`, `${btn("accept_move", "Use the new time", "gold")}${btn("dismiss", "Ignore")}`],
+    deleted: [`The invite was deleted from Google Calendar.`, `${btn("put_back", "Put it back", "gold")}${btn("mark_cancelled", "It's cancelled")}${btn("dismiss", "Ignore")}`],
+  }[f];
+  return body ? `<div class="pm-flag pm-flag-${f}"><span>${body[0]}</span><div>${body[1]}</div></div>` : "";
+}
 function renderMeetingsPage(){
   const root = $("#pm-root");
   if (!root) return;
   if (root.contains(document.activeElement) && document.activeElement.matches("input")) return;
-  const now = Date.now();
   const all = state.meetings.slice().sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
-  const upcoming = all.filter(m => m.status === "scheduled" && Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3 > now);
+  const upcoming = pmUpcoming().sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const past = all.filter(m => !upcoming.includes(m)).reverse().slice(0, 60);
+  const flagged = upcoming.filter(m => m.calendar_flag);
   const list = pmTab === "past" ? past : upcoming;
   const test = pmTestMode();
   const days = [];
@@ -2300,22 +2319,35 @@ function renderMeetingsPage(){
     if (m.status === "cancelled") return `<span class="pm-pill gray">Cancelled</span>`;
     if (m.calendar_status === "error") return `<span class="pm-pill red" title="${escapeHtml(m.calendar_error || "")}">Invite didn't send</span>`;
     if (m.calendar_status !== "ok") return `<span class="pm-pill gray">Sending invite…</span>`;
-    if (m.invite_to_prospect) return `<span class="pm-pill green">Invite sent</span>`;
+    if (m.prospect_response === "declined") return `<span class="pm-pill red">Declined invite</span>`;
+    if (m.prospect_response === "tentative") return `<span class="pm-pill gold">Maybe</span>`;
+    if (m.invite_to_prospect) return m.prospect_response === "accepted" ? `<span class="pm-pill green">Accepted invite</span>` : `<span class="pm-pill">Invite sent</span>`;
     return m.email ? `<span class="pm-pill gold" title="Test mode was on, so the prospect wasn't invited">Test: closer only</span>` : `<span class="pm-pill gray">No email, not invited</span>`;
   };
+  const confPill = (m) => {
+    if (m.status !== "scheduled") return "";
+    const src = (m.confirmations || []).map(c => `${c.source === "calendar" ? "Accepted the invite" : c.source === "email_reply" ? "Replied to an email" : "Setter"} ${new Date(c.at).toLocaleString("en-NZ", { timeZone: NZ_TZ, dateStyle: "medium", timeStyle: "short" })}`).join("\n");
+    if (m.confirmed_today_at && pmIsToday(m)) return `<span class="pm-pill green" title="${escapeHtml(src)}">Confirmed today</span>`;
+    return m.confirmation_status === "confirmed" ? `<span class="pm-pill green" title="${escapeHtml(src)}">Confirmed</span>` : `<span class="pm-pill gray">Unconfirmed</span>`;
+  };
   const row = (m) => {
-    const name = [m.first_name, m.last_name].filter(Boolean).join(" ");
-    return `<div class="pm-row${m.calendar_status === "error" ? " err" : ""}">
+    const live = m.status === "scheduled" && upcoming.includes(m);
+    const needConfirm = live && (m.confirmation_status !== "confirmed" || (pmIsToday(m) && !(m.confirmed_today_at && pmIsToday(m))));
+    return `<div class="pm-row${m.calendar_status === "error" ? " err" : ""}${m.calendar_flag && live ? " flag" : ""}${m.status === "cancelled" ? " gone" : ""}">
       <div class="pm-when"><b>${pmTime(m.starts_at)}</b><small>to ${pmTime(Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3)}</small></div>
-      <div class="pm-who"><b>${escapeHtml(name)}</b><small>${escapeHtml([m.business_name, m.phone].filter(Boolean).join(" · "))}</small></div>
+      <div class="pm-who"><b>${escapeHtml(pmName(m))}</b><small>${escapeHtml([m.business_name, m.phone].filter(Boolean).join(" · "))}</small></div>
       <div class="pm-people"><span>Closer <b>${escapeHtml(pmPerson(m.closer))}</b></span><span>Set by <b>${escapeHtml(pmPerson(m.setter))}</b></span></div>
-      <div class="pm-tags">${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${calPill(m)}</div>
+      <div class="pm-tags">${confPill(m)}${calPill(m)}${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${m.reschedule_count ? `<span class="pm-pill${m.reschedule_count >= 2 ? " gold" : ""}">Moved ${m.reschedule_count}x</span>` : ""}</div>
       <div class="pm-actions">
-        ${m.calendar_status === "error" && m.status === "scheduled" ? `<button type="button" class="btn ghost" data-pm-act="retry" data-id="${m.id}">Retry invite</button>` : ""}
-        ${m.meet_link ? `<a class="btn ghost" href="${escapeHtml(m.meet_link)}" target="_blank" rel="noopener">Open Meet</a><button type="button" class="btn ghost" data-pm-act="copy" data-link="${escapeHtml(m.meet_link)}">Copy link</button>` : ""}
+        ${needConfirm ? `<button type="button" class="btn gold" data-pm-act="confirm" data-id="${m.id}" title="They confirmed by text or on a call">${pmIsToday(m) ? "Mark confirmed today" : "Mark confirmed"}</button>` : ""}
+        ${live ? `<button type="button" class="btn ghost" data-pm-act="resched" data-id="${m.id}">Reschedule</button><button type="button" class="btn ghost" data-pm-act="cancel" data-id="${m.id}">Cancel</button>` : ""}
+        ${m.calendar_status === "error" && live ? `<button type="button" class="btn ghost" data-pm-act="retry" data-id="${m.id}">Retry invite</button>` : ""}
+        ${m.meet_link && live ? `<a class="btn ghost" href="${escapeHtml(m.meet_link)}" target="_blank" rel="noopener">Open Meet</a><button type="button" class="btn ghost" data-pm-act="copy" data-link="${escapeHtml(m.meet_link)}">Copy link</button>` : ""}
         ${m.deal_id && state.deals.some(d => d.id === m.deal_id) ? `<button type="button" class="btn ghost" data-pm-act="deal" data-id="${m.deal_id}">Deal</button>` : ""}
       </div>
-      ${m.calendar_status === "error" ? `<p class="pm-err">${escapeHtml(m.calendar_error || "Google Calendar said no.")}</p>` : ""}
+      ${live ? pmFlagHtml(m) : ""}
+      ${m.calendar_status === "error" && live ? `<p class="pm-err">${escapeHtml(m.calendar_error || "Google Calendar said no.")}</p>` : ""}
+      ${m.status === "cancelled" && m.cancel_reason ? `<p class="pm-note">Cancelled: ${escapeHtml(m.cancel_reason)}</p>` : ""}
     </div>`;
   };
   root.innerHTML = `
@@ -2328,6 +2360,7 @@ function renderMeetingsPage(){
       ${test ? `<label class="pm-test-list">Test list <input type="text" id="pm-test-list" placeholder="other emails to allow, comma separated" value="${escapeHtml(state.precallSettings?.test_allowlist || "")}"></label>` : ""}
       <button type="button" class="btn ${test ? "ghost" : "gold"}" data-pm-act="test">${test ? "Go live" : "Turn test mode back on"}</button>
     </div>
+    ${flagged.length && pmTab === "upcoming" ? `<div class="pm-attn"><b>${flagged.length} meeting${flagged.length === 1 ? " needs" : "s need"} you.</b> ${flagged.map(m => `${escapeHtml(pmName(m))} (${{ declined: "declined", moved: "moved in Google", deleted: "deleted in Google" }[m.calendar_flag] || m.calendar_flag})`).join(", ")}. The CRM checks Google Calendar every 5 minutes.</div>` : ""}
     <div class="country-toggle pm-tabs">
       <button type="button" data-pm-tab="upcoming" class="${pmTab === "upcoming" ? "active" : ""}">Upcoming (${upcoming.length})</button>
       <button type="button" data-pm-tab="past" class="${pmTab === "past" ? "active" : ""}">Past and cancelled</button>
@@ -2336,12 +2369,15 @@ function renderMeetingsPage(){
       : `<div class="card">${emptyState(pmTab === "past" ? "No past meetings yet." : "No meetings coming up. Book one with + Book Meeting.")}</div>`}`;
   pmNavCount();
 }
+// The menu count: meetings that need someone (red), otherwise today's meetings.
 function pmNavCount(){
   const el = $(".nav-pm-count");
   if (!el) return;
-  const today = nzDayStr(), now = Date.now();
-  const n = state.meetings.filter(m => m.status === "scheduled" && nzDayStr(new Date(m.starts_at)) === today && Date.parse(m.starts_at) + 15 * 60e3 > now).length;
+  const up = pmUpcoming(), flagged = up.filter(m => m.calendar_flag).length;
+  const n = flagged || up.filter(pmIsToday).length;
   el.hidden = !n; el.textContent = n || "";
+  el.classList.toggle("alert", !!flagged);
+  el.title = flagged ? "Meetings that need you" : "Meetings today";
 }
 async function savePrecallSettings(patch){
   const row = { id: 1, ...(state.precallSettings || {}), ...patch, updated_by: state.user?.email || "demo", updated_at: new Date().toISOString() };
@@ -2352,12 +2388,98 @@ async function savePrecallSettings(patch){
   }
   renderMeetingsPage();
 }
+
+// Reschedule / cancel / confirm / flags all go through the Edge Function, so
+// Google Calendar and the CRM change together. Demo mode fakes it here.
+function pmDemo(action, p){
+  const m = state.meetings.find(x => x.id === p.meeting_id);
+  if (!m) return null;
+  const now = new Date();
+  const unconf = { confirmation_status: "unconfirmed", confirmed_at: null, confirmed_today_at: null, prospect_response: null };
+  if (action === "reschedule") Object.assign(m, { starts_at: p.starts_at, reschedule_count: (m.reschedule_count || 0) + 1, booking_window: pmWindow(now, new Date(p.starts_at)), calendar_flag: null, calendar_flag_detail: {}, ...unconf });
+  if (action === "cancel") Object.assign(m, { status: "cancelled", cancel_reason: p.reason, cancelled_at: now.toISOString(), calendar_flag: null });
+  if (action === "confirm") Object.assign(m, { confirmation_status: "confirmed", confirmed_at: m.confirmed_at || now.toISOString(), confirmed_today_at: pmIsToday(m) ? now.toISOString() : m.confirmed_today_at,
+    confirmations: [...(m.confirmations || []), { source: "setter", at: now.toISOString(), by: "demo" }] });
+  if (action === "resolve_flag"){
+    const d = (m.calendar_flag_detail || {})[m.calendar_flag] || {};
+    if (p.do === "accept_move" && d.to) Object.assign(m, { starts_at: d.to, reschedule_count: (m.reschedule_count || 0) + 1, ...unconf });
+    if (p.do === "mark_cancelled") Object.assign(m, { status: "cancelled", cancel_reason: "Deleted in Google Calendar" });
+    m.calendar_flag = null;
+  }
+  renderAll();
+  return m;
+}
+async function pmCall(action, payload){
+  if (!IS_CONFIGURED) return pmDemo(action, payload);
+  const { data, error } = await supabase.functions.invoke("precall-meetings", { body: { action, ...payload } });
+  if (error || !data || data.error){ alert(data?.error || error?.message || "Something went wrong - nothing was changed."); return null; }
+  await DataLayer.fetchAll(); renderAll();
+  return data.meeting || data;
+}
+
+function openReschedule(m){
+  $("#pm-resched-form").reset();
+  $("#pm-resched-id").value = m.id;
+  $("#pm-resched-title").textContent = `Reschedule ${pmName(m)}`;
+  $("#pm-resched-now").textContent = `Now: ${pmWhenLong(m.starts_at)} with ${pmPerson(m.closer)}. The invite moves (same Meet link) and ${m.first_name} gets the update.`;
+  const today = nzDayStr();
+  $("#pm-resched-day").min = today;
+  $("#pm-resched-day").value = nzDayStr(new Date(m.starts_at)) < today ? today : nzDayStr(new Date(m.starts_at));
+  $("#pm-resched-time").innerHTML = `<option value="">Pick a time</option>` + PM_TIMES.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  const third = (m.reschedule_count || 0) + 1 >= 3;
+  const warn = $("#pm-resched-warn");
+  warn.hidden = !third;
+  warn.innerHTML = third ? `<b>This would be reschedule number ${(m.reschedule_count || 0) + 1}.</b> Someone who's moved this many times often doesn't show. Think about moving them to follow-up instead.
+    <div class="pm-warn-actions"><button type="button" class="btn ghost" data-pm-act="to-followup" data-id="${m.id}">Move to follow-up instead</button><label><input type="checkbox" id="pm-resched-override" required> Reschedule anyway</label></div>` : "";
+  renderAvail("#pm-resched-avail", m.closer, $("#pm-resched-day").value, "", m.id);
+  openModal("pm-resched-modal");
+}
+async function submitReschedule(e){
+  e.preventDefault();
+  const m = state.meetings.find(x => x.id === $("#pm-resched-id").value);
+  const day = $("#pm-resched-day").value, time = $("#pm-resched-time").value, reason = $("#pm-resched-reason").value;
+  if (!m || !day || !time || !reason) return;
+  const start = nzToDate(day, time);
+  if (start.getTime() < Date.now() - 5 * 60e3){ alert("That time has already passed - pick another."); return; }
+  const clash = pmClashes(m.closer, start, m.id);
+  if (clash.length && !confirm(`${pmPerson(m.closer)} already has a meeting at ${pmTime(clash[0].starts_at)} (each one blocks 45 minutes). Move it there anyway?`)) return;
+  const btn = e.target.querySelector('[type="submit"]');
+  btn.disabled = true; btn.textContent = "Moving…";
+  try {
+    const done = await pmCall("reschedule", { meeting_id: m.id, starts_at: start.toISOString(), reason, note: $("#pm-resched-note").value.trim() });
+    if (done){ closeModal("pm-resched-modal"); rcToast(`${pmName(m)} moved to ${pmWhenLong(start.toISOString())}. The invite's been updated.`); }
+  } finally { btn.disabled = false; btn.textContent = "Move meeting"; }
+}
+function openCancel(m, reason = ""){
+  $("#pm-cancel-form").reset();
+  $("#pm-cancel-id").value = m.id;
+  $("#pm-cancel-title").textContent = `Cancel ${pmName(m)}`;
+  $("#pm-cancel-now").textContent = `${pmWhenLong(m.starts_at)} with ${pmPerson(m.closer)}. The invite and buffer come off the calendar, and ${m.first_name} is told it's cancelled.`;
+  $("#pm-cancel-reason").value = reason;
+  openModal("pm-cancel-modal");
+}
+async function submitCancel(e){
+  e.preventDefault();
+  const m = state.meetings.find(x => x.id === $("#pm-cancel-id").value);
+  const reason = $("#pm-cancel-reason").value.trim();
+  if (!m || !reason) return;
+  const btn = e.target.querySelector('[type="submit"]');
+  btn.disabled = true; btn.textContent = "Cancelling…";
+  try {
+    const done = await pmCall("cancel", { meeting_id: m.id, reason });
+    if (done){ closeModal("pm-cancel-modal"); rcToast(`${pmName(m)}'s meeting is cancelled.`); }
+  } finally { btn.disabled = false; btn.textContent = "Cancel meeting"; }
+}
+
 document.addEventListener("click", async (e) => {
   const tab = e.target.closest("[data-pm-tab]");
   if (tab){ pmTab = tab.dataset.pmTab; renderMeetingsPage(); return; }
+  const chip = e.target.closest("[data-pm-reason]");
+  if (chip){ $("#pm-cancel-reason").value = chip.dataset.pmReason; return; }
   const b = e.target.closest("[data-pm-act]");
   if (!b) return;
   const act = b.dataset.pmAct;
+  const m = state.meetings.find(x => x.id === b.dataset.id);
   if (act === "book") openBookMeeting();
   else if (act === "copy"){
     try { await navigator.clipboard.writeText(b.dataset.link); b.textContent = "Copied"; setTimeout(() => { b.textContent = "Copy link"; }, 1400); } catch(err){}
@@ -2366,20 +2488,38 @@ document.addEventListener("click", async (e) => {
   } else if (act === "test"){
     if (pmTestMode() && !confirm("Go live? Prospects will start getting real Google Calendar invites when you book them.")) return;
     await savePrecallSettings({ test_mode: !pmTestMode() });
+  } else if (act === "resched" && m) openReschedule(m);
+  else if (act === "cancel" && m) openCancel(m);
+  else if (act === "to-followup" && m){ closeModal("pm-resched-modal"); openCancel(m, `Moved to follow-up after ${m.reschedule_count} reschedules`); }
+  else if (act === "confirm" && m){
+    b.disabled = true;
+    if (await pmCall("confirm", { meeting_id: m.id })) rcToast(`${pmName(m)} confirmed${pmIsToday(m) ? " for today" : ""}.`);
+    b.disabled = false;
+  } else if (act === "flag" && m){
+    if (b.dataset.do === "mark_cancelled" && !confirm(`Mark ${pmName(m)}'s meeting as cancelled?`)) return;
+    b.disabled = true;
+    await pmCall("resolve_flag", { meeting_id: m.id, do: b.dataset.do });
+    b.disabled = false;
   } else if (act === "retry"){
     b.disabled = true; b.textContent = "Trying…";
-    if (!IS_CONFIGURED){ const m = state.meetings.find(x => x.id === b.dataset.id); if (m) Object.assign(m, { calendar_status: "ok", calendar_error: null, meet_link: "https://meet.google.com/abc-defg-hij", invite_to_prospect: !!m.email && pmTestAllows(m.email) }); renderMeetingsPage(); return; }
+    if (!IS_CONFIGURED){ if (m) Object.assign(m, { calendar_status: "ok", calendar_error: null, meet_link: "https://meet.google.com/abc-defg-hij", invite_to_prospect: !!m.email && pmTestAllows(m.email) }); renderMeetingsPage(); return; }
     const { data, error } = await supabase.functions.invoke("precall-meetings", { body: { action: "retry_calendar", meeting_id: b.dataset.id } });
     if (error || data?.error) alert(data?.error || error.message);
     await DataLayer.fetchAll(); renderAll();
-    const m = state.meetings.find(x => x.id === b.dataset.id);
-    if (m) rcToast(m.calendar_status === "ok" ? "Invite sent." : "Still not working: " + (m.calendar_error || "Google said no."));
+    const fresh = state.meetings.find(x => x.id === b.dataset.id);
+    if (fresh) rcToast(fresh.calendar_status === "ok" ? "Invite sent." : "Still not working: " + (fresh.calendar_error || "Google said no."));
   }
 });
 document.addEventListener("change", (e) => {
   if (e.target.id === "pm-test-list") savePrecallSettings({ test_allowlist: e.target.value.trim() });
   if (["book-meeting-closer", "book-meeting-day", "book-meeting-time"].includes(e.target.id)) renderBookAvail();
+  if (["pm-resched-day", "pm-resched-time"].includes(e.target.id)){
+    const m = state.meetings.find(x => x.id === $("#pm-resched-id").value);
+    if (m) renderAvail("#pm-resched-avail", m.closer, $("#pm-resched-day").value, $("#pm-resched-time").value, m.id);
+  }
 });
+$("#pm-resched-form")?.addEventListener("submit", submitReschedule);
+$("#pm-cancel-form")?.addEventListener("submit", submitCancel);
 
 /* ───────── Render: Deals (Kanban) ───────── */
 function renderDeals(){
