@@ -10067,7 +10067,7 @@ function renderTeamFocusPanel(){
 // save or a live update never stalls the screen redrawing pages nobody's on.
 /* ───────── Client inbox ─────────
    Emails from clients (and other real people), pulled out of each teammate's connected Gmail every
-   5 minutes by the sync-client-inbox function. Anything waiting on a reply
+   minute by the sync-client-inbox function. Anything waiting on a reply
    is top priority: a count in the menu, a bar across every page, and a
    desktop notification the moment a new one lands. Replying in Gmail ticks
    it off by itself. */
@@ -10141,17 +10141,17 @@ function setupClientInbox(){
     .subscribe();
 }
 // Connecting an inbox: a short Apps Script that runs inside that person's own
-// Gmail every 5 minutes and sends client emails in, so no Google Cloud
+// Gmail every minute and sends emails that need a reply in, so no Google Cloud
 // project or Google sign-in is needed. Copying it makes a fresh key (any
 // older copy of the script stops working).
-const INBOX_STALE_MS = 20 * 60e3;
+const INBOX_STALE_MS = 10 * 60e3;
 let inboxSetupOpen = false, inboxCopying = false;
 function inboxScript(key){
   return [
     "// Mr Priceless CRM - client inbox.",
-    "// Sends the emails in this Gmail's Primary tab that need a reply to the CRM",
-    "// every 5 minutes. The CRM skips promotions, automated emails, big companies",
-    "// and job applications.",
+    "// Every minute, sends the emails in this Gmail that need a reply to the CRM.",
+    "// The CRM skips promotions, automated emails, big companies and job",
+    "// applications. The first runs also bring in what's already in the inbox.",
     "// Only reads - it never sends, changes or deletes anything in Gmail.",
     "// First time: pick \"setup\" in the menu at the top, click Run, then Allow.",
     "// When Google asks for permission, tick \"Select all\" - it needs every box.",
@@ -10163,9 +10163,10 @@ function inboxScript(key){
     "function setup() {",
     "  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL); // asks again if any permission box was left unticked",
     "  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });",
-    "  ScriptApp.newTrigger(\"checkInbox\").timeBased().everyMinutes(5).create();",
+    "  PropertiesService.getScriptProperties().deleteAllProperties();",
+    "  ScriptApp.newTrigger(\"checkInbox\").timeBased().everyMinutes(1).create();",
     "  checkInbox();",
-    "  Logger.log(\"All set - client emails will show in the CRM's Client inbox.\");",
+    "  Logger.log(\"All set - emails will show in the CRM's Client inbox.\");",
     "}",
     "",
     "function crm_(body) {",
@@ -10178,39 +10179,67 @@ function inboxScript(key){
     "  return JSON.parse(res.getContentText());",
     "}",
     "",
+    "// Only one run at a time, so a long first catch-up can't overlap the next.",
     "function checkInbox() {",
+    "  const lock = LockService.getScriptLock();",
+    "  if (!lock.tryLock(1000)) return;",
+    "  try { run_(); } finally { lock.releaseLock(); }",
+    "}",
+    "",
+    "function run_() {",
+    "  const started = Date.now(), props = PropertiesService.getScriptProperties();",
     "  const me = Session.getActiveUser().getEmail().toLowerCase();",
     "  const mine = [me].concat(GmailApp.getAliases().map(function (a) { return a.toLowerCase(); }));",
     "  const fromMe = function (from) { from = from.toLowerCase(); return mine.some(function (a) { return from.indexOf(a) !== -1; }); };",
     "  const cfg = crm_({ action: \"senders\" });",
-    "  const senders = cfg.senders || [], threads = {};",
-    "  // The CRM says what to look for, so this script never needs changing.",
-    "  if (cfg.query) GmailApp.search(cfg.query, 0, 100).forEach(function (t) { threads[t.getId()] = t; });",
+    "  // Threads that changed since the last run (with a 10-minute overlap, so nothing slips through).",
+    "  const since = Number(props.getProperty(\"lastRun\") || 0) - 10 * 60000;",
+    "  const threads = {};",
+    "  const add = function (t) { if (t.getLastMessageDate().getTime() >= since) threads[t.getId()] = t; };",
+    "  if (cfg.query) GmailApp.search(cfg.query, 0, cfg.max || 100).forEach(add);",
+    "  const senders = cfg.senders || [];",
     "  for (let i = 0; i < senders.length; i += 25) {",
-    "    const q = \"newer_than:2d -in:sent -in:chats -in:spam -in:trash {\" + senders.slice(i, i + 25).map(function (s) { return \"from:\" + s; }).join(\" \") + \"}\";",
-    "    GmailApp.search(q, 0, 50).forEach(function (t) { threads[t.getId()] = t; });",
+    "    const q = (cfg.sender_scope || \"newer_than:2d\") + \" -in:sent -in:chats -in:spam -in:trash {\" + senders.slice(i, i + 25).map(function (s) { return \"from:\" + s; }).join(\" \") + \"}\";",
+    "    GmailApp.search(q, 0, 50).forEach(add);",
     "  }",
     "  (cfg.open_threads || []).forEach(function (id) {",
     "    if (threads[id]) return;",
-    "    try { const t = GmailApp.getThreadById(id); if (t) threads[id] = t; } catch (e) {}",
+    "    try { const t = GmailApp.getThreadById(id); if (t) add(t); } catch (e) {}",
     "  });",
+    "  send_(me, fromMe, Object.keys(threads).map(function (id) { return threads[id]; }), cfg.days || 2, {});",
+    "  props.setProperty(\"lastRun\", String(started));",
+    "  // Catching up on what's already in the inbox, a page at a time.",
+    "  if (cfg.backfill && cfg.backfill_query) {",
+    "    let start = Number(props.getProperty(\"backfillFrom\") || 0);",
+    "    while (Date.now() - started < 4 * 60000) {",
+    "      const page = GmailApp.search(cfg.backfill_query, start, 50);",
+    "      const last = page.length < 50;",
+    "      send_(me, fromMe, page, cfg.backfill_days || 60, { backfill_done: last });",
+    "      start += page.length;",
+    "      props.setProperty(\"backfillFrom\", String(start));",
+    "      if (last) { props.deleteProperty(\"backfillFrom\"); break; }",
+    "    }",
+    "  }",
+    "}",
+    "",
+    "function send_(me, fromMe, list, days, extra) {",
     "  const messages = [], replies = [];",
-    "  Object.keys(threads).forEach(function (id) {",
+    "  list.forEach(function (t) {",
     "    let lastFromMe = 0;",
-    "    threads[id].getMessages().forEach(function (m) {",
+    "    t.getMessages().forEach(function (m) {",
     "      const when = m.getDate().getTime();",
     "      if (fromMe(m.getFrom())) { lastFromMe = Math.max(lastFromMe, when); return; }",
-    "      if (Date.now() - when > 2 * 86400000) return;",
+    "      if (Date.now() - when > days * 86400000) return;",
     "      messages.push({",
-    "        gmail_id: m.getId(), thread_id: id, message_id: m.getHeader(\"Message-ID\") || null,",
+    "        gmail_id: m.getId(), thread_id: t.getId(), message_id: m.getHeader(\"Message-ID\") || null,",
     "        from: m.getFrom(), subject: m.getSubject(), received_at: new Date(when).toISOString(),",
     "        snippet: m.getPlainBody().replace(/\\s+/g, \" \").slice(0, 300),",
     "        bulk: Boolean(m.getHeader(\"List-Unsubscribe\")) || /bulk|list|junk/i.test(m.getHeader(\"Precedence\") || \"\") || /^auto/i.test(m.getHeader(\"Auto-Submitted\") || \"\"),",
     "      });",
     "    });",
-    "    if (lastFromMe) replies.push({ thread_id: id, replied_at: new Date(lastFromMe).toISOString() });",
+    "    if (lastFromMe) replies.push({ thread_id: t.getId(), replied_at: new Date(lastFromMe).toISOString() });",
     "  });",
-    "  crm_({ action: \"push\", inbox: me, messages: messages, replies: replies });",
+    "  crm_(Object.assign({ action: \"push\", inbox: me, messages: messages, replies: replies }, extra)); // also tells the CRM this inbox is still connected",
     "}",
     "",
   ].join("\n");
