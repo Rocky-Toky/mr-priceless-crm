@@ -99,14 +99,44 @@ function valueText(v: any): string {
 
 // Address and form answers from the contact itself.
 // What a form submission holds besides the answers: who they are, and the
-// tracking GHL adds. Matched loosely on the key.
-const SUBMISSION_NOISE = /^(event_?data|fields_?ori|others?|signature|form_?id|location_?id|contact_?id|id|timezone|time_?zone|ip|user_?agent|session|captcha|recaptcha|page|url|referrer|source|medium|campaign|utm_|fbclid|gclid|ad_?id|adset|campaign_?id|full_?name|first_?name|last_?name|name|email|phone|phone_?number|mobile|terms|consent|privacy|submission|created|date_?added|__)/i;
-const ADDRESS_KEYS: Record<string, string> = { address: "street", address1: "street", street_address: "street", full_address: "street", street: "street", city: "city", suburb: "suburb", town: "city", postal_code: "postal", postcode: "postal", zip: "postal", zip_code: "postal", state: "state", region: "state" };
+// tracking GHL and Facebook add. Matched loosely on the key.
+const SUBMISSION_NOISE = /^(event_?data|fields_?ori|signature|form_?id|location_?id|contact_?id|id|type|product_?type|source|last_?attribution|attribution|facebook_?(lead_?id|form_?id|page|ad)|lead_?id|ad_?(set)?_?(id|name)|campaign|timezone|time_?zone|ip|user_?agent|session|captcha|recaptcha|page|url|referrer|medium|utm_|fbclid|gclid|full_?name|first_?name|last_?name|name|email|e_?mail|phone|phone_?number|mobile|terms|consent|privacy|submission|created|date_?added|is_?organic|platform|__)/i;
+const ADDRESS_KEYS: Record<string, string> = { address: "street", address1: "street", street_address: "street", full_address: "street", street: "street", city: "city", suburb: "suburb", town: "city", postal_code: "postal", post_code: "postal", postcode: "postal", zip: "postal", zip_code: "postal", state: "state", region: "state", province: "state" };
 const humanise = (k: string) => k.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase());
+const keyOf = (k: string) => k.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+
+// Every question/answer pair in a submission, whatever shape it's in:
+// Facebook's field_data list ({ name, values }), a custom field list
+// ({ id, value }), or plain key: value.
+function submissionPairs(raw: any, names: Map<string, string>, out: { key: string; q: string; a: string }[] = [], depth = 0) {
+  if (raw == null || depth > 4) return out;
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const key = String(item.name ?? item.key ?? item.fieldKey ?? item.field ?? item.id ?? item.question ?? item.label ?? "");
+        const label = String(item.question ?? item.label ?? names.get(item.id) ?? names.get(key) ?? "");
+        const value = item.values ?? item.value ?? item.answer ?? item.fieldValue;
+        if (key || label) { const a = clean(valueText(value), 600); if (a) out.push({ key, q: label || humanise(key), a }); }
+        else submissionPairs(item, names, out, depth + 1);
+      }
+    }
+    return out;
+  }
+  if (typeof raw === "object") {
+    for (const [k, v] of Object.entries(raw)) {
+      if (/^(field_?data|fields|answers|custom_?fields|facebook_?lead_?submission_?details|lead_?details|data)$/i.test(k)) { submissionPairs(v, names, out, depth + 1); continue; }
+      if (v && typeof v === "object" && !Array.isArray(v)) continue; // tracking blobs (eventData, attribution...)
+      const a = clean(valueText(v), 600);
+      if (a) out.push({ key: k, q: names.get(k) || humanise(k), a });
+    }
+  }
+  return out;
+}
 
 // Address and form answers. Answers come from the contact's custom fields
 // and from their most recent form submission (our clients' leads mostly come
-// in through GHL forms, which keep the answers on the submission).
+// in through Facebook lead forms or GHL forms, which keep the answers on the
+// submission).
 async function contactDetails(id: string, token: string, fieldNames: () => Promise<Map<string, string>>, locationId: string) {
   const body = await ghl(`/contacts/${encodeURIComponent(id)}`, token);
   const c = body?.contact || body || {};
@@ -115,30 +145,31 @@ async function contactDetails(id: string, token: string, fieldNames: () => Promi
     .map((f: any) => ({ q: clean(names.get(f.id) || f.name || f.fieldKey || "", 120), a: clean(valueText(f.value ?? f.fieldValue), 600) }))
     .filter((x: any) => x.q && x.a);
   const place: Record<string, string> = { street: clean(c.address1, 200), city: clean(c.city, 80), suburb: "", postal: clean(c.postalCode, 20), state: clean(c.state, 60) };
+  let formName = "";
   try {
     const subs = await ghl(`/forms/submissions?locationId=${encodeURIComponent(locationId)}&q=${encodeURIComponent(c.email || id)}&limit=10`, token);
     const mine = (subs?.submissions || []).filter((x: any) => !x.contactId || x.contactId === id)
       .sort((x: any, y: any) => String(y.createdAt || "").localeCompare(String(x.createdAt || "")))[0];
     const others = mine?.others || {};
-    for (const [key, raw] of Object.entries(others)) {
-      const v = clean(valueText(raw), 600);
-      if (!v || typeof raw === "object" && !Array.isArray(raw) && raw !== null && !("value" in (raw as any))) continue;
-      const lk = key.toLowerCase();
-      if (ADDRESS_KEYS[lk]) { if (!place[ADDRESS_KEYS[lk]]) place[ADDRESS_KEYS[lk]] = v; continue; }
-      if (SUBMISSION_NOISE.test(lk)) continue;
-      const q = clean(names.get(key) || humanise(key), 120);
-      if (q && !answers.some((x) => x.q.toLowerCase() === q.toLowerCase())) answers.push({ q, a: v });
+    formName = clean(others.facebookFormName || mine?.name || "", 120);
+    for (const { key, q, a } of submissionPairs(others, names)) {
+      const k = keyOf(key);
+      if (ADDRESS_KEYS[k]) { if (!place[ADDRESS_KEYS[k]]) place[ADDRESS_KEYS[k]] = a; continue; }
+      if (SUBMISSION_NOISE.test(k) || /^facebook_?form_?name$/.test(k)) continue;
+      const label = clean(q, 120);
+      if (label && !answers.some((x) => x.q.toLowerCase() === label.toLowerCase())) answers.push({ q: label, a });
     }
   } catch { /* no Forms access on this key: custom fields only */ }
   const town = place.suburb || place.city;
   const city = clean([town, place.suburb && place.city !== place.suburb ? place.city : "", place.state].filter(Boolean).join(", "), 120);
   const address = clean([place.street, town, place.postal].filter(Boolean).join(", "), 240);
-  return { contact: c, answers, address, city };
+  return { contact: c, answers, address, city, formName };
 }
 
 // Leads read before form submissions were looked at get one more read.
-const DETAILS_FROM_SUBMISSIONS = "2026-10-26T07:00:00Z";
-const needsDetails = (r: any) => !r.details_at || (r.details_at < DETAILS_FROM_SUBMISSIONS && !(Array.isArray(r.answers) && r.answers.length) && !r.address && !r.city);
+// Leads read before Facebook form answers were understood get read again.
+const DETAILS_FROM_SUBMISSIONS = "2026-10-26T07:20:00Z";
+const needsDetails = (r: any) => !r.details_at || r.details_at < DETAILS_FROM_SUBMISSIONS;
 
 async function syncClient(admin: any, conn: any, client: any, deadline: number) {
   const loc = conn.location_id, token = conn.token;
@@ -195,7 +226,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
         reads++;
         try {
           const d = await contactDetails(x.cid, token, fieldNames, loc);
-          await admin.from("client_leads").update({ ghl_contact_id: x.cid, address: d.address || null, city: d.city || null, answers: d.answers, details_at: new Date().toISOString() }).eq("id", existing.id);
+          await admin.from("client_leads").update({ ghl_contact_id: x.cid, address: d.address || null, city: d.city || null, answers: d.answers, details_at: new Date().toISOString(), ...(d.formName ? { form_name: d.formName } : {}) }).eq("id", existing.id);
         } catch { /* try again next run */ }
       }
       continue;
@@ -216,7 +247,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     rows.push({
       client_id: client.id, external_lead_id: x.ext, source: "ghl", ghl_contact_id: x.cid || null,
       name: nameOf(c, { name: x.oppName }), phone, email,
-      status: clean(x.status, 100), form_name: clean(x.form || "GoHighLevel", 120),
+      status: clean(x.status, 100), form_name: clean(d?.formName || x.form || "GoHighLevel", 120),
       address: d?.address || null, city: d?.city || null, answers: d?.answers || [], details_at: d ? new Date().toISOString() : null,
       lead_created_at: at, follow_status: "new",
     });
@@ -311,8 +342,11 @@ async function inspect(admin: any) {
         } catch (e) { s.notes = { error: (e as any)?.status || String(e).slice(0, 60) }; }
         try {
           const subs = await ghl(`/forms/submissions?locationId=${encodeURIComponent(conn.location_id)}&q=${encodeURIComponent(cid)}&limit=5`, conn.token);
-          const first = (subs?.submissions || [])[0];
-          s.form_submissions = { count: (subs?.submissions || []).length, keys: Object.keys(first?.others || {}).map((k) => k.slice(0, 40)).slice(0, 30) };
+          const first = (subs?.submissions || [])[0], o = first?.others || {};
+          const shape = (v: any) => Array.isArray(v) ? { array: v.length, item_keys: v[0] && typeof v[0] === "object" ? Object.keys(v[0]) : typeof v[0] } : v && typeof v === "object" ? { object_keys: Object.keys(v).slice(0, 20) } : typeof v;
+          const names = new Map<string, string>();
+          s.form_submissions = { count: (subs?.submissions || []).length, fb_details: shape(o.facebookLeadSubmissionDetails), custom_fields: shape(o.customFields),
+            questions: submissionPairs(o, names).map((p) => keyOf(p.key)).filter((k) => !SUBMISSION_NOISE.test(k)).map((k) => k.slice(0, 50)) };
         } catch (e) { s.form_submissions = { error: (e as any)?.status || String(e).slice(0, 60) }; }
       }
       samples.push(s);
