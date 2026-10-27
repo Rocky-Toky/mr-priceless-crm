@@ -13658,38 +13658,74 @@ function renderEmailTemplates(){
   renderEmailTemplateList("sales", $("#email-templates-list"), $("#email-template-viewer"));
   renderEmailTemplateList("delivery", $("#delivery-emails-list"), $("#delivery-email-viewer"));
 }
-// The email library: a searchable list on the left; on the right the email
-// as it'll actually read - a "writing to" name fills in X / [Name], and it
-// copies or opens in Gmail ready to send.
-const etSearch = { sales: "", delivery: "" }, etName = { sales: "", delivery: "" };
+// The email library, made to be quick: pick an email (a list on big screens,
+// a dropdown on phones), fill in the yellow blanks once (your name fills
+// itself in, and every blank is remembered for the next email), then one big
+// button copies it ready to paste into Gmail - or opens it in Gmail.
+const etSearch = { sales: "", delivery: "" }, etGroupSel = { sales: "", delivery: "" };
 const ET_GROUP_COLORS = ["#b8912c", "#3f7d55", "#3d6b96", "#6e5096", "#b4532a", "#5b7a25", "#8a6a1a"];
 const etGroupColor = (g) => { let h = 0; for (const ch of String(g || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return ET_GROUP_COLORS[h % ET_GROUP_COLORS.length]; };
-// Placeholders a template uses for the person's name.
-const ET_NAME_RE = /\[(first name|name|client name|their name)\]|\bX\b(?=[,!.\s])/gi;
-function etFill(text, name){ return name ? String(text || "").replace(ET_NAME_RE, name) : String(text || ""); }
-function etBodyHtml(text, name){
-  // Paragraphs, with any [placeholder] left to fill highlighted.
-  const filled = etFill(text, name);
-  return escapeHtml(filled).split(/\n{2,}/).map(par => `<p>${par.replace(/\n/g, "<br>")
-    .replace(/\[([^\]\n]{1,40})\]/g, '<mark class="etx-ph">[$1]</mark>')
-    .replace(/(^|[\s(])X(?=[,!.\s])/g, '$1<mark class="etx-ph">X</mark>')}</p>`).join("");
+// Blanks in a template: [anything] or a lone X standing in for their name.
+const ET_BLANK_RE = /\[([^\]\n]{1,40})\]|(^|[\s(])X(?=[,!.\s])/g;
+const ET_THEIR_NAME = /^(first name|name|client name|their name|their first name|first)$/i;
+const ET_YOUR_NAME = /^(your name|my name|your first name|sender|sender name)$/i;
+const etKey = (label) => ET_THEIR_NAME.test(label.trim()) ? "their first name" : ET_YOUR_NAME.test(label.trim()) ? "your name" : label.trim().toLowerCase();
+let etFills = {};
+try { etFills = JSON.parse(localStorage.getItem("mp_et_fills") || "{}") || {}; } catch(e){ etFills = {}; }
+const etSaveFills = () => { try { localStorage.setItem("mp_et_fills", JSON.stringify(etFills)); } catch(e){} };
+function etMyName(){
+  const me = personKeyFromEmail(state.user?.email || "");
+  return ASSIGNEES[me]?.label || "";
+}
+const etFillValue = (key) => (etFills[key] ?? (key === "your name" ? etMyName() : "")).trim();
+// The blanks a template uses, in order, once each.
+function etBlanks(t){
+  const seen = new Map();
+  for (const m of `${t.subject || ""}\n${t.body || ""}`.matchAll(ET_BLANK_RE)){
+    const label = m[1] ? m[1] : "their first name", key = etKey(label);
+    if (!seen.has(key)) seen.set(key, key === "their first name" ? "Their first name" : key === "your name" ? "Your name" : label.charAt(0).toUpperCase() + label.slice(1));
+  }
+  return [...seen.entries()].map(([key, label]) => ({ key, label }));
+}
+function etFill(text){
+  return String(text || "").replace(ET_BLANK_RE, (all, label, pre) => {
+    const key = label ? etKey(label) : "their first name", v = etFillValue(key);
+    return v ? (label ? v : `${pre}${v}`) : all;
+  });
+}
+function etBodyHtml(text){
+  // Paragraphs, with blanks still to fill shown in yellow.
+  return String(text || "").split(/\n{2,}/).map(par => `<p>${par.split(ET_BLANK_RE).length > 1 ? etMarkBlanks(par) : escapeHtml(par).replace(/\n/g, "<br>")}</p>`).join("");
+}
+function etMarkBlanks(par){
+  let out = "", last = 0;
+  for (const m of par.matchAll(ET_BLANK_RE)){
+    const label = m[1], pre = m[2] || "", key = label ? etKey(label) : "their first name", v = etFillValue(key);
+    out += escapeHtml(par.slice(last, m.index)) + escapeHtml(pre);
+    out += v ? `<span class="etx-filled">${escapeHtml(v)}</span>` : `<mark class="etx-ph">${escapeHtml(label ? `[${label}]` : "X")}</mark>`;
+    last = m.index + m[0].length;
+  }
+  return (out + escapeHtml(par.slice(last))).replace(/\n/g, "<br>");
+}
+const etOpenBlanks = (t) => etBlanks(t).filter(b => !etFillValue(b.key)).length;
+
+function etListFor(kind){ return state.emailTemplates.filter(t => etKind(t) === kind).sort((a,b) => (a.sort_order||0) - (b.sort_order||0)); }
+function etShown(kind, list){
+  const q = etSearch[kind].trim().toLowerCase(), g = etGroupSel[kind];
+  return list.filter(t => (!g || etSplit(t.title)[0] === g) && (!q || `${t.title} ${t.subject} ${t.body}`.toLowerCase().includes(q)));
 }
 function etListHtml(kind, list, selId){
-  const q = etSearch[kind].trim().toLowerCase();
-  const shown = q ? list.filter(t => `${t.title} ${t.subject} ${t.body}`.toLowerCase().includes(q)) : list;
-  if (!shown.length) return `<p class="etx-none">No emails match "${escapeHtml(etSearch[kind])}".</p>`;
-  let lastGroup = null;
+  const shown = etShown(kind, list);
+  if (!shown.length) return `<p class="etx-none">No emails match.</p>`;
   return shown.map(t => {
     const [group, name] = etSplit(t.title);
-    const head = group !== lastGroup ? `<div class="etx-group"><i style="background:${etGroupColor(group)}"></i>${escapeHtml(group || "Templates")}</div>` : "";
-    lastGroup = group;
-    return `${head}<button type="button" class="etx-item${t.id === selId ? " active" : ""}" data-action="select-email-template" data-id="${t.id}" style="--etc:${etGroupColor(group)}">
-      <b>${escapeHtml(name)}</b><span>${escapeHtml(t.subject || "No subject yet")}</span></button>`;
+    return `<button type="button" class="etx-item${t.id === selId ? " active" : ""}" data-action="select-email-template" data-id="${t.id}" style="--etc:${etGroupColor(group)}">
+      <b>${escapeHtml(name)}</b><span>${escapeHtml(group || "")}</span></button>`;
   }).join("");
 }
 function renderEmailTemplateList(kind, listEl, viewer){
   if (!listEl || !viewer) return;
-  const list = state.emailTemplates.filter(t => etKind(t) === kind).sort((a,b) => (a.sort_order||0) - (b.sort_order||0));
+  const list = etListFor(kind);
   if (!list.length){
     listEl.innerHTML = "";
     viewer.innerHTML = `<div class="etx-empty"><div class="etx-empty-icon">✉</div><h3>No ${kind} emails yet</h3><p>Add your first one so the whole team sends the same message.</p><button class="btn gold" data-add-et="${kind}">+ Add email</button></div>`;
@@ -13697,73 +13733,122 @@ function renderEmailTemplateList(kind, listEl, viewer){
   }
   if (!state.etSel[kind] || !list.find(p => p.id === state.etSel[kind])) state.etSel[kind] = list[0].id;
   const selId = state.etSel[kind];
+  const groups = [...new Set(list.map(t => etSplit(t.title)[0]).filter(Boolean))];
+  // The list side is built once, so typing in the search box isn't interrupted.
   if (!listEl.querySelector(".etx-search")){
-    listEl.innerHTML = `<div class="etx-search-wrap"><input type="search" class="etx-search" data-kind="${kind}" placeholder="Search ${list.length} emails…" aria-label="Search emails"></div><div class="etx-list"></div>`;
+    listEl.innerHTML = `<div class="etx-pick">
+        ${groups.length > 1 ? `<select class="etx-group-sel" data-kind="${kind}" aria-label="Type of email"></select>` : ""}
+        <input type="search" class="etx-search" data-kind="${kind}" placeholder="Search emails…" aria-label="Search emails">
+      </div><div class="etx-list"></div>`;
   }
+  const gs = listEl.querySelector(".etx-group-sel");
+  if (gs) gs.innerHTML = `<option value="">All emails (${list.length})</option>${groups.map(g => `<option value="${escapeHtml(g)}" ${etGroupSel[kind] === g ? "selected" : ""}>${escapeHtml(g)} (${list.filter(t => etSplit(t.title)[0] === g).length})</option>`).join("")}`;
   listEl.querySelector(".etx-search").value = etSearch[kind];
   listEl.querySelector(".etx-list").innerHTML = etListHtml(kind, list, selId);
   const t = list.find(x => x.id === selId);
+  viewer.innerHTML = etViewHtml(kind, t, list);
+}
+function etViewHtml(kind, t, list){
   const [group, name] = etSplit(t.title);
-  const usesName = ET_NAME_RE.test(`${t.subject} ${t.body}`); ET_NAME_RE.lastIndex = 0;
-  const words = (String(t.body || "").match(/\S+/g) || []).length;
-  viewer.innerHTML = `
-    <div class="etx-view">
+  const blanks = etBlanks(t), open = etOpenBlanks(t);
+  return `<div class="etx-view" data-kind="${kind}" data-id="${t.id}">
       <header class="etx-head">
+        <select class="etx-mobile-pick" data-kind="${kind}" aria-label="Pick an email">${list.map(x => `<option value="${x.id}" ${x.id === t.id ? "selected" : ""}>${escapeHtml(etSplit(x.title)[1])}</option>`).join("")}</select>
         <div class="etx-head-text">
-          <span class="etx-chip" style="--etc:${etGroupColor(group)}"><i></i>${escapeHtml(group || "Template")}</span>
+          <span class="etx-chip" style="--etc:${etGroupColor(group)}"><i></i>${escapeHtml(group || "Email")}</span>
           <h3>${escapeHtml(name)}</h3>
-          <p>${words} words · about ${Math.max(1, Math.round(words / 200))} min to read · updated ${fmtDate(t.updated_at || t.created_at)}</p>
         </div>
         <div class="etx-head-actions">
-          <button class="icon-btn" data-action="edit-email-template" data-id="${t.id}" title="Edit">${ICONS.edit}</button>
-          <button class="icon-btn" data-action="delete-email-template" data-id="${t.id}" title="Delete">${ICONS.trash}</button>
+          <button type="button" class="etx-link" data-action="edit-email-template" data-id="${t.id}">Edit</button>
+          <button type="button" class="etx-link danger" data-action="delete-email-template" data-id="${t.id}">Delete</button>
         </div>
       </header>
-      ${usesName ? `<label class="etx-to"><span>Writing to</span><input type="text" class="etx-name" data-kind="${kind}" placeholder="Their first name - fills in the X" value="${escapeHtml(etName[kind])}"></label>` : ""}
-      <article class="etx-mail">
-        <div class="etx-mail-row"><span>Subject</span><b class="etx-subject">${t.subject ? escapeHtml(etFill(t.subject, etName[kind])) : `<em>No subject yet</em>`}</b></div>
-        <div class="etx-mail-body" data-id="${t.id}">${t.body ? etBodyHtml(t.body, etName[kind]) : `<p class="etx-muted">Nothing written yet - click the pencil to write it.</p>`}</div>
-      </article>
+      ${blanks.length ? `<div class="etx-blanks">
+        <p><b>Fill in the blanks</b> - they go straight into the email. They're remembered for next time.</p>
+        <div class="etx-blank-grid">${blanks.map(b => `<label><span>${escapeHtml(b.label)}</span><input type="text" class="etx-blank" data-key="${escapeHtml(b.key)}" value="${escapeHtml(etFillValue(b.key))}" placeholder="Type ${escapeHtml(b.label.toLowerCase())}"></label>`).join("")}</div>
+      </div>` : ""}
+      <div class="etx-mail">
+        <button type="button" class="etx-subject-row" data-etx="copy" data-what="subject" title="Click to copy the subject">
+          <span>Subject</span><b class="etx-subject">${t.subject ? etMarkBlanks(t.subject) : "<em>No subject yet</em>"}</b><i>Copy</i>
+        </button>
+        <div class="etx-mail-body">${t.body ? etBodyHtml(t.body) : `<p class="etx-muted">Nothing written yet - click Edit to write it.</p>`}</div>
+      </div>
       <footer class="etx-actions">
-        <button type="button" class="btn ghost" data-action="etx-copy" data-what="subject" data-id="${t.id}" data-kind="${kind}">Copy subject</button>
-        <button type="button" class="btn ghost" data-action="etx-gmail" data-id="${t.id}" data-kind="${kind}">Open in Gmail</button>
-        <button type="button" class="btn gold" data-action="etx-copy" data-what="body" data-id="${t.id}" data-kind="${kind}">Copy email</button>
+        <span class="etx-left ${open ? "warn" : "ok"}">${open ? `${open} blank${open === 1 ? "" : "s"} still to fill (in yellow)` : "✓ Ready to send"}</span>
+        <button type="button" class="etx-btn" data-etx="gmail">Open in Gmail</button>
+        <button type="button" class="etx-btn big" data-etx="copy" data-what="body">Copy the email</button>
       </footer>
     </div>`;
+}
+// Copies with the paragraphs kept, so it pastes neatly into Gmail.
+async function etCopyRich(text){
+  const plain = String(text || "");
+  const html = plain.split(/\n{2,}/).map(par => `<p>${escapeHtml(par).replace(/\n/g, "<br>")}</p>`).join("");
+  try {
+    if (window.ClipboardItem && navigator.clipboard?.write){
+      await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([plain], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]);
+      return true;
+    }
+    await navigator.clipboard.writeText(plain);
+    return true;
+  } catch {
+    // Older browsers: copy from a hidden box.
+    const ta = document.createElement("textarea");
+    ta.value = plain; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand("copy"); } catch(e){}
+    ta.remove();
+    return ok;
+  }
+}
+function etRefreshView(view){
+  const t = state.emailTemplates.find(x => x.id === view.dataset.id); if (!t) return;
+  view.querySelector(".etx-subject").innerHTML = t.subject ? etMarkBlanks(t.subject) : "<em>No subject yet</em>";
+  view.querySelector(".etx-mail-body").innerHTML = t.body ? etBodyHtml(t.body) : "";
+  const open = etOpenBlanks(t), left = view.querySelector(".etx-left");
+  left.className = `etx-left ${open ? "warn" : "ok"}`;
+  left.textContent = open ? `${open} blank${open === 1 ? "" : "s"} still to fill (in yellow)` : "✓ Ready to send";
 }
 function setupEmailLibrary(){
   document.addEventListener("input", (e) => {
     const k = e.target.dataset?.kind;
-    if (e.target.matches?.(".etx-search")){ etSearch[k] = e.target.value; const list = state.emailTemplates.filter(t => etKind(t) === k).sort((a,b) => (a.sort_order||0) - (b.sort_order||0)); e.target.closest(".playbook-list").querySelector(".etx-list").innerHTML = etListHtml(k, list, state.etSel[k]); }
-    if (e.target.matches?.(".etx-name")){
-      etName[k] = e.target.value.trim();
-      const t = state.emailTemplates.find(x => x.id === state.etSel[k]); if (!t) return;
-      const view = e.target.closest(".etx-view");
-      view.querySelector(".etx-subject").textContent = etFill(t.subject, etName[k]);
-      view.querySelector(".etx-mail-body").innerHTML = etBodyHtml(t.body, etName[k]);
+    if (e.target.matches?.(".etx-search")){ etSearch[k] = e.target.value; e.target.closest(".playbook-list").querySelector(".etx-list").innerHTML = etListHtml(k, etListFor(k), state.etSel[k]); }
+    if (e.target.matches?.(".etx-blank")){
+      etFills[e.target.dataset.key] = e.target.value;
+      etSaveFills();
+      etRefreshView(e.target.closest(".etx-view"));
     }
   });
-  document.addEventListener("click", (e) => {
-    const b = e.target.closest?.("[data-action=etx-copy], [data-action=etx-gmail]"); if (!b) return;
-    const t = state.emailTemplates.find(x => x.id === b.dataset.id); if (!t) return;
-    const name = etName[b.dataset.kind] || "";
-    if (b.dataset.action === "etx-gmail"){
-      window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(etFill(t.subject, name))}&body=${encodeURIComponent(etFill(t.body, name))}`, "_blank", "noopener");
+  document.addEventListener("change", (e) => {
+    const k = e.target.dataset?.kind;
+    if (e.target.matches?.(".etx-group-sel")){ etGroupSel[k] = e.target.value; e.target.closest(".playbook-list").querySelector(".etx-list").innerHTML = etListHtml(k, etListFor(k), state.etSel[k]); }
+    if (e.target.matches?.(".etx-mobile-pick")){ state.etSel[k] = e.target.value; renderEmailTemplates(); }
+  });
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest?.("[data-etx]"); if (!b) return;
+    const view = b.closest(".etx-view"); if (!view) return;
+    const t = state.emailTemplates.find(x => x.id === view.dataset.id); if (!t) return;
+    if (b.dataset.etx === "gmail"){
+      window.open(`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(etFill(t.subject))}&body=${encodeURIComponent(etFill(t.body))}`, "_blank", "noopener");
       return;
     }
-    copyToClipboard(b.dataset.what === "subject" ? etFill(t.subject, name) : etFill(t.body, name), b);
+    const subject = b.dataset.what === "subject";
+    const ok = await etCopyRich(subject ? etFill(t.subject) : etFill(t.body));
+    if (!ok){ rcToast("Couldn't copy - select the text and press Ctrl+C."); return; }
+    b.classList.add("copied");
+    const label = subject ? b.querySelector("i") : b;
+    const was = label.textContent;
+    label.textContent = subject ? "Copied ✓" : "Copied ✓ - paste it into Gmail";
+    setTimeout(() => { b.classList.remove("copied"); label.textContent = was; }, 2200);
   });
 }
 async function copyToClipboard(text, btn){
-  try {
-    await navigator.clipboard.writeText(text || "");
-    if (btn){
-      const original = btn.textContent;
-      btn.textContent = "Copied!";
-      setTimeout(() => { btn.textContent = original; }, 1500);
-    }
-  } catch {
-    alert("Couldn't copy - your browser may be blocking clipboard access.");
+  const ok = await etCopyRich(text);
+  if (!ok){ alert("Couldn't copy - your browser may be blocking clipboard access."); return; }
+  if (btn){
+    const original = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = original; }, 1500);
   }
 }
 
