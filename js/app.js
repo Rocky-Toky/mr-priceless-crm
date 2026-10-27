@@ -6376,8 +6376,10 @@ async function saveOnbField(c, field, value){
   }
   if (field.startsWith("client:")){
     const key = field.slice(7);
+    const before = c[key] || "";
     c[key] = value || null;
     await DataLayer.update("clients", c.id, { [key]: value || null, updated_at: new Date().toISOString() });
+    if (key === "meta_ad_account_id" && value && value !== before) autoSyncAds(c.id);
     return;
   }
   if (field === "kickoff_at") return saveLaunchProgress(c, { kickoff_at: value || null, kickoff_booked: value ? true : (c.onboarding_progress || {}).kickoff_booked || null });
@@ -10001,6 +10003,17 @@ async function handleWorkshopAction(action, id, btn){
   return false;
 }
 
+// A Meta ad account ID was just added or changed: pull its campaigns and ads
+// in straight away (quietly), so the call screen's "About the ad they saw"
+// and the creative pages fill in without waiting for the daily sync.
+async function autoSyncAds(clientId){
+  if (!IS_CONFIGURED || !clientId) return;
+  try {
+    const { data, error } = await supabase.functions.invoke("sync-client-ads", { body: { client_id: clientId } });
+    if (error || data?.error) return;
+    await DataLayer.fetchAll(); renderAll();
+  } catch (_) {}
+}
 async function syncClientAds(clientId, btnEl){
   const client = state.clients.find(c => c.id === clientId);
   if (!client) return;
@@ -11630,6 +11643,43 @@ function lqNice(text){
   if (t && t === t.toLowerCase()) t = t.charAt(0).toUpperCase() + t.slice(1);
   return t;
 }
+// The client's real Facebook ad this lead came from, once their ad account is
+// synced (client_ad_creatives). Best match first: the ad's ID, then its name,
+// then the campaign (from GHL's attribution, or the form name, which is often
+// the campaign's). A campaign match picks its live ad with the most leads and
+// is marked as not sure.
+function lqAdFor(l){
+  const ad = l.ad_info || {};
+  const mine = (state.adCreatives || []).filter(x => x.client_id === l.client_id);
+  if (!mine.length) return null;
+  const norm = (s) => String(s ?? "").toLowerCase().replace(/[_|]+/g, " ").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  if (ad.ad_id){
+    const hit = mine.find(x => x.meta_ad_id && String(x.meta_ad_id) === String(ad.ad_id));
+    if (hit) return { creative: hit, sure: true };
+  }
+  if (ad.ad){
+    const hit = mine.find(x => norm(x.name) === norm(ad.ad));
+    if (hit) return { creative: hit, sure: true };
+  }
+  const camps = (state.campaigns || []).filter(c => c.client_id === l.client_id && c.name);
+  const words = (s) => norm(s).split(" ").filter(w => w.length > 2);
+  const fits = (camp, s) => {
+    const a = norm(camp.name), b = norm(s);
+    if (!a || !b) return 0;
+    if (a === b) return 3;
+    if (a.includes(b) || b.includes(a)) return 2;
+    const wb = words(s); return wb.length && wb.every(w => a.includes(w)) ? 1 : 0;
+  };
+  for (const s of [ad.campaign, ad.adset, ad.form, l.form_name]){
+    if (!s) continue;
+    const best = camps.map(c => ({ c, score: fits(c, s) })).filter(x => x.score).sort((a, b) => b.score - a.score)[0];
+    if (!best) continue;
+    const pick = mine.filter(x => x.campaign_id === best.c.id)
+      .sort((a, b) => (/active/i.test(b.delivery_status || "") - /active/i.test(a.delivery_status || "")) || ((Number(b.results) || 0) - (Number(a.results) || 0)))[0];
+    if (pick) return { creative: pick, sure: false, campaign: best.c.name };
+  }
+  return null;
+}
 function lqQuestion(text){
   let t = lqNice(text).replace(/\s+\?$/, "?");
   if (/^(what|when|where|which|who|why|how|roughly|do|does|are|is|have|has|can|would|will)\b/i.test(t) && !/[?.]$/.test(t)) t += "?";
@@ -11767,7 +11817,8 @@ function lqDetailHtml(l){
     && !/^(other|not sure|unsure|n\/?a|none|yes|no)$/i.test(a.a.trim()))?.a;
   const job = jobAnswer || "";
   const ad = l.ad_info || {};
-  const creative = ad.ad_id ? (state.adCreatives || []).find(x => x.meta_ad_id && String(x.meta_ad_id) === String(ad.ad_id)) : null;
+  const adHit = lqAdFor(l);
+  const creative = adHit?.creative || null;
   const liveAds = !creative ? (state.adCreatives || []).filter(x => x.client_id === l.client_id && /active/i.test(x.delivery_status || "")).slice(0, 4) : [];
   const realForm = [ad.form, l.form_name].find(f => f && !/^(facebook( lead)?( form)?|gohighlevel|meta|instagram|website( form)?|lead form|form)$/i.test(String(f).trim()));
   const place = l.address || l.city || "";
@@ -11801,8 +11852,8 @@ function lqDetailHtml(l){
         <h3>About the ad they saw</h3>
         <p class="lq3-ad-lead"><b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}${ad.campaign || realForm ? ` - the ad was for <b>${escapeHtml(lqNice(ad.campaign || realForm))}</b>` : ""}</p>
         <dl class="lq3-ad-facts">
-          ${creative ? `<div><dt>Ad</dt><dd>${escapeHtml(creative.name)}</dd></div>` : ad.ad ? `<div><dt>Ad</dt><dd>${escapeHtml(lqNice(ad.ad))}</dd></div>` : ""}
-          ${ad.campaign ? `<div><dt>Campaign</dt><dd>${escapeHtml(lqNice(ad.campaign))}</dd></div>` : ""}
+          ${creative ? `<div><dt>${adHit.sure ? "Ad" : "Ad (most likely)"}</dt><dd>${escapeHtml(creative.name)}</dd></div>` : ad.ad ? `<div><dt>Ad</dt><dd>${escapeHtml(lqNice(ad.ad))}</dd></div>` : ""}
+          ${ad.campaign || adHit?.campaign ? `<div><dt>Campaign</dt><dd>${escapeHtml(lqNice(ad.campaign || adHit.campaign))}</dd></div>` : ""}
           ${ad.adset ? `<div><dt>Targeting</dt><dd>${escapeHtml(lqNice(ad.adset))}</dd></div>` : ""}
           ${realForm ? `<div><dt>Facebook form</dt><dd>${escapeHtml(lqNice(realForm))}</dd></div>` : ""}
           ${lqStageName(l) ? `<div><dt>Stage in GoHighLevel</dt><dd>${escapeHtml(lqStageName(l))}</dd></div>` : ""}
@@ -14887,6 +14938,7 @@ function setupModals(){
     const enteredOnboarding = stage === "onboarding" && (!existing || existing.stage !== "onboarding");
     if (IS_CONFIGURED) renderAll();
     if (enteredOnboarding && savedId) openWelcomePack(savedId);
+    if (row.meta_ad_account_id && row.meta_ad_account_id !== (existing?.meta_ad_account_id || "")) autoSyncAds(savedId);
   });
 
   $("#client-info-form")?.addEventListener("submit", async (e) => {
