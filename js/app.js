@@ -1327,6 +1327,7 @@ async function initAuth(){
     setupClientInbox();
     setupEmployees();
     setupFollowUps();
+    setupLeadCalls();
     reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call - Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
     checkOverdueTasksPopup();
@@ -1430,6 +1431,7 @@ async function handleSignedInNow(session, freshLogin){
   setupClientInbox();
   setupEmployees();
   setupFollowUps();
+  setupLeadCalls();
   // None of these need to hold the page up.
   repairNzProspectCountryCodes().then(n => { if (n) renderAll(); }).catch(e => console.warn(e));
   fetchTeam().then(() => { if (state.page === "lead-engine") renderTeamFocusPanel(); }).catch(e => console.warn(e));
@@ -1810,6 +1812,7 @@ const FIT_PAGES = {
   employees: ["#emp-root"],
   "client-inbox": ["#inbox-root"],
   "lead-followups": ["#fu-root"],
+  "lead-calls": ["#lc-root"],
   "lead-plan": ["#lp-root"],
   expenses: ["#page-expenses > .card:last-child"],
   commission: ["#commission-groups"],
@@ -11957,6 +11960,7 @@ function lqDetailHtml(l){
         <span class="lq3-status"><i></i>${escapeHtml(status.text)}</span>
         <h2>${escapeHtml(l.name || "No name")}</h2>
         <p>Calling for <b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}</p>
+        ${(() => { const n = (state.aircallCalls || []).filter(c => c.lead_id === l.id && (c.recorded || c.voicemail)).length; return n ? `<p class="lq3-ghl"><button type="button" class="lq3-textbtn" data-lq-act="recordings">🎧 ${n} recorded call${n === 1 ? "" : "s"} - listen back</button></p>` : ""; })()}
         ${(() => { const t = state.leadTasks.filter(x => !x.done_at && x.lead_id === l.id).sort((a, b) => new Date(a.due_at) - new Date(b.due_at))[0]; return t ? `<p class="lq3-ghl">📌 Follow-up: ${escapeHtml(t.title)} · ${escapeHtml(lqWhenWords(t.due_at))}</p>` : ""; })()}
         ${l.ghl_sync?.at && !l.ghl_sync.skipped ? `<p class="lq3-ghl ${l.ghl_sync.errors?.length ? "bad" : ""}">${l.ghl_sync.errors?.length ? `⚠ GoHighLevel: ${escapeHtml(l.ghl_sync.errors[0])}` : `✓ In GoHighLevel: ${escapeHtml([l.ghl_sync.moved ? `moved to "${l.ghl_sync.stage}"` : "", l.ghl_sync.appointment ? `booked in ${l.ghl_sync.calendar || "their calendar"}` : ""].filter(Boolean).join(" · "))}`}</p>` : ""}
       </div>
@@ -12498,6 +12502,146 @@ function setupFollowUps(){
   }).subscribe();
 }
 
+/* ───────── Lead Follow Up: Recorded calls ─────────
+   Every Aircall call, copied in by sync-aircall-calls (sql/092) and matched
+   to the lead or client. Play asks the function for a fresh link to the
+   recording (Aircall's links only last a few minutes). */
+let lcPeriod = "week", lcWho = "", lcLead = null, lcPlaying = null, lcSubscribed = false;
+async function loadAircallCalls(){
+  if (!IS_CONFIGURED){
+    if (!state.lcLoaded){
+      const leads = state.clientLeads.filter(l => l.phone);
+      const L = (i) => leads[i % Math.max(1, leads.length)] || {};
+      const ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
+      const mk = (i, l, dir, mins, dur, extra = {}) => ({ id: 9000 + i, direction: dir, status: dur ? "done" : "missed", number: toE164(l.phone || "021 555 0100", "64"), line: "Mr Priceless NZ", user_name: i % 3 ? "Carmen" : "Rocky", started_at: ago(mins), ended_at: ago(mins - Math.ceil(dur / 60)), duration: dur, recorded: !!dur, voicemail: false, lead_id: l.id || null, client_id: l.client_id || null, ...extra });
+      state.aircallCalls = [
+        mk(1, L(0), "outbound", 12, 184), mk(2, L(1), "inbound", 47, 96), mk(3, L(2), "outbound", 95, 0),
+        mk(4, L(3), "outbound", 60 * 20, 312), mk(5, L(0), "outbound", 60 * 26, 41), mk(6, {}, "inbound", 60 * 30, 75, { number: "+61400111222" }),
+        mk(7, L(4), "outbound", 60 * 24 * 3, 228),
+      ];
+      state.aircallStatus = { connected: true, last_ok_at: new Date().toISOString() };
+      state.lcLoaded = true;
+    }
+    return;
+  }
+  const since = new Date(Date.now() - 90 * 86400e3).toISOString();
+  const [{ data, error }, { data: st }] = await Promise.all([
+    supabase.from("aircall_calls").select("*").gte("started_at", since).order("started_at", { ascending: false }).limit(2000),
+    supabase.from("aircall_sync_status").select("*").eq("id", 1).maybeSingle(),
+  ]);
+  state.lcLoaded = true;
+  state.lcMissing = Boolean(error);
+  state.aircallCalls = data || [];
+  state.aircallStatus = st || null;
+}
+function setupLeadCalls(){
+  loadAircallCalls().then(() => { if (state.page === "lead-calls") renderLeadCalls(); if (state.page === "lead-queue") renderLeadQueue(); }).catch(e => console.warn(e));
+  if (!IS_CONFIGURED || lcSubscribed) return;
+  lcSubscribed = true;
+  let t = null;
+  supabase.channel("aircall-calls").on("postgres_changes", { event: "*", schema: "public", table: "aircall_calls" }, () => {
+    clearTimeout(t);
+    t = setTimeout(async () => { await loadAircallCalls(); if (state.page === "lead-calls") renderLeadCalls(); }, 800);
+  }).subscribe();
+}
+// Who a call was with: the lead (and which client they enquired with),
+// else whatever the number matches in the CRM.
+function lcWhoOf(c){
+  const lead = c.lead_id ? state.clientLeads.find(l => l.id === c.lead_id) : null;
+  const client = state.clients.find(x => x.id === (lead?.client_id || c.client_id));
+  if (lead) return { name: lead.name || "A lead", sub: client ? `Enquiry for ${lqBizName(client)}` : "Lead", leadId: lead.id };
+  const w = acWho(c.number);
+  if (w) return { name: w.name, sub: w.sub, leadId: w.kind === "lead" ? w.id : null };
+  if (client) return { name: lqBizName(client), sub: "Client", leadId: null };
+  return { name: formatPhone(c.number || "") || "Unknown number", sub: "Not in the CRM", leadId: null };
+}
+const lcLength = (s) => { s = Number(s) || 0; const m = Math.floor(s / 60), r = s % 60; return m ? `${m} min${r ? ` ${r} sec` : ""}` : `${r} sec`; };
+function lcDayLabel(iso){
+  const d = new Date(iso), today = localDayStr(), y = new Date(); y.setDate(y.getDate() - 1);
+  const day = localDayStr(d);
+  return day === today ? "Today" : day === localDayStr(y) ? "Yesterday" : d.toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long" });
+}
+function lcShown(){
+  const now = Date.now(), from = lcPeriod === "today" ? new Date(new Date().setHours(0, 0, 0, 0)).getTime() : lcPeriod === "week" ? now - 7 * 86400e3 : lcPeriod === "month" ? now - 30 * 86400e3 : 0;
+  return state.aircallCalls.filter(c => (!lcLead || c.lead_id === lcLead) && (!lcWho || c.user_name === lcWho) && new Date(c.started_at).getTime() >= from)
+    .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+}
+function renderLeadCalls(){
+  const root = $("#lc-root");
+  if (!root) return;
+  const st = state.aircallStatus, manager = !IS_CONFIGURED || isRocky() || isMax();
+  const calls = state.aircallCalls || [];
+  if (!calls.length && !(st?.connected && st?.last_ok_at)){
+    root.innerHTML = `<header class="lc-head"><div><h2>Recorded calls</h2><p>Every Aircall call, recorded, so you can listen back.</p></div></header>
+      <div class="lc-empty">${manager ? `<h3>Two quick things to switch this on</h3>
+        <ol>
+          <li><b>Turn on call recording in Aircall.</b> In the Aircall dashboard, open <b>Numbers</b>, pick each number, and switch on <b>Call recording</b> (for incoming and outgoing calls).</li>
+          <li><b>Give the CRM your Aircall API key.</b> In Aircall go to <b>Integrations &amp; API → API keys</b> and make a key. Then in GitHub (the CRM's repo) go to <b>Settings → Secrets and variables → Actions</b> and add two secrets: <b>AIRCALL_API_ID</b> (the API ID) and <b>AIRCALL_API_TOKEN</b> (the token). Don't paste them anywhere else.</li>
+        </ol>
+        <p>Calls start showing here within 5 minutes after that.</p>
+        ${st?.last_error ? `<p class="lc-err">Aircall said: ${escapeHtml(st.last_error)}</p>` : ""}`
+        : `<h3>Nothing here yet</h3><p>Your recorded calls will show here once Rocky has connected Aircall.</p>`}</div>`;
+    return;
+  }
+  const people = [...new Set(calls.map(c => c.user_name).filter(Boolean))].sort();
+  const leadName = lcLead ? (state.clientLeads.find(l => l.id === lcLead)?.name || "this lead") : "";
+  const shown = lcShown();
+  let lastDay = "";
+  const rows = shown.map(c => {
+    const who = lcWhoOf(c), day = lcDayLabel(c.started_at);
+    const head = day !== lastDay ? `<h3 class="lc-day">${escapeHtml(day)}</h3>` : "";
+    lastDay = day;
+    const missed = c.status === "missed" || (!c.duration && !c.recorded);
+    const canPlay = c.recorded || c.voicemail;
+    const playing = lcPlaying && lcPlaying.id === c.id;
+    return `${head}<div class="lc-row${missed ? " missed" : ""}${playing ? " playing" : ""}" data-lc-row="${c.id}">
+      ${canPlay ? `<button type="button" class="lc-play" data-lc-play="${c.id}" aria-label="Play the call with ${escapeHtml(who.name)}">${playing ? "■" : "▶"}</button>` : `<span class="lc-play off" title="${missed ? "Missed - nothing to play" : "Not recorded"}">${missed ? "✕" : "–"}</span>`}
+      <div class="lc-who"><b>${escapeHtml(who.name)}</b><span>${escapeHtml(who.sub)}</span></div>
+      <div class="lc-when"><span class="lc-dir ${c.direction}">${c.direction === "outbound" ? "↗ You called" : "↙ They called"}</span><span>${escapeHtml(lqClock(c.started_at))}${missed ? " · missed" : c.duration ? ` · ${escapeHtml(lcLength(c.duration))}` : ""}${c.voicemail ? " · voicemail" : ""}</span></div>
+      <div class="lc-by">${c.user_name ? escapeHtml(c.user_name) : ""}</div>
+      ${who.leadId ? `<button type="button" class="lc-open" data-lc-open="${who.leadId}">Open lead</button>` : "<span></span>"}
+      ${playing ? `<div class="lc-player">${lcPlaying.url ? `<audio controls autoplay src="${escapeHtml(lcPlaying.url)}"></audio>` : `<span class="lc-loading">${escapeHtml(lcPlaying.msg || "Getting the recording…")}</span>`}</div>` : ""}
+    </div>`;
+  }).join("");
+  root.innerHTML = `
+    <header class="lc-head">
+      <div><h2>Recorded calls</h2><p>${shown.length} call${shown.length === 1 ? "" : "s"}${lcLead ? ` with ${escapeHtml(leadName)}` : ""}. Press ▶ to listen.</p></div>
+      <div class="lc-filters">
+        ${lcLead ? `<button type="button" class="lc-chip" data-lc-clear>With ${escapeHtml(leadName)} ✕</button>` : ""}
+        <select data-lc-period aria-label="When">${[["today", "Today"], ["week", "Last 7 days"], ["month", "Last 30 days"], ["all", "Everything"]].map(([v, l]) => `<option value="${v}" ${lcPeriod === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+        ${people.length > 1 ? `<select data-lc-who aria-label="Who"><option value="">Everyone</option>${people.map(n => `<option ${lcWho === n ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}</select>` : ""}
+      </div>
+    </header>
+    ${manager && st?.last_error ? `<p class="lc-err">Aircall sync problem: ${escapeHtml(st.last_error)}</p>` : ""}
+    <div class="lc-list">${rows || `<div class="lc-empty"><p>No calls ${lcPeriod === "today" ? "today" : "in this time"} yet.</p></div>`}</div>`;
+}
+async function lcPlay(id){
+  if (lcPlaying && lcPlaying.id === id){ lcPlaying = null; return renderLeadCalls(); }
+  lcPlaying = { id, url: null };
+  renderLeadCalls();
+  if (!IS_CONFIGURED){ lcPlaying.msg = "Demo mode - real recordings play here once Aircall is connected."; return renderLeadCalls(); }
+  const { data, error } = await supabase.functions.invoke("sync-aircall-calls", { body: { action: "recording", call_id: id } });
+  if (!lcPlaying || lcPlaying.id !== id) return;
+  if (error || !data?.url){ lcPlaying.msg = data?.error || "Couldn't get the recording - try again in a minute."; return renderLeadCalls(); }
+  lcPlaying.url = data.url;
+  renderLeadCalls();
+}
+function setupLeadCallsUi(){
+  const root = $("#lc-root");
+  if (!root) return;
+  root.addEventListener("click", (e) => {
+    const p = e.target.closest("[data-lc-play]");
+    if (p) return lcPlay(Number(p.dataset.lcPlay));
+    const o = e.target.closest("[data-lc-open]");
+    if (o){ lqSel = o.dataset.lcOpen; lqPending = null; goPage("lead-queue"); return renderLeadQueue(); }
+    if (e.target.closest("[data-lc-clear]")){ lcLead = null; return renderLeadCalls(); }
+  });
+  root.addEventListener("change", (e) => {
+    if (e.target.matches("[data-lc-period]")){ lcPeriod = e.target.value; renderLeadCalls(); }
+    if (e.target.matches("[data-lc-who]")){ lcWho = e.target.value; renderLeadCalls(); }
+  });
+}
+
 // Everything to do: open follow-ups, plus call-backs booked from a call.
 function fuItems(){
   const leadById = new Map(state.clientLeads.map(l => [l.id, l]));
@@ -12710,6 +12854,7 @@ function setupLeadFollowUpUi(){
       if (act === "fit" && l){ lqFitFor = l.client_id; renderLeadQueue(); $(".lq3-fit-form textarea")?.focus(); return; }
       if (act === "fit-cancel"){ lqFitFor = null; return renderLeadQueue(); }
       if (act === "followup") return fuOpenForm(lqSel);
+      if (act === "recordings" && l){ lcLead = l.id; lcPeriod = "all"; lcPlaying = null; goPage("lead-calls"); return renderLeadCalls(); }
       if (act === "history"){ lqShowHistory = !lqShowHistory; return renderLeadQueue(); }
     });
     root.addEventListener("input", (ev) => {
@@ -12862,7 +13007,7 @@ const RENDERERS = [
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
-  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
+  [renderLeadQueue, ["lead-queue"]], [renderLeadCalls, ["lead-calls"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
@@ -16009,6 +16154,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupClientInboxUi();
   setupEmployeesUi();
   setupLeadFollowUpUi();
+  setupLeadCallsUi();
   setupSitRate();
   setupNav();
   setupModals();
