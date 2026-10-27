@@ -12189,7 +12189,8 @@ function renderLeadResults(){
       : r.error ? ["bad", "Problem: " + r.error]
       : !r.last_ok_at ? ["warn", "Connected - first check is still running"]
       : stale ? ["warn", `Hasn't checked in ${lqAgo(Date.now() - new Date(r.last_ok_at))}`]
-      : r.contacts_access === false ? ["warn", "Their key can't read contacts or forms, so leads come in without answers - click Update key"]
+      : r.contacts_access === false ? ["warn", "Their key can't read contacts or forms, so leads come in without answers, and Carmen's notes and bookings can't be added - click Update key"]
+      : r.stages?.missing?.length ? ["warn", `Their GoHighLevel has no ${r.stages.missing.map(k => LQ_FLOW_STAGE_NAMES[k] || k).join(", ")} stage - add it in GoHighLevel, or pick one under Stages`]
       : ["ok", "Working"];
     return { c, r, cls: state_[0], text: state_[1] };
   });
@@ -12221,6 +12222,9 @@ function renderLeadResults(){
     ${calls.length ? `<h4 class="emp-h">What happened on the calls</h4><div class="lr-outcomes">${Object.entries(outcomes).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<div><span>${escapeHtml(LQ_OUTCOMES[k]?.label || k)}</span><i class="emp-bar"><i style="width:${Math.round(n / calls.length * 100)}%"></i></i><b>${n}</b></div>`).join("")}</div>` : ""}`;
 }
 
+// The stages the calling flow needs in each client's GoHighLevel (checked by
+// the sync, lead_sync_status.stages).
+const LQ_FLOW_STAGE_NAMES = { rep_to_contact: "Rep to contact", site_visit: "Site visit booked", consult: "Consultation call booked", disqualified: "Disqualified", stuck: "Stuck", no_answer: "No answer" };
 // Which stage and calendar each outcome goes to in a client's GoHighLevel.
 // Blank = matched by name automatically (shown as "Automatic: ...").
 const LQ_STAGE_FIELDS = [["site_visit_stage", "Site visit booked", "stage"], ["consult_stage", "Consultation call booked", "stage"], ["disqualified_stage", "Not interested / Not a fit / Wrong number", "stage"], ["no_answer_stage", "No answer after 5 calls", "stage"], ["stuck_stage", "Call back later", "stage"], ["site_visit_calendar", "Calendar for site visits", "calendar"], ["consult_calendar", "Calendar for consultation calls", "calendar"]];

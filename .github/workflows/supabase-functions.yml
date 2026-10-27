@@ -286,6 +286,8 @@ jobs:
           q "select count(*) as rows, count(*) filter (where last_ok_at is not null and error is null) as working, count(*) filter (where error is not null) as with_error, count(*) filter (where contacts_access = false) as no_contacts_access, count(*) filter (where last_ok_at is null and error is null) as not_finished from lead_sync_status" | jq -c '.[0]'
           echo "Errors seen (text only):"
           q "select left(error, 160) as error, count(*) from lead_sync_status where error is not null group by 1" | jq -c '.[]'
+          echo "Pipeline stages the calling flow needs, how many connected clients are missing each:"
+          q "select k as stage, count(*) filter (where s.stages->'missing' ? k) as clients_missing, count(*) filter (where s.stages is not null) as clients_checked from lead_sync_status s cross join unnest(array['rep_to_contact','site_visit','consult','disqualified','stuck','no_answer']) as k group by k order by k" | jq -c '.[]'
           echo "Where lead details live in GHL (shape only, 2 recent leads per connected client):"
           curl -sS -m 160 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/sync-ghl-leads" \
             -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
