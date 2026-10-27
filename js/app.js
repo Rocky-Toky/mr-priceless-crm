@@ -1643,7 +1643,7 @@ const WORKSPACE_KEY = "mp_workspace";
 const WORKSPACE_COPY = {
   sales: { title: "Sales", sub: "Prospecting, booking meetings, and closing deals.", dashboardTitle: "Dashboard", dashboardSub: "MRR and closed won jobs at a glance." },
   delivery: { title: "Service Delivery", sub: "Onboarding, delivering, and reporting for won clients.", dashboardTitle: "Dashboard", dashboardSub: "Client health and delivery at a glance." },
-  employees: { title: "Employees", sub: "The team, how they're tracking, onboarding, 1:1s and leave.", dashboardTitle: "Dashboard", dashboardSub: "The team at a glance." },
+  employees: { title: "Team", sub: "The team, how they're tracking, onboarding, 1:1s and leave.", dashboardTitle: "Dashboard", dashboardSub: "The team at a glance." },
   leads: { title: "Lead Follow Up", sub: "Calling every lead that comes through for our clients, fast.", dashboardTitle: "Dashboard", dashboardSub: "Lead follow-up at a glance." },
 };
 // Sections of their own: none of the shared Sales / Delivery items show in these.
@@ -10908,7 +10908,7 @@ const EMP_STATUS = {
   left: { label: "Left", cls: "grey" },
 };
 const EMP_TYPES = { full_time: "Full-time", part_time: "Part-time", contractor: "Contractor", commission_only: "Commission only" };
-const EMP_TEAMS = { sales: "Sales", delivery: "Service Delivery", both: "Sales & Delivery" };
+const EMP_TEAMS = { sales: "Sales", delivery: "Service Delivery", leads: "Lead Follow Up", both: "Sales & Delivery" };
 const EMP_LEAVE_TYPES = { annual: "Annual leave", sick: "Sick leave", unpaid: "Unpaid leave", other: "Other" };
 const EMP_PAY_UNITS = { hour: "per hour", week: "per week", year: "per year" };
 const EMP_CHECKIN_DAYS = 14;
@@ -11071,7 +11071,7 @@ async function empSavePrivate(id, patch){
   rcToast(error ? "Couldn't save that - " + error.message : "Saved - only Rocky and Max can see this.");
 }
 async function empAdd(){
-  const row = { name: "New employee", role: "", team: "sales", status: "onboarding", start_date: localDayStr(), manager: "rocky" };
+  const row = { name: "New team member", role: "", team: "sales", status: "onboarding", start_date: localDayStr(), manager: "rocky" };
   let made = { ...row, id: "emp-" + uid(), targets: {}, onboarding: {}, checkins: [], leave: [] };
   if (IS_CONFIGURED){
     const { data, error } = await supabase.from("employees").insert(row).select("*").single();
@@ -11151,10 +11151,10 @@ function renderEmployees(){
   const sel = state.employees.find(e => e.id === empSel);
   root.innerHTML = `
     ${state.empMissing ? `<div class="inbox-setup"><b>Employees is still being set up.</b> It switches on once the latest database update has run.</div>` : ""}
-    <section class="emp-detail emp-solo">${sel ? empDetailHtml(sel) : `<div class="emp-empty">No one on the team yet.${mgr ? " Click + Add employee." : ""}</div>`}</section>
+    <section class="emp-detail emp-solo">${sel ? empDetailHtml(sel) : `<div class="emp-empty">No one on the team yet.${mgr ? " Click + Add someone." : ""}</div>`}</section>
     ${past.length || mgr ? `<div class="emp-page-foot">
-      <span>${past.length ? `Past employees: ${past.map(e => `<button type="button" class="emp-link" data-emp-sel="${escapeHtml(e.id)}">${escapeHtml(e.name)}</button>`).join(" · ")}` : ""}</span>
-      ${mgr ? `<button type="button" class="btn ghost sm" data-emp-act="add">+ Add employee</button>` : ""}
+      <span>${past.length ? `Past team members: ${past.map(e => `<button type="button" class="emp-link" data-emp-sel="${escapeHtml(e.id)}">${escapeHtml(e.name)}</button>`).join(" · ")}` : ""}</span>
+      ${mgr ? `<button type="button" class="tm-btn" data-emp-act="add">+ Add someone</button>` : ""}
     </div>` : ""}`;
 }
 
@@ -11188,67 +11188,76 @@ function empDetailHtml(e){
   const tabs = [["overview", "Overview"], ["performance", "Performance"], ["onboarding", e.status === "left" ? "Offboarding" : "Onboarding"], ["checkins", "1:1s"], ["leave", "Leave"], ...(mgr ? [["pay", "Pay & contract"]] : [])];
   if (!tabs.some(([k]) => k === empTab)) empTab = "overview";
   const body = empEditing && empTab === "overview" ? empEditHtml(e) : ({ overview: empOverviewHtml, performance: empPerfHtml, onboarding: empOnbHtml, checkins: empCheckinsHtml, leave: empLeaveHtml, pay: empPayHtml }[empTab] || empOverviewHtml)(e);
+  const chip = (icon, text, href) => text ? (href ? `<a class="tm-chip" href="${href}"><i>${icon}</i>${escapeHtml(text)}</a>` : `<span class="tm-chip"><i>${icon}</i>${escapeHtml(text)}</span>`) : "";
   return `
-    <header class="emp-head">
-      <span class="emp-av big ${empColour(e)}">${escapeHtml(empInitials(e.name))}</span>
-      <div class="emp-head-id">
-        <h3>${escapeHtml(e.name)}${self ? ` <small>(you)</small>` : ""}</h3>
-        <p>${escapeHtml(e.role || "No role yet")} · ${escapeHtml(EMP_TEAMS[e.team] || "")}${e.start_date ? ` · ${escapeHtml(empTenure(e.start_date))}` : ""}</p>
+    <header class="tm-hero">
+      <span class="tm-av ${empColour(e)}">${escapeHtml(empInitials(e.name))}</span>
+      <div class="tm-hero-id">
+        <div class="tm-hero-top">
+          <h3>${escapeHtml(e.name)}${self ? ` <small>(you)</small>` : ""}</h3>
+          <span class="tm-status ${EMP_STATUS[e.status]?.cls || ""}">${EMP_STATUS[e.status]?.label || e.status}</span>
+        </div>
+        <p>${escapeHtml(e.role || "No role yet")}</p>
+        <div class="tm-chips">
+          ${chip("🏷", EMP_TEAMS[e.team] || "")}
+          ${chip("📅", e.start_date ? `Started ${empDay(e.start_date)} · ${empTenure(e.start_date)}` : "")}
+          ${chip("📍", e.location || "")}
+          ${chip("👤", e.manager && ASSIGNEES[e.manager] ? `Reports to ${ASSIGNEES[e.manager].label}` : "")}
+          ${chip("✉", e.email || "", e.email ? `mailto:${escapeHtml(e.email)}` : "")}
+          ${chip("📞", e.phone || "", e.phone ? `tel:${escapeHtml(e.phone)}` : "")}
+        </div>
       </div>
-      <span class="emp-status ${EMP_STATUS[e.status]?.cls || ""}">${EMP_STATUS[e.status]?.label || e.status}</span>
-      ${mgr && !empEditing ? `<button type="button" class="btn ghost sm" data-emp-act="edit">Edit</button>` : ""}
+      ${mgr && !empEditing ? `<button type="button" class="tm-edit" data-emp-act="edit">Edit details</button>` : ""}
     </header>
-    ${e.status === "left" ? "" : empRespHtml(e)}
-    <nav class="emp-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="${k === empTab ? "active" : ""}" data-emp-tab="${k}">${l}</button>`).join("")}</nav>
-    <div class="emp-body">${body}</div>`;
+    ${e.status === "left" || empEditing ? "" : empRespHtml(e)}
+    ${empEditing ? "" : `<nav class="tm-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="${k === empTab ? "active" : ""}" data-emp-tab="${k}">${l}</button>`).join("")}</nav>`}
+    <div class="emp-body tm-body">${body}</div>`;
 }
 
 function empOverviewHtml(e){
   const today = localDayStr(), due = empCheckinDue(e), lv = empOffToday(e) || empNextLeave(e), onb = empOnbProgress(e);
   const login = (state.team || []).some(t => (t.email || "").toLowerCase() === (e.email || "").toLowerCase() && e.email);
-  const fact = (label, value) => `<div class="emp-fact"><span>${label}</span><b>${value || "-"}</b></div>`;
   const p = empPerf(e);
+  const card = (icon, label, value, cls = "") => `<div class="tm-card ${cls}"><span class="tm-card-ic">${icon}</span><div><span>${label}</span><b>${value}</b></div></div>`;
+  const fact = (label, value) => `<div class="tm-fact"><span>${label}</span><b>${value || `<em>Not added yet</em>`}</b></div>`;
   return `
-    <div class="emp-facts">
+    <h4 class="tm-h">This week</h4>
+    <div class="tm-cards">
+      ${card("🗓", "Next 1:1", due ? (due < today ? `Overdue (${escapeHtml(empShortDay(due))})` : due === today ? "Today" : escapeHtml(empShortDay(due))) : "None booked", due && due < today ? "warn" : "")}
+      ${card("🌴", "Leave", lv ? `${escapeHtml(EMP_LEAVE_TYPES[lv.type] || "Leave")} ${lv.from <= today ? "until " + escapeHtml(empShortDay(lv.to || lv.from)) : escapeHtml(empShortDay(lv.from))}` : "None booked")}
+      ${card("✅", "Onboarding", `${onb.done} of ${onb.total} done`, onb.done === onb.total ? "good" : "")}
+      ${p ? card("📞", "Last 7 days", `${p.dials} dials · ${p.booked} booked`) : ""}
+    </div>
+    <h4 class="tm-h">Details</h4>
+    <div class="tm-facts">
       ${fact("Email", e.email ? `<a href="mailto:${escapeHtml(e.email)}">${escapeHtml(e.email)}</a>` : "")}
       ${fact("Phone", e.phone ? `<a href="tel:${escapeHtml(e.phone)}">${escapeHtml(e.phone)}</a>` : "")}
-      ${fact("Started", e.start_date ? `${escapeHtml(empDay(e.start_date))}` : "")}
+      ${fact("Started", e.start_date ? escapeHtml(empDay(e.start_date)) : "")}
       ${fact("Type", escapeHtml(EMP_TYPES[e.employment_type] || ""))}
-      ${fact("Reports to", escapeHtml(ASSIGNEES[e.manager]?.label || ""))}
+      ${fact("Reports to", escapeHtml(ASSIGNEES[e.manager]?.label || (e.manager ? e.manager : "")))}
       ${fact("Location", escapeHtml(e.location || ""))}
-      ${fact("CRM login", e.email ? (login ? "✓ Has access" : (state.team || []).length ? "No login yet" : "-") : "Add their email")}
+      ${fact("CRM login", e.email ? (login ? "✓ Has access" : (state.team || []).length ? "No login yet" : "-") : "Add their email first")}
       ${e.status === "left" ? fact("Left", escapeHtml(empDay(e.end_date))) : ""}
     </div>
-    <div class="emp-next">
-      <div class="${due && due < today ? "warn" : ""}"><span>Next 1:1</span><b>${due ? (due < today ? `Overdue (${escapeHtml(empShortDay(due))})` : due === today ? "Today" : escapeHtml(empShortDay(due))) : "-"}</b></div>
-      <div><span>Leave</span><b>${lv ? `${escapeHtml(EMP_LEAVE_TYPES[lv.type] || "Leave")} ${lv.from <= today ? "until " + escapeHtml(empShortDay(lv.to || lv.from)) : escapeHtml(empShortDay(lv.from))}` : "None booked"}</b></div>
-      <div><span>Onboarding</span><b>${onb.done}/${onb.total} done</b></div>
-    </div>
-    ${p ? `<h4 class="emp-h">Last 7 days</h4><div class="emp-mini">
-      <div><b>${p.dials}</b><span>dials</span></div><div><b>${p.booked}</b><span>meetings booked</span></div>
-      <div><b>${p.won}</b><span>deals won</span></div><div><b>${p.clients.length}</b><span>clients</span></div>
-    </div>` : ""}
-    ${e.targets && (e.targets.dials_per_day || e.targets.meetings_per_week) ? `<h4 class="emp-h">Targets</h4><p class="emp-text">${[e.targets.dials_per_day ? `${e.targets.dials_per_day} dials a day` : "", e.targets.meetings_per_week ? `${e.targets.meetings_per_week} meetings booked a week` : ""].filter(Boolean).join(" · ")}</p>` : ""}
-    ${e.notes ? `<h4 class="emp-h">Notes</h4><p class="emp-text">${escapeHtml(e.notes).replace(/\n/g, "<br>")}</p>` : ""}`;
+    ${e.targets && (e.targets.dials_per_day || e.targets.meetings_per_week) ? `<h4 class="tm-h">Targets</h4><div class="tm-note">${[e.targets.dials_per_day ? `${e.targets.dials_per_day} dials a day` : "", e.targets.meetings_per_week ? `${e.targets.meetings_per_week} meetings booked a week` : ""].filter(Boolean).join(" · ")}</div>` : ""}
+    ${e.notes ? `<h4 class="tm-h">Notes</h4><div class="tm-note">${escapeHtml(e.notes).replace(/\n/g, "<br>")}</div>` : ""}`;
 }
 
 function empEditHtml(e){
   const opt = (map, v, blank) => (blank ? `<option value="">${blank}</option>` : "") + Object.entries(map).map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${escapeHtml(typeof l === "string" ? l : l.label)}</option>`).join("");
-  const f = (label, html, hint = "") => `<div class="field"><label>${label}</label>${html}${hint ? `<span class="field-hint">${hint}</span>` : ""}</div>`;
+  const f = (label, html, hint = "") => `<label class="tm-field"><span>${label}</span>${html}${hint ? `<small>${hint}</small>` : ""}</label>`;
   const inp = (name, v, type = "text", extra = "") => `<input name="${name}" type="${type}" value="${escapeHtml(v ?? "")}" ${extra}>`;
   const t = e.targets || {};
-  return `<form class="emp-form" data-emp-form="profile">
-    <div class="field-row">${f("Name", inp("name", e.name, "text", "required"))}${f("Role", inp("role", e.role, "text", 'placeholder="e.g. Sales rep, Media buyer"'))}</div>
-    <div class="field-row">${f("Status", `<select name="status">${opt(EMP_STATUS, e.status)}</select>`)}${f("Team", `<select name="team">${opt(EMP_TEAMS, e.team)}</select>`)}</div>
-    <div class="field-row">${f("Work email", inp("email", e.email, "email"))}${f("Phone", inp("phone", e.phone, "tel"))}</div>
-    <div class="field-row">${f("Start date", inp("start_date", e.start_date, "date"))}${f("End date", inp("end_date", e.end_date, "date"), "Only if they've left")}</div>
-    <div class="field-row">${f("Employment type", `<select name="employment_type">${opt(EMP_TYPES, e.employment_type, "-")}</select>`)}${f("Reports to", `<select name="manager">${opt(Object.fromEntries(Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label])), e.manager, "No one")}</select>`)}</div>
-    <div class="field-row">${f("Location", inp("location", e.location))}${f("Name in the CRM", `<select name="person_key">${opt(Object.fromEntries([...Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label]), ...(e.person_key && !ASSIGNEES[e.person_key] ? [[e.person_key, e.name]] : [])]), e.person_key, "Not linked")}</select>`, "Links their deals, calls and tasks to this profile")}</div>
-    <div class="field-row">${f("Target: dials a day", inp("dials_per_day", t.dials_per_day, "number", 'min="0"'))}${f("Target: meetings booked a week", inp("meetings_per_week", t.meetings_per_week, "number", 'min="0"'))}</div>
-    ${f("Notes", `<textarea name="notes" rows="3">${escapeHtml(e.notes || "")}</textarea>`)}
-    <div class="emp-form-foot">
-      <button type="button" class="emp-link danger" data-emp-act="delete">Delete employee</button>
-      <span><button type="button" class="btn ghost" data-emp-act="cancel">Cancel</button> <button type="submit" class="btn gold">Save</button></span>
+  const people = Object.fromEntries([...Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label]), ...(e.person_key && !ASSIGNEES[e.person_key] ? [[e.person_key, e.name]] : [])]);
+  const section = (title, sub, inner) => `<section class="tm-section"><header><h4>${title}</h4>${sub ? `<p>${sub}</p>` : ""}</header><div class="tm-grid">${inner}</div></section>`;
+  return `<form class="tm-form" data-emp-form="profile">
+    ${section("About them", "", f("Name", inp("name", e.name, "text", "required")) + f("Role", inp("role", e.role, "text", 'placeholder="e.g. Lead Follow Up"')) + f("Work email", inp("email", e.email, "email", 'placeholder="name@mrpriceless.com"')) + f("Phone", inp("phone", e.phone, "tel", 'placeholder="021 000 0000"')) + f("Location", inp("location", e.location, "text", 'placeholder="e.g. Auckland"')))}
+    ${section("Their job", "", f("Team", `<select name="team">${opt(EMP_TEAMS, e.team)}</select>`) + f("Status", `<select name="status">${opt(EMP_STATUS, e.status)}</select>`) + f("Employment type", `<select name="employment_type">${opt(EMP_TYPES, e.employment_type, "Choose…")}</select>`) + f("Reports to", `<select name="manager">${opt(Object.fromEntries(Object.entries(ASSIGNEES).map(([k, a]) => [k, a.label])), e.manager, "No one")}</select>`) + f("Start date", inp("start_date", e.start_date, "date")) + f("End date", inp("end_date", e.end_date, "date"), "Only if they've left"))}
+    ${section("Targets", "Leave blank if they don't apply.", f("Dials a day", inp("dials_per_day", t.dials_per_day, "number", 'min="0" placeholder="e.g. 80"')) + f("Meetings booked a week", inp("meetings_per_week", t.meetings_per_week, "number", 'min="0" placeholder="e.g. 5"')) + f("Name in the CRM", `<select name="person_key">${opt(people, e.person_key, "Not linked")}</select>`, "Links their deals, calls and tasks to this profile"))}
+    <section class="tm-section"><header><h4>Notes</h4></header><textarea name="notes" rows="3" placeholder="Anything worth remembering">${escapeHtml(e.notes || "")}</textarea></section>
+    <div class="tm-form-foot">
+      <button type="button" class="tm-danger" data-emp-act="delete">Delete this person</button>
+      <span><button type="button" class="tm-btn" data-emp-act="cancel">Cancel</button><button type="submit" class="tm-btn gold">Save changes</button></span>
     </div>
   </form>`;
 }
