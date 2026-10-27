@@ -4213,3 +4213,46 @@ textarea.fu-input{min-height:72px;resize:vertical;}
   .etx-btn{flex:1 1 100%;white-space:normal;text-align:center;}
   .etx-btn.big{min-width:0;order:-1;}
 }
+
+/* Meeting structure / Sit rate: shrink-to-fit levels set by mtgFit().
+   1 tighter spacing · 2 questions in two columns · 3 questions as a tight
+   checklist · 4 slightly smaller text · 5 smaller again, three columns ·
+   6 smallest. Questions inside an "If yes / If no" branch stay one column. */
+.mtg:not([data-fit="0"]) .mtg-main-head{padding:18px 28px 0;}
+.mtg:not([data-fit="0"]) .mtg-main-head h2{font-size:30px;margin:4px 0;}
+.mtg:not([data-fit="0"]) .mtg-content{padding:14px 28px 16px;gap:10px;}
+.mtg:not([data-fit="0"]) .mtg-tabs{padding:10px 28px 0;}
+.mtg:not([data-fit="0"]) .mtg-nav{padding:10px 28px 12px;}
+.mtg:not([data-fit="0"]) .mtg-nav .btn{height:46px;}
+.mtg:not([data-fit="0"]) .mtg-qs{gap:8px;}
+.mtg:not([data-fit="0"]) .mtg-q{padding:10px 14px;gap:12px;}
+.mtg:not([data-fit="0"]) .mtg-say{padding:12px 18px;}
+.mtg:not([data-fit="0"]) .mtg-leadins{padding:8px 28px;}
+.mtg:not([data-fit="0"]):not([data-fit="1"]) .mtg-qs{grid-template-columns:repeat(2,minmax(0,1fr));}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-qs{gap:2px 14px;}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-q{border-color:transparent;background:none;padding:5px 6px;border-radius:8px;gap:10px;}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-q:hover{background:var(--paper);}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-q i{width:22px;height:22px;}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-say{padding:8px 14px;}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-say span{margin-bottom:2px;}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-branch{padding:10px;gap:6px;}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-content{gap:8px;}
+.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-q span,.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-branch .mtg-q span{font-size:15.5px;line-height:1.35;}
+.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-say p,.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-branch .mtg-say p{font-size:17px;}
+.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-point,.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-note{font-size:15.5px;}
+.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-lead{font-size:14.5px;}
+.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-main-head h2{font-size:26px;}
+.mtg:is([data-fit="5"],[data-fit="6"]) .mtg-qs{grid-template-columns:repeat(3,minmax(0,1fr));}
+.mtg:is([data-fit="5"],[data-fit="6"]) .mtg-q span,.mtg:is([data-fit="5"],[data-fit="6"]) .mtg-branch .mtg-q span{font-size:14.5px;}
+.mtg:is([data-fit="5"],[data-fit="6"]) .mtg-say p,.mtg:is([data-fit="5"],[data-fit="6"]) .mtg-branch .mtg-say p{font-size:15.5px;}
+.mtg:is([data-fit="5"],[data-fit="6"]) .mtg-point,.mtg:is([data-fit="5"],[data-fit="6"]) .mtg-note{font-size:14.5px;}
+.mtg[data-fit="6"] .mtg-lead{display:none;}
+.mtg[data-fit="6"] .mtg-q span,.mtg[data-fit="6"] .mtg-branch .mtg-q span{font-size:13.5px;}
+.mtg .mtg-branch .mtg-qs{grid-template-columns:1fr !important;}
+/* The steps down the left */
+.mtg:not([data-rail="0"]) .mtg-rail-step{padding:6px 10px;}
+.mtg:not([data-rail="0"]) .mtg-rail-step i{width:26px;height:26px;font-size:12.5px;}
+.mtg:is([data-rail="2"],[data-rail="3"]) .mtg-rail-step small{display:none;}
+.mtg:is([data-rail="2"],[data-rail="3"]) .mtg-rail-step b{font-size:14px;}
+.mtg[data-rail="3"] .mtg-rail{gap:6px;padding:8px;}
+.mtg[data-rail="3"] .mtg-sheet-btn{height:38px;}

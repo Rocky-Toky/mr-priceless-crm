@@ -13223,7 +13223,30 @@ function mtgBlocksHtml(blocks, keyBase){
   return html;
 }
 const mtgClock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
-function renderMeetingStructure(){
+// Every question on screen at once, never a scroll: if a step doesn't fit,
+// it tightens a notch at a time - less spacing, then two or three columns,
+// then smaller text - until it does. Same for the steps down the left.
+function mtgFit(root){
+  const mtg = root?.querySelector(".mtg");
+  if (!mtg) return;
+  mtg.dataset.fit = "0"; mtg.dataset.rail = "0";
+  if (innerWidth < 821 || innerHeight < 560) return;
+  const fits = (el) => !el || el.scrollHeight <= el.clientHeight + 1;
+  const content = mtg.querySelector(".mtg-content"), rail = mtg.querySelector(".mtg-rail");
+  for (let lvl = 1; lvl <= 6 && !fits(content); lvl++) mtg.dataset.fit = String(lvl);
+  for (let lvl = 1; lvl <= 3 && !fits(rail); lvl++) mtg.dataset.rail = String(lvl);
+  // Last resort: scale the step down just enough that it all shows.
+  const shrink = (box, kids) => { for (let z = 0.95; z >= 0.5 && !fits(box); z -= 0.05) kids.forEach(k => { k.style.zoom = z.toFixed(2); }); };
+  if (content) shrink(content, [...content.children]);
+  if (rail) shrink(rail, [...rail.children]);
+}
+let mtgFitTimer = null;
+addEventListener("resize", () => {
+  clearTimeout(mtgFitTimer);
+  mtgFitTimer = setTimeout(() => { if (state.page === "meeting") mtgFit($("#mtg-root")); if (state.page === "sit-rate") mtgFit($("#sr-root")); }, 120);
+});
+function renderMeetingStructure(){ renderMeetingStructureBody(); requestAnimationFrame(() => mtgFit($("#mtg-root"))); }
+function renderMeetingStructureBody(){
   const root = $("#mtg-root");
   if (!root) return;
   ensureBuiltinPlaybooks();
@@ -13348,7 +13371,8 @@ function srDoc(){
   });
   return { p, lead: doc.lead, when: extra.find(c => /^when$/i.test(c.title))?.body || "", steps };
 }
-function renderSitRate(){
+function renderSitRate(){ renderSitRateBody(); requestAnimationFrame(() => mtgFit($("#sr-root"))); }
+function renderSitRateBody(){
   const root = $("#sr-root");
   if (!root) return;
   ensureBuiltinPlaybooks();
