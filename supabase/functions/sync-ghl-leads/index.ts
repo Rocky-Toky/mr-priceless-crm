@@ -477,7 +477,7 @@ async function clientSetup(admin: any, clientId: string) {
   return { stages: allStages, calendars: calendars.map((c: any) => ({ id: c.id, name: c.name })), calendar_error: calendarError, map: map || {}, suggest };
 }
 
-async function applyOutcome(admin: any, leadId: string, outcome: string, when: string | null, note: string, by: string) {
+async function applyOutcome(admin: any, leadId: string, outcome: string, when: string | null, note: string) {
   const kind = OUTCOME_STAGE[outcome];
   if (!kind) return { skipped: true };
   const { data: lead } = await admin.from("client_leads").select("id, client_id, name, external_lead_id, ghl_contact_id").eq("id", leadId).maybeSingle();
@@ -531,11 +531,12 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
     } catch (e) { result.errors.push("Couldn't book it in their calendar: " + String((e as any)?.message || e).slice(0, 160)); }
   }
 
-  // Leave Carmen's notes on the contact so the client sees them.
+  // Leave the notes on the contact so the client sees them. No caller name: clients
+  // shouldn't know who on the team rang each lead.
   if (contactId) {
     const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer after 5 calls", call_back: "Call back" };
     const whenText = when ? ` for ${new Date(when).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "";
-    try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: `${label[outcome] || outcome}${whenText} - called by ${by} (Mr Priceless).${note ? "\n\n" + note : ""}` }) }); result.note = true; }
+    try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: `${label[outcome] || outcome}${whenText} - called by Mr Priceless.${note ? "\n\n" + note : ""}` }) }); result.note = true; }
     catch { /* a note is a nice-to-have */ }
   }
   if (!result.errors.length) delete result.errors;
@@ -572,8 +573,7 @@ Deno.serve(async (req: Request) => {
   if (body.action === "sync") return json(await syncAll(admin));
   if (body.action === "outcome"){
     if (!body.lead_id || !body.outcome) return json({ error: "lead_id and outcome are needed." }, 400);
-    const who = String(email).split("@")[0].split(/[._0-9]/)[0];
-    return json(await applyOutcome(admin, body.lead_id, body.outcome, body.when || null, String(body.note || "").slice(0, 2000), who.charAt(0).toUpperCase() + who.slice(1)));
+    return json(await applyOutcome(admin, body.lead_id, body.outcome, body.when || null, String(body.note || "").slice(0, 2000)));
   }
   if (body.action === "setup"){
     if (!body.client_id) return json({ error: "client_id is needed." }, 400);
