@@ -4489,3 +4489,9 @@ body.ac-shown .ac-fab{display:none;}
   .jv-fab:not([hidden]) ~ .ac-fab{bottom:140px;}
   .ac-panel{right:0;bottom:0;width:100vw;max-width:none;height:100dvh;border-radius:0;border:0;}
 }
+
+/* Lead Follow Up: per-client "Check it's a fit" editor */
+.lq3-fit-edit{display:inline-block;margin-top:10px;}
+.lq3-fit-form textarea{display:block;width:100%;box-sizing:border-box;margin:8px 0 10px;padding:12px 14px;border:1px solid var(--lq-line);border-radius:12px;font:inherit;font-size:16px;line-height:1.5;background:#fff;resize:vertical;}
+.lq3-fit-form textarea:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,175,55,.18);}
+.lq3-fit-form div{display:flex;align-items:center;gap:14px;}
