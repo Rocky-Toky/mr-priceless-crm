@@ -4299,9 +4299,17 @@ function acWho(number){
   const same = (p) => p && acKey(p) === key;
   const newest = (rows) => rows.slice().sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
   const lead = newest((state.clientLeads || []).filter(l => same(l.phone)));
-  if (lead){ const c = state.clients.find(x => x.id === lead.client_id); return { name: lead.name || "A lead", sub: c ? `Lead for ${lqBizName(c)}` : "Lead", kind: "lead", id: lead.id }; }
-  const client = state.clients.find(c => same(c.phone));
-  if (client) return { name: client.name, sub: "Client", kind: "client", id: client.id };
+  if (lead){
+    // A lead ringing back: who they rang about matters most, so whoever
+    // picks up answers as that business.
+    const c = state.clients.find(x => x.id === lead.client_id), biz = c ? lqBizName(c) : "";
+    const log = Array.isArray(lead.call_log) ? lead.call_log : [], last = log[log.length - 1];
+    const note = last?.at ? `You called them ${lqWhenWords(last.at)}${log.length > 1 ? ` (${log.length} calls)` : ""}` : "";
+    return { name: lead.name || "A lead", sub: biz ? `Their enquiry was for ${biz}` : "Lead", biz, note, kind: "lead", id: lead.id };
+  }
+  // A client, from their main number or any number in their key contacts.
+  const client = state.clients.find(c => same(c.phone) || (String(c.key_contacts || "").match(/\+?\d[\d\s()-]{6,}\d/g) || []).some(same));
+  if (client) return { name: client.name, sub: same(client.phone) ? "Client" : "Client · key contact", biz: lqBizName(client), client: true, kind: "client", id: client.id };
   const meeting = newest((state.meetings || []).filter(m => same(m.phone)));
   if (meeting) return { name: [meeting.first_name, meeting.last_name].filter(Boolean).join(" ") || "Prospect", sub: [meeting.company, "booked meeting"].filter(Boolean).join(" · "), kind: "meeting", id: meeting.id };
   const contact = (state.contacts || []).find(c => same(c.phone));
@@ -4326,15 +4334,39 @@ function acCardRender(){
   const name = who?.name || acNames[acKey(acCall.number)] || formatPhone(acCall.number);
   const status = acCall.ended ? (acCall.missed ? "Missed call" : "Call ended") : acCall.dir === "in" ? (acCall.answered ? "On the call" : "Calling you now") : (acCall.answered ? "On the call" : "Calling…");
   el.className = `ac-card ${acCall.dir}${acCall.ended ? " ended" : ""}`;
+  const ringing = acCall.dir === "in" && !acCall.answered && !acCall.ended;
+  const banner = who?.biz && acCall.dir === "in" && !who.client
+    ? `<div class="ac-for"><small>${ringing ? "Answer as" : "Their enquiry was for"}</small><b>${escapeHtml(who.biz)}</b></div>`
+    : who?.client && acCall.dir === "in" ? `<div class="ac-for client"><small>Your client</small><b>${escapeHtml(who.biz || who.name)}</b></div>` : "";
   el.innerHTML = `
+    ${banner}
     <div class="ac-card-main">
       <small>${acCall.dir === "in" ? "Incoming" : "Outgoing"} · ${escapeHtml(status)}</small>
       <b>${escapeHtml(name)}</b>
-      <span>${[who ? who.sub : acCall.dir === "in" ? "Not in the CRM" : "", name !== formatPhone(acCall.number) ? formatPhone(acCall.number) : ""].filter(Boolean).map(escapeHtml).join(" · ")}</span>
+      <span>${[who ? (banner ? (who.client ? who.sub : "") : who.sub) : acCall.dir === "in" ? "Not in the CRM" : "", name !== formatPhone(acCall.number) ? formatPhone(acCall.number) : ""].filter(Boolean).map(escapeHtml).join(" · ")}</span>
+      ${who?.note ? `<span>${escapeHtml(who.note)}</span>` : ""}
     </div>
     ${who ? `<button type="button" class="ac-open" data-ac-open="${who.kind}" data-id="${escapeHtml(who.id)}">Open</button>` : ""}
     <button type="button" class="ac-x" data-ac-clear aria-label="Hide">✕</button>`;
   el.hidden = false;
+  acTitleSync();
+}
+// While a call rings, the browser tab flashes who it's for, so it's seen
+// even with the CRM in a background tab.
+let acTitleTimer = null, acTitleBase = null;
+function acTitleSync(){
+  const ringing = acCall && acCall.dir === "in" && !acCall.answered && !acCall.ended;
+  if (!ringing){
+    if (acTitleTimer){ clearInterval(acTitleTimer); acTitleTimer = null; if (acTitleBase !== null) document.title = acTitleBase; acTitleBase = null; }
+    return;
+  }
+  if (acTitleTimer) return;
+  const who = acWho(acCall.number);
+  const text = "📞 " + (who?.biz && !who.client ? `Call for ${who.biz}` : who ? `${who.name} calling` : "Incoming call");
+  acTitleBase = document.title;
+  let on = false;
+  acTitleTimer = setInterval(() => { on = !on; document.title = on ? text : acTitleBase; }, 900);
+  document.title = text;
 }
 function acFabSync(){
   const fab = $("#ac-fab");
@@ -4366,7 +4398,11 @@ function setupAircall(){
         <div class="ac-card" id="ac-card" hidden></div>
         <div class="ac-ws" id="ac-ws"></div>
       </section>`);
-    $("#ac-fab").addEventListener("click", () => acShow(!$("#ac-panel").classList.contains("open")));
+    $("#ac-fab").addEventListener("click", () => {
+      acShow(!$("#ac-panel").classList.contains("open"));
+      // So a ringing call can pop up even when the CRM is in the background.
+      try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch(e){}
+    });
     $("#ac-panel").addEventListener("click", (e) => {
       if (e.target.closest("[data-ac-min]")) return acShow(false);
       if (e.target.closest("[data-ac-clear]")){ acCall = null; acCardRender(); return acFabSync(); }
@@ -4385,7 +4421,12 @@ function setupAircall(){
   acWs.on("incoming_call", (c) => {
     acStartCall("in", c.from); acShow(true);
     const who = acWho(c.from);
-    try { if (window.Notification && Notification.permission === "granted" && document.hidden) new Notification("Incoming call", { body: who ? `${who.name} · ${who.sub}` : formatPhone(c.from), tag: "ac-" + c.call_id }); } catch(e){}
+    try {
+      if (window.Notification && Notification.permission === "granted" && (document.hidden || !document.hasFocus())){
+        const n = new Notification(who?.biz && !who.client ? `📞 Call for ${who.biz}` : "📞 Incoming call", { body: who ? `${who.name}${who.client ? " · your client" : ""}` : formatPhone(c.from), tag: "ac-" + c.call_id, requireInteraction: true });
+        n.onclick = () => { window.focus(); acShow(true); n.close(); };
+      }
+    } catch(e){}
   });
   acWs.on("call_end_ringtone", (c) => {
     if (!acCall) return;

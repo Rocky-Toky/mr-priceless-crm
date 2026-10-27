@@ -4495,3 +4495,9 @@ body.ac-shown .ac-fab{display:none;}
 .lq3-fit-form textarea{display:block;width:100%;box-sizing:border-box;margin:8px 0 10px;padding:12px 14px;border:1px solid var(--lq-line);border-radius:12px;font:inherit;font-size:16px;line-height:1.5;background:#fff;resize:vertical;}
 .lq3-fit-form textarea:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,175,55,.18);}
 .lq3-fit-form div{display:flex;align-items:center;gap:14px;}
+/* Incoming call: the business they rang about, big, so you answer as them */
+.ac-card{flex-wrap:wrap;}
+.ac-for{flex:1 0 100%;display:flex;flex-direction:column;gap:2px;margin:-2px 0 4px;padding:10px 14px;border-radius:12px;background:#0f0f11;color:#f4f0e6;}
+.ac-for small{font-size:12.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--gold-bright);}
+.ac-for b{font-size:22px;line-height:1.2;overflow-wrap:anywhere;}
+.ac-for.client small{color:#9fe0b9;}
