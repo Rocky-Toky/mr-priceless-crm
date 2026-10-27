@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=330">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=330">
+<link rel="stylesheet" href="css/style.css?v=331">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=331">
 </head>
 <body>
 
@@ -246,15 +246,15 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
         <span>Reporting</span>
       </button>
-      <button type="button" class="nav-item nav-group-item" data-group="finance" data-workspace="delivery">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/><path d="M9.5 16l1.5 1.5 3-3"/></svg>
-        <span>Finance</span><span class="nav-count" id="nav-rc-count" hidden></span>
-      </button>
       <button class="nav-item nav-hidden" data-page="employees" data-workspace="employees">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
         <span>Team</span>
       </button>
       <div class="nav-emp-list" data-workspace="employees"></div>
+      <button type="button" class="nav-item nav-group-item nav-finance" data-group="finance" data-workspace="employees">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/><path d="M9.5 16l1.5 1.5 3-3"/></svg>
+        <span>Finance</span><span class="nav-count" id="nav-rc-count" hidden></span>
+      </button>
       <button class="nav-item" data-page="lead-queue" data-workspace="leads">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         <span>Call queue</span><span class="nav-count nav-lq-count" hidden title="Leads to call now"></span>
@@ -321,11 +321,11 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg>
             <span>Rules</span>
           </button>
-      <button class="nav-item nav-hidden" data-page="receipts" data-workspace="delivery">
+      <button class="nav-item nav-hidden nav-finance" data-page="receipts" data-workspace="employees">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/><path d="M9.5 16l1.5 1.5 3-3"/></svg>
             <span>Receipts</span>
           </button>
-      <button class="nav-item nav-hidden" data-page="expenses" data-workspace="delivery">
+      <button class="nav-item nav-hidden nav-finance" data-page="expenses" data-workspace="employees">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
             <span>Expenses</span>
           </button>
@@ -2915,17 +2915,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=330"></script>
-<script src="js/supabaseClient.js?v=330"></script>
-<script src="js/report-pdf.js?v=330"></script>
-<script src="js/plan-pdf.js?v=330"></script>
-<script src="js/workshop-pdf.js?v=330"></script>
-<script src="js/receipt-pdf.js?v=330"></script>
-<script src="js/welcome-pdf.js?v=330"></script>
-<script src="js/builtin-playbooks.js?v=330"></script>
-<script src="js/builtin-email-templates.js?v=330"></script>
-<script src="js/app.js?v=330"></script>
-<script src="js/meetings-tracker.js?v=330"></script>
-<script src="js/todo.js?v=330"></script>
+<script src="js/config.js?v=331"></script>
+<script src="js/supabaseClient.js?v=331"></script>
+<script src="js/report-pdf.js?v=331"></script>
+<script src="js/plan-pdf.js?v=331"></script>
+<script src="js/workshop-pdf.js?v=331"></script>
+<script src="js/receipt-pdf.js?v=331"></script>
+<script src="js/welcome-pdf.js?v=331"></script>
+<script src="js/builtin-playbooks.js?v=331"></script>
+<script src="js/builtin-email-templates.js?v=331"></script>
+<script src="js/app.js?v=331"></script>
+<script src="js/meetings-tracker.js?v=331"></script>
+<script src="js/todo.js?v=331"></script>
 </body>
 </html>

@@ -1682,6 +1682,8 @@ function applyWorkspace(){
   });
   // Lead setup (GoHighLevel connections and stages) is for Rocky and Max only.
   $$(".nav-lead-setup").forEach(el => { if (IS_CONFIGURED && !(isRocky() || isMax())) el.style.display = "none"; });
+  // Finance (receipts and expenses) sits in Team, but stays with whoever can see Service Delivery.
+  $$(".nav-finance").forEach(el => { if (!canAccessDelivery()) el.style.display = "none"; });
   // Contacts lives under Add prospects; without Add prospects it's just Contacts.
   $$(".nav-prospects-label").forEach(el => { el.textContent = canAccessLeadEngine() ? "Add Prospects" : "Contacts"; });
   const copy = WORKSPACE_COPY[ws] || WORKSPACE_COPY.sales;
@@ -11637,7 +11639,7 @@ const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call b
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
 const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable"]);
 const LQ_MAX_TRIES = 5, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
-let lqPlaceFor = null;
+let lqPlaceFor = null, lqFitFor = null;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
@@ -11948,7 +11950,10 @@ function lqDetailHtml(l){
   const answers = (Array.isArray(l.answers) ? l.answers : []).filter(a => a && a.a).map(a => ({ q: lqQuestion(a.q), a: lqNice(a.a) }));
   const goodLead = String(c?.qualified_lead_structure || "").split("\n").map(x => x.trim()).filter(Boolean);
   const coverage = goodLead.find(x => /^service radius:/i.test(x))?.replace(/^service radius:\s*/i, "");
-  const checks = goodLead.filter(x => !/^service radius:/i.test(x));
+  // What makes a good job for this client, written by Rocky/Max per client
+  // (clients.lead_fit, sql/091) - one point per line.
+  const checks = (Array.isArray(c?.lead_fit) ? c.lead_fit : []).map(x => String(x || "").trim()).filter(Boolean);
+  const canFit = !!c && (!IS_CONFIGURED || isRocky() || isMax());
   const log = (Array.isArray(l.call_log) ? l.call_log : []).slice().reverse();
   const lastTry = log[0];
   const status = st === "new" && lqBacklog(l) ? { tone: "amber", text: `Not called yet · enquired ${lqAgo(waited)} ago` }
@@ -12033,7 +12038,13 @@ function lqDetailHtml(l){
       <ol class="lq3-steps">
         ${step(1, "Say hello", quote(`Hi ${B(first)}, it's Carmen from ${B(biz)}. You just sent through an enquiry${job ? ` about ${B(job.toLowerCase())}` : " on Facebook"}. Have you got a quick minute?`))}
         ${step(2, "Ask about the job", quote(`Awesome. Tell me a bit about what you're looking to get done?`))}
-        ${step(3, "Check it's a fit", checks.length ? `<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : `<p class="lq3-muted">How big is the job, what's the budget, when do they want it done, and where is it?</p>`)}
+        ${step(3, "Check it's a fit", lqFitFor === c?.id
+          ? `<form class="lq3-fit-form" data-lq-form="fit">
+              <p class="lq3-muted">What makes a good job for ${B(biz)}? One per line - Carmen sees these on every ${escapeHtml(biz)} lead.</p>
+              <textarea name="fit" rows="5" placeholder="e.g. Driveways and patios over 30m²&#10;Within 40km of Hamilton&#10;Wants it done in the next 3 months&#10;Budget over $5,000">${escapeHtml(checks.join("\n"))}</textarea>
+              <div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="fit-cancel">Cancel</button></div>
+            </form>`
+          : `${checks.length ? `<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : `<p class="lq3-muted">How big is the job, what's the budget, when do they want it done, and where is it?</p>`}${canFit ? `<button type="button" class="lq3-textbtn lq3-fit-edit" data-lq-act="fit">${checks.length ? `Change these for ${escapeHtml(biz)}` : `+ Add what makes a good job for ${escapeHtml(biz)}`}</button>` : ""}`)}
         ${step(4, "Book the quote", quote(`Perfect. ${B(biz)} can come out and give you a quote. Does earlier or later in the week suit, morning or afternoon?`))}
       </ol>
       <details class="lq3-vm"><summary>If nobody answers, leave this message</summary>${quote(`Hi ${escapeHtml(first)}, it's Carmen from ${escapeHtml(biz)} about your enquiry. I'll try you again shortly, no need to call back.`)}</details>
@@ -12728,6 +12739,8 @@ function setupLeadFollowUpUi(){
       if (act === "add-cancel"){ lqAdding = false; return renderLeadQueue(); }
       if (act === "done"){ lqShowDone = !lqShowDone; return renderLeadQueue(); }
       if (act === "place"){ lqPlaceFor = lqSel; renderLeadQueue(); $(".lq3-place-form input")?.focus(); return; }
+      if (act === "fit" && l){ lqFitFor = l.client_id; renderLeadQueue(); $(".lq3-fit-form textarea")?.focus(); return; }
+      if (act === "fit-cancel"){ lqFitFor = null; return renderLeadQueue(); }
       if (act === "followup") return fuOpenForm(lqSel);
       if (act === "history"){ lqShowHistory = !lqShowHistory; return renderLeadQueue(); }
     });
@@ -12748,6 +12761,20 @@ function setupLeadFollowUpUi(){
           when = new Date(`${v.day}T${v.time}:00`).toISOString();
         }
         return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when);
+      }
+      if (form.dataset.lqForm === "fit"){
+        const c = state.clients.find(x => x.id === lqFitFor);
+        if (!c) return;
+        const fit = String(v.fit || "").split("\n").map(x => x.replace(/^[-•*✓\s]+/, "").trim()).filter(Boolean).slice(0, 12);
+        lqFitFor = null;
+        if (IS_CONFIGURED){
+          const ok = await DataLayer.update("clients", c.id, { lead_fit: fit, updated_at: new Date().toISOString() });
+          if (!ok) return;
+        }
+        c.lead_fit = fit;
+        renderLeadQueue();
+        rcToast(`Saved for every ${lqBizName(c)} lead.`);
+        return;
       }
       if (form.dataset.lqForm === "place"){
         const l = state.clientLeads.find(x => x.id === lqSel), place = (v.place || "").trim();
