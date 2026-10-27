@@ -11610,7 +11610,7 @@ const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call b
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
 const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable", "call_back"]);
 const LQ_MAX_TRIES = 5, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
-let lqPlaceFor = null, lqFitFor = null;
+let lqPlaceFor = null, lqFitFor = null, lqAreaFor = null;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
@@ -11920,7 +11920,8 @@ function lqDetailHtml(l){
   const waited = Date.now() - lqIn(l), late = waited > LQ_FAST_MS;
   const answers = (Array.isArray(l.answers) ? l.answers : []).filter(a => a && a.a).map(a => ({ q: lqQuestion(a.q), a: lqNice(a.a) }));
   const goodLead = String(c?.qualified_lead_structure || "").split("\n").map(x => x.trim()).filter(Boolean);
-  const coverage = goodLead.find(x => /^service radius:/i.test(x))?.replace(/^service radius:\s*/i, "");
+  // The areas this client covers: written by Rocky / Max (clients.lead_area, sql/094).
+  const coverage = String(c?.lead_area || "").trim();
   // What makes a good job for this client, written by Rocky/Max per client
   // (clients.lead_fit, sql/091) - one point per line.
   const checks = (Array.isArray(c?.lead_fit) ? c.lead_fit : []).map(x => String(x || "").trim()).filter(Boolean);
@@ -12001,7 +12002,10 @@ function lqDetailHtml(l){
             ${lqPlaceFor === l.id ? `<form class="lq3-place-form" data-lq-form="place"><div><input name="place" placeholder="e.g. Petone, Lower Hutt" required><button type="submit" class="lq3-btn">Save</button></div></form>` : ""}`}
           <div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=${mapZoom}&output=embed"></iframe></div>
           <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>
-        ${coverage ? `<p class="lq3-cover"><span>${escapeHtml(biz)} covers</span>${escapeHtml(coverage)}</p>` : ""}
+        ${lqAreaFor === c?.id
+          ? `<form class="lq3-cover lq3-fit-form" data-lq-form="area"><span>Where does ${escapeHtml(biz)} take jobs?</span><textarea name="area" rows="2" placeholder="e.g. Wellington, Lower Hutt and Porirua - not Upper Hutt">${escapeHtml(coverage)}</textarea><div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="area-cancel">Cancel</button></div></form>`
+          : coverage ? `<p class="lq3-cover"><span>${escapeHtml(biz)} covers</span>${escapeHtml(coverage)}${canFit ? ` <button type="button" class="lq3-textbtn" data-lq-act="area">Change</button>` : ""}</p>`
+          : canFit ? `<p class="lq3-cover"><button type="button" class="lq3-textbtn" data-lq-act="area">+ Add the areas ${escapeHtml(biz)} covers</button></p>` : ""}
       </section>
     </div>
 
@@ -12024,8 +12028,8 @@ function lqDetailHtml(l){
 
     <form class="lq3-panel lq3-outcome" data-lq-form="outcome">
       <h3>${lqIcon("phone")}How did the call go?</h3>
-      <div class="lq3-outs">${["site_visit", "consult_call", "no_answer", "call_back"].map(bigOut).join("")}</div>
-      <div class="lq3-pills">${["qualified", "not_interested", "disqualified", "wrong_number"].map(smallOut).join("")}</div>
+      <div class="lq3-outs">${["site_visit", ...(lqHasConsult(l) ? ["consult_call"] : []), "no_answer", "call_back"].map(bigOut).join("")}</div>
+      <div class="lq3-pills">${["not_interested", "disqualified", "wrong_number"].map(smallOut).join("")}</div>
       ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" ? "site visit" : "consultation"} stage and the time's booked in their calendar.</p>` : ""}
       ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's the 5th call. They'll move to "No answer" in ${escapeHtml(biz)}'s GoHighLevel.` : `They'll come back in the ${lqWaveOf(lqNextTry()) === "am" ? "morning" : "afternoon"} wave, ${escapeHtml(lqWhenWords(lqNextTry()))} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`}</p>` : ""}
@@ -12222,6 +12226,13 @@ function renderLeadResults(){
     ${calls.length ? `<h4 class="emp-h">What happened on the calls</h4><div class="lr-outcomes">${Object.entries(outcomes).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<div><span>${escapeHtml(LQ_OUTCOMES[k]?.label || k)}</span><i class="emp-bar"><i style="width:${Math.round(n / calls.length * 100)}%"></i></i><b>${n}</b></div>`).join("")}</div>` : ""}`;
 }
 
+// Consultation call only shows when the client's own GoHighLevel pipeline has
+// that stage (found by the sync, lead_sync_status.stages).
+function lqHasConsult(l){
+  if (!IS_CONFIGURED) return true;
+  const r = (lqSyncRows || []).find(x => x.client_id === l.client_id);
+  return !!r?.stages?.found?.consult;
+}
 // The stages the calling flow needs in each client's GoHighLevel (checked by
 // the sync, lead_sync_status.stages).
 const LQ_FLOW_STAGE_NAMES = { rep_to_contact: "Rep to contact", site_visit: "Site visit booked", consult: "Consultation call booked", disqualified: "Disqualified", stuck: "Stuck", no_answer: "No answer" };
@@ -12857,6 +12868,8 @@ function setupLeadFollowUpUi(){
       if (act === "place"){ lqPlaceFor = lqSel; renderLeadQueue(); $(".lq3-place-form input")?.focus(); return; }
       if (act === "fit" && l){ lqFitFor = l.client_id; renderLeadQueue(); $(".lq3-fit-form textarea")?.focus(); return; }
       if (act === "fit-cancel"){ lqFitFor = null; return renderLeadQueue(); }
+      if (act === "area" && l){ lqAreaFor = l.client_id; renderLeadQueue(); $(".lq3-cover textarea")?.focus(); return; }
+      if (act === "area-cancel"){ lqAreaFor = null; return renderLeadQueue(); }
       if (act === "followup") return fuOpenForm(lqSel);
       if (act === "recordings" && l){ lcLead = l.id; lcPeriod = "all"; lcPlaying = null; goPage("lead-calls"); return renderLeadCalls(); }
       if (act === "history"){ lqShowHistory = !lqShowHistory; return renderLeadQueue(); }
@@ -12878,6 +12891,20 @@ function setupLeadFollowUpUi(){
           when = new Date(`${v.day}T${v.time}:00`).toISOString();
         }
         return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when);
+      }
+      if (form.dataset.lqForm === "area"){
+        const c = state.clients.find(x => x.id === lqAreaFor);
+        if (!c) return;
+        const area = String(v.area || "").trim().slice(0, 300) || null;
+        lqAreaFor = null;
+        if (IS_CONFIGURED){
+          const ok = await DataLayer.update("clients", c.id, { lead_area: area, updated_at: new Date().toISOString() });
+          if (!ok) return;
+        }
+        c.lead_area = area;
+        renderLeadQueue();
+        rcToast(`Saved for every ${lqBizName(c)} lead.`);
+        return;
       }
       if (form.dataset.lqForm === "fit"){
         const c = state.clients.find(x => x.id === lqFitFor);
