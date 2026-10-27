@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=326">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=326">
+<link rel="stylesheet" href="css/style.css?v=327">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=327">
 </head>
 <body>
 
@@ -263,13 +263,17 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span>Follow-ups</span><span class="nav-count nav-fu-count" hidden title="Follow-ups to do now"></span>
       </button>
-      <button class="nav-item" data-page="lead-results" data-workspace="leads">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
-        <span>Results</span>
-      </button>
       <button class="nav-item" data-page="lead-kpis" data-workspace="leads">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
+        <span>My results</span>
+      </button>
+      <button class="nav-item" data-page="lead-plan" data-workspace="leads">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>
-        <span>KPI's</span>
+        <span>Performance review</span><span class="nav-count nav-lp-count" hidden title="Left to do this week"></span>
+      </button>
+      <button class="nav-item nav-lead-setup" data-page="lead-results" data-workspace="leads">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        <span>Setup</span>
       </button>
       <button type="button" class="nav-item nav-group-item" data-group="library" data-workspace="both">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -887,6 +891,9 @@
     </section>
     <section class="page" id="page-lead-followups">
       <div id="fu-root"></div>
+    </section>
+    <section class="page" id="page-lead-plan">
+      <div id="lp-root"></div>
     </section>
     <section class="page" id="page-lead-kpis">
       <div id="lk-root"></div>
@@ -2906,17 +2913,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=326"></script>
-<script src="js/supabaseClient.js?v=326"></script>
-<script src="js/report-pdf.js?v=326"></script>
-<script src="js/plan-pdf.js?v=326"></script>
-<script src="js/workshop-pdf.js?v=326"></script>
-<script src="js/receipt-pdf.js?v=326"></script>
-<script src="js/welcome-pdf.js?v=326"></script>
-<script src="js/builtin-playbooks.js?v=326"></script>
-<script src="js/builtin-email-templates.js?v=326"></script>
-<script src="js/app.js?v=326"></script>
-<script src="js/meetings-tracker.js?v=326"></script>
-<script src="js/todo.js?v=326"></script>
+<script src="js/config.js?v=327"></script>
+<script src="js/supabaseClient.js?v=327"></script>
+<script src="js/report-pdf.js?v=327"></script>
+<script src="js/plan-pdf.js?v=327"></script>
+<script src="js/workshop-pdf.js?v=327"></script>
+<script src="js/receipt-pdf.js?v=327"></script>
+<script src="js/welcome-pdf.js?v=327"></script>
+<script src="js/builtin-playbooks.js?v=327"></script>
+<script src="js/builtin-email-templates.js?v=327"></script>
+<script src="js/app.js?v=327"></script>
+<script src="js/meetings-tracker.js?v=327"></script>
+<script src="js/todo.js?v=327"></script>
 </body>
 </html>
