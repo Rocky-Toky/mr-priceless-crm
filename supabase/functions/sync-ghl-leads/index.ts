@@ -413,18 +413,20 @@ async function inspect(admin: any) {
 // What each of Carmen's outcomes does in the client's GHL:
 //   site_visit / consult_call  -> move to that stage, and book it in their calendar
 //   not_interested / disqualified / wrong_number -> move to Disqualified
+//   call_back (call back later) -> move to Stuck
 //   unreachable (5 calls, no answer) -> move to No answer
 // The stage and calendar come from lead_stage_map when set for that client,
 // otherwise the best match by name. Every move also leaves a note on the contact.
 const CAL_VERSION = "2021-04-15";
-const OUTCOME_STAGE: Record<string, "site_visit" | "consult" | "disqualified" | "no_answer"> = {
-  site_visit: "site_visit", consult_call: "consult", not_interested: "disqualified", disqualified: "disqualified", wrong_number: "disqualified", unreachable: "no_answer",
+const OUTCOME_STAGE: Record<string, "site_visit" | "consult" | "disqualified" | "no_answer" | "stuck"> = {
+  site_visit: "site_visit", consult_call: "consult", not_interested: "disqualified", disqualified: "disqualified", wrong_number: "disqualified", unreachable: "no_answer", call_back: "stuck",
 };
 const STAGE_MATCH: Record<string, RegExp[]> = {
   site_visit: [/site\s*visit.*(booked|arranged|scheduled|confirmed)/i, /(booked|arranged|scheduled).*site\s*visit/i, /site\s*visit/i, /quote\s*(visit|booked|appointment)/i, /measure|appointment\s*booked/i],
   consult: [/consult.*(booked|scheduled|confirmed)/i, /consult/i, /(phone|discovery|zoom|video)\s*call/i, /call\s*booked/i],
   disqualified: [/disqual/i, /not\s*a\s*fit|unqualified|junk|spam/i],
   no_answer: [/no\s*answer/i, /unreach|no\s*response|unresponsive|not\s*answering|no\s*contact/i, /stuck/i],
+  stuck: [/\bstuck\b/i, /call\s*back/i, /follow[\s-]*up/i],
 };
 const CAL_MATCH: Record<string, RegExp[]> = {
   site_visit: [/site|visit|quote|measure|onsite|on-site|inspection/i],
@@ -452,7 +454,7 @@ async function clientSetup(admin: any, clientId: string) {
   const allStages = pipes.flatMap((p: any) => (p.stages || []).map((st: any) => ({ id: st.id, name: st.name, pipeline: p.name, pipeline_id: p.id })));
   const main = pipes[0]?.stages || [];
   const suggest: any = {};
-  for (const k of ["site_visit", "consult", "disqualified", "no_answer"]) suggest[k + "_stage"] = bestStage(main, k)?.id || bestStage(allStages, k)?.id || null;
+  for (const k of ["site_visit", "consult", "disqualified", "no_answer", "stuck"]) suggest[k + "_stage"] = bestStage(main, k)?.id || bestStage(allStages, k)?.id || null;
   for (const k of ["site_visit", "consult"]) suggest[k + "_calendar"] = bestCalendar(calendars, k)?.id || null;
   return { stages: allStages, calendars: calendars.map((c: any) => ({ id: c.id, name: c.name })), calendar_error: calendarError, map: map || {}, suggest };
 }
@@ -481,7 +483,7 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
     const picked = map?.[kind + "_stage"];
     const all = pipes.flatMap((p: any) => (p.stages || []).map((st: any) => ({ ...st, pipeline_id: p.id })));
     const stage = (picked && all.find((st: any) => st.id === picked)) || bestStage((pipe?.stages || []).map((st: any) => ({ ...st, pipeline_id: pipe.id })), kind);
-    const KIND_NAME: Record<string, string> = { site_visit: "Site visit booked", consult: "Consultation call booked", disqualified: "Disqualified", no_answer: "No answer" };
+    const KIND_NAME: Record<string, string> = { site_visit: "Site visit booked", consult: "Consultation call booked", disqualified: "Disqualified", no_answer: "No answer", stuck: "Stuck" };
     if (!stage) result.errors.push(`Couldn't find a "${KIND_NAME[kind]}" stage in their pipeline - pick one under Stages on the Results page.`);
     else if (opp) {
       await ghl(`/opportunities/${encodeURIComponent(opp.id)}`, token, { method: "PUT", body: JSON.stringify({ pipelineId: stage.pipeline_id, pipelineStageId: stage.id, status: "open" }) });
@@ -513,7 +515,7 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
 
   // Leave Carmen's notes on the contact so the client sees them.
   if (contactId) {
-    const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer after 5 calls" };
+    const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer after 5 calls", call_back: "Call back" };
     const whenText = when ? ` for ${new Date(when).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "";
     try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: `${label[outcome] || outcome}${whenText} - called by ${by} (Mr Priceless).${note ? "\n\n" + note : ""}` }) }); result.note = true; }
     catch { /* a note is a nice-to-have */ }

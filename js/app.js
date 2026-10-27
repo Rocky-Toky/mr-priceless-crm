@@ -11608,7 +11608,7 @@ const LQ_OUTCOMES = {
 const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", site_visit: "Site visit booked", consult_call: "Consultation booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer - 5 tries", in_ghl: "Moved on in GoHighLevel", old: "Old" };
 // What a booking is, and which outcomes also move the lead in the client's GoHighLevel.
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
-const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable"]);
+const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable", "call_back"]);
 const LQ_MAX_TRIES = 5, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
 let lqPlaceFor = null, lqFitFor = null;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
@@ -11878,7 +11878,7 @@ function lqGuideHtml(){
       ${step(1, "New enquiries first - within 3 minutes", "Anyone who's just enquired goes to the top, the one waiting longest first. Your goal is to ring every new enquiry within 3 minutes of it coming in.")}
       ${step(2, "No answer? Leave the message and press No answer", "They come back in the next wave. The <b>morning wave</b> starts at 9am and the <b>afternoon wave</b> at 2pm. If you rang in the morning, the next try is that afternoon; if you rang in the afternoon, it's the next morning. That way you catch them at a different time of day each try.")}
       ${step(3, "5 calls in all", "Each lead gets up to 5 calls - the first one straight away, then 4 more in alternating morning and afternoon waves (about 2 days). After the 5th no-answer, they move to \"No answer\" in the client's GoHighLevel and come off your list.")}
-      ${step(4, "Call backs", "If they ask you to ring back, press Call back later and pick the time they asked for. They'll pop back up at that time.")}
+      ${step(4, "Call backs", "If they ask you to ring back, press Call back later and pick the time they asked for. They move to Stuck in the client's GoHighLevel and pop back up here at that time.")}
       ${step(5, "Then Rep to contact and Stuck", "When the new ones and the retries are done, work through the older leads sitting in the client's Rep to contact or Stuck stage - longest waiting first. Each lead shows its stage next to the client's name.")}
       ${step(6, "Booked, or not a fit", "Site visit or consultation booked: it goes straight into the client's GoHighLevel and calendar. Not interested, not a fit or wrong number: they move to Disqualified.")}
     </ol>
@@ -12073,7 +12073,7 @@ async function lqSaveOutcome(l, outcome, note, when){
 async function lqSendToGhl(l, outcome, when, note){
   const biz = lqClient(l)?.name || "the client";
   if (!IS_CONFIGURED){
-    l.ghl_sync = { at: new Date().toISOString(), outcome, moved: true, stage: { site_visit: "Site Visit Booked", consult_call: "Consultation Booked", unreachable: "No Answer" }[outcome] || "Disqualified", ...(LQ_BOOKED.has(outcome) ? { appointment: true, calendar: "Bookings" } : {}) };
+    l.ghl_sync = { at: new Date().toISOString(), outcome, moved: true, stage: { site_visit: "Site Visit Booked", consult_call: "Consultation Booked", unreachable: "No Answer", call_back: "Stuck" }[outcome] || "Disqualified", ...(LQ_BOOKED.has(outcome) ? { appointment: true, calendar: "Bookings" } : {}) };
     return;
   }
   try {
@@ -12223,7 +12223,7 @@ function renderLeadResults(){
 
 // Which stage and calendar each outcome goes to in a client's GoHighLevel.
 // Blank = matched by name automatically (shown as "Automatic: ...").
-const LQ_STAGE_FIELDS = [["site_visit_stage", "Site visit booked", "stage"], ["consult_stage", "Consultation call booked", "stage"], ["disqualified_stage", "Not interested / Not a fit / Wrong number", "stage"], ["no_answer_stage", "No answer after 5 calls", "stage"], ["site_visit_calendar", "Calendar for site visits", "calendar"], ["consult_calendar", "Calendar for consultation calls", "calendar"]];
+const LQ_STAGE_FIELDS = [["site_visit_stage", "Site visit booked", "stage"], ["consult_stage", "Consultation call booked", "stage"], ["disqualified_stage", "Not interested / Not a fit / Wrong number", "stage"], ["no_answer_stage", "No answer after 5 calls", "stage"], ["stuck_stage", "Call back later", "stage"], ["site_visit_calendar", "Calendar for site visits", "calendar"], ["consult_calendar", "Calendar for consultation calls", "calendar"]];
 function lqStagesHtml(c){
   const d = lqSetupCache[c.id];
   if (!d) return `<div class="lr-connect"><p>Loading ${escapeHtml(c.name)}'s pipeline and calendars…</p></div>`;
