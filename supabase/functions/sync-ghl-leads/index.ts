@@ -218,12 +218,13 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     return names;
   };
   const stageName = new Map<string, string>();
-  if (allOpps.length) {
-    try {
-      const pipes = await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(loc)}`, token);
-      for (const p of pipes?.pipelines || []) for (const s of p.stages || []) stageName.set(s.id, s.name || "");
-    } catch { /* names are a nice-to-have */ }
-  }
+  let stages: any = null;
+  try {
+    const pipes = (await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(loc)}`, token))?.pipelines || [];
+    for (const p of pipes) for (const s of p.stages || []) stageName.set(s.id, s.name || "");
+    const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", client.id).maybeSingle();
+    stages = stageCheck(pipes, map);
+  } catch { /* names are a nice-to-have */ }
   const inQueueStage = (o: any) => QUEUE_STAGE.test(stageName.get(o.pipelineStageId) || "");
   const closed = (o: any) => /^(won|lost|abandoned)$/i.test(String(o.status || ""));
   // New in the last few days, or sitting in Rep to contact / Stuck at any age.
@@ -309,7 +310,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     if (error) throw new Error(error.message);
     added = rows.length;
   }
-  return { added, contactsAccess: contacts !== null, lastLead };
+  return { added, contactsAccess: contacts !== null, lastLead, stages };
 }
 
 async function syncAll(admin: any) {
@@ -343,6 +344,7 @@ async function syncAll(admin: any) {
       if (!r.contactsAccess) noContacts++;
       await admin.from("lead_sync_status").upsert({
         client_id: client.id, last_sync_at: now, last_ok_at: new Date().toISOString(), error: null, contacts_access: r.contactsAccess,
+        ...(r.stages ? { stages: r.stages } : {}),
         leads_added: (prev?.leads_added || 0) + r.added, last_lead_at: r.lastLead && (!prev?.last_lead_at || r.lastLead > prev.last_lead_at) ? r.lastLead : prev?.last_lead_at || null,
       });
     } catch (e) {
@@ -432,6 +434,22 @@ const CAL_MATCH: Record<string, RegExp[]> = {
   site_visit: [/site|visit|quote|measure|onsite|on-site|inspection/i],
   consult: [/consult|call|phone|discovery|zoom|video/i],
 };
+// Does this client's GoHighLevel have every stage the calling flow uses?
+// found = the stage each one goes to (their pick under Stages, else the best
+// name match, first pipeline first); missing = ones with nowhere to go.
+const FLOW_KINDS = ["rep_to_contact", "site_visit", "consult", "disqualified", "stuck", "no_answer"];
+function stageCheck(pipes: any[], map: any) {
+  const all = pipes.flatMap((p: any) => (p.stages || []).map((st: any) => ({ id: st.id, name: st.name || "" })));
+  const main = (pipes[0]?.stages || []).map((st: any) => ({ id: st.id, name: st.name || "" }));
+  const found: Record<string, string> = {}, missing: string[] = [];
+  for (const k of FLOW_KINDS) {
+    const picked = map?.[k + "_stage"] && all.find((st: any) => st.id === map[k + "_stage"]);
+    const hit = k === "rep_to_contact" ? all.find((st: any) => /rep\s*to\s*contact/i.test(st.name))
+      : picked || bestStage(main, k) || bestStage(all, k);
+    if (hit) found[k] = hit.name; else missing.push(k);
+  }
+  return { found, missing, pipelines: pipes.length, checked_at: new Date().toISOString() };
+}
 function bestStage(stages: any[], kind: string) {
   for (const re of STAGE_MATCH[kind] || []) { const hit = stages.find((st: any) => re.test(st.name || "") && !/to\s*be\s*booked|not\s*booked/i.test(st.name || "")); if (hit) return hit; }
   return null;
