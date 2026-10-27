@@ -26,6 +26,7 @@ on:
       - "supabase/functions/sync-client-inbox/**"
       - "supabase/functions/sync-ghl-leads/**"
       - "supabase/functions/precall-meetings/**"
+      - "supabase/functions/sync-aircall-calls/**"
       - "supabase/functions/_shared/**"
       - "sql/056_ghl_connections.sql"
       - "sql/057_nurture_and_jarvis.sql"
@@ -62,6 +63,7 @@ on:
       - "sql/089_employee_plan.sql"
       - "sql/090_team_details.sql"
       - "sql/091_client_lead_fit.sql"
+      - "sql/092_aircall_calls.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
     inputs:
@@ -93,6 +95,10 @@ on:
         description: "Type yes to print how booked meetings are doing: live updates, the 5-minute calendar check, alert emails (counts and statuses only, no names)"
         required: false
         default: ""
+      check_aircall:
+        description: "Type yes to sync Aircall calls now and print how it's going (counts and statuses only, no names or numbers)"
+        required: false
+        default: ""
 
 jobs:
   deploy:
@@ -107,6 +113,8 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       GHL_PRECALL_TOKEN: ${{ secrets.GHL_PRECALL_TOKEN }}
       GHL_PRECALL_LOCATION_ID: ${{ secrets.GHL_PRECALL_LOCATION_ID }}
+      AIRCALL_API_ID: ${{ secrets.AIRCALL_API_ID }}
+      AIRCALL_API_TOKEN: ${{ secrets.AIRCALL_API_TOKEN }}
       PROJECT_REF: chaexdenosljtdwuyjnw
     steps:
       - name: Check for the Supabase token
@@ -129,7 +137,7 @@ jobs:
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql sql/086_precall_tasks.sql sql/087_precall_messages.sql sql/088_lead_tasks.sql sql/089_employee_plan.sql sql/090_team_details.sql sql/091_client_lead_fit.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql sql/086_precall_tasks.sql sql/087_precall_messages.sql sql/088_lead_tasks.sql sql/089_employee_plan.sql sql/090_team_details.sql sql/091_client_lead_fit.sql sql/092_aircall_calls.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
@@ -185,10 +193,16 @@ jobs:
       - name: Pass the meeting booker its GHL key
         if: steps.token.outputs.ok == 'true' && env.GHL_PRECALL_TOKEN != '' && env.GHL_PRECALL_LOCATION_ID != ''
         run: supabase secrets set GHL_PRECALL_TOKEN="$GHL_PRECALL_TOKEN" GHL_PRECALL_LOCATION_ID="$GHL_PRECALL_LOCATION_ID" --project-ref "$PROJECT_REF" > /dev/null
+      # Aircall's API key (Aircall Dashboard -> Integrations & API -> API keys),
+      # for the Recorded calls page. Add the repo secrets AIRCALL_API_ID and
+      # AIRCALL_API_TOKEN; until then the call sync does nothing.
+      - name: Pass the call sync its Aircall key
+        if: steps.token.outputs.ok == 'true' && env.AIRCALL_API_ID != '' && env.AIRCALL_API_TOKEN != ''
+        run: supabase secrets set AIRCALL_API_ID="$AIRCALL_API_ID" AIRCALL_API_TOKEN="$AIRCALL_API_TOKEN" --project-ref "$PROJECT_REF" > /dev/null
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
-          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings; do
+          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings sync-aircall-calls; do
             supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --no-verify-jwt
           done
       # Run this workflow by hand with a test_email to check sending works.
@@ -346,3 +360,22 @@ jobs:
           curl -sS -m 90 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/precall-meetings" \
             -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
             -H "x-cron-secret: $secret" --data '{"action":"setup_ghl"}' | jq .
+      # Run by hand with check_aircall=yes: sync Aircall calls now and say how
+      # it's going. Counts and statuses only - these logs are public.
+      - name: Check the Aircall call sync
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_aircall == 'yes'
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          if [ -z "$AIRCALL_API_ID" ] || [ -z "$AIRCALL_API_TOKEN" ]; then echo "::warning::AIRCALL_API_ID / AIRCALL_API_TOKEN aren't set as repo secrets yet."; fi
+          secret=$(q "select value from app_secrets where name = 'aircall_cron_secret'" | jq -r '.[0].value')
+          echo "::add-mask::$secret"
+          echo "Running the sync now:"
+          curl -sS -m 160 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/sync-aircall-calls" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data '{}' | jq -c '{connected, saved, pages, done, error}'
+          echo "Sync status:"
+          q "select connected, cursor_at, last_ok_at, left(coalesce(last_error,''),160) as last_error from aircall_sync_status" | jq -c '.[]'
+          echo "Calls saved (last 30 days):"
+          q "select count(*) as calls, count(*) filter (where recorded) as recorded, count(*) filter (where direction='inbound') as inbound, count(*) filter (where status='missed') as missed, count(lead_id) as matched_to_a_lead, count(client_id) as matched_to_a_client from aircall_calls where started_at > now() - interval '30 days'" | jq -c '.[0]'
+          echo "Schedule (last 3 runs):"
+          q "select status, start_time from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'sync-aircall-calls') order by start_time desc limit 3" | jq -c '.[]'
