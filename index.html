@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=323">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=323">
+<link rel="stylesheet" href="css/style.css?v=324">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=324">
 </head>
 <body>
 
@@ -258,6 +258,10 @@
       <button class="nav-item" data-page="lead-queue" data-workspace="leads">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         <span>Call queue</span><span class="nav-count nav-lq-count" hidden title="Leads to call now"></span>
+      </button>
+      <button class="nav-item" data-page="lead-followups" data-workspace="leads">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        <span>Follow-ups</span><span class="nav-count nav-fu-count" hidden title="Follow-ups to do now"></span>
       </button>
       <button class="nav-item" data-page="lead-results" data-workspace="leads">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
@@ -880,6 +884,9 @@
     </section>
     <section class="page" id="page-lead-results">
       <div id="lr-root"></div>
+    </section>
+    <section class="page" id="page-lead-followups">
+      <div id="fu-root"></div>
     </section>
     <section class="page" id="page-lead-kpis">
       <div id="lk-root"></div>
@@ -2899,17 +2906,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=323"></script>
-<script src="js/supabaseClient.js?v=323"></script>
-<script src="js/report-pdf.js?v=323"></script>
-<script src="js/plan-pdf.js?v=323"></script>
-<script src="js/workshop-pdf.js?v=323"></script>
-<script src="js/receipt-pdf.js?v=323"></script>
-<script src="js/welcome-pdf.js?v=323"></script>
-<script src="js/builtin-playbooks.js?v=323"></script>
-<script src="js/builtin-email-templates.js?v=323"></script>
-<script src="js/app.js?v=323"></script>
-<script src="js/meetings-tracker.js?v=323"></script>
-<script src="js/todo.js?v=323"></script>
+<script src="js/config.js?v=324"></script>
+<script src="js/supabaseClient.js?v=324"></script>
+<script src="js/report-pdf.js?v=324"></script>
+<script src="js/plan-pdf.js?v=324"></script>
+<script src="js/workshop-pdf.js?v=324"></script>
+<script src="js/receipt-pdf.js?v=324"></script>
+<script src="js/welcome-pdf.js?v=324"></script>
+<script src="js/builtin-playbooks.js?v=324"></script>
+<script src="js/builtin-email-templates.js?v=324"></script>
+<script src="js/app.js?v=324"></script>
+<script src="js/meetings-tracker.js?v=324"></script>
+<script src="js/todo.js?v=324"></script>
 </body>
 </html>

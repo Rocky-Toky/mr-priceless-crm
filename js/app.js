@@ -1326,6 +1326,7 @@ async function initAuth(){
     showApp();
     setupClientInbox();
     setupEmployees();
+    setupFollowUps();
     reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call - Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
     checkOverdueTasksPopup();
@@ -1428,6 +1429,7 @@ async function handleSignedInNow(session, freshLogin){
   subscribeRealtime();
   setupClientInbox();
   setupEmployees();
+  setupFollowUps();
   // None of these need to hold the page up.
   repairNzProspectCountryCodes().then(n => { if (n) renderAll(); }).catch(e => console.warn(e));
   fetchTeam().then(() => { if (state.page === "lead-engine") renderTeamFocusPanel(); }).catch(e => console.warn(e));
@@ -1804,6 +1806,7 @@ const FIT_PAGES = {
   reporting: ["#rp-client-list"],
   employees: ["#emp-root"],
   "client-inbox": ["#inbox-root"],
+  "lead-followups": ["#fu-root"],
   expenses: ["#page-expenses > .card:last-child"],
   commission: ["#commission-groups"],
   statistics: ["#page-statistics > .st-scroll"],
@@ -11771,6 +11774,7 @@ function lqDetailHtml(l){
         <span class="lq3-status"><i></i>${escapeHtml(status.text)}</span>
         <h2>${escapeHtml(l.name || "No name")}</h2>
         <p>Calling for <b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}</p>
+        ${(() => { const t = state.leadTasks.filter(x => !x.done_at && x.lead_id === l.id).sort((a, b) => new Date(a.due_at) - new Date(b.due_at))[0]; return t ? `<p class="lq3-ghl">📌 Follow-up: ${escapeHtml(t.title)} · ${escapeHtml(lqWhenWords(t.due_at))}</p>` : ""; })()}
         ${l.ghl_sync?.at && !l.ghl_sync.skipped ? `<p class="lq3-ghl ${l.ghl_sync.errors?.length ? "bad" : ""}">${l.ghl_sync.errors?.length ? `⚠ GoHighLevel: ${escapeHtml(l.ghl_sync.errors[0])}` : `✓ In GoHighLevel: ${escapeHtml([l.ghl_sync.moved ? `moved to "${l.ghl_sync.stage}"` : "", l.ghl_sync.appointment ? `booked in ${l.ghl_sync.calendar || "their calendar"}` : ""].filter(Boolean).join(" · "))}`}</p>` : ""}
       </div>
       <div class="lq3-hero-call">
@@ -11835,6 +11839,7 @@ function lqDetailHtml(l){
       ${["not_interested", "disqualified", "wrong_number"].includes(lqPending) ? `<p class="lq3-tip">They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.</p>` : ""}
       <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
       <button type="submit" class="lq3-save" ${lqPending ? "" : "disabled"}>${lqPending ? `Save and go to the next person ${lqIcon("arrow")}` : "Choose how the call went"}</button>
+      <button type="button" class="lq3-fu-link" data-lq-act="followup">📌 Set a follow-up for ${escapeHtml(first)}</button>
     </form>
 
     ${log.length ? `<section class="lq3-history">
@@ -12043,7 +12048,238 @@ async function lqLoadSetup(clientId){
   renderLeadResults();
 }
 
+/* ───────── Lead Follow Up: Follow-ups ─────────
+   Simple to-dos for whoever's calling leads: "Call Sarah back Tuesday 2pm",
+   "Text Tom the quote time". Saved in lead_tasks (sql/088). Call-backs booked
+   from a call (client_leads.follow_status = call_back) show in the same list,
+   so everything Carmen has to do is in one place. Made for someone who isn't
+   a computer person: one list, three groups (Do now / Later today / Coming
+   up), big buttons, and a reminder pop-up when something comes due. */
+const FU_KINDS = {
+  call: { label: "Call them", verb: "Call", icon: "📞" },
+  text: { label: "Send a text", verb: "Text", icon: "💬" },
+  email: { label: "Send an email", verb: "Email", icon: "✉️" },
+  other: { label: "Something else", verb: "", icon: "📝" },
+};
+Object.assign(state, { leadTasks: [], fuLoaded: false, fuMissing: false });
+let fuForm = null, fuShowDone = false, fuSubscribed = false, fuLastCheck = Date.now();
+
+async function loadLeadTasks(){
+  if (!IS_CONFIGURED){
+    if (!state.fuLoaded){
+      const at = (days, h, m = 0) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return d.toISOString(); };
+      const leads = state.clientLeads.filter(l => l.follow_status !== "old");
+      const L = (i) => leads[i % Math.max(1, leads.length)] || {};
+      state.leadTasks = [
+        { id: uid(), lead_id: L(2).id, client_id: L(2).client_id, kind: "call", title: `Call ${L(2).name || "them"}`, note: "Wanted a price for a bigger deck first", due_at: new Date(Date.now() - 40 * 60e3).toISOString() },
+        { id: uid(), lead_id: L(0).id, client_id: L(0).client_id, kind: "text", title: `Text ${L(0).name || "them"}`, note: "Send the site visit time", due_at: at(0, 16) },
+        { id: uid(), lead_id: L(1).id, client_id: L(1).client_id, kind: "call", title: `Call ${L(1).name || "them"}`, note: "", due_at: at(1, 9) },
+        { id: uid(), lead_id: null, client_id: null, kind: "other", title: "Ask Rocky about the new Hamilton client", note: "", due_at: at(2, 11) },
+        { id: uid(), lead_id: L(4).id, client_id: L(4).client_id, kind: "email", title: `Email ${L(4).name || "them"}`, note: "", due_at: at(0, 9), done_at: new Date(Date.now() - 2 * 3600e3).toISOString(), done_by: "demo@mrpriceless.co.nz" },
+      ];
+      state.fuLoaded = true;
+    }
+    return;
+  }
+  const since = new Date(Date.now() - 7 * 86400e3).toISOString();
+  const { data, error } = await supabase.from("lead_tasks").select("*").or(`done_at.is.null,done_at.gte.${since}`).order("due_at").limit(1000);
+  state.fuLoaded = true;
+  state.fuMissing = Boolean(error);
+  state.leadTasks = data || [];
+}
+function setupFollowUps(){
+  loadLeadTasks().then(() => { fuNavCount(); if (state.page === "lead-followups") renderFollowUps(); }).catch(e => console.warn(e));
+  if (!IS_CONFIGURED || fuSubscribed) return;
+  fuSubscribed = true;
+  let t = null;
+  supabase.channel("lead-tasks").on("postgres_changes", { event: "*", schema: "public", table: "lead_tasks" }, () => {
+    clearTimeout(t);
+    t = setTimeout(async () => { await loadLeadTasks(); fuNavCount(); if (state.page === "lead-followups") renderFollowUps(); }, 400);
+  }).subscribe();
+}
+
+// Everything to do: open follow-ups, plus call-backs booked from a call.
+function fuItems(){
+  const leadById = new Map(state.clientLeads.map(l => [l.id, l]));
+  const tasks = state.leadTasks.filter(t => !t.done_at).map(t => ({ type: "task", id: t.id, kind: t.kind || "call", title: t.title, note: t.note, at: t.due_at, lead: leadById.get(t.lead_id) || null, clientId: t.client_id }));
+  const calls = state.clientLeads.filter(l => l.follow_status === "call_back" && l.next_attempt_at)
+    .map(l => ({ type: "callback", id: l.id, kind: "call", title: `Call ${l.name || "them"} back`, note: l.follow_notes || "", at: l.next_attempt_at, lead: l, clientId: l.client_id }));
+  return [...tasks, ...calls].sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+function fuGroups(){
+  const now = Date.now(), today = localDayStr();
+  const items = fuItems();
+  return {
+    now: items.filter(x => new Date(x.at).getTime() <= now),
+    today: items.filter(x => new Date(x.at).getTime() > now && localDayStr(new Date(x.at)) === today),
+    later: items.filter(x => localDayStr(new Date(x.at)) > today),
+  };
+}
+function fuNavCount(){
+  const n = fuGroups().now.length;
+  $$(".nav-fu-count").forEach(el => { el.hidden = !n; el.textContent = n; });
+}
+
+function fuCardHtml(x){
+  const k = FU_KINDS[x.kind] || FU_KINDS.other, l = x.lead, c = state.clients.find(cl => cl.id === (l?.client_id || x.clientId));
+  const late = new Date(x.at).getTime() <= Date.now();
+  const phone = l?.phone ? String(l.phone).replace(/[^\d+]/g, "") : "";
+  const action = x.kind === "call" && phone ? `<a class="fu-btn go" href="tel:${escapeHtml(phone)}">📞 Call ${escapeHtml(formatPhone(l.phone))}</a>`
+    : x.kind === "text" && phone ? `<a class="fu-btn go" href="sms:${escapeHtml(phone)}">💬 Text ${escapeHtml(formatPhone(l.phone))}</a>`
+    : x.kind === "email" && l?.email ? `<a class="fu-btn go" href="mailto:${escapeHtml(l.email)}">✉️ Email them</a>` : "";
+  return `<article class="fu-card ${late ? "late" : ""}">
+    <span class="fu-kind">${k.icon}</span>
+    <div class="fu-card-body">
+      <div class="fu-when ${late ? "late" : ""}">${late ? `Do now · was due ${escapeHtml(lqWhenWords(x.at))}` : escapeHtml(lqWhenWords(x.at).replace(/^./, ch => ch.toUpperCase()))}</div>
+      <h3>${escapeHtml(x.title)}</h3>
+      ${l || c ? `<p class="fu-who">${escapeHtml([l?.name, lqBizName(c) ? `for ${lqBizName(c)}` : ""].filter(Boolean).join(" "))}</p>` : ""}
+      ${x.note ? `<p class="fu-note">${escapeHtml(x.note)}</p>` : ""}
+      <div class="fu-actions">
+        ${action}
+        ${x.type === "task" ? `<button type="button" class="fu-btn done" data-fu-done="${escapeHtml(x.id)}">✓ Done</button>` : ""}
+        ${l ? `<button type="button" class="fu-btn" data-fu-open="${escapeHtml(l.id)}">${x.type === "callback" ? "Open the call" : "Open their details"}</button>` : ""}
+        ${x.type === "task" ? `<button type="button" class="fu-btn soft" data-fu-snooze="${escapeHtml(x.id)}">Move to tomorrow</button>` : ""}
+      </div>
+    </div>
+  </article>`;
+}
+
+function fuFormHtml(){
+  const f = fuForm, today = localDayStr();
+  const leads = state.clientLeads.filter(l => l.follow_status !== "old" && l.name).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const quick = [["60", "In 1 hour"], ["today-14", "This afternoon (2pm)"], ["tomorrow-9", "Tomorrow morning (9am)"], ["monday-9", "Next Monday (9am)"]];
+  const step = (n, title, body) => `<div class="fu-step"><h4><span>${n}</span>${title}</h4>${body}</div>`;
+  return `<form class="fu-form" data-fu-form>
+    <div class="fu-form-head"><h3>New follow-up</h3><button type="button" class="fu-x" data-fu-cancel aria-label="Close">✕</button></div>
+    ${step(1, "What do you need to do?", `<div class="fu-picks">${Object.entries(FU_KINDS).map(([k, v]) => `<button type="button" class="${f.kind === k ? "on" : ""}" data-fu-kind="${k}"><b>${v.icon}</b>${v.label}</button>`).join("")}</div>`)}
+    ${step(2, "Who is it for?", `<select name="lead_id" class="fu-input"><option value="">Not for a lead</option>${leads.map(l => `<option value="${escapeHtml(l.id)}" ${f.lead_id === l.id ? "selected" : ""}>${escapeHtml(l.name)}${lqClient(l) ? ` (${escapeHtml(lqBizName(lqClient(l)))})` : ""}</option>`).join("")}</select>`)}
+    ${step(3, "When?", `<div class="fu-picks small">${quick.map(([k, l]) => `<button type="button" class="${f.quick === k ? "on" : ""}" data-fu-quick="${k}">${l}</button>`).join("")}</div>
+      <div class="fu-when-pick"><label>Or pick a day<input type="date" name="day" class="fu-input" value="${escapeHtml(f.day || today)}" min="${today}"></label>
+      <label>and time<select name="time" class="fu-input"><option value="">Time</option>${LQ_TIMES.map(([v, l]) => `<option value="${v}" ${f.time === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>`)}
+    ${step(4, f.kind === "other" ? "What is it?" : "Anything to remember? (optional)", `<textarea name="note" rows="2" class="fu-input" placeholder="${f.kind === "other" ? "e.g. Ask Rocky about the new client" : "e.g. Wants a price for a bigger deck"}">${escapeHtml(f.note || "")}</textarea>`)}
+    <button type="submit" class="fu-save">Save follow-up</button>
+  </form>`;
+}
+
+function renderFollowUps(){
+  const root = $("#fu-root");
+  if (!root) return;
+  if (root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select")) return;
+  const g = fuGroups();
+  const done = state.leadTasks.filter(t => t.done_at && localDayStr(new Date(t.done_at)) === localDayStr()).sort((a, b) => new Date(b.done_at) - new Date(a.done_at));
+  const group = (title, list, cls, empty) => `<section class="fu-group ${cls}"><h3>${title} <span>${list.length}</span></h3>${list.length ? list.map(fuCardHtml).join("") : `<p class="fu-empty">${empty}</p>`}</section>`;
+  root.innerHTML = `
+    <div class="fu-head">
+      <div><h2>Follow-ups</h2><p>Everything you need to do, in order. Tick it off when it's done.</p></div>
+      ${fuForm ? "" : `<button type="button" class="fu-new" data-fu-new>+ New follow-up</button>`}
+    </div>
+    ${state.fuMissing ? `<div class="inbox-setup"><b>Follow-ups are still being set up.</b> They switch on once the latest database update has run.</div>` : ""}
+    <div class="fu-body">
+      ${fuForm ? fuFormHtml() : ""}
+      <div class="fu-list">
+        ${group("Do now", g.now, "now", "Nothing to do right now. 🎉")}
+        ${group("Later today", g.today, "today", "Nothing else today.")}
+        ${group("Coming up", g.later, "later", "Nothing booked yet.")}
+        ${done.length ? `<button type="button" class="fu-fold" data-fu-showdone>${fuShowDone ? "Hide" : "Show"} done today (${done.length})</button>
+          ${fuShowDone ? done.map(t => `<div class="fu-done-row"><span>✓ ${escapeHtml(t.title)}</span><button type="button" data-fu-undo="${escapeHtml(t.id)}">Undo</button></div>`).join("") : ""}` : ""}
+      </div>
+    </div>`;
+}
+
+// When a quick "When?" button is picked, as a Date.
+function fuQuickDate(k){
+  const d = new Date();
+  if (k === "60") return new Date(Date.now() + 3600e3);
+  const [when, h] = k.split("-");
+  if (when === "tomorrow") d.setDate(d.getDate() + 1);
+  if (when === "monday") d.setDate(d.getDate() + (((8 - d.getDay()) % 7) || 7));
+  d.setHours(Number(h), 0, 0, 0);
+  return d;
+}
+async function fuSaveTask(row){
+  const made = { id: uid(), created_at: new Date().toISOString(), done_at: null, ...row };
+  if (IS_CONFIGURED){
+    const { data, error } = await supabase.from("lead_tasks").insert(row).select("*").single();
+    if (error){ rcToast("Couldn't save - " + error.message); return false; }
+    state.leadTasks.push(data);
+  } else state.leadTasks.push(made);
+  return true;
+}
+async function fuPatch(id, patch){
+  const t = state.leadTasks.find(x => x.id === id);
+  if (!t) return;
+  Object.assign(t, patch);
+  fuNavCount(); renderFollowUps();
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("lead_tasks").update(patch).eq("id", id);
+    if (error){ rcToast("Couldn't save - " + error.message); await loadLeadTasks(); renderFollowUps(); }
+  }
+}
+// Open the follow-up form, from anywhere (e.g. the call screen for one lead).
+function fuOpenForm(leadId){
+  fuForm = { kind: "call", lead_id: leadId || "", quick: "tomorrow-9", day: "", time: "", note: "" };
+  if (state.page !== "lead-followups") goPage("lead-followups");
+  renderFollowUps();
+}
+// A pop-up when something comes due while the CRM is open.
+function fuRemind(){
+  const now = Date.now();
+  if (document.body.classList.contains("workspace-leads")){
+    fuItems().filter(x => { const t = new Date(x.at).getTime(); return t > fuLastCheck && t <= now; }).forEach(x => {
+      rcToast(`Time to: ${x.title}`);
+      try { if (window.Notification && Notification.permission === "granted") new Notification("Follow-up", { body: x.title, tag: "fu-" + x.id }); } catch(e){}
+    });
+  }
+  fuLastCheck = now;
+  fuNavCount();
+  if (state.page === "lead-followups") renderFollowUps();
+}
+function setupFollowUpsUi(){
+  const root = $("#fu-root");
+  if (!root) return;
+  const keepForm = () => { const f = root.querySelector("[data-fu-form]"); if (f && fuForm) Object.assign(fuForm, { lead_id: f.elements.lead_id.value, day: f.elements.day.value, time: f.elements.time.value, note: f.elements.note.value }); };
+  root.addEventListener("click", (ev) => {
+    const t = ev.target.closest("[data-fu-new],[data-fu-cancel],[data-fu-kind],[data-fu-quick],[data-fu-done],[data-fu-undo],[data-fu-open],[data-fu-snooze],[data-fu-showdone]");
+    if (!t) return;
+    if (t.dataset.fuNew !== undefined) return fuOpenForm("");
+    if (t.dataset.fuCancel !== undefined){ fuForm = null; return renderFollowUps(); }
+    if (t.dataset.fuKind){ keepForm(); fuForm.kind = t.dataset.fuKind; return renderFollowUps(); }
+    if (t.dataset.fuQuick){ keepForm(); fuForm.quick = t.dataset.fuQuick; fuForm.time = ""; return renderFollowUps(); }
+    if (t.dataset.fuDone){ rcToast("Done ✓"); return fuPatch(t.dataset.fuDone, { done_at: new Date().toISOString(), done_by: state.user?.email || "demo" }); }
+    if (t.dataset.fuUndo) return fuPatch(t.dataset.fuUndo, { done_at: null, done_by: null });
+    if (t.dataset.fuSnooze){ const d = fuQuickDate("tomorrow-9"); rcToast("Moved to tomorrow 9am."); return fuPatch(t.dataset.fuSnooze, { due_at: d.toISOString() }); }
+    if (t.dataset.fuShowdone !== undefined){ fuShowDone = !fuShowDone; return renderFollowUps(); }
+    if (t.dataset.fuOpen){ lqSel = t.dataset.fuOpen; return goPage("lead-queue"); }
+  });
+  // Picking a day or time by hand replaces the quick choice.
+  root.addEventListener("change", (ev) => {
+    if (!fuForm || !ev.target.matches('[name="day"],[name="time"]')) return;
+    keepForm(); fuForm.quick = "";
+    root.querySelectorAll("[data-fu-quick]").forEach(b => b.classList.remove("on"));
+  });
+  root.addEventListener("submit", async (ev) => {
+    if (!ev.target.matches("[data-fu-form]")) return;
+    ev.preventDefault();
+    keepForm();
+    const f = fuForm, lead = state.clientLeads.find(l => l.id === f.lead_id) || null, k = FU_KINDS[f.kind] || FU_KINDS.other;
+    let due = f.quick ? fuQuickDate(f.quick) : null;
+    if (!due){
+      if (!f.day || !f.time){ rcToast("Pick when - a quick button, or a day and a time."); return; }
+      due = new Date(`${f.day}T${f.time}:00`);
+    }
+    const note = (f.note || "").trim();
+    const title = f.kind === "other" ? (note.split("\n")[0] || (lead ? `Follow up ${lead.name}` : "")) : `${k.verb} ${lead?.name || note.split("\n")[0] || "them"}`;
+    if (!title){ rcToast("Write what it is in step 4."); return; }
+    const ok = await fuSaveTask({ lead_id: lead?.id || null, client_id: lead?.client_id || null, kind: f.kind, title: title.slice(0, 200), note: f.kind === "other" ? null : note || null, due_at: due.toISOString(), created_by: state.user?.email || "demo" });
+    if (!ok) return;
+    fuForm = null;
+    rcToast(`Saved - ${lqWhenWords(due.toISOString())}.`);
+    fuNavCount(); renderFollowUps();
+  });
+}
+
 function setupLeadFollowUpUi(){
+  setupFollowUpsUi();
   const root = $("#lq-root");
   if (root){
     root.addEventListener("click", (ev) => {
@@ -12069,6 +12305,7 @@ function setupLeadFollowUpUi(){
       if (act === "add-cancel"){ lqAdding = false; return renderLeadQueue(); }
       if (act === "done"){ lqShowDone = !lqShowDone; return renderLeadQueue(); }
       if (act === "place"){ lqPlaceFor = lqSel; renderLeadQueue(); $(".lq3-place-form input")?.focus(); return; }
+      if (act === "followup") return fuOpenForm(lqSel);
       if (act === "history"){ lqShowHistory = !lqShowHistory; return renderLeadQueue(); }
     });
     root.addEventListener("input", (ev) => {
@@ -12164,6 +12401,7 @@ function setupLeadFollowUpUi(){
   setInterval(() => {
     if (state.page === "lead-queue") renderLeadQueue(); else lqNavCount();
     if (state.page === "lead-kpis") renderLeadKpis();
+    fuRemind();
     if (["lead-queue", "lead-results"].includes(state.page)) lqLoadSync(true);
   }, 60e3);
 }
@@ -12205,7 +12443,7 @@ const RENDERERS = [
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
-  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [lqNavCount, ["*"]],
+  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [lqNavCount, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
