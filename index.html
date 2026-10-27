@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=332">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=332">
+<link rel="stylesheet" href="css/style.css?v=333">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=333">
 </head>
 <body>
 
@@ -956,16 +956,13 @@
           <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="clients-stat-campaigns">0</div></div>
           <div class="stat-card"><div class="stat-label">Needs Attention</div><div class="stat-value" id="clients-stat-attention">0</div></div>
         </div>
+        <div class="cl-tabs" id="clients-stage-tabs" role="tablist" aria-label="Client stages"></div>
         <div class="cl-toolbar">
           <div class="search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-            <input type="text" id="clients-gallery-search" placeholder="Search clients...">
+            <input type="text" id="clients-gallery-search" placeholder="Search every client...">
           </div>
-          <div class="cl-view-toggle" role="group" aria-label="View">
-            <button type="button" data-cl-view="board">Board</button>
-            <button type="button" data-cl-view="list">List</button>
-          </div>
-          <div class="cl-chips" id="clients-stage-chips"></div>
+          <select class="filter-select cl-stage-pick" id="clients-stage-select" aria-label="Stage"></select>
         </div>
         <div class="cl-list" id="clients-gallery"></div>
       </div>
@@ -978,7 +975,7 @@
           <div class="cp-hero-top">
             <span class="cp-avatar" id="client-detail-avatar">?</span>
             <div class="cp-hero-text">
-              <div class="cp-eyebrow"><span class="badge" id="client-detail-stage-badge"></span><span id="cp-since"></span></div>
+              <div class="cp-eyebrow"><label class="cp-stage"><span>Stage</span><select id="client-detail-stage-select" aria-label="Stage"></select></label><span id="cp-since"></span></div>
               <h2 id="client-detail-name">Client</h2>
               <div class="cp-contact" id="client-detail-contact"></div>
               <div class="cp-meta">
@@ -995,6 +992,7 @@
             </div>
           </div>
 
+          <div class="cp-stage-prompt" id="cp-stage-prompt" hidden></div>
           <div class="cl-qg cp-qg" id="quote-guarantee-banner" style="display:none;">
             <div class="cl-qg-text">
               <span class="cl-qg-label">Quote Guarantee</span>
@@ -2915,17 +2913,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=332"></script>
-<script src="js/supabaseClient.js?v=332"></script>
-<script src="js/report-pdf.js?v=332"></script>
-<script src="js/plan-pdf.js?v=332"></script>
-<script src="js/workshop-pdf.js?v=332"></script>
-<script src="js/receipt-pdf.js?v=332"></script>
-<script src="js/welcome-pdf.js?v=332"></script>
-<script src="js/builtin-playbooks.js?v=332"></script>
-<script src="js/builtin-email-templates.js?v=332"></script>
-<script src="js/app.js?v=332"></script>
-<script src="js/meetings-tracker.js?v=332"></script>
-<script src="js/todo.js?v=332"></script>
+<script src="js/config.js?v=333"></script>
+<script src="js/supabaseClient.js?v=333"></script>
+<script src="js/report-pdf.js?v=333"></script>
+<script src="js/plan-pdf.js?v=333"></script>
+<script src="js/workshop-pdf.js?v=333"></script>
+<script src="js/receipt-pdf.js?v=333"></script>
+<script src="js/welcome-pdf.js?v=333"></script>
+<script src="js/builtin-playbooks.js?v=333"></script>
+<script src="js/builtin-email-templates.js?v=333"></script>
+<script src="js/app.js?v=333"></script>
+<script src="js/meetings-tracker.js?v=333"></script>
+<script src="js/todo.js?v=333"></script>
 </body>
 </html>

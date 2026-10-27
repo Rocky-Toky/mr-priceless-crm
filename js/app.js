@@ -4374,7 +4374,9 @@ function acFabSync(){
   fab.hidden = callMode() !== "aircall" || (IS_CONFIGURED && !state.user);
   fab.classList.toggle("on", acReady);
   fab.classList.toggle("ringing", !!(acCall && acCall.dir === "in" && !acCall.answered && !acCall.ended));
-  fab.querySelector(".ac-fab-label").textContent = acCall && !acCall.ended ? (acCall.dir === "in" && !acCall.answered ? "Incoming call" : "On a call") : "Phone";
+  if (acCall && !acCall.ended && !acCall.answered && Date.now() - (acCall.at || 0) > 90e3){ acCall.ended = true; acCardRender(); }
+  const liveCall = acCall && !acCall.ended;
+  fab.querySelector(".ac-fab-label").textContent = !liveCall ? "Phone" : acCall.answered ? "On a call" : acCall.dir === "in" ? "Incoming call" : "Calling…";
   fab.title = acReady ? "Aircall phone (signed in)" : "Aircall phone - sign in to make and take calls";
 }
 function acShow(open){
@@ -4385,7 +4387,9 @@ function acShow(open){
   document.body.classList.toggle("ac-shown", open);
 }
 function acStartCall(dir, number){
-  acCall = { dir, number, answered: false, ended: false };
+  acCall = { dir, number, answered: false, ended: false, at: Date.now() };
+  clearTimeout(acStartCall.t);
+  acStartCall.t = setTimeout(acFabSync, 91e3);
   acCardRender(); acFabSync();
 }
 function setupAircall(){
@@ -5018,60 +5022,90 @@ function renderClientsList(){
   const attnEl = $("#clients-stat-attention");
   if (attnEl) attnEl.textContent = attention.length;
 
-  // Filter chips: All / Needs attention / each stage that has clients.
-  // Empty stages stay out of the way instead of each taking up a box.
+  // One tab per stage, one simple list under it. Every row opens the
+  // client's page (onboarding checklist included) - no dragging.
   const stageOf = (c) => c.stage || "onboarding";
-  let filter = state.clientsStageFilter || "all";
-  if (filter === "attention" && !attention.length) filter = state.clientsStageFilter = "all";
-  if (filter !== "all" && filter !== "attention" && !state.clients.some(c => stageOf(c) === filter)) filter = state.clientsStageFilter = "all";
-  const chipsEl = $("#clients-stage-chips");
-  if (chipsEl){
-    const chip = (key, label, count, extra="") => `<button type="button" class="cl-chip ${extra} ${filter===key?"active":""}" data-cl-filter="${key}">${label}<span>${count}</span></button>`;
-    chipsEl.innerHTML = chip("all", "All", state.clients.length)
-      + (attention.length ? chip("attention", "Needs attention", attention.length, "warn") : "")
-      + CLIENT_STAGES.map(st => {
-          const n = state.clients.filter(c => stageOf(c) === st.key).length;
-          return n ? chip(st.key, st.label, n) : "";
-        }).join("");
+  const tabs = $("#clients-stage-tabs");
+  let tab = clientsTab();
+  if (tabs){
+    tabs.innerHTML = CLIENT_STAGES.map(st => {
+      const col = state.clients.filter(c => stageOf(c) === st.key);
+      const mrr = col.map(clientRetainer).filter(v => v != null).reduce((a, b) => a + b, 0);
+      return `<button type="button" role="tab" class="cl-tab ${st.cls}${tab === st.key ? " active" : ""}" data-cl-tab="${st.key}" aria-selected="${tab === st.key}">
+        <span class="cl-tab-name">${escapeHtml(st.label)}<b>${col.length}</b></span>
+        <small>${st.key === "churned" ? "Past clients" : mrr ? `${fmtMoney(mrr)}/mo` : escapeHtml(CLIENT_STAGE_BLURBS[st.key] || "")}</small>
+      </button>`;
+    }).join("");
+  }
+  const tabSel = $("#clients-stage-select");
+  if (tabSel){
+    tabSel.innerHTML = CLIENT_STAGES.map(st => `<option value="${st.key}">${escapeHtml(st.label)} (${state.clients.filter(c => stageOf(c) === st.key).length})</option>`).join("");
+    tabSel.value = tab;
   }
 
   const list = $("#clients-gallery");
   if (!list) return;
   if (!state.clients.length){ list.innerHTML = `<div class="card">${emptyState("No clients yet. Add your first client to get started.")}</div>`; return; }
 
+  // Searching looks across every stage, so you don't have to know where someone is.
   const q = state.clientsGallerySearch.trim().toLowerCase();
-  const boardView = clientsView() === "board";
-  $("#clients-stage-chips")?.toggleAttribute("hidden", boardView);
-  $$("[data-cl-view]").forEach(b => { const on = b.dataset.clView === clientsView(); b.classList.toggle("active", on); b.setAttribute("aria-pressed", on); });
-  if (boardView){
-    list.innerHTML = clientsBoardHtml(state.clients.filter(c => !q || (c.name||"").toLowerCase().includes(q)), alertsById);
+  const rows = state.clients
+    .filter(c => q ? (c.name || "").toLowerCase().includes(q) : stageOf(c) === tab)
+    .sort((a, b) => (alertsById.get(b.id).length ? 1 : 0) - (alertsById.get(a.id).length ? 1 : 0) || (a.name || "").localeCompare(b.name || ""));
+  if (!rows.length){
+    list.innerHTML = `<div class="cl-empty">${q ? `No clients match "${escapeHtml(state.clientsGallerySearch.trim())}".` : `No clients in ${escapeHtml(CLIENT_STAGE_MAP[tab]?.label || "this stage")} right now.`}</div>`;
     return;
   }
-  const visible = state.clients
-    .filter(c => !q || (c.name||"").toLowerCase().includes(q))
-    .filter(c => filter === "all" || (filter === "attention" ? alertsById.get(c.id).length : stageOf(c) === filter));
-
-  if (!visible.length){
-    list.innerHTML = `<div class="card">${emptyState(q ? `No clients match "${state.clientsGallerySearch.trim()}".` : "No clients in this view.")}</div>`;
-    return;
+  list.innerHTML = `<div class="cl-rows">${rows.map(c => clientTabRowHtml(c, alertsById.get(c.id) || [], !!q)).join("")}</div>`;
+}
+function clientsTab(){
+  if (!state.clientsTab){ try { state.clientsTab = localStorage.getItem("mp_clients_tab") || ""; } catch(e){ state.clientsTab = ""; } }
+  if (!CLIENT_STAGE_MAP[state.clientsTab]) state.clientsTab = "onboarding";
+  return state.clientsTab;
+}
+// The problems worth seeing on a client at a glance.
+function clientIssueChips(c, alerts){
+  const stage = c.stage || "onboarding";
+  const chips = alerts.map(a => `<span class="cl-issue ${a.type === "danger" ? "bad" : ""}">${escapeHtml(a.text.replace(" - overdue to move on", ""))}</span>`);
+  const fatiguing = clientFatiguingCount(c);
+  if (fatiguing) chips.push(`<span class="cl-issue">${fatiguing} ad${fatiguing === 1 ? "" : "s"} getting tired</span>`);
+  if (["quote_guarantee", "live", "at_risk"].includes(stage)){ const am = amClientProgress(c); if (am.live < am.target) chips.push(`<span class="cl-issue ${am.overdue ? "bad" : ""}">Ads ${am.live}/${am.target} live this month</span>`); }
+  if (c.churn_risk === "high" || c.churn_risk === "medium") chips.push(`<span class="cl-issue ${c.churn_risk === "high" ? "bad" : ""}">${c.churn_risk === "high" ? "High" : "Medium"} churn risk</span>`);
+  return chips;
+}
+function clientTabRowHtml(c, alerts, showStage){
+  const stage = c.stage || "onboarding";
+  const st = CLIENT_STAGE_MAP[stage] || CLIENT_STAGES[0];
+  const retainer = clientRetainer(c);
+  const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  const owner = (c.onboarding_progress || {}).owner || deal?.assignee || null;
+  const live = runningCampaignsFor(c.id).length;
+  const bar = (label, n, of) => `<div class="cl-prog"><span>${label} <b>${n}/${of}</b></span><div class="onb-bar"><span style="width:${of ? Math.min(100, Math.round(n / of * 100)) : 0}%"></span></div></div>`;
+  let progress = "";
+  if (stage === "onboarding"){
+    const done = ONBOARDING_STEPS.filter(s => onbStepDone(c, s)).length;
+    progress = bar("Checklist", done, ONBOARDING_STEPS.length);
+  } else if (stage === "quote_guarantee" && c.quote_target){
+    progress = bar("Quotes", Number(c.quotes_sent || 0), Number(c.quote_target));
+  } else if (stage !== "churned"){
+    progress = `<div class="cl-prog-facts">${c.cost_per_lead != null ? `<span><b>${fmtMoney(c.cost_per_lead)}</b> per lead</span>` : ""}<span><b>${live}</b> ad${live === 1 ? "" : "s"} live</span></div>`;
   }
-  const groups = CLIENT_STAGES.map(st => ({
-    st, clients: visible.filter(c => stageOf(c) === st.key).sort((a,b) => (a.name||"").localeCompare(b.name||""))
-  })).filter(g => g.clients.length);
-
-  list.innerHTML = `
-    <div class="card cl-table">
-      <div class="cl-row cl-row-head">
-        <div>Client</div><div>Progress</div><div class="num">CPL</div><div class="num">Spend / mo</div><div class="num">Live</div><div>Churn Risk</div><div>Stage</div>
-      </div>
-      ${groups.map(g => `
-        <div class="cl-group" data-stage="${g.st.key}">
-          <span class="cl-group-dot"></span>${g.st.label}<span class="cl-group-count">${g.clients.length}</span>
-          ${g.st.key === "onboarding" ? `<button type="button" class="cl-group-link" data-action="open-onboarding-board">Open launch board →</button>` : ""}
-        </div>
-        ${g.clients.map(c => renderClientRow(c, alertsById.get(c.id))).join("")}
-      `).join("")}
-    </div>`;
+  const meta = [
+    showStage ? st.label : "",
+    retainer != null ? `${fmtMoney(retainer)}/mo` : "",
+    stage === "onboarding" && days != null ? `day ${days + 1} of onboarding` : stage === "live" && clientMonthNumber(c) ? `month ${clientMonthNumber(c)}` : days != null ? `${days} day${days === 1 ? "" : "s"} in ${st.label}` : "",
+  ].filter(Boolean).join(" · ");
+  const chips = clientIssueChips(c, alerts);
+  return `
+    <button type="button" class="cl-rowcard" data-action="view-client" data-id="${c.id}" aria-label="Open ${escapeHtml(c.name)}">
+      <span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>
+      <span class="cl-rowcard-id"><b>${escapeHtml(c.name)}</b><small>${escapeHtml(meta) || "&nbsp;"}</small></span>
+      <span class="cl-rowcard-prog">${progress}</span>
+      <span class="cl-rowcard-issues">${chips.length ? chips.join("") : `<span class="cl-ok">All good</span>`}</span>
+      <span class="cl-rowcard-owner">${ownerChipHtml(owner, true)}</span>
+      <span class="cl-rowcard-go" aria-hidden="true">›</span>
+    </button>`;
 }
 /* Board columns (Clients and Onboarding) show 2 cards until "Show more" is pressed. */
 const BOARD_PREVIEW_COUNT = 2;
@@ -5426,92 +5460,12 @@ function renderAdsMonth(){
     <p class="am-howto">Tap a box to mark it: <span class="am-key am-todo">To do</span> → <span class="am-key am-live">Live</span>. Tap a live one to set it back to To do. Anything not live by its date shows as late.</p>`;
 }
 /* ───────── Clients board: drag clients between lifecycle stages ───────── */
-function clientsView(){
-  if (!state.clientsView){ try { state.clientsView = localStorage.getItem("mp_clients_view") === "list" ? "list" : "board"; } catch(e){ state.clientsView = "board"; } }
-  return state.clientsView;
-}
 const CLIENT_STAGE_BLURBS = {
   onboarding: "Signed, getting set up", quote_guarantee: "Delivering the quotes", live: "Ads running, month to month",
   at_risk: "Needs attention", churned: "No longer with us",
 };
 function clientFatiguingCount(c){
   return state.adCreatives.filter(a => a.client_id === c.id && (a.fatigue_status === "fatiguing" || a.fatigue_status === "fatigued")).length;
-}
-function clientsBoardHtml(clients, alertsById){
-  const stageOf = (c) => c.stage || "onboarding";
-  // Churned sits in a slim strip under the board (still a drop target), not a full column.
-  const churned = clients.filter(c => stageOf(c) === "churned");
-  const showChurned = !!state.showChurned;
-  return `<div class="onb-board cl-board cl-board-5" id="clients-board">${CLIENT_STAGES.filter(st => st.key !== "churned").map((st, i) => {
-    const col = clients.filter(c => stageOf(c) === st.key).sort((a,b) => (a.name||"").localeCompare(b.name||""));
-    const mrr = col.map(clientRetainer).filter(v => v != null).reduce((a,b) => a+b, 0);
-    return `
-      <section class="onb-col" data-stage="${st.key}" data-board="clients" aria-label="${escapeHtml(st.label)}">
-        <header class="onb-col-head">
-          <span class="onb-col-num">${i + 1}</span>
-          <div><div class="onb-col-title">${escapeHtml(st.label)}</div><div class="onb-col-blurb">${mrr ? `${fmtMoney(mrr)}/mo` : escapeHtml(CLIENT_STAGE_BLURBS[st.key] || "")}</div></div>
-          <span class="onb-col-count">${col.length}</span>
-        </header>
-        <div class="onb-col-body">
-          ${boardColumnCards("clients", st.key, col.map(c => clientBoardCardHtml(c, alertsById.get(c.id) || [])))}
-          <div class="onb-drop-hint">${col.length ? "Drop here" : "Drag a client here"}</div>
-        </div>
-      </section>`;
-  }).join("")}</div>
-  <section class="onb-col cl-churned${showChurned ? " open" : ""}" data-stage="churned" data-board="clients" aria-label="Churned">
-    <button type="button" class="cl-churned-head" data-action="toggle-churned">
-      <span class="onb-col-title">Churned</span><span class="onb-col-count">${churned.length}</span>
-      <span class="cl-churned-hint">${showChurned ? "Hide" : churned.length ? "Show" : "Drag a client here to mark them churned"}</span>
-    </button>
-    ${showChurned && churned.length ? `<div class="onb-col-body cl-churned-body">${churned.map(c => clientBoardCardHtml(c, alertsById.get(c.id) || [])).join("")}</div>` : ""}
-  </section>`;
-}
-function clientBoardCardHtml(c, alerts){
-  const stage = c.stage || "onboarding";
-  const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
-  const retainer = clientRetainer(c);
-  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
-  const owner = (c.onboarding_progress || {}).owner || deal?.assignee || null;
-  const live = runningCampaignsFor(c.id).length;
-  const fatiguing = clientFatiguingCount(c);
-  const chips = [];
-  alerts.forEach(a => chips.push(`<span class="onb-status ${a.type === "danger" ? "late" : "client"}">${escapeHtml(a.text.replace(" - overdue to move on", ""))}</span>`));
-  if (fatiguing && stage !== "creatives_due") chips.push(`<span class="onb-status client">${fatiguing} creative${fatiguing === 1 ? "" : "s"} fatiguing</span>`);
-  if (["quote_guarantee", "live", "at_risk"].includes(stage)){ const am = amClientProgress(c); if (am.live < am.target) chips.push(`<span class="onb-status ${am.overdue ? "late" : "client"}">Ads ${am.live}/${am.target} live this month</span>`); }
-  if (c.churn_risk === "high" || c.churn_risk === "medium") chips.push(`<span class="onb-status ${c.churn_risk === "high" ? "late" : "client"}">${c.churn_risk === "high" ? "High" : "Medium"} churn risk</span>`);
-  let body = "";
-  if (stage === "onboarding"){
-    const ls = launchState(c);
-    body = `<div class="onb-card-progress"><span class="cl-card-label">${escapeHtml(ls.stage.label)}</span><div class="onb-bar"><span style="width:${ls.pct}%"></span></div><span class="onb-bar-label">${ls.doneTasks}/${ls.total}</span></div>`;
-  } else if (stage === "quote_guarantee" && c.quote_target){
-    const sent = Number(c.quotes_sent || 0);
-    body = `<div class="onb-card-progress"><span class="cl-card-label">Quotes</span><div class="onb-bar"><span style="width:${Math.min(100, Math.round(sent / c.quote_target * 100))}%"></span></div><span class="onb-bar-label">${sent}/${c.quote_target}</span></div>`;
-  }
-  const stats = [
-    c.cost_per_lead != null ? `<span><b>${fmtMoney(c.cost_per_lead)}</b> CPL</span>` : "",
-    `<span><b>${live}</b> live</span>`,
-    stage === "creatives_due" || fatiguing ? `<span><b>${fatiguing}</b> fatiguing</span>` : "",
-  ].filter(Boolean).join("");
-  const back = (c.onboarding_progress || {}).before_creatives;
-  const footer = stage === "creatives_due"
-    ? `<button type="button" class="onb-finish" data-action="creatives-done" data-id="${c.id}">New creatives live → ${escapeHtml(CLIENT_STAGE_MAP[back]?.label || "Established")}</button>`
-    : "";
-  return `
-    <article class="onb-card cl-card" draggable="true" data-action="${stage === "onboarding" ? "onb-open" : "view-client"}" data-id="${c.id}" tabindex="0" aria-label="${escapeHtml(c.name)}">
-      <div class="onb-card-top">
-        <span class="onb-card-avatar">${escapeHtml((c.name || "?").trim().charAt(0).toUpperCase())}</span>
-        <div class="onb-card-id">
-          <div class="onb-card-name">${escapeHtml(c.name)}</div>
-          <div class="onb-card-meta">${[stage === "live" && clientMonthNumber(c) ? `Month ${clientMonthNumber(c)}` : "", retainer != null ? `${fmtMoney(retainer)}/mo` : "", days != null ? `${days}d here` : ""].filter(Boolean).join(" · ") || "&nbsp;"}</div>
-        </div>
-        ${ownerChipHtml(owner, true)}
-        <button type="button" class="cl-card-del" data-action="delete-client-row" data-id="${c.id}" title="Delete ${escapeHtml(c.name)}" aria-label="Delete ${escapeHtml(c.name)}">${ICONS.trash}</button>
-      </div>
-      ${chips.length ? `<div class="cl-card-chips">${chips.join("")}</div>` : ""}
-      ${body}
-      <div class="cl-card-stats">${stats}</div>
-      ${footer}
-    </article>`;
 }
 // Moves a client to another lifecycle stage. Going into New Creatives Due
 // remembers where they came from, so the card can send them back after.
@@ -5527,51 +5481,6 @@ async function moveClientStage(c, stage){
   if (stage === "onboarding") openWelcomePack(c.id);
   if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
 }
-function setupClientsBoardDrag(){
-  const host = $("#clients-gallery");
-  if (!host) return;
-  let dragId = null;
-  host.addEventListener("dragstart", (e) => {
-    const card = e.target.closest?.(".cl-card");
-    if (!card) return;
-    dragId = card.dataset.id;
-    card.classList.add("dragging");
-    $("#clients-board")?.classList.add("is-dragging");
-    if (e.dataTransfer){ e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", dragId); }
-  });
-  host.addEventListener("dragend", (e) => {
-    e.target.closest?.(".cl-card")?.classList.remove("dragging");
-    $("#clients-board")?.classList.remove("is-dragging");
-    $$("#clients-board .onb-col.drag-over").forEach(col => col.classList.remove("drag-over"));
-    dragId = null;
-  });
-  host.addEventListener("dragover", (e) => {
-    const col = e.target.closest?.(".onb-col[data-board='clients']");
-    if (!col || !dragId) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    $$("#clients-board .onb-col.drag-over").forEach(x => { if (x !== col) x.classList.remove("drag-over"); });
-    col.classList.add("drag-over");
-  });
-  host.addEventListener("dragleave", (e) => {
-    const col = e.target.closest?.(".onb-col[data-board='clients']");
-    if (col && !col.contains(e.relatedTarget)) col.classList.remove("drag-over");
-  });
-  host.addEventListener("drop", async (e) => {
-    const col = e.target.closest?.(".onb-col[data-board='clients']");
-    if (!col || !dragId) return;
-    e.preventDefault();
-    col.classList.remove("drag-over");
-    const c = state.clients.find(x => x.id === dragId);
-    dragId = null;
-    if (c) await moveClientStage(c, col.dataset.stage);
-  });
-  host.addEventListener("keydown", (e) => {
-    const card = e.target.closest?.(".cl-card");
-    if (card && e.target === card && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); card.click(); }
-  });
-}
-// What a client pays us each month, from the retainer deal they came from.
 function clientRetainer(c){
   const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
   return deal && (deal.contract_type || "retainer") === "retainer" && Number(deal.value) > 0 ? Number(deal.value) : null;
@@ -5579,21 +5488,6 @@ function clientRetainer(c){
 // The one progress measure that matters for where the client is right now:
 // onboarding steps while onboarding, quotes while on the guarantee, and
 // profile completeness otherwise.
-function clientProgress(c){
-  const stage = c.stage || "onboarding";
-  if (stage === "onboarding"){
-    const ls = launchState(c);
-    return { pct: ls.pct, label: `${ls.stage.label} · ${ls.doneTasks}/${ls.total}` };
-  }
-  if (stage === "quote_guarantee" && c.quote_target){
-    const sent = Number(c.quotes_sent||0);
-    return { pct: Math.min(100, Math.round(sent/c.quote_target*100)), label: `${sent}/${c.quote_target} quotes` };
-  }
-  const p = clientProfileCompleteness(c);
-  return { pct: p.pct, label: `${p.pct}% profile` };
-}
-// Low/Medium/High is set by hand - deliberately separate from the At Risk
-// stage, which only reflects a decision already made, not an early signal.
 function churnRiskPillHtml(c){
   const label = c.churn_risk ? c.churn_risk.charAt(0).toUpperCase() + c.churn_risk.slice(1) : "Not set";
   return `<span class="cl-risk ${c.churn_risk||"none"}"><span class="cl-risk-dot"></span>${label}</span>`;
@@ -5642,39 +5536,6 @@ async function deleteClientKeepingCreatives(c){
   return true;
 }
 const DELETE_CLIENT_CONFIRM = (name) => `Delete ${name}? They'll be removed from the CRM. Their ad creatives stay in the Creative Library.`;
-function renderClientRow(c, alerts){
-  const initial = (c.name||"?").trim().charAt(0).toUpperCase();
-  const prog = clientProgress(c);
-  const live = runningCampaignsFor(c.id).length;
-  const days = c.stage_changed_at ? daysSince(c.stage_changed_at) : null;
-  const open = `data-action="view-client" data-id="${c.id}"`;
-  return `
-    <div class="cl-row">
-      <div class="cl-cell-client" ${open}>
-        <span class="cl-avatar">${escapeHtml(initial)}</span>
-        <div class="cl-name-wrap">
-          <div class="cl-name">${escapeHtml(c.name)}</div>
-          ${alerts.length
-            ? `<div class="cl-alerts">${alerts.map(a => `<span class="cl-alert ${a.type==='danger'?'danger':''}">${escapeHtml(a.text)}</span>`).join("")}</div>`
-            : `<div class="cl-sub">${[clientRetainer(c) != null ? `${fmtMoney(clientRetainer(c))}/mo` : "", days != null ? `${days}d in stage` : ""].filter(Boolean).join(" · ") || "&nbsp;"}</div>`}
-        </div>
-      </div>
-      <div class="cl-cell-progress" ${open} title="${escapeHtml(prog.label)}">
-        <div class="cl-bar"><div class="cl-bar-fill ${prog.pct===100?"done":""}" style="width:${prog.pct}%"></div></div>
-        <span>${escapeHtml(prog.label)}</span>
-      </div>
-      <div class="num" ${open} data-label="CPL">${c.cost_per_lead!=null ? fmtMoney(c.cost_per_lead) : '<span class="cl-muted">-</span>'}</div>
-      <div class="num" ${open} data-label="Ad spend">${c.monthly_ad_spend!=null ? fmtMoney(c.monthly_ad_spend) : '<span class="cl-muted">-</span>'}</div>
-      <div class="num" ${open} data-label="Live">${live || '<span class="cl-muted">0</span>'}</div>
-      <div ${open} data-label="Churn">${churnRiskPillHtml(c)}</div>
-      <div class="cl-cell-stage">
-        <select class="filter-select client-stage-select" data-id="${c.id}" aria-label="Stage for ${escapeHtml(c.name)}">
-          ${CLIENT_STAGES.map(s => `<option value="${s.key}" ${s.key===(c.stage||"onboarding")?"selected":""}>${s.label}</option>`).join("")}
-        </select>
-        <button type="button" class="icon-btn cl-row-delete" data-action="delete-client-row" data-id="${c.id}" title="Delete ${escapeHtml(c.name)}" aria-label="Delete ${escapeHtml(c.name)}">${ICONS.trash}</button>
-      </div>
-    </div>`;
-}
 function renderClientInfoGrid(c){
   const grid = $("#client-info-grid");
   if (grid){
@@ -5703,9 +5564,15 @@ function renderClientDetail(c){
   $("#client-detail-name").textContent = c.name;
   renderClientOnboarding(c);
   const stageInfo = CLIENT_STAGE_MAP[c.stage] || CLIENT_STAGES[0];
-  const stageBadge = $("#client-detail-stage-badge");
-  stageBadge.textContent = stageInfo.label;
-  stageBadge.className = `badge ${stageInfo.cls}`;
+  // Stage: a dropdown, not dragging cards around.
+  const stageSel = $("#client-detail-stage-select");
+  if (stageSel){
+    stageSel.innerHTML = CLIENT_STAGES.map(st => `<option value="${st.key}">${escapeHtml(st.label)}</option>`).join("");
+    stageSel.value = stageInfo.key;
+    stageSel.dataset.id = c.id;
+    stageSel.closest(".cp-stage").className = `cp-stage ${stageInfo.cls}`;
+  }
+  renderClientStagePrompt(c);
   const contactEl = $("#client-detail-contact");
   if (contactEl){
     const bits = [];
@@ -6498,22 +6365,13 @@ function onbStepDone(c, s){
   if (s.answerable && String(p[s.key + ONBOARDING_ANSWER_SUFFIX] ?? "").trim()) return true;
   return Boolean(p[s.key]);
 }
-function renderOnbModal(){
-  const body = $("#onb-modal-body");
-  const c = state.clients.find(x => x.id === state.onbOpenId);
-  if (!body) return;
-  if (!c || !isOnboardingClient(c)){ state.onbOpenId = null; closeModal("onb-modal"); return; }
+// The checklist itself: progress, then every step by section. Used by the
+// pop-up and, inline, on the client's own page.
+function onbChecklistHtml(c, inline = false){
   const p = c.onboarding_progress || {};
-  const ls = launchState(c);
-  // A realtime re-render mustn't throw away what someone is typing.
-  const active = document.activeElement;
-  const keep = active && body.contains(active) && active.dataset.onbField ? { field: active.dataset.onbField, value: active.value, s: active.selectionStart, e: active.selectionEnd } : null;
-  const scroll = body.scrollTop;
   const done = ONBOARDING_STEPS.filter(s => onbStepDone(c, s)).length, total = ONBOARDING_STEPS.length;
   const pct = Math.round(done / total * 100);
 
-  $("#onb-modal-title").textContent = c.name;
-  $("#onb-modal-sub").innerHTML = `Onboarding · signed ${ls.daysIn === 0 ? "today" : `${ls.daysIn} day${ls.daysIn === 1 ? "" : "s"} ago`}`;
   const stepRow = (s, n) => {
     const isDone = onbStepDone(c, s);
     let extra = "";
@@ -6532,13 +6390,13 @@ function renderOnbModal(){
     </li>`;
   };
   let n = 0;
-  body.innerHTML = `
+  return `
     <div class="ob-progress">
       <div class="ob-progress-text"><b>${done} of ${total}</b> steps done<span>${pct}%</span></div>
       <div class="ob-bar"><i style="width:${pct}%"></i></div>
       <div class="ob-actions">
         <button type="button" class="btn ghost sm" data-action="onb-pack" data-id="${c.id}">Welcome pack</button>
-        <button type="button" class="btn ghost sm" data-action="onb-client-page" data-id="${c.id}">Client page</button>
+        ${inline ? "" : `<button type="button" class="btn ghost sm" data-action="onb-client-page" data-id="${c.id}">Client page</button>`}
         <button type="button" class="btn ${done === total ? "gold" : "ghost"} sm" data-action="onb-finish" data-id="${c.id}">Finish onboarding →</button>
       </div>
     </div>
@@ -6550,6 +6408,21 @@ function renderOnbModal(){
         <ol class="ob-steps">${steps.map(s => stepRow(s, ++n)).join("")}</ol>
       </section>`;
     }).join("")}`;
+}
+function renderOnbModal(){
+  const body = $("#onb-modal-body");
+  const c = state.clients.find(x => x.id === state.onbOpenId);
+  if (!body) return;
+  if (!c || !isOnboardingClient(c)){ state.onbOpenId = null; closeModal("onb-modal"); return; }
+  const p = c.onboarding_progress || {};
+  const ls = launchState(c);
+  // A realtime re-render mustn't throw away what someone is typing.
+  const active = document.activeElement;
+  const keep = active && body.contains(active) && active.dataset.onbField ? { field: active.dataset.onbField, value: active.value, s: active.selectionStart, e: active.selectionEnd } : null;
+  const scroll = body.scrollTop;
+  $("#onb-modal-title").textContent = c.name;
+  $("#onb-modal-sub").innerHTML = `Onboarding · signed ${ls.daysIn === 0 ? "today" : `${ls.daysIn} day${ls.daysIn === 1 ? "" : "s"} ago`}`;
+  body.innerHTML = onbChecklistHtml(c);
   body.scrollTop = scroll;
   if (keep){
     const el = body.querySelector(`[data-onb-field="${keep.field}"]`);
@@ -6592,6 +6465,14 @@ function setupOnboarding(){
     if (card && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); openOnbModal(card.dataset.id); }
   });
   setupOnbDrag();
+  // The same checklist on the client's own page.
+  $("#client-launch-card")?.addEventListener("change", async (e) => {
+    const el = e.target.closest("[data-onb-field]");
+    const c = state.clients.find(x => x.id === e.currentTarget.dataset.id);
+    if (!el || !c) return;
+    await saveOnbField(c, el.dataset.onbField, el.value.trim());
+    if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); } else renderClients();
+  });
 }
 async function handleOnbAction(action, id, btn){
   if (action === "onb-add-client"){
@@ -6629,24 +6510,68 @@ async function handleOnbAction(action, id, btn){
 }
 
 /* On the client's own page: a compact view of the same launch. */
+// When a client looks ready for their next stage, say so at the top of their page.
+function clientStagePrompt(c){
+  const stage = c.stage || "onboarding";
+  if (stage === "onboarding"){
+    const done = ONBOARDING_STEPS.filter(s => onbStepDone(c, s)).length;
+    if (done < ONBOARDING_STEPS.length) return null;
+    const next = postOnboardingStage(c);
+    return { text: `Onboarding's all done. Move ${c.name} to ${CLIENT_STAGE_MAP[next].label}?`, action: "onb-finish", label: `Move to ${CLIENT_STAGE_MAP[next].label}` };
+  }
+  if (stage === "quote_guarantee" && c.quote_target && Number(c.quotes_sent || 0) >= Number(c.quote_target)){
+    return { text: `${c.name} has hit their quote guarantee (${Number(c.quotes_sent)}/${c.quote_target}). Move them to Live?`, action: "client-stage-to", stage: "live", label: "Move to Live" };
+  }
+  if (stage === "at_risk" && c.churn_risk && c.churn_risk !== "high" && c.churn_risk !== "medium"){
+    return { text: `${c.name}'s churn risk is low again. Move them back to Live?`, action: "client-stage-to", stage: "live", label: "Move to Live" };
+  }
+  return null;
+}
+function renderClientStagePrompt(c){
+  const el = $("#cp-stage-prompt");
+  if (!el) return;
+  const pr = clientStagePrompt(c);
+  el.hidden = !pr;
+  el.innerHTML = pr ? `<span>${escapeHtml(pr.text)}</span><button type="button" class="btn gold sm" data-action="${pr.action}" data-id="${c.id}"${pr.stage ? ` data-stage="${pr.stage}"` : ""}>${escapeHtml(pr.label)}</button>` : "";
+}
+async function setClientStage(c, stage){
+  if (!c || !CLIENT_STAGE_MAP[stage] || stage === (c.stage || "onboarding")) return;
+  if ((c.stage || "onboarding") === "onboarding" && stage !== "churned") return finishOnboardingTo(c, stage);
+  if (stage === "churned" && !confirm(`Mark ${c.name} as churned?`)) return renderClients();
+  await moveClientStage(c, stage);
+  if (!IS_CONFIGURED) renderClients();
+}
+// Leaving onboarding by the dropdown does the same tidy-up as Finish onboarding.
+async function finishOnboardingTo(c, stage){
+  const now = new Date().toISOString();
+  const patch = { stage, stage_changed_at: now, updated_at: now };
+  if (!c.ad_start_date) patch.ad_start_date = localDayStr();
+  patch.onboarding_progress = { ...(c.onboarding_progress || {}), onb_stage: "live", live_at: (c.onboarding_progress || {}).live_at || now, touched_at: now };
+  await DataLayer.update("clients", c.id, patch);
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); } else renderClients();
+}
 function renderClientOnboarding(c){
   const card = $("#client-launch-card");
   if (!card) return;
-  if (!isOnboardingClient(c)){ card.hidden = true; return; }
+  if (!isOnboardingClient(c)){ card.hidden = true; card.innerHTML = ""; return; }
   card.hidden = false;
   const ls = launchState(c);
-  const done = ONBOARDING_STEPS.filter(s => onbStepDone(c, s)).length, total = ONBOARDING_STEPS.length;
-  const next = ONBOARDING_STEPS.find(s => !onbStepDone(c, s));
+  // A realtime re-render mustn't throw away what someone is typing.
+  const active = document.activeElement;
+  const keep = active && card.contains(active) && active.dataset.onbField ? { field: active.dataset.onbField, value: active.value, s: active.selectionStart, e: active.selectionEnd } : null;
+  card.dataset.id = c.id;
   card.innerHTML = `
     <div class="cl-launch-head">
       <div>
-        <h3>Onboarding · ${done} of ${total} steps done</h3>
-        <p>Day ${ls.daysIn}${ls.target ? ` · ads due ${escapeHtml(fmtShortDate(ls.target))}` : ""}</p>
+        <h3>Onboarding checklist</h3>
+        <p>Signed ${ls.daysIn === 0 ? "today" : `${ls.daysIn} day${ls.daysIn === 1 ? "" : "s"} ago`}${ls.target ? ` · ads due ${escapeHtml(fmtShortDate(ls.target))}` : ""}</p>
       </div>
-      <button type="button" class="btn gold sm" data-action="onb-open" data-id="${c.id}">Open checklist</button>
     </div>
-    <div class="ob-bar"><i style="width:${Math.round(done / total * 100)}%"></i></div>
-    ${next ? `<div class="onb-next"><span class="onb-next-label">Next</span>${escapeHtml(next.label)}</div>` : ""}`;
+    <div class="onb-modal-body cl-launch-body">${onbChecklistHtml(c, true)}</div>`;
+  if (keep){
+    const el = card.querySelector(`[data-onb-field="${keep.field}"]`);
+    if (el){ el.value = keep.value; el.focus(); try { if (keep.s != null) el.setSelectionRange(keep.s, keep.e); } catch(e){} }
+  }
   const main = $("#client-detail-main");
   if (main && main.firstElementChild !== card) main.prepend(card);
 }
@@ -15201,26 +15126,16 @@ function setupModals(){
   $("#content-production-filter-type")?.addEventListener("change", (e) => { state.contentFilter.type = e.target.value; renderContentProduction(); });
 
   $("#clients-gallery-search")?.addEventListener("input", (e) => { state.clientsGallerySearch = e.target.value; renderClientsList(); });
-  setupClientsBoardDrag();
-  $$("[data-cl-view]").forEach(btn => btn.addEventListener("click", () => {
-    state.clientsView = btn.dataset.clView;
-    try { localStorage.setItem("mp_clients_view", state.clientsView); } catch(e){}
+  $("#client-detail-stage-select")?.addEventListener("change", (e) => setClientStage(state.clients.find(x => x.id === e.target.dataset.id), e.target.value));
+  const pickClientsTab = (key) => {
+    if (!CLIENT_STAGE_MAP[key]) return;
+    state.clientsTab = key; state.clientsGallerySearch = "";
+    const search = $("#clients-gallery-search"); if (search) search.value = "";
+    try { localStorage.setItem("mp_clients_tab", key); } catch(e){}
     renderClientsList();
-  }));
-  $("#clients-stage-chips")?.addEventListener("click", (e) => {
-    const chip = e.target.closest("[data-cl-filter]");
-    if (!chip) return;
-    state.clientsStageFilter = chip.dataset.clFilter;
-    renderClientsList();
-  });
-  $("#clients-gallery")?.addEventListener("change", async (e) => {
-    const sel = e.target.closest(".client-stage-select");
-    if (!sel) return;
-    const before = state.clients.find(x => x.id === sel.dataset.id)?.stage || "onboarding";
-    await DataLayer.update("clients", sel.dataset.id, { stage: sel.value, stage_changed_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-    if (sel.value === "onboarding" && before !== "onboarding") openWelcomePack(sel.dataset.id);
-    if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
-  });
+  };
+  $("#clients-stage-tabs")?.addEventListener("click", (e) => { const t = e.target.closest("[data-cl-tab]"); if (t) pickClientsTab(t.dataset.clTab); });
+  $("#clients-stage-select")?.addEventListener("change", (e) => pickClientsTab(e.target.value));
 
   $("#add-ad-creative-btn")?.addEventListener("click", () => {
     $("#ad-creative-form").reset(); $("#ad-creative-form-id").value=""; $("#ad-creative-modal-title").textContent="Add Ad Creative";
@@ -15631,6 +15546,7 @@ function setupModals(){
       await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
     if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
+    if (action === "client-stage-to"){ await setClientStage(state.clients.find(x => x.id === id), btn.dataset.stage); return; }
     if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
     if (action === "toggle-board-col"){
       const key = btn.dataset.key;
@@ -15698,7 +15614,6 @@ function setupModals(){
       renderDealsList(); return;
     }
     if (action === "toggle-closed-stage"){ state.closedOpen = state.closedOpen === btn.dataset.stage ? null : btn.dataset.stage; renderDealsList(); return; }
-    if (action === "toggle-churned"){ state.showChurned = !state.showChurned; renderClients(); return; }
     if (action === "open-onboarding-board"){ const c = state.clients.find(x => normalizeClientStage(x.stage) === "onboarding"); if (c) openOnbModal(c.id); }
     if (action === "creatives-done"){
       const c = state.clients.find(x => x.id === id);
