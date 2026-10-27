@@ -60,6 +60,7 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
 - **Receipts / billing:**
   - Due dates come from `rcNextDue`, and are stored in `clients.onboarding_progress.billing` / `.invoices`.
   - Payment reminder emails are queued in `scheduled_emails` (kind `billing_reminder`) by the browser and sent by `send-scheduled-emails`.
+- **Email templates (Sales Emails / Delivery Emails):** `renderEmailTemplateList` / `etViewHtml`. Pick an email (list + type dropdown on desktop, a dropdown on phones), fill the yellow blanks once (`etBlanks`: any `[placeholder]` or a lone X for their name; "Your name" defaults to the logged-in person; values are remembered in localStorage `mp_et_fills`), then "Copy the email" (`etCopyRich`, copies HTML + plain text so paragraphs paste into Gmail), click the subject to copy it, or Open in Gmail. Copy buttons use `data-etx`, not `data-action` (the global handler re-renders in demo mode).
 - **Meeting structure and Sit Rate pages:** rendered from the playbooks above.
 - **Employees workspace:** one menu item per current employee (`empNavRender`, `.nav-emp-list`), opening their page with their responsibilities (`employees.responsibilities`, sql/084) above the tabs. The team is Rocky (Appointment Setting & Running Ads), Max (Closing & Process Improvement) and Carmen (Lead Follow Up); people set to "Left" sit under Past employees.
 - **Lead Follow Up workspace** (Carmen calls every client lead):
