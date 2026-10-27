@@ -1680,6 +1680,8 @@ function applyWorkspace(){
   $$('.nav-item[data-page="lead-engine"]').forEach(el => {
     if (!canAccessLeadEngine()) el.style.display = "none";
   });
+  // Lead setup (GoHighLevel connections and stages) is for Rocky and Max only.
+  $$(".nav-lead-setup").forEach(el => { if (IS_CONFIGURED && !(isRocky() || isMax())) el.style.display = "none"; });
   // Contacts lives under Add prospects; without Add prospects it's just Contacts.
   $$(".nav-prospects-label").forEach(el => { el.textContent = canAccessLeadEngine() ? "Add Prospects" : "Contacts"; });
   const copy = WORKSPACE_COPY[ws] || WORKSPACE_COPY.sales;
@@ -1807,6 +1809,7 @@ const FIT_PAGES = {
   employees: ["#emp-root"],
   "client-inbox": ["#inbox-root"],
   "lead-followups": ["#fu-root"],
+  "lead-plan": ["#lp-root"],
   expenses: ["#page-expenses > .card:last-child"],
   commission: ["#commission-groups"],
   statistics: ["#page-statistics > .st-scroll"],
@@ -11037,7 +11040,7 @@ async function empSeedTeam(){
   } finally { empSeeding = false; }
 }
 function setupEmployees(){
-  loadEmployees().then(() => { renderEmployees(); empNavCount(); }).catch(e => console.warn(e));
+  loadEmployees().then(() => { renderEmployees(); empNavCount(); lpNavCount(); if (state.page === "lead-plan") renderLeadPlan(); }).catch(e => console.warn(e));
   if (!IS_CONFIGURED || empSubscribed) return;
   empSubscribed = true;
   let t = null;
@@ -11046,7 +11049,8 @@ function setupEmployees(){
     t = setTimeout(async () => {
       // Don't redraw under someone half-way through typing in a form here.
       if ($("#emp-root")?.contains(document.activeElement) && document.activeElement.matches("input,textarea,select")) return;
-      await loadEmployees(); renderEmployees(); empNavCount();
+      await loadEmployees(); renderEmployees(); empNavCount(); lpNavCount();
+      if (state.page === "lead-plan") renderLeadPlan();
     }, 400);
   }).subscribe();
 }
@@ -11642,7 +11646,7 @@ function renderLeadQueue(){
       <div class="lq3-top-title">
         <span class="lq3-kicker">${me && me !== "Demo" ? `Kia ora ${escapeHtml(me)}` : "Lead follow-up"}</span>
         <h2>${q.due.length ? `${q.due.length} ${q.due.length === 1 ? "person" : "people"} to call` : "All caught up"}</h2>
-        <p>${checked ? `New leads arrive by themselves · last checked ${escapeHtml(lqShortAgo(now - new Date(checked)))} ago` : "New leads arrive by themselves every 5 minutes"}</p>
+        <p>New leads show up here by themselves. Start at the top.</p>
       </div>
       <div class="lq3-kpis">
         <div class="lq3-kpi ${longest > LQ_FAST_MS ? "bad" : ""}"><b>${waiting.length ? escapeHtml(lqShortAgo(longest)) : "-"}</b><span>longest wait</span></div>
@@ -11661,7 +11665,6 @@ function renderLeadQueue(){
   };
   const side = `
     <div class="lq3-side-actions">
-      <button type="button" class="lq3-mini" data-lq-act="sync" ${lqSyncing ? "disabled" : ""}>${lqIcon("refresh")}${lqSyncing ? "Checking…" : "Check now"}</button>
       <button type="button" class="lq3-mini" data-lq-act="add">${lqIcon("plus")}Add a lead</button>
     </div>
     ${lqAdding ? lqAddFormHtml() : ""}
@@ -11913,40 +11916,49 @@ async function lqSync(){
   finally { lqSyncing = false; renderAll(); }
 }
 
-// KPIs: the 3-minute response target, and the calling process behind it.
+// My results: how Carmen's doing, in plain numbers. The 3-minute response
+// first, then calls, people reached and bookings, for the period she picks.
+let lkPeriod = "today";
 function renderLeadKpis(){
   const root = $("#lk-root");
   if (!root) return;
-  const now = Date.now(), wave = lqWaveOf(now);
-  const since = (days) => { const d = new Date(); d.setDate(d.getDate() - days); return localDayStr(d); };
-  const score = (from) => {
-    // Fresh enquiries only - older Rep to contact / Stuck leads were never 3-minute calls.
-    const ls = state.clientLeads.filter(l => l.follow_status !== "old" && localDayStr(new Date(lqIn(l))) >= from && (!l.first_called_at || new Date(l.first_called_at) - lqIn(l) < LQ_FRESH_MS));
-    const due = ls.filter(l => l.first_called_at || now - lqIn(l) > LQ_FAST_MS);
-    const hit = due.filter(l => l.first_called_at && new Date(l.first_called_at) - lqIn(l) <= LQ_FAST_MS);
-    return { hit: hit.length, of: due.length, pct: due.length ? Math.round(hit.length / due.length * 100) : null, missed: due.filter(l => !hit.includes(l)) };
-  };
-  const today = score(localDayStr()), week = score(since(6)), month = score(localDayStr().slice(0, 8) + "01");
-  const card = (label, x) => `<div class="lk-score ${x.pct == null ? "" : x.pct >= 90 ? "hit" : x.pct >= 70 ? "warn" : "low"}">
-    <span>${label}</span><b>${x.pct == null ? "-" : x.pct + "%"}</b>
-    <div class="lk-bar"><i style="width:${x.pct || 0}%"></i></div>
-    <small>${x.of ? `${x.hit} of ${x.of} new enquiries called within 3 minutes` : "No new enquiries yet"}</small></div>`;
-  const late = today.missed.sort((a, b) => lqIn(b) - lqIn(a)).slice(0, 8);
+  if (root.contains(document.activeElement) && document.activeElement.matches("select")) return;
+  const now = Date.now(), today = localDayStr();
+  const from = lkPeriod === "today" ? today : lkPeriod === "week" ? (() => { const d = new Date(); d.setDate(d.getDate() - 6); return localDayStr(d); })() : today.slice(0, 8) + "01";
+  const inP = (iso) => iso && localDayStr(new Date(iso)) >= from;
+  // 3 minutes: fresh enquiries only - older Rep to contact / Stuck leads were never 3-minute calls.
+  // (A lead that only reached the CRM long after it came in - an old one pulled
+  // in from Rep to contact or Stuck - was never a 3-minute call.)
+  const fresh = state.clientLeads.filter(l => l.follow_status !== "old" && inP(new Date(lqIn(l)).toISOString())
+    && new Date(l.created_at || lqIn(l)) - lqIn(l) < 3600e3
+    && (l.first_called_at ? new Date(l.first_called_at) - lqIn(l) < LQ_FRESH_MS : now - lqIn(l) < LQ_FRESH_MS));
+  const due = fresh.filter(l => l.first_called_at || now - lqIn(l) > LQ_FAST_MS);
+  const hit = due.filter(l => l.first_called_at && new Date(l.first_called_at) - lqIn(l) <= LQ_FAST_MS);
+  const pct = due.length ? Math.round(hit.length / due.length * 100) : null;
+  const calls = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => inP(x.at)));
+  const reachedCalls = calls.filter(x => !["no_answer", "wrong_number"].includes(x.outcome));
+  const bookedCalls = calls.filter(x => LQ_BOOKED.has(x.outcome));
+  const toFinish = state.clientLeads.filter(lqIsOpen).length;
+  const label = { today: "today", week: "in the last 7 days", month: "this month" }[lkPeriod];
+  const tile = (n, what, cls = "") => `<div class="lk-tile ${cls}"><b>${n}</b><span>${what}</span></div>`;
+  const missed = due.filter(l => !hit.includes(l)).sort((a, b) => lqIn(b) - lqIn(a)).slice(0, 5);
   root.innerHTML = `
-    <div class="page-header"><div><h2>KPI's</h2><p>What good looks like on the phones, and how today is tracking.</p></div></div>
-    <section class="lk-kpi">
-      <div class="lk-kpi-head">
-        <span class="lk-kpi-n">KPI 1</span>
-        <div><h3>Respond to every new lead within 3 minutes</h3><p>From the moment someone enquires to the first call. Target: every single one.</p></div>
-      </div>
-      <div class="lk-scores">${card("Today", today)}${card("Last 7 days", week)}${card("This month", month)}</div>
-      ${late.length ? `<div class="lk-late"><h4>Missed the 3 minutes today</h4>${late.map(l => `<div><b>${escapeHtml(l.name || l.phone || "No name")}</b><span>${escapeHtml(lqClient(l)?.name || "")}</span><em>${l.first_called_at ? `called after ${escapeHtml(lqAgo(new Date(l.first_called_at) - lqIn(l)))}` : "not called yet"}</em></div>`).join("")}</div>` : ""}
+    <div class="lk-head">
+      <div><h2>My results</h2><p>How you're going ${escapeHtml(label)}.</p></div>
+      <select class="lk-period" aria-label="Which days">${[["today", "Today"], ["week", "Last 7 days"], ["month", "This month"]].map(([k, l]) => `<option value="${k}" ${k === lkPeriod ? "selected" : ""}>${l}</option>`).join("")}</select>
+    </div>
+    <section class="lk-main ${pct == null ? "" : pct >= 90 ? "hit" : pct >= 70 ? "warn" : "low"}">
+      <div class="lk-main-text"><span>Your goal</span><h3>Call every new enquiry within 3 minutes</h3>
+        <p>${due.length ? `${hit.length} of ${due.length} new enquiries called in time` : "No new enquiries yet"}</p></div>
+      <div class="lk-main-num"><b>${pct == null ? "-" : pct + "%"}</b><div class="lk-bar"><i style="width:${pct || 0}%"></i></div></div>
     </section>
-    <section class="lk-wave ${wave}">
-      <b>Right now: ${LQ_WAVES[wave].name}</b>
-      <span>Missed calls made now come back in the ${wave === "am" ? "afternoon wave (from 2pm today)" : "morning wave (from 9am tomorrow)"}.</span>
-    </section>
-    ${lqGuideHtml()}`;
+    <div class="lk-tiles">
+      ${tile(calls.length, "calls made")}
+      ${tile(reachedCalls.length, "people you spoke to")}
+      ${tile(bookedCalls.length, "site visits & consultations booked", bookedCalls.length ? "good" : "")}
+      ${tile(toFinish, "people still to call now or later")}
+    </div>
+    ${missed.length ? `<section class="lk-missed"><h4>Missed the 3 minutes</h4>${missed.map(l => `<div><b>${escapeHtml(l.name || l.phone || "No name")}</b><span>${escapeHtml(lqBizName(lqClient(l)))}</span><em>${l.first_called_at ? `called after ${escapeHtml(lqAgo(new Date(l.first_called_at) - lqIn(l)))}` : "not called yet"}</em></div>`).join("")}</section>` : ""}`;
 }
 
 function renderLeadResults(){
@@ -11993,9 +12005,9 @@ function renderLeadResults(){
   });
   const problems = health.filter(h => h.cls !== "ok").length;
   root.innerHTML = `
-    <div class="page-header"><div><h2>Lead results</h2><p>How fast every lead gets a call, and how many turn into booked quotes.</p></div></div>
+    <div class="page-header"><div><h2>Lead setup</h2><p>For Rocky and Max: which clients' leads come through, where each call outcome goes in their GoHighLevel, and how each client's leads are doing.</p></div></div>
     <div class="emp-period">${[["today", "Today"], ["week", "Last 7 days"], ["month", "This month"]].map(([k, l]) => `<button type="button" class="${k === lqPeriod ? "active" : ""}" data-lr-period="${k}">${l}</button>`).join("")}</div>
-    <div class="emp-tiles">
+    <div class="emp-tiles" hidden>
       ${tile("Leads in", leads.length, `${leads.filter(l => lqIsOpen(l)).length} still to finish`)}
       ${tile("Called", called.length, `${pct(called.length, leads.length)} of leads`)}
       ${tile("Speed to first call", median == null ? "-" : lqShortAgo(median), "typical (median)", median != null && median <= LQ_FAST_MS ? "hit" : median != null ? "low" : "")}
@@ -12046,6 +12058,208 @@ async function lqLoadSetup(clientId){
   const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "setup", client_id: clientId } });
   lqSetupCache[clientId] = error ? { error: "Couldn't load their GoHighLevel right now." } : (data || {});
   renderLeadResults();
+}
+
+/* ───────── Lead Follow Up: Performance review ─────────
+   Carmen's plan, in one place she can tick off as she goes: this week's and
+   next week's onboarding agenda, her 30-60-90 day growth plan (with the
+   30/60/90-day reviews), and how calling works. Saved on her employee row
+   (employees.plan, sql/089): { weeks, phases, done: { itemId: date } }.
+   weeks/phases are only stored once Rocky or Max change them - until then
+   the built-in plan below is used, so ticking never needs a set-up. */
+const LP_WEEKS = [
+  { title: "Week 1 - Getting set up", items: [
+    ["w1a", "Mon", "Log in to the CRM and make sure you can see the Call queue"],
+    ["w1b", "Mon", "Read \"How we call\" (the last tab on this page)"],
+    ["w1c", "Mon", "Sit with Rocky and listen to 5 calls"],
+    ["w1d", "Tue", "Learn the call screen: the script, the outcome buttons and notes"],
+    ["w1e", "Tue", "Make your first 10 calls with Rocky listening"],
+    ["w1f", "Wed", "Set a follow-up for every call-back you promise"],
+    ["w1g", "Wed", "Learn what each client does and the areas they cover"],
+    ["w1h", "Thu", "Make calls on your own"],
+    ["w1i", "Thu", "Practise the voicemail message until it feels natural"],
+    ["w1j", "Fri", "End-of-week check-in with Rocky (15 minutes)"],
+  ]},
+  { title: "Week 2 - Finding your rhythm", items: [
+    ["w2a", "Mon", "Work the morning wave (9am) and the afternoon wave (2pm)"],
+    ["w2b", "Tue", "Call every new enquiry within 3 minutes"],
+    ["w2c", "Wed", "Work through the older Rep to contact and Stuck leads, longest waiting first"],
+    ["w2d", "Thu", "Look at My results with Rocky"],
+    ["w2e", "Fri", "Check-in: what's working and what's hard"],
+  ]},
+  { title: "Week 3 - Booking more", items: [
+    ["w3a", "Mon", "Practise booking site visits and consultation calls"],
+    ["w3b", "Tue", "Write good notes on every call so the client knows what was said"],
+    ["w3c", "Wed", "Practise answers to \"I'm just getting prices\" and \"too expensive\""],
+    ["w3d", "Fri", "Check-in with Rocky"],
+  ]},
+  { title: "Week 4 - On your own", items: [
+    ["w4a", "Mon", "Run the whole day on your own"],
+    ["w4b", "Wed", "Clear every overdue follow-up"],
+    ["w4c", "Fri", "30-day review with Rocky"],
+  ]},
+];
+const LP_PHASES = [
+  { title: "First 30 days", goal: "Learn the ropes", items: [
+    ["p1a", "Make calls from the Call queue every day, using the script"],
+    ["p1b", "Call at least 7 out of 10 new enquiries within 3 minutes"],
+    ["p1c", "Know each client: what they do, where they work, and what a good lead looks like"],
+    ["p1d", "Set a follow-up for every call-back and promise"],
+    ["p1e", "Book your first 10 site visits or consultation calls"],
+    ["p1f", "30-day review with Rocky"],
+  ]},
+  { title: "Days 31-60", goal: "Own the phones", items: [
+    ["p2a", "Call 9 out of 10 new enquiries within 3 minutes"],
+    ["p2b", "Every lead gets all 5 tries before it's closed"],
+    ["p2c", "Book 20 or more site visits or consultation calls in a month"],
+    ["p2d", "Handle the common objections without needing the script"],
+    ["p2e", "60-day review with Rocky"],
+  ]},
+  { title: "Days 61-90", goal: "Make it better", items: [
+    ["p3a", "Call every new enquiry within 3 minutes"],
+    ["p3b", "Book 30 or more site visits or consultation calls in a month"],
+    ["p3c", "Tell Rocky which clients' leads book best, and why you think that is"],
+    ["p3d", "Suggest one way to make the script or the process better"],
+    ["p3e", "90-day review with Rocky"],
+  ]},
+];
+const LP_TABS = [["this", "This week"], ["next", "Next week"], ["plan", "30-60-90 plan"], ["how", "How we call"]];
+let lpTab = "this", lpSel = null, lpEditing = false;
+const lpUid = () => "x" + Math.random().toString(36).slice(2, 9);
+// Whose plan: theirs if they're on the team list; Rocky and Max can pick.
+function lpPeople(){ return state.employees.filter(e => empCurrent(e) && !["rocky", "max"].includes(e.person_key)); }
+function lpPerson(){
+  const people = lpPeople();
+  if (empIsManager()) return people.find(e => e.id === lpSel) || people.find(e => e.person_key === "carmen") || people[0] || null;
+  return empMe() || people.find(e => e.person_key === "carmen") || null;
+}
+function lpPlanOf(e){
+  const p = e?.plan || {};
+  return {
+    weeks: Array.isArray(p.weeks) && p.weeks.length ? p.weeks : LP_WEEKS.map(w => ({ title: w.title, items: w.items.map(([id, day, text]) => ({ id, day, text })) })),
+    phases: Array.isArray(p.phases) && p.phases.length ? p.phases : LP_PHASES.map(ph => ({ title: ph.title, goal: ph.goal, items: ph.items.map(([id, text]) => ({ id, text })) })),
+    done: p.done || {},
+  };
+}
+// Day 1 is their start date (or the day they were added).
+function lpStart(e){ return String(e?.start_date || e?.created_at || localDayStr()).slice(0, 10); }
+function lpDayNo(e){ return Math.max(1, Math.floor((new Date(localDayStr() + "T00:00:00") - new Date(lpStart(e) + "T00:00:00")) / 86400e3) + 1); }
+// Which onboarding week "this week" is: calendar weeks (Monday to Sunday) from the start.
+function lpWeekIndex(e){
+  const monday = (d) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+  return Math.floor((monday(localDayStr()) - monday(lpStart(e))) / (7 * 86400e3));
+}
+function lpWeekDates(e, idx){
+  const x = new Date(lpStart(e) + "T00:00:00"); x.setDate(x.getDate() - ((x.getDay() + 6) % 7) + idx * 7);
+  const end = new Date(x); end.setDate(end.getDate() + 4);
+  const f = (d) => d.toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+  return `${f(x)} - ${f(end)}`;
+}
+function lpLeftThisWeek(){
+  const e = lpPerson(); if (!e) return 0;
+  const plan = lpPlanOf(e), w = plan.weeks[lpWeekIndex(e)];
+  return w ? w.items.filter(i => !plan.done[i.id]).length : 0;
+}
+function lpNavCount(){
+  const n = lpLeftThisWeek();
+  $$(".nav-lp-count").forEach(el => { el.hidden = !n; el.textContent = n; });
+}
+async function lpSave(e, plan){
+  const keep = e.plan && (Array.isArray(e.plan.weeks) || Array.isArray(e.plan.phases));
+  const next = lpEditing || keep ? { weeks: plan.weeks, phases: plan.phases, done: plan.done } : { done: plan.done };
+  await empSave(e.id, { plan: next });
+  lpNavCount(); renderLeadPlan();
+}
+
+function lpItemHtml(item, plan, label){
+  const done = plan.done[item.id];
+  return `<div class="lp-item${done ? " done" : ""}">
+    <button type="button" class="lp-tick" data-lp-tick="${escapeHtml(item.id)}" aria-pressed="${done ? "true" : "false"}" aria-label="${done ? "Not done yet" : "Done"}">${done ? "✓" : ""}</button>
+    <div class="lp-item-text">${label ? `<span class="lp-day">${escapeHtml(label)}</span>` : ""}<b>${escapeHtml(item.text)}</b>${done ? `<small>Done ${escapeHtml(empShortDay(done))}</small>` : ""}</div>
+    ${lpEditing ? `<button type="button" class="lp-del" data-lp-del="${escapeHtml(item.id)}" aria-label="Remove">✕</button>` : ""}
+  </div>`;
+}
+function lpAddHtml(where, withDay){
+  if (!lpEditing) return "";
+  return `<form class="lp-add" data-lp-add="${escapeHtml(where)}">
+    ${withDay ? `<select name="day">${["Mon", "Tue", "Wed", "Thu", "Fri"].map(d => `<option>${d}</option>`).join("")}</select>` : ""}
+    <input name="text" placeholder="Add something to do" required><button type="submit">Add</button>
+  </form>`;
+}
+function lpWeekHtml(e, plan, idx){
+  const w = plan.weeks[idx];
+  if (!w){
+    return idx < 0 ? `<div class="lp-empty"><h3>Starting soon</h3><p>The onboarding plan starts on ${escapeHtml(empDay(lpStart(e)))}.</p></div>`
+      : `<div class="lp-empty"><span>🎉</span><h3>Onboarding's done</h3><p>Keep going with the 30-60-90 plan.</p></div>`;
+  }
+  const left = w.items.filter(i => !plan.done[i.id]).length;
+  return `<div class="lp-week-head"><h3>${escapeHtml(w.title)}</h3><span>${escapeHtml(lpWeekDates(e, idx))} · ${left ? `${left} left to do` : "✓ all done"}</span></div>
+    <div class="lp-items">${w.items.map(i => lpItemHtml(i, plan, i.day)).join("")}</div>
+    ${lpAddHtml("w" + idx, true)}`;
+}
+function lpPlanHtml(e, plan){
+  const day = lpDayNo(e), cur = day <= 30 ? 0 : day <= 60 ? 1 : 2;
+  return `<div class="lp-phases">${plan.phases.map((ph, i) => {
+    const done = ph.items.filter(x => plan.done[x.id]).length;
+    return `<section class="lp-phase${i === cur ? " now" : ""}">
+      <header><span>${i === cur ? "You're here" : i < cur ? "Done" : "Coming up"}</span><h3>${escapeHtml(ph.title)}</h3><p>${escapeHtml(ph.goal || "")}</p><em>${done} of ${ph.items.length} done</em></header>
+      <div class="lp-items">${ph.items.map(x => lpItemHtml(x, plan, "")).join("")}</div>
+      ${lpAddHtml("p" + i, false)}
+    </section>`;
+  }).join("")}</div>`;
+}
+function renderLeadPlan(){
+  const root = $("#lp-root");
+  if (!root) return;
+  if (root.contains(document.activeElement) && document.activeElement.matches("input,select")) return;
+  if (!state.empLoaded){ root.innerHTML = `<div class="emp-empty">Loading…</div>`; return; }
+  const e = lpPerson();
+  if (!e){ root.innerHTML = `<div class="lp-empty"><h3>No one to show yet</h3><p>Add the team on the Employees page first.</p></div>`; return; }
+  const plan = lpPlanOf(e), mgr = empIsManager(), first = String(e.name || "").split(" ")[0];
+  const day = Math.min(lpDayNo(e), 90), wk = lpWeekIndex(e);
+  const all = [...plan.weeks.flatMap(w => w.items), ...plan.phases.flatMap(p => p.items)];
+  const doneN = all.filter(i => plan.done[i.id]).length;
+  const people = lpPeople();
+  const body = lpTab === "this" ? lpWeekHtml(e, plan, wk) : lpTab === "next" ? lpWeekHtml(e, plan, wk + 1) : lpTab === "plan" ? lpPlanHtml(e, plan) : `<div class="lp-how">${lqGuideHtml()}</div>`;
+  root.innerHTML = `
+    <div class="lp-head">
+      <div><h2>${mgr ? `${escapeHtml(first)}'s performance review` : "My performance review"}</h2>
+        <p>${mgr ? `${escapeHtml(first)} ticks things off as she goes - you'll see it here.` : "Tick things off as you go. Rocky can see how you're going too."}</p></div>
+      <div class="lp-head-right">
+        ${mgr && people.length > 1 ? `<select class="lp-person" aria-label="Whose plan">${people.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === e.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select>` : ""}
+        ${mgr && lpTab !== "how" ? `<button type="button" class="lp-edit ${lpEditing ? "on" : ""}" data-lp-act="edit">${lpEditing ? "Done changing" : "Change the plan"}</button>` : ""}
+      </div>
+    </div>
+    <div class="lp-progress">
+      <div class="lp-progress-top"><b>Day ${day} of 90</b><span>${doneN} of ${all.length} things done</span></div>
+      <div class="lp-bar"><i style="width:${Math.round(day / 90 * 100)}%"></i><em style="left:33.3%">30</em><em style="left:66.6%">60</em><em style="left:100%">90</em></div>
+    </div>
+    <div class="lp-tabs" role="tablist">${LP_TABS.map(([k, l]) => `<button type="button" class="${lpTab === k ? "on" : ""}" data-lp-tab="${k}">${l}</button>`).join("")}</div>
+    <div class="lp-body">${body}</div>`;
+}
+function setupLeadPlanUi(){
+  const root = $("#lp-root");
+  if (!root) return;
+  const edit = (fn) => { const e = lpPerson(); if (!e) return; const plan = lpPlanOf(e); fn(plan); lpSave(e, plan); };
+  root.addEventListener("click", (ev) => {
+    const t = ev.target.closest("[data-lp-tab],[data-lp-tick],[data-lp-del],[data-lp-act]");
+    if (!t) return;
+    if (t.dataset.lpTab){ lpTab = t.dataset.lpTab; if (lpTab === "how") lpEditing = false; return renderLeadPlan(); }
+    if (t.dataset.lpAct === "edit"){ lpEditing = !lpEditing; return renderLeadPlan(); }
+    if (t.dataset.lpTick) return edit(plan => { const id = t.dataset.lpTick; if (plan.done[id]) delete plan.done[id]; else { plan.done[id] = localDayStr(); rcToast("Nice one ✓"); } });
+    if (t.dataset.lpDel) return edit(plan => { const id = t.dataset.lpDel; [...plan.weeks, ...plan.phases].forEach(g => { g.items = g.items.filter(i => i.id !== id); }); delete plan.done[id]; });
+  });
+  root.addEventListener("change", (ev) => { if (ev.target.matches(".lp-person")){ lpSel = ev.target.value; ev.target.blur(); renderLeadPlan(); lpNavCount(); } });
+  root.addEventListener("submit", (ev) => {
+    const f = ev.target.closest("[data-lp-add]"); if (!f) return;
+    ev.preventDefault();
+    const where = f.dataset.lpAdd, text = f.elements.text.value.trim(); if (!text) return;
+    edit(plan => {
+      const idx = Number(where.slice(1));
+      if (where[0] === "w"){ while (plan.weeks.length <= idx) plan.weeks.push({ title: `Week ${plan.weeks.length + 1}`, items: [] }); plan.weeks[idx].items.push({ id: lpUid(), day: f.elements.day?.value || "", text }); }
+      else plan.phases[idx]?.items.push({ id: lpUid(), text });
+    });
+  });
 }
 
 /* ───────── Lead Follow Up: Follow-ups ─────────
@@ -12280,6 +12494,8 @@ function setupFollowUpsUi(){
 
 function setupLeadFollowUpUi(){
   setupFollowUpsUi();
+  setupLeadPlanUi();
+  $("#lk-root")?.addEventListener("change", (ev) => { if (ev.target.matches(".lk-period")){ lkPeriod = ev.target.value; ev.target.blur(); renderLeadKpis(); } });
   const root = $("#lq-root");
   if (root){
     root.addEventListener("click", (ev) => {
@@ -12401,6 +12617,7 @@ function setupLeadFollowUpUi(){
   setInterval(() => {
     if (state.page === "lead-queue") renderLeadQueue(); else lqNavCount();
     if (state.page === "lead-kpis") renderLeadKpis();
+    lpNavCount();
     fuRemind();
     if (["lead-queue", "lead-results"].includes(state.page)) lqLoadSync(true);
   }, 60e3);
@@ -12443,7 +12660,7 @@ const RENDERERS = [
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
-  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [lqNavCount, ["*"]],
+  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [renderLeadPlan, ["lead-plan"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
