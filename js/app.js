@@ -3730,7 +3730,7 @@ function renderDialer(){
   // prospect calling back can actually reach whoever has the Dialer open -
   // see handleIncomingCall(). Silent because plenty of Dialer views (demo
   // mode, Supabase not configured yet) shouldn't pop a calling-setup alert.
-  if (!voiceDevice && IS_CONFIGURED && callMode() !== "phone") getVoiceDevice(true);
+  if (!voiceDevice && IS_CONFIGURED && callMode() === "browser") getVoiceDevice(true);
   const modeSel = $("#dialer-call-mode");
   if (modeSel && document.activeElement !== modeSel) modeSel.value = callMode();
   const activePerson = window.getActivePerson ? window.getActivePerson() : null;
@@ -3837,7 +3837,7 @@ function renderDialer(){
           ${p.phone ? `<div class="dl-phone">${phoneHtml(prospectE164(p), "phone-num-xl")}</div>` : ""}
           <div class="dl-meta">${p.last_called_at ? `Called ${Number(p.calls_made||0)}× · last ${escapeHtml(timeAgo(p.last_called_at))}` : "Never called"}${p.email ? ` · ${escapeHtml(p.email)}` : ""}</div>
         </div>
-        ${IS_CONFIGURED && callMode() !== "phone"
+        ${(IS_CONFIGURED && callMode() === "browser") || callMode() === "aircall"
           ? `<button type="button" class="dl-call" data-action="start-call" data-id="${p.id}" ${p.phone ? "" : "disabled"}>${callIco}${callLabel}</button>`
           : `<a href="tel:${escapeHtml(prospectE164(p))}" class="dl-call" data-action="dial-tel" data-id="${p.id}">${callIco}${callLabel}</a>`}
         ${p.notes ? `<div class="dl-notes"><span>Notes</span>${escapeHtml(p.notes)}</div>` : ""}
@@ -4265,9 +4265,11 @@ function setCallWidget(open, { name, status } = {}){
 // computer's own calling app (Phone Link on Windows with an Android, or
 // iPhone calls on a Mac), so it rings out from your own mobile number;
 // "browser" calls through Twilio inside the CRM.
-const CALL_MODE_KEY = "mp_call_mode";
+// "aircall" (the default), "phone" (Phone Link / iPhone) or "browser" (Twilio).
+// A new key, so everyone starts on Aircall whatever they picked before it.
+const CALL_MODE_KEY = "mp_call_mode_v2";
 function callMode(){
-  try { return localStorage.getItem(CALL_MODE_KEY) || "phone"; } catch(e){ return "phone"; }
+  try { return localStorage.getItem(CALL_MODE_KEY) || "aircall"; } catch(e){ return "aircall"; }
 }
 function setCallMode(mode){
   try { localStorage.setItem(CALL_MODE_KEY, mode); } catch(e){}
@@ -4278,10 +4280,155 @@ function dialOnPhone(e164){
   a.href = "tel:" + e164;
   document.body.appendChild(a); a.click(); a.remove();
 }
+
+/* ───────── Aircall ─────────
+   Aircall's own phone (Aircall Everywhere, assets/vendor) lives in a panel
+   that stays loaded on every page, so calls ring in the CRM and every Call
+   button (and tel: link) dials out through it. Each person signs in with
+   their own Aircall login inside the panel - no API key in the browser.
+   The panel shows who's calling, matched by number against leads, clients,
+   contacts, cold-call prospects and booked meetings. */
+let acWs = null, acReady = false, acPending = null, acCall = null;
+const acNames = {};
+const acKey = (n) => String(n || "").replace(/\D/g, "").slice(-9);
+function acWho(number){
+  const key = acKey(number);
+  if (key.length < 7) return null;
+  const same = (p) => p && acKey(p) === key;
+  const newest = (rows) => rows.slice().sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))[0];
+  const lead = newest((state.clientLeads || []).filter(l => same(l.phone)));
+  if (lead){ const c = state.clients.find(x => x.id === lead.client_id); return { name: lead.name || "A lead", sub: c ? `Lead for ${lqBizName(c)}` : "Lead", kind: "lead", id: lead.id }; }
+  const client = state.clients.find(c => same(c.phone));
+  if (client) return { name: client.name, sub: "Client", kind: "client", id: client.id };
+  const meeting = newest((state.meetings || []).filter(m => same(m.phone)));
+  if (meeting) return { name: [meeting.first_name, meeting.last_name].filter(Boolean).join(" ") || "Prospect", sub: [meeting.company, "booked meeting"].filter(Boolean).join(" · "), kind: "meeting", id: meeting.id };
+  const contact = (state.contacts || []).find(c => same(c.phone));
+  if (contact) return { name: contact.name, sub: contact.company || "Contact", kind: "contact", id: contact.id };
+  const prospect = (state.prospects || []).find(p => same(p.phone));
+  if (prospect) return { name: prospect.name || prospect.company || "Prospect", sub: [prospect.company && prospect.name ? prospect.company : "", "cold call"].filter(Boolean).join(" · "), kind: "prospect", id: prospect.id };
+  return null;
+}
+function acOpenRecord(kind, id){
+  acShow(false);
+  if (kind === "lead"){ lqSel = id; lqPending = null; if (getWorkspace() !== "leads") setWorkspace("leads"); goPage("lead-queue"); return renderLeadQueue(); }
+  if (kind === "client"){ if (getWorkspace() !== "delivery" && canAccessDelivery()) setWorkspace("delivery"); state.selectedClientId = id; goPage("clients"); return renderClients(); }
+  if (kind === "meeting"){ if (getWorkspace() !== "sales") setWorkspace("sales"); return goPage("meetings"); }
+  if (kind === "contact"){ if (getWorkspace() !== "sales") setWorkspace("sales"); return goPage("contacts"); }
+  if (kind === "prospect"){ if (getWorkspace() !== "sales") setWorkspace("sales"); return goPage("cold-calls"); }
+}
+function acCardRender(){
+  const el = $("#ac-card");
+  if (!el) return;
+  if (!acCall){ el.hidden = true; el.innerHTML = ""; return; }
+  const who = acWho(acCall.number);
+  const name = who?.name || acNames[acKey(acCall.number)] || formatPhone(acCall.number);
+  const status = acCall.ended ? (acCall.missed ? "Missed call" : "Call ended") : acCall.dir === "in" ? (acCall.answered ? "On the call" : "Calling you now") : (acCall.answered ? "On the call" : "Calling…");
+  el.className = `ac-card ${acCall.dir}${acCall.ended ? " ended" : ""}`;
+  el.innerHTML = `
+    <div class="ac-card-main">
+      <small>${acCall.dir === "in" ? "Incoming" : "Outgoing"} · ${escapeHtml(status)}</small>
+      <b>${escapeHtml(name)}</b>
+      <span>${[who ? who.sub : acCall.dir === "in" ? "Not in the CRM" : "", name !== formatPhone(acCall.number) ? formatPhone(acCall.number) : ""].filter(Boolean).map(escapeHtml).join(" · ")}</span>
+    </div>
+    ${who ? `<button type="button" class="ac-open" data-ac-open="${who.kind}" data-id="${escapeHtml(who.id)}">Open</button>` : ""}
+    <button type="button" class="ac-x" data-ac-clear aria-label="Hide">✕</button>`;
+  el.hidden = false;
+}
+function acFabSync(){
+  const fab = $("#ac-fab");
+  if (!fab) return;
+  fab.hidden = callMode() !== "aircall" || (IS_CONFIGURED && !state.user);
+  fab.classList.toggle("on", acReady);
+  fab.classList.toggle("ringing", !!(acCall && acCall.dir === "in" && !acCall.answered && !acCall.ended));
+  fab.querySelector(".ac-fab-label").textContent = acCall && !acCall.ended ? (acCall.dir === "in" && !acCall.answered ? "Incoming call" : "On a call") : "Phone";
+  fab.title = acReady ? "Aircall phone (signed in)" : "Aircall phone - sign in to make and take calls";
+}
+function acShow(open){
+  const p = $("#ac-panel");
+  if (!p) return;
+  p.classList.toggle("open", open);
+  p.setAttribute("aria-hidden", open ? "false" : "true");
+  document.body.classList.toggle("ac-shown", open);
+}
+function acStartCall(dir, number){
+  acCall = { dir, number, answered: false, ended: false };
+  acCardRender(); acFabSync();
+}
+function setupAircall(){
+  if (acWs || callMode() !== "aircall" || !window.AircallWorkspace) return acFabSync();
+  if (!$("#ac-panel")){
+    document.body.insertAdjacentHTML("beforeend", `
+      <button type="button" class="ac-fab" id="ac-fab" hidden><span class="ac-fab-dot"></span><span class="ac-fab-ico">${ICONS.phone}</span><span class="ac-fab-label">Phone</span></button>
+      <section class="ac-panel" id="ac-panel" aria-hidden="true" aria-label="Aircall phone">
+        <header class="ac-head"><b>Phone</b><span>Aircall</span><button type="button" class="ac-min" data-ac-min aria-label="Hide the phone">Hide</button></header>
+        <div class="ac-card" id="ac-card" hidden></div>
+        <div class="ac-ws" id="ac-ws"></div>
+      </section>`);
+    $("#ac-fab").addEventListener("click", () => acShow(!$("#ac-panel").classList.contains("open")));
+    $("#ac-panel").addEventListener("click", (e) => {
+      if (e.target.closest("[data-ac-min]")) return acShow(false);
+      if (e.target.closest("[data-ac-clear]")){ acCall = null; acCardRender(); return acFabSync(); }
+      const o = e.target.closest("[data-ac-open]");
+      if (o) acOpenRecord(o.dataset.acOpen, o.dataset.id);
+    });
+  }
+  acWs = new window.AircallWorkspace({
+    domToLoadWorkspace: "#ac-ws", size: "auto", debug: false,
+    onLogin: () => {
+      acReady = true; acFabSync();
+      if (acPending){ const n = acPending; acPending = null; acDial(n.number, n.name); }
+    },
+    onLogout: () => { acReady = false; acFabSync(); },
+  });
+  acWs.on("incoming_call", (c) => {
+    acStartCall("in", c.from); acShow(true);
+    const who = acWho(c.from);
+    try { if (window.Notification && Notification.permission === "granted" && document.hidden) new Notification("Incoming call", { body: who ? `${who.name} · ${who.sub}` : formatPhone(c.from), tag: "ac-" + c.call_id }); } catch(e){}
+  });
+  acWs.on("call_end_ringtone", (c) => {
+    if (!acCall) return;
+    if (c.answer_status === "answered") acCall.answered = true;
+    else { acCall.ended = true; acCall.missed = true; }
+    acCardRender(); acFabSync();
+  });
+  acWs.on("outgoing_call", (c) => acStartCall("out", c.to));
+  acWs.on("external_dial", (c) => acStartCall("out", c.phone_number));
+  acWs.on("outgoing_answered", () => { if (acCall){ acCall.answered = true; acCardRender(); acFabSync(); } });
+  acWs.on("call_ended", () => { if (acCall){ acCall.ended = true; acCardRender(); acFabSync(); } });
+  // Every tel: link in the CRM rings out through Aircall instead.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest?.('a[href^="tel:"]');
+    if (!a || callMode() !== "aircall") return;
+    e.preventDefault();
+    const raw = decodeURIComponent(a.getAttribute("href").slice(4));
+    acDial(toE164(raw, "64"), a.dataset.name || "");
+  }, true);
+  acFabSync();
+}
+function acDial(number, name){
+  if (!number){ alert("That doesn't look like a usable phone number."); return false; }
+  const n = number.startsWith("+") ? number : "+" + number.replace(/\D/g, "");
+  if (name) acNames[acKey(n)] = name;
+  acShow(true);
+  if (!acWs || !acReady){
+    acPending = { number: n, name };
+    rcToast("Sign in to Aircall in the phone panel - the call goes out as soon as you're in.");
+    return true;
+  }
+  acStartCall("out", n);
+  acWs.send("dial_number", { phone_number: n }, (ok, err) => {
+    if (ok) return;
+    acCall = null; acCardRender(); acFabSync();
+    rcToast(err?.code === "in_call" ? "You're already on a call. Hang up first." : "Aircall couldn't start the call. Check you're signed in to the phone.");
+  });
+  return true;
+}
+
 async function placeCall(phoneRaw, displayName, defaultCountryCode = "61"){
   if (activeCall){ alert("You're already on a call. Hang up first."); return false; }
   const digits = toE164(phoneRaw, defaultCountryCode);
   if (!digits){ alert("That doesn't look like a usable phone number."); return false; }
+  if (callMode() === "aircall") return acDial(digits, displayName);
   if (callMode() === "phone"){ dialOnPhone(digits); return true; }
   const device = await getVoiceDevice();
   if (!device) return false;
@@ -12720,7 +12867,7 @@ const RENDERERS = [
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
-  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [renderLeadPlan, ["lead-plan"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
+  [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
@@ -15695,7 +15842,7 @@ function setupDialerFilters(){
     const activePerson = window.getActivePerson ? window.getActivePerson() : null;
     if (activePerson) await savePlaybookUsage(activePerson, e.target.value);
   });
-  $("#dialer-call-mode")?.addEventListener("change", (e) => { setCallMode(e.target.value); renderDialer(); });
+  $("#dialer-call-mode")?.addEventListener("change", (e) => { setCallMode(e.target.value); setupAircall(); acFabSync(); if (e.target.value !== "aircall") acShow(false); renderDialer(); });
   $("#dialer-view-playbook-btn")?.addEventListener("click", () => {
     const id = $("#dialer-playbook-select")?.value;
     if (!id){ alert("Pick a playbook first."); return; }
@@ -15795,6 +15942,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupLeadImport();
   setupDialerFilters();
   setupCallWidget();
+  setupAircall();
   setupTaskFilters();
   setupAnalyticsFilters();
   setupStatisticsFilters();

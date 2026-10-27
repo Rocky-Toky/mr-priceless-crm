@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=329">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=329">
+<link rel="stylesheet" href="css/style.css?v=330">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=330">
 </head>
 <body>
 
@@ -828,7 +828,8 @@
           <button type="button" class="btn ghost sm" id="dialer-view-playbook-btn" title="Open this playbook">Open</button>
           <span class="dl-foot-sep"></span>
           <label for="dialer-call-mode">Call using</label>
-          <select class="filter-select" id="dialer-call-mode" title="My phone rings out from your own mobile through Phone Link (Windows) or your iPhone (Mac)">
+          <select class="filter-select" id="dialer-call-mode" title="Aircall rings out through the Phone panel in the CRM. My phone rings out from your own mobile through Phone Link (Windows) or your iPhone (Mac)">
+            <option value="aircall">Aircall</option>
             <option value="phone">My phone</option>
             <option value="browser">CRM (Twilio)</option>
           </select>
@@ -2888,6 +2889,7 @@
 </aside>
 
 <script src="assets/vendor/supabase-js-2.117.3.js"></script>
+<script src="assets/vendor/aircall-everywhere-2.0.6.js"></script>
 <div class="overlay" id="lost-modal">
   <div class="modal lr-modal">
     <div class="modal-body">
@@ -2913,17 +2915,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=329"></script>
-<script src="js/supabaseClient.js?v=329"></script>
-<script src="js/report-pdf.js?v=329"></script>
-<script src="js/plan-pdf.js?v=329"></script>
-<script src="js/workshop-pdf.js?v=329"></script>
-<script src="js/receipt-pdf.js?v=329"></script>
-<script src="js/welcome-pdf.js?v=329"></script>
-<script src="js/builtin-playbooks.js?v=329"></script>
-<script src="js/builtin-email-templates.js?v=329"></script>
-<script src="js/app.js?v=329"></script>
-<script src="js/meetings-tracker.js?v=329"></script>
-<script src="js/todo.js?v=329"></script>
+<script src="js/config.js?v=330"></script>
+<script src="js/supabaseClient.js?v=330"></script>
+<script src="js/report-pdf.js?v=330"></script>
+<script src="js/plan-pdf.js?v=330"></script>
+<script src="js/workshop-pdf.js?v=330"></script>
+<script src="js/receipt-pdf.js?v=330"></script>
+<script src="js/welcome-pdf.js?v=330"></script>
+<script src="js/builtin-playbooks.js?v=330"></script>
+<script src="js/builtin-email-templates.js?v=330"></script>
+<script src="js/app.js?v=330"></script>
+<script src="js/meetings-tracker.js?v=330"></script>
+<script src="js/todo.js?v=330"></script>
 </body>
 </html>
