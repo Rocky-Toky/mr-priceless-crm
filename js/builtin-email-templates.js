@@ -7,7 +7,7 @@
 window.MP_BUILTIN_EMAIL_TEMPLATES = [
 
 /* ───────── Onboarding ───────── */
-{ title: "Onboarding · Welcome to Mr Priceless", sort_order: 100,
+{ title: "Onboarding · Welcome to Mr Priceless", kind: "onboarding_pre", sort_order: 100,
   subject: "Welcome to Mr Priceless, [First name] - here's what happens next",
   body: `Hi [First name],
 
@@ -30,6 +30,88 @@ Once we've got the creative sorted, your ads go live - usually within 10 to 14 d
 And remember: you're covered by our 10 Quote Guarantee. You don't pay a cent until we've delivered 10 quotes.
 
 Your welcome pack is attached with all of this in one place. Any questions at all, just reply or give me a call on [your number].
+
+Cheers,
+[Your name]
+Mr Priceless` },
+
+/* ───────── Pre-onboarding: signed, before the kickoff call ───────── */
+{ title: "Pre-onboarding · Your kickoff call is booked", kind: "onboarding_pre", sort_order: 110,
+  subject: "You're booked in, [First name] - kickoff on [Date]",
+  body: `Hi [First name],
+
+You're all locked in for your kickoff call on [Date] at [Time]. Here's the link: [meeting link]
+
+It takes about 45 minutes. We'll go through the jobs you want more of, the areas you cover, your pricing and what a good lead looks like for you - so the ads bring in the right work from day one.
+
+If anything comes up and you need to move it, just reply here and we'll find another time.
+
+Cheers,
+[Your name]
+Mr Priceless` },
+{ title: "Pre-onboarding · What we need before we start", kind: "onboarding_pre", sort_order: 120,
+  subject: "A few quick things before your kickoff, [First name]",
+  body: `Hi [First name],
+
+To hit the ground running on [Date], could you send these through before the call?
+
+- Access to your Facebook page and ad account (reply and we'll send a 2-minute guide)
+- 5 to 10 photos of your best jobs - before and afters are gold
+- A photo of you, and one of the team if you've got one
+- Your average job value and how many jobs you can take on each month
+- The areas you want work from
+
+Don't stress if you can't get it all - send what you have and we'll sort the rest on the call.
+
+Cheers,
+[Your name]
+Mr Priceless` },
+
+/* ───────── Post-onboarding: after the kickoff call ───────── */
+{ title: "Post-onboarding · Recap from our kickoff call", kind: "onboarding_post", sort_order: 150,
+  subject: "Recap from today, [First name] - here's the plan",
+  body: `Hi [First name],
+
+Great chatting today. Here's what we agreed, so we're on the same page:
+
+- The jobs we're going after: [jobs]
+- Areas: [areas]
+- A good lead for you is: [good lead]
+- Ads go live by: [Date]
+
+What we're doing next: writing your ads, building your campaign and setting up your CRM so every lead gets a call within minutes.
+
+What we still need from you: [anything outstanding]
+
+Any questions in the meantime, just reply or call me on [your number].
+
+Cheers,
+[Your name]
+Mr Priceless` },
+{ title: "Post-onboarding · Your ads are live", kind: "onboarding_post", sort_order: 160,
+  subject: "We're live, [First name]!",
+  body: `Hi [First name],
+
+Your ads went live today. Leads will start coming through over the next few days, and every one gets a call from us within minutes to book you in.
+
+A couple of things that make a big difference:
+- Pick up when we put a booking in your calendar, and turn up on time - it's what turns leads into jobs
+- Let us know straight away if a lead isn't right for you, so we can tighten things up
+
+You'll get your first report from us in two weeks showing exactly what's come in.
+
+Cheers,
+[Your name]
+Mr Priceless` },
+{ title: "Post-onboarding · First week check-in", kind: "onboarding_post", sort_order: 170,
+  subject: "How's the first week been, [First name]?",
+  body: `Hi [First name],
+
+You've been live for a week now, so a quick check-in.
+
+So far we've had [number] leads come through and booked [number] quotes for you.
+
+How have they been? Are they the kind of jobs you want, in the right areas? Anything you'd like more or less of, just tell me and we'll adjust the ads.
 
 Cheers,
 [Your name]

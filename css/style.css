@@ -3313,7 +3313,7 @@ body.jv-open .jv-fab{display:none;}
 .mtg-sheet-tabs button{border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:8px 14px;font:inherit;font-size:14px;font-weight:700;cursor:pointer;}
 .mtg-sheet-tabs button.active{background:var(--black);border-color:var(--black);color:var(--gold-bright);}
 .mtg-sheet-body{padding:20px 26px 30px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;}
-@media (min-width:821px) and (min-height:560px){
+@media (min-width:701px){
   #page-meeting.active{height:calc(100vh - 76px - var(--inbox-bar, 0px));display:flex;flex-direction:column;overflow:hidden;}
   #page-meeting > *{flex-shrink:0;}
   #page-meeting > .page-tabs{align-self:flex-start;}
@@ -3323,14 +3323,14 @@ body.jv-open .jv-fab{display:none;}
   #page-meeting .mtg-main{min-height:0;overflow:hidden;}
   #page-meeting .mtg-content{flex:1 1 auto;min-height:0;overflow-y:auto;}
 }
-@media (max-width:900px){.mtg{grid-template-columns:1fr;}.mtg-qs.two,.mtg-branches.cols{grid-template-columns:1fr;}.mtg-main-head,.mtg-content,.mtg-tabs,.mtg-nav,.mtg-leadins{padding-left:18px;padding-right:18px;}}
+@media (max-width:700px){.mtg{grid-template-columns:1fr;}.mtg-qs.two,.mtg-branches.cols{grid-template-columns:1fr;}.mtg-main-head,.mtg-content,.mtg-tabs,.mtg-nav,.mtg-leadins{padding-left:18px;padding-right:18px;}}
 /* Tighter where a step has tabs (Discovery), so the questions get the room. */
 .mtg-lead.short{font-size:15px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.mtg-tabs{flex-wrap:nowrap;overflow-x:auto;padding-top:14px;scrollbar-width:none;}
+.mtg-tabs{flex-wrap:wrap;padding-top:14px;}
 .mtg-tabs::-webkit-scrollbar{display:none;}
 .mtg-tabs button{white-space:nowrap;font-size:14.5px;padding:9px 16px;flex-shrink:0;}
-.mtg-leadins{flex-wrap:nowrap;overflow-x:auto;padding:10px 36px;scrollbar-width:thin;}
-.mtg-leadin{white-space:nowrap;flex-shrink:0;font-size:14px;}
+.mtg-leadins{flex-wrap:wrap;padding:10px 36px;}
+.mtg-leadin{flex-shrink:0;font-size:14px;}
 .mtg-rail{padding:12px;gap:12px;}
 .mtg-rail-steps{gap:2px;}
 .mtg-rail-step{padding:9px 10px;gap:10px;}
@@ -3349,7 +3349,7 @@ body.jv-open .jv-fab{display:none;}
 .sr-intro .sr-when b{color:var(--gold-deep);}
 .mtg-branches.cols3{grid-template-columns:repeat(3,minmax(0,1fr));}
 .sr-done{align-self:center;font-size:15px;font-weight:700;color:var(--success);}
-@media (min-width:821px) and (min-height:560px){
+@media (min-width:701px){
   #page-sit-rate.active{height:calc(100vh - 76px - var(--inbox-bar, 0px));display:flex;flex-direction:column;overflow:hidden;}
   #page-sit-rate > *{flex-shrink:0;}
   #page-sit-rate > .page-tabs{align-self:flex-start;}
@@ -4565,3 +4565,196 @@ body.ac-shown .ac-fab{display:none;}
 .cl-launch-body .ob-progress{position:static;}
 .cl-toolbar{justify-content:flex-start;} .cl-toolbar .search{margin:0;}
 @media (max-width:760px){ .cl-toolbar{flex-direction:column;align-items:stretch;} .cl-stage-pick{max-width:none;} }
+
+/* Meeting structure / Sit rate on smaller laptop windows: a slimmer steps
+   list, nothing scrolls (the content can't scroll at all - mtgFit shrinks it). */
+@media (min-width:701px) and (max-width:1100px){ .mtg{grid-template-columns:210px minmax(0,1fr);gap:12px;} .mtg-main-head,.mtg-content,.mtg-tabs,.mtg-nav,.mtg-leadins{padding-left:20px;padding-right:20px;} }
+@media (min-width:701px){
+  #page-meeting .mtg-content,#page-sit-rate .mtg-content{overflow:hidden;}
+  #page-meeting .mtg-rail,#page-sit-rate .mtg-rail{overflow:hidden;}
+}
+@media (min-width:701px){
+  /* Live-call pages get the whole window: thinner page margins, wider. */
+  .main:has(#page-meeting.active),.main:has(#page-sit-rate.active),.main:has(#page-email-templates.active){padding:16px 26px;max-width:1560px;}
+  #page-meeting.active,#page-sit-rate.active{height:calc(100vh - 32px - var(--inbox-bar, 0px));}
+  #page-meeting > .page-tabs,#page-sit-rate > .page-tabs{margin-bottom:10px;}
+}
+.mtg[data-fit="5"] .mtg-nav,.mtg[data-fit="6"] .mtg-nav{padding-top:10px;padding-bottom:12px;}
+.mtg[data-fit="5"] .mtg-nav .btn,.mtg[data-fit="6"] .mtg-nav .btn{height:44px;font-size:15px;}
+.mtg[data-fit="6"] .mtg-main-head{padding-top:16px;}
+.mtg[data-fit="6"] .mtg-main-head h2{font-size:28px;margin:4px 0;}
+@media (min-width:701px){
+  .ac-fab.mini{top:12px;bottom:auto !important;right:14px;padding:5px;gap:0;}
+  .ac-fab.mini .ac-fab-label{display:none;}
+  .ac-fab.mini .ac-fab-dot{left:29px;top:3px;}
+  .ac-fab.mini.ringing .ac-fab-label{display:inline;padding:0 10px 0 8px;}
+}
+/* Back / Next beside the step number */
+.mtg-main-k{flex-wrap:wrap;}
+.mtg-main-k .mtg-nav{margin:0 0 0 auto;padding:0;border:0;display:flex;gap:8px;align-items:center;}
+.mtg-main-k .mtg-nav > span:empty{display:none;}
+.mtg-main-k .mtg-nav .btn{height:38px;padding:0 14px;font-size:14px;max-width:min(280px,34vw);}
+.mtg-main-k .sr-done{font-size:14px;}
+.mtg-main-head{position:relative;}
+/* Lead-ins: small chips that wrap */
+.mtg-leadins{gap:6px;padding:8px 36px 10px;}
+.mtg-leadin{font-size:13px;padding:4px 10px;}
+.mtg[data-fit="4"] .mtg-leadin,.mtg[data-fit="5"] .mtg-leadin,.mtg[data-fit="6"] .mtg-leadin{font-size:12px;padding:3px 9px;}
+/* A short window mustn't make the whole page scroll: the menu scrolls itself. */
+.sidebar{overflow-y:auto;scrollbar-width:thin;}
+
+.mtg-main-k{flex-wrap:nowrap;min-width:0;}
+.mtg-main-k > .mtg-k,.mtg-main-k > .mtg-time{flex-shrink:0;}
+.mtg-main-k .mtg-nav{min-width:0;flex-shrink:1;}
+.mtg-main-k .mtg-nav .btn{max-width:220px;min-width:0;display:inline-block;line-height:36px;}
+/* Lead-ins in a tidy grid instead of rows of pills */
+.mtg-leadins{display:grid;grid-template-columns:auto repeat(3,minmax(0,1fr));gap:4px 14px;align-items:start;}
+.mtg-leadins .mtg-k{grid-row:span 2;align-self:center;}
+.mtg-leadin{background:none;border:0;border-radius:0;padding:0 0 0 10px;position:relative;font-size:13px;line-height:1.35;}
+.mtg-leadin::before{content:"";position:absolute;left:0;top:7px;width:4px;height:4px;border-radius:50%;background:var(--gold);}
+@media (max-width:1100px){ .mtg-leadins{grid-template-columns:auto repeat(2,minmax(0,1fr));} }
+.mtg[data-fit="3"] .mtg-main-head,.mtg[data-fit="4"] .mtg-main-head,.mtg[data-fit="5"] .mtg-main-head{padding-top:18px;}
+.mtg:is([data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-tabs{padding-top:10px;}
+.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-tabs button{padding:7px 13px;font-size:13.5px;}
+.mtg:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .mtg-content{padding-top:14px;padding-bottom:14px;gap:10px;}
+.mtg:is([data-fit="5"],[data-fit="6"]) .mtg-main-k .mtg-nav .btn{height:34px;line-height:32px;font-size:13px;}
+/* Steps list folded to numbers when space is tight */
+@media (min-width:701px){
+  .mtg[data-mini]{grid-template-columns:62px minmax(0,1fr) !important;gap:10px;}
+  .mtg[data-mini] .mtg-rail{padding:8px 6px;gap:8px;align-items:center;}
+  .mtg[data-mini] .mtg-rail-step{justify-content:center;padding:5px 0;width:44px;}
+  .mtg[data-mini] .mtg-rail-step > span,.mtg[data-mini] .sr-intro,.mtg[data-mini] .mtg-end,.mtg[data-mini] .mtg-edit,.mtg[data-mini] .mtg-clock .mtg-k,.mtg[data-mini] .mtg-clock small{display:none;}
+  .mtg[data-mini] .mtg-start{width:44px;height:44px;padding:0;font-size:0;border-radius:50%;}
+  .mtg[data-mini] .mtg-start::before{content:"▶";font-size:16px;}
+  .mtg[data-mini] .mtg-clock{padding:6px 4px;text-align:center;width:52px;}
+  .mtg[data-mini] .mtg-clock b{font-size:14px;}
+  .mtg[data-mini] .mtg-sheet-btn{width:44px;height:44px;padding:0;font-size:0;border-radius:50%;}
+  .mtg[data-mini] .mtg-sheet-btn::before{content:"📋";font-size:17px;}
+  .mtg[data-mini] .mtg-rail-foot{align-items:center;}
+  .mtg[data-mini] .mtg-main-head,.mtg[data-mini] .mtg-content,.mtg[data-mini] .mtg-tabs,.mtg[data-mini] .mtg-leadins{padding-left:22px;padding-right:22px;}
+}
+
+/* ───────── Email templates: Sales / Service / Onboarding, whole email on screen ───────── */
+#page-email-templates .page-header{align-items:center;gap:16px;margin-bottom:14px;}
+#page-email-templates .page-header h2{margin:0;}
+.et-segs{display:flex;gap:8px;flex-wrap:wrap;margin-right:auto;}
+.et-seg{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border:1px solid var(--line);border-radius:999px;background:var(--white);font:inherit;font-size:15px;font-weight:800;color:var(--text);cursor:pointer;}
+.et-seg b{min-width:22px;padding:1px 7px;border-radius:999px;background:#f1ece0;font-size:12.5px;text-align:center;}
+.et-seg:hover{border-color:var(--gold-border);}
+.et-seg.active{background:var(--black);border-color:var(--black);color:var(--gold-bright);}
+.et-seg.active b{background:var(--gold);color:var(--black);}
+.et-sub{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:8px 8px 0;padding:4px;border-radius:12px;background:var(--paper);border:1px solid var(--line);}
+.et-sub button{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 6px;border:0;border-radius:9px;background:none;font:inherit;font-size:13.5px;font-weight:800;color:var(--text2);cursor:pointer;}
+.et-sub button b{font-size:11.5px;padding:0 6px;border-radius:999px;background:rgba(0,0,0,.06);}
+.et-sub button.active{background:var(--white);color:var(--text);box-shadow:0 1px 3px rgba(20,15,5,.12);}
+#page-email-templates .etx-item{padding:8px 12px 8px 15px;}
+@media (min-width:701px){
+  #page-email-templates .etx-mail-body{overflow:hidden;}
+  #page-email-templates .playbook-viewer{overflow:hidden;}
+  #page-email-templates .etx-view[data-fit]:not([data-fit="0"]) .etx-mail-body{line-height:1.55;padding:14px 20px;}
+  #page-email-templates .etx-view[data-fit]:not([data-fit="0"]) .etx-mail-body p{margin-bottom:10px;}
+  #page-email-templates .etx-view[data-fit="1"] .etx-mail-body{font-size:15px;}
+  #page-email-templates .etx-view[data-fit="2"] .etx-mail-body{font-size:14px;}
+  #page-email-templates .etx-view:is([data-fit="2"],[data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-blanks{margin-top:10px;padding:8px 12px;}
+  #page-email-templates .etx-view:is([data-fit="2"],[data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-blanks > p{display:none;}
+  #page-email-templates .etx-view:is([data-fit="2"],[data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-mail{margin-top:10px;}
+  #page-email-templates .etx-view[data-fit="3"] .etx-mail-body{font-size:13.5px;}
+  #page-email-templates .etx-view:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-mail-body{column-count:2;column-gap:32px;column-rule:1px solid var(--line);}
+  #page-email-templates .etx-view:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-mail-body p{break-inside:avoid-column;}
+  #page-email-templates .etx-view[data-fit="4"] .etx-mail-body{font-size:13.5px;}
+  #page-email-templates .etx-view[data-fit="5"] .etx-mail-body{font-size:12.5px;line-height:1.5;}
+  #page-email-templates .etx-view[data-fit="6"] .etx-mail-body{font-size:11.5px;line-height:1.45;}
+  #page-email-templates .etx-view:is([data-fit="5"],[data-fit="6"]) .etx-head{padding-top:10px;padding-bottom:6px;}
+}
+@media (max-width:760px){ #page-email-templates .page-header{flex-wrap:wrap;} .et-segs{order:3;width:100%;} .et-seg{flex:1;justify-content:center;padding:9px 10px;font-size:13.5px;} }
+/* Email page: always the compact version on desktop, so the email gets the room */
+@media (min-width:701px){
+  #page-email-templates.fit-page.active{height:calc(100vh - 32px - var(--inbox-bar, 0px));overflow:hidden;}
+  #page-email-templates .etx-head{padding:12px 20px 10px;}
+  #page-email-templates .etx-head h3{font-size:20px;margin-top:2px;}
+  #page-email-templates .etx-blanks{margin:10px 20px 0;padding:8px 12px;}
+  #page-email-templates .etx-blanks > p{display:none;}
+  #page-email-templates .etx-blank-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 10px;}
+  #page-email-templates .etx-blank-grid label{flex-direction:row;align-items:center;gap:8px;font-size:12.5px;white-space:nowrap;}
+  #page-email-templates .etx-blank-grid input{flex:1;min-width:0;height:34px;padding:4px 10px;font-size:14px;}
+  #page-email-templates .etx-mail{margin:10px 20px 0;}
+  #page-email-templates .etx-subject-row{padding:9px 16px;}
+  #page-email-templates .etx-mail-body{padding:14px 20px;font-size:16px;}
+  #page-email-templates .etx-actions{padding:10px 20px 12px;}
+  #page-email-templates .etx-btn{min-height:44px;font-size:15px;}
+  #page-email-templates .etx-btn.big{min-width:200px;font-size:16px;}
+  #page-email-templates .page-tabs{margin-bottom:10px;}
+  #page-email-templates .page-header{margin-bottom:10px;}
+  #page-email-templates .page-header h2{font-size:28px;}
+  .et-seg{padding:8px 16px;font-size:14.5px;}
+}
+.et-segs .et-sub{display:inline-grid;margin:0 0 0 4px;grid-template-columns:auto auto;}
+.et-segs .et-sub button{padding:6px 12px;}
+@media (max-width:760px){ .et-segs .et-sub{width:100%;margin:2px 0 0;grid-template-columns:1fr 1fr;} }
+
+@media (min-width:701px){
+  #page-email-templates .etx-view[data-fit]:not([data-fit="0"]) .etx-mail-body{line-height:1.55;padding:14px 20px;}
+  #page-email-templates .etx-view[data-fit]:not([data-fit="0"]) .etx-mail-body p{margin-bottom:10px;}
+  #page-email-templates .etx-view[data-fit="1"] .etx-mail-body{font-size:15px;}
+  #page-email-templates .etx-view[data-fit="2"] .etx-mail-body{font-size:14px;}
+  #page-email-templates .etx-view:is([data-fit="2"],[data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-blanks{margin-top:10px;padding:8px 12px;}
+  #page-email-templates .etx-view:is([data-fit="2"],[data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-blanks > p{display:none;}
+  #page-email-templates .etx-view:is([data-fit="2"],[data-fit="3"],[data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-mail{margin-top:10px;}
+  #page-email-templates .etx-view[data-fit="3"] .etx-mail-body{font-size:13.5px;}
+  #page-email-templates .etx-view:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-mail-body{column-count:2;column-gap:32px;column-rule:1px solid var(--line);}
+  #page-email-templates .etx-view:is([data-fit="4"],[data-fit="5"],[data-fit="6"]) .etx-mail-body p{break-inside:avoid-column;}
+  #page-email-templates .etx-view[data-fit="4"] .etx-mail-body{font-size:13.5px;}
+  #page-email-templates .etx-view[data-fit="5"] .etx-mail-body{font-size:12.5px;line-height:1.5;}
+  #page-email-templates .etx-view[data-fit="6"] .etx-mail-body{font-size:11.5px;line-height:1.45;}
+  #page-email-templates .etx-view:is([data-fit="5"],[data-fit="6"]) .etx-head{padding-top:10px;padding-bottom:6px;}
+}
+@media (min-width:701px){
+  #page-email-templates .page-header{flex-wrap:nowrap;}
+  #page-email-templates .page-header > div:first-child{display:none;}
+  #page-email-templates .page-header .btn{flex-shrink:0;}
+}
+@media (min-width:701px) and (max-width:1180px){ .et-seg{padding:7px 12px;font-size:13.5px;} .et-segs .et-sub button{padding:5px 9px;font-size:12.5px;} }
+@media (min-width:701px){
+  #page-email-templates.active{display:flex;flex-direction:column;height:calc(100vh - 32px - var(--inbox-bar, 0px));overflow:hidden;}
+  #page-email-templates.active > *{flex-shrink:0;}
+  #page-email-templates.active > .page-tabs{align-self:flex-start;}
+  #page-email-templates .playbook-layout{flex:1 1 auto;min-height:0;overflow:hidden;align-items:stretch;grid-template-columns:260px minmax(0,1fr);gap:14px;}
+  #page-email-templates .playbook-layout > .playbook-list{position:static;min-height:0;max-height:100%;overflow:auto;}
+  #page-email-templates .playbook-layout > .playbook-viewer{position:static;min-height:0;max-height:100%;overflow:hidden;}
+  .et-segs .et-sub{display:none;}
+  .playbook-list .et-sub{display:grid;}
+}
+@media (min-width:701px) and (max-width:1100px){ #page-email-templates .playbook-layout{grid-template-columns:210px minmax(0,1fr);} }
+@media (max-width:700px){ .playbook-list .et-sub{display:none;} }
+@media (min-width:701px){
+  #page-email-templates .etx-actions{flex-wrap:nowrap;}
+  #page-email-templates .etx-left{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #page-email-templates .etx-btn{flex-shrink:0;white-space:nowrap;}
+}
+@media (min-width:701px) and (max-width:1180px){
+  #page-email-templates .etx-btn.big{min-width:0;}
+  #page-email-templates .etx-subject-row b{font-size:16px;}
+}
+@media (min-width:701px) and (max-height:620px){
+  #page-email-templates .etx-head{padding:8px 18px 6px;}
+  #page-email-templates .etx-head h3{font-size:17px;}
+  #page-email-templates .etx-blank-grid input{height:30px;}
+  #page-email-templates .etx-subject-row{padding:6px 14px;}
+  #page-email-templates .etx-btn{min-height:38px;}
+  #page-email-templates .etx-actions{padding:8px 18px 10px;}
+}
+@media (min-width:701px){
+  #page-email-templates .etx-view:is([data-fit="5"],[data-fit="6"],[data-fit="7"]) .etx-mail-body p{margin-bottom:6px;}
+  #page-email-templates .etx-view[data-fit="7"] .etx-mail-body{column-count:3;column-gap:24px;column-rule:1px solid var(--line);font-size:12px;line-height:1.45;padding:12px 16px;}
+  #page-email-templates .etx-view[data-fit="7"] .etx-mail-body p{break-inside:avoid-column;}
+  #page-email-templates .etx-view:is([data-fit="6"],[data-fit="7"]) .etx-head{padding-top:8px;padding-bottom:6px;}
+}
+@media (min-width:701px){ #page-email-templates .etx-view:is([data-fit="6"],[data-fit="7"]) .etx-mail-body p{break-inside:auto;} }
+@media (min-width:701px){
+  #page-email-templates .etx-blank-grid{grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px 8px;}
+  #page-email-templates .etx-blank-grid label{flex-direction:column;align-items:stretch;gap:2px;font-size:11px;letter-spacing:.02em;}
+  #page-email-templates .etx-blank-grid label > span{overflow:hidden;text-overflow:ellipsis;}
+  #page-email-templates .etx-blank-grid input{height:32px;font-size:13.5px;}
+  .playbook-list .et-sub button{white-space:nowrap;font-size:12.5px;padding:7px 4px;}
+  .playbook-list .et-sub button b{display:none;}
+}
