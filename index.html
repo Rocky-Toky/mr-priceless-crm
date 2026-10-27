@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=333">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=333">
+<link rel="stylesheet" href="css/style.css?v=334">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=334">
 </head>
 <body>
 
@@ -311,11 +311,7 @@
           </button>
       <button class="nav-item nav-hidden" data-page="email-templates" data-workspace="both">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 6l10 7L22 6"/></svg>
-            <span>Sales Emails</span>
-          </button>
-      <button class="nav-item nav-hidden" data-page="delivery-emails" data-workspace="both">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 6l10 7L22 6"/></svg>
-            <span>Delivery Emails</span>
+            <span>Email templates</span>
           </button>
       <button class="nav-item nav-hidden" data-page="rules" data-workspace="both">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg>
@@ -921,24 +917,13 @@
     <!-- Email Templates (ready-to-send emails, shared with the whole team) -->
     <section class="page" id="page-email-templates">
       <div class="page-header">
-        <div><h2>Sales Emails</h2><p>Emails for winning clients - follow-ups and lead nurture. Open one, copy it, tweak the details, send.</p></div>
-        <button class="btn gold" data-add-et="sales">+ Add Template</button>
+        <div><h2>Email templates</h2></div>
+        <div class="et-segs" id="et-segs" role="tablist" aria-label="Kind of email"></div>
+        <button class="btn gold" data-add-et="current">+ Add email</button>
       </div>
       <div class="playbook-layout">
         <aside class="playbook-list" id="email-templates-list"></aside>
         <div class="playbook-viewer" id="email-template-viewer"></div>
-      </div>
-    </section>
-
-    <!-- Delivery Emails (emails for clients we already work with) -->
-    <section class="page" id="page-delivery-emails">
-      <div class="page-header">
-        <div><h2>Delivery Emails</h2><p>Emails for clients we already look after - onboarding, filming briefs and their customer emails.</p></div>
-        <button class="btn gold" data-add-et="delivery">+ Add Template</button>
-      </div>
-      <div class="playbook-layout">
-        <aside class="playbook-list" id="delivery-emails-list"></aside>
-        <div class="playbook-viewer" id="delivery-email-viewer"></div>
       </div>
     </section>
 
@@ -1693,7 +1678,7 @@
     <div class="modal-header"><h3 id="email-template-modal-title">Add Email Template</h3><button class="modal-close" data-close="email-template-modal">&times;</button></div>
     <form id="email-template-form" class="modal-body">
       <input type="hidden" id="email-template-form-id">
-      <div class="field"><label>Section</label><select id="email-template-kind"><option value="sales">Sales emails</option><option value="delivery">Delivery emails</option></select></div>
+      <div class="field"><label>Section</label><select id="email-template-kind"><option value="sales">Sales emails</option><option value="service">Service emails</option><option value="onboarding_pre">Onboarding - pre-onboarding</option><option value="onboarding_post">Onboarding - post-onboarding</option></select></div>
       <div class="field"><label>Template Name</label><input type="text" id="email-template-name" required placeholder="e.g. Welcome Email"></div>
       <div class="field"><label>Subject Line</label><input type="text" id="email-template-subject" placeholder="e.g. Welcome to Mr Priceless - here's what happens next"></div>
       <div class="field"><label>Body</label><textarea id="email-template-body" rows="14" placeholder="Write the email here. Use [Name], [Client], [Date] etc as placeholders to swap in before sending."></textarea></div>
@@ -2913,17 +2898,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=333"></script>
-<script src="js/supabaseClient.js?v=333"></script>
-<script src="js/report-pdf.js?v=333"></script>
-<script src="js/plan-pdf.js?v=333"></script>
-<script src="js/workshop-pdf.js?v=333"></script>
-<script src="js/receipt-pdf.js?v=333"></script>
-<script src="js/welcome-pdf.js?v=333"></script>
-<script src="js/builtin-playbooks.js?v=333"></script>
-<script src="js/builtin-email-templates.js?v=333"></script>
-<script src="js/app.js?v=333"></script>
-<script src="js/meetings-tracker.js?v=333"></script>
-<script src="js/todo.js?v=333"></script>
+<script src="js/config.js?v=334"></script>
+<script src="js/supabaseClient.js?v=334"></script>
+<script src="js/report-pdf.js?v=334"></script>
+<script src="js/plan-pdf.js?v=334"></script>
+<script src="js/workshop-pdf.js?v=334"></script>
+<script src="js/receipt-pdf.js?v=334"></script>
+<script src="js/welcome-pdf.js?v=334"></script>
+<script src="js/builtin-playbooks.js?v=334"></script>
+<script src="js/builtin-email-templates.js?v=334"></script>
+<script src="js/app.js?v=334"></script>
+<script src="js/meetings-tracker.js?v=334"></script>
+<script src="js/todo.js?v=334"></script>
 </body>
 </html>

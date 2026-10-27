@@ -1753,7 +1753,7 @@ const PAGE_GROUPS = {
   prospects: [["lead-engine", "Add prospects"], ["contacts", "Contacts"]],
   stats: [["rates", "Rates"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
-  library: [["meeting", "Meeting structure"], ["playbooks", "Playbooks"], ["rules", "Rules"], ["sit-rate", "Meeting Sit Rate Process"]],
+  library: [["meeting", "Meeting structure"], ["sit-rate", "Meeting Sit Rate Process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks"], ["rules", "Rules"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
   ads: [["ads-month", "This month"], ["content-library", "Video scripts"]],
 };
@@ -1802,7 +1802,6 @@ const FIT_PAGES = {
   tasks: ["#page-tasks > .card:last-child"],
   playbooks: ["#pbx"],
   "email-templates": ["#page-email-templates .playbook-layout"],
-  "delivery-emails": ["#page-delivery-emails .playbook-layout"],
   rules: ["#page-rules .playbook-layout"],
   workshops: ["#ws-board-wrap"],
   "ads-month": ["#am-root"],
@@ -1844,6 +1843,7 @@ function setupNav(){
       $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));
       $$(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + state.page));
       showJarvisFab();
+      acFabSync();
       syncPageGroup();
       empNavRender(); // lights up (or clears) the person picked in the Employees menu
       $$(".nav-dropdown.open").forEach(d => d.classList.remove("open"));
@@ -4373,6 +4373,8 @@ function acFabSync(){
   if (!fab) return;
   fab.hidden = callMode() !== "aircall" || (IS_CONFIGURED && !state.user);
   fab.classList.toggle("on", acReady);
+  // On the live-call pages it shrinks to a small round button up top, out of the way.
+  fab.classList.toggle("mini", ["meeting", "sit-rate", "email-templates"].includes(state.page));
   fab.classList.toggle("ringing", !!(acCall && acCall.dir === "in" && !acCall.answered && !acCall.ended));
   if (acCall && !acCall.ended && !acCall.answered && Date.now() - (acCall.at || 0) > 90e3){ acCall.ended = true; acCardRender(); }
   const liveCall = acCall && !acCall.ended;
@@ -5245,7 +5247,7 @@ async function vsMakeEmail(){
   let tpl = d.templateId && state.emailTemplates.find(t => t.id === d.templateId);
   if (tpl) await DataLayer.update("email_templates", tpl.id, { title, subject: em.subject, body: em.body, updated_at: new Date().toISOString() });
   else {
-    tpl = await DataLayer.insert("email_templates", { title, subject: em.subject, body: em.body, kind: "delivery", sort_order: state.emailTemplates.length });
+    tpl = await DataLayer.insert("email_templates", { title, subject: em.subject, body: em.body, kind: "service", sort_order: state.emailTemplates.length });
     if (tpl?.id){ d.templateId = tpl.id; await DataLayer.update("client_content", row.id, { script: JSON.stringify(d) }); row.script = JSON.stringify(d); }
   }
   if (IS_CONFIGURED) await DataLayer.fetchAll();
@@ -12857,7 +12859,7 @@ const RENDERERS = [
   [renderOnboarding, ["onboarding"]], [renderCreativeLibrary, ["creative"]], [renderContentProduction, ["content-production"]], [renderAdsMonth, ["ads-month"]], [renderContentLibrary, ["content-library"]], [amNavCount, ["*"]],
   [renderTasks, ["tasks"]], [renderReporting, ["reporting"]], [renderReceipts, ["receipts"]], [renderPlans, ["reporting"]],
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
-  [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates", "delivery-emails"]],
+  [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
   [renderLeadQueue, ["lead-queue"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
@@ -13646,23 +13648,55 @@ const mtgClock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return 
 function mtgFit(root){
   const mtg = root?.querySelector(".mtg");
   if (!mtg) return;
-  mtg.dataset.fit = "0"; mtg.dataset.rail = "0";
-  if (innerWidth < 821 || innerHeight < 560) return;
+  mtg.dataset.fit = "0"; mtg.dataset.rail = "0"; delete mtg.dataset.mini;
+  mtg.style.zoom = ""; mtg.style.height = "";
+  mtg.querySelectorAll(".mtg-content > *, .mtg-rail > *").forEach(k => { k.style.zoom = ""; });
+  // Phones stack the page; everything else must show every question at once.
+  if (innerWidth < 701) return;
   const fits = (el) => !el || el.scrollHeight <= el.clientHeight + 1;
-  const content = mtg.querySelector(".mtg-content"), rail = mtg.querySelector(".mtg-rail");
+  const content = mtg.querySelector(".mtg-content"), rail = mtg.querySelector(".mtg-rail"), main = mtg.querySelector(".mtg-main");
+  const allFits = () => fits(content) && fits(rail) && fits(main);
   for (let lvl = 1; lvl <= 6 && !fits(content); lvl++) mtg.dataset.fit = String(lvl);
+  // Still too much: fold the steps list down to numbers, giving the step the width.
+  if (!fits(content)){
+    mtg.dataset.mini = "1";
+    mtg.querySelectorAll(".mtg-rail-step").forEach(b => { b.title = b.querySelector("b")?.textContent || ""; });
+    mtg.dataset.fit = "0";
+    for (let lvl = 1; lvl <= 6 && !fits(content); lvl++) mtg.dataset.fit = String(lvl);
+  }
   for (let lvl = 1; lvl <= 3 && !fits(rail); lvl++) mtg.dataset.rail = String(lvl);
-  // Last resort: scale the step down just enough that it all shows.
-  const shrink = (box, kids) => { for (let z = 0.95; z >= 0.5 && !fits(box); z -= 0.05) kids.forEach(k => { k.style.zoom = z.toFixed(2); }); };
-  if (content) shrink(content, [...content.children]);
-  if (rail) shrink(rail, [...rail.children]);
+  // Then scale the step (or the steps list) down just enough - the biggest
+  // size that still fits, found by halving the gap.
+  const shrink = (box, kids, floor) => {
+    if (!box || fits(box)) return;
+    const set = (z) => kids.forEach(k => { k.style.zoom = z.toFixed(3); });
+    let lo = floor, hi = 1;
+    set(lo);
+    if (!fits(box)) return;
+    for (let i = 0; i < 7; i++){ const mid = (lo + hi) / 2; set(mid); if (fits(box)) lo = mid; else hi = mid; }
+    set(lo);
+  };
+  // Only a little here: past that it's better to shrink everything evenly
+  // (title, tabs and lead-ins too) than to make just the questions tiny.
+  shrink(content, content ? [...content.children] : [], 0.85);
+  shrink(rail, rail ? [...rail.children] : [], 0.75);
+  // Very short windows: shrink the whole thing (titles and buttons too).
+  if (!allFits()){
+    const h = mtg.getBoundingClientRect().height;
+    let lo = 0.35, hi = 1;
+    const set = (z) => { mtg.style.zoom = z.toFixed(3); mtg.style.height = (h / z) + "px"; };
+    for (let i = 0; i < 8; i++){ const mid = (lo + hi) / 2; set(mid); if (allFits()) lo = mid; else hi = mid; }
+    set(lo);
+  }
 }
 let mtgFitTimer = null;
 addEventListener("resize", () => {
   clearTimeout(mtgFitTimer);
   mtgFitTimer = setTimeout(() => { if (state.page === "meeting") mtgFit($("#mtg-root")); if (state.page === "sit-rate") mtgFit($("#sr-root")); }, 120);
 });
-function renderMeetingStructure(){ renderMeetingStructureBody(); requestAnimationFrame(() => mtgFit($("#mtg-root"))); }
+// Back / Next sit up beside the step number, so the step itself gets the room.
+function mtgNavUp(root){ const nav = root?.querySelector(".mtg-main > .mtg-nav"), k = root?.querySelector(".mtg-main-k"); if (nav && k) k.appendChild(nav); }
+function renderMeetingStructure(){ renderMeetingStructureBody(); mtgNavUp($("#mtg-root")); requestAnimationFrame(() => mtgFit($("#mtg-root"))); }
 function renderMeetingStructureBody(){
   const root = $("#mtg-root");
   if (!root) return;
@@ -13788,7 +13822,7 @@ function srDoc(){
   });
   return { p, lead: doc.lead, when: extra.find(c => /^when$/i.test(c.title))?.body || "", steps };
 }
-function renderSitRate(){ renderSitRateBody(); requestAnimationFrame(() => mtgFit($("#sr-root"))); }
+function renderSitRate(){ renderSitRateBody(); mtgNavUp($("#sr-root")); requestAnimationFrame(() => mtgFit($("#sr-root"))); }
 function renderSitRateBody(){
   const root = $("#sr-root");
   if (!root) return;
@@ -14079,7 +14113,7 @@ async function ensureBuiltinEmailTemplates(){
   let seen = {}; try { seen = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch(e){}
   const have = new Set(state.emailTemplates.map(t => (t.title || "").trim().toLowerCase()));
   const rows = (window.MP_BUILTIN_EMAIL_TEMPLATES || []).filter(t => !seen[t.title] && !have.has(t.title.toLowerCase()))
-    .map(({ title, subject, body, sort_order }) => ({ title, subject, body, sort_order }));
+    .map(({ title, subject, body, sort_order, kind }) => ({ title, subject, body, sort_order, ...(kind ? { kind } : {}) }));
   if (rows.length){
     const { error } = await supabase.from("email_templates").insert(rows);
     if (error){ console.error(error); return; }
@@ -14093,17 +14127,76 @@ const etSplit = (title) => { const i = String(title || "").indexOf(" · "); retu
 // Sales emails win clients; delivery emails are for clients we already
 // have. Older templates without a section are sorted by their group.
 const ET_DELIVERY_GROUPS = /^(onboarding|client|filming brief|delivery|report|monthly report|fortnightly|welcome)/i;
-const etKind = (t) => t.kind === "sales" || t.kind === "delivery" ? t.kind : (ET_DELIVERY_GROUPS.test(t.title || "") ? "delivery" : "sales");
+// Three sections, and Onboarding splits into before and after the kickoff call.
+const ET_SEGMENTS = [
+  { key: "sales", label: "Sales emails", kinds: [["sales", ""]] },
+  { key: "service", label: "Service emails", kinds: [["service", ""]] },
+  { key: "onboarding", label: "Onboarding emails", kinds: [["onboarding_pre", "Pre-onboarding"], ["onboarding_post", "Post-onboarding"]] },
+];
+const ET_KINDS = ["sales", "service", "onboarding_pre", "onboarding_post"];
+const etKind = (t) => {
+  if (ET_KINDS.includes(t.kind)) return t.kind;
+  const g = etSplit(t.title)[0];
+  if (/post[\s-]*onboarding/i.test(g)) return "onboarding_post";
+  if (/pre[\s-]*onboarding|^onboarding|^welcome/i.test(g)) return "onboarding_pre";
+  if (t.kind === "delivery" || (!t.kind && ET_DELIVERY_GROUPS.test(t.title || ""))) return "service";
+  return "sales";
+};
+const etSegOf = (kind) => ET_SEGMENTS.find(sg => sg.kinds.some(([k]) => k === kind)) || ET_SEGMENTS[0];
+let etSeg = "sales", etSub = "onboarding_pre";
+try { etSeg = localStorage.getItem("mp_et_seg") || "sales"; etSub = localStorage.getItem("mp_et_sub") || "onboarding_pre"; } catch(e){}
+function etCurrentKind(){
+  const sg = ET_SEGMENTS.find(x => x.key === etSeg) || ET_SEGMENTS[0];
+  return sg.kinds.length > 1 ? (sg.kinds.some(([k]) => k === etSub) ? etSub : sg.kinds[0][0]) : sg.kinds[0][0];
+}
+function etPick(kind){
+  etSeg = etSegOf(kind).key;
+  if (etSegOf(kind).kinds.length > 1) etSub = kind;
+  try { localStorage.setItem("mp_et_seg", etSeg); localStorage.setItem("mp_et_sub", etSub); } catch(e){}
+}
 function renderEmailTemplates(){
   ensureBuiltinEmailTemplates();
-  renderEmailTemplateList("sales", $("#email-templates-list"), $("#email-template-viewer"));
-  renderEmailTemplateList("delivery", $("#delivery-emails-list"), $("#delivery-email-viewer"));
+  const kind = etCurrentKind(), seg = etSegOf(kind);
+  const segs = $("#et-segs");
+  if (segs) segs.innerHTML = ET_SEGMENTS.map(sg => {
+    const n = state.emailTemplates.filter(t => sg.kinds.some(([k]) => k === etKind(t))).length;
+    return `<button type="button" class="et-seg${sg.key === seg.key ? " active" : ""}" data-et-seg="${sg.key}">${escapeHtml(sg.label)}<b>${n}</b></button>`;
+  }).join("") + (seg.kinds.length > 1 ? `<div class="et-sub" role="tablist">${seg.kinds.map(([k, label]) => `<button type="button" class="${k === kind ? "active" : ""}" data-et-sub="${k}">${escapeHtml(label)}<b>${etListFor(k).length}</b></button>`).join("")}</div>` : "");
+  const listEl = $("#email-templates-list");
+  renderEmailTemplateList(kind, listEl, $("#email-template-viewer"));
+  // On desktop the Pre / Post-onboarding switch sits at the top of the list.
+  if (listEl){
+    let host = listEl.querySelector(".et-sub-host");
+    if (!host){ host = document.createElement("div"); host.className = "et-sub-host"; listEl.prepend(host); }
+    host.innerHTML = seg.kinds.length > 1 ? `<div class="et-sub" role="tablist">${seg.kinds.map(([k, label]) => `<button type="button" class="${k === kind ? "active" : ""}" data-et-sub="${k}">${escapeHtml(label)}<b>${etListFor(k).length}</b></button>`).join("")}</div>` : "";
+  }
+  requestAnimationFrame(etFit);
 }
+// The whole email always shows - no scrolling. When it's long the text steps
+// down a size at a time, then goes into two columns, then scales to fit.
+function etFit(){
+  const view = $("#email-template-viewer .etx-view");
+  if (!view) return;
+  const body = view.querySelector(".etx-mail-body");
+  view.dataset.fit = "0";
+  if (body) [...body.children].forEach(k => { k.style.zoom = ""; });
+  if (!body || innerWidth < 701) return;
+  const fits = () => body.scrollHeight <= body.clientHeight + 1 && view.scrollHeight <= view.clientHeight + 1;
+  for (let lvl = 1; lvl <= 6 && !fits(); lvl++) view.dataset.fit = String(lvl);
+  // Long emails on a wide enough box: three columns.
+  if (!fits() && body.clientWidth > 560) view.dataset.fit = "7";
+  if (fits()) return;
+  const set = (z) => [...body.children].forEach(k => { k.style.zoom = z.toFixed(3); });
+  let lo = 0.35, hi = 1;
+  for (let i = 0; i < 7; i++){ const mid = (lo + hi) / 2; set(mid); if (fits()) lo = mid; else hi = mid; }
+  set(lo);
+}
+addEventListener("resize", () => { if (state.page === "email-templates") { clearTimeout(etFit.t); etFit.t = setTimeout(etFit, 120); } });
 // The email library, made to be quick: pick an email (a list on big screens,
 // a dropdown on phones), fill in the yellow blanks once (your name fills
 // itself in, and every blank is remembered for the next email), then one big
 // button copies it ready to paste into Gmail - or opens it in Gmail.
-const etSearch = { sales: "", delivery: "" }, etGroupSel = { sales: "", delivery: "" };
+const etSearch = { sales: "", service: "", onboarding_pre: "", onboarding_post: "" }, etGroupSel = { sales: "", service: "", onboarding_pre: "", onboarding_post: "" };
 const ET_GROUP_COLORS = ["#b8912c", "#3f7d55", "#3d6b96", "#6e5096", "#b4532a", "#5b7a25", "#8a6a1a"];
 const etGroupColor = (g) => { let h = 0; for (const ch of String(g || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return ET_GROUP_COLORS[h % ET_GROUP_COLORS.length]; };
 // Blanks in a template: [anything] or a lone X standing in for their name.
@@ -14167,9 +14260,12 @@ function etListHtml(kind, list, selId){
 function renderEmailTemplateList(kind, listEl, viewer){
   if (!listEl || !viewer) return;
   const list = etListFor(kind);
+  const seg = etSegOf(kind);
+  const kindLabel = (seg.kinds.find(([k]) => k === kind)?.[1] || seg.label).toLowerCase();
+  if (listEl.dataset.kind !== kind){ listEl.innerHTML = ""; listEl.dataset.kind = kind; }
   if (!list.length){
     listEl.innerHTML = "";
-    viewer.innerHTML = `<div class="etx-empty"><div class="etx-empty-icon">✉</div><h3>No ${kind} emails yet</h3><p>Add your first one so the whole team sends the same message.</p><button class="btn gold" data-add-et="${kind}">+ Add email</button></div>`;
+    viewer.innerHTML = `<div class="etx-empty"><div class="etx-empty-icon">✉</div><h3>No ${escapeHtml(kindLabel)} yet</h3><p>Add your first one so the whole team sends the same message.</p><button class="btn gold" data-add-et="${kind}">+ Add email</button></div>`;
     return;
   }
   if (!state.etSel[kind] || !list.find(p => p.id === state.etSel[kind])) state.etSel[kind] = list[0].id;
@@ -14178,7 +14274,7 @@ function renderEmailTemplateList(kind, listEl, viewer){
   // The list side is built once, so typing in the search box isn't interrupted.
   if (!listEl.querySelector(".etx-search")){
     listEl.innerHTML = `<div class="etx-pick">
-        ${groups.length > 1 ? `<select class="etx-group-sel" data-kind="${kind}" aria-label="Type of email"></select>` : ""}
+        ${groups.length > 1 && list.length > 6 ? `<select class="etx-group-sel" data-kind="${kind}" aria-label="Type of email"></select>` : ""}
         <input type="search" class="etx-search" data-kind="${kind}" placeholder="Search emails…" aria-label="Search emails">
       </div><div class="etx-list"></div>`;
   }
@@ -14251,6 +14347,18 @@ function etRefreshView(view){
   left.textContent = open ? `${open} blank${open === 1 ? "" : "s"} still to fill (in yellow)` : "✓ Ready to send";
 }
 function setupEmailLibrary(){
+  document.addEventListener("click", (e) => {
+    const sg = e.target.closest?.("[data-et-seg]");
+    if (sg){ const seg = ET_SEGMENTS.find(x => x.key === sg.dataset.etSeg); if (seg) { etPick(seg.kinds.length > 1 ? (seg.kinds.some(([k]) => k === etSub) ? etSub : seg.kinds[0][0]) : seg.kinds[0][0]); renderEmailTemplates(); } return; }
+    const sb = e.target.closest?.("[data-et-sub]");
+    if (sb){ etPick(sb.dataset.etSub); renderEmailTemplates(); return; }
+    const add = e.target.closest?.("[data-add-et]");
+    if (add){
+      $("#email-template-form").reset(); $("#email-template-form-id").value = ""; $("#email-template-modal-title").textContent = "Add Email Template";
+      $("#email-template-kind").value = ET_KINDS.includes(add.dataset.addEt) ? add.dataset.addEt : etCurrentKind();
+      openModal("email-template-modal");
+    }
+  });
   document.addEventListener("input", (e) => {
     const k = e.target.dataset?.kind;
     if (e.target.matches?.(".etx-search")){ etSearch[k] = e.target.value; e.target.closest(".playbook-list").querySelector(".etx-list").innerHTML = etListHtml(k, etListFor(k), state.etSel[k]); }
@@ -14818,11 +14926,6 @@ function setupModals(){
   });
   $("#rule-content")?.addEventListener("input", () => updateLivePreview("rule-content"));
 
-  $$("[data-add-et]").forEach(btn => btn.addEventListener("click", () => {
-    $("#email-template-form").reset(); $("#email-template-form-id").value=""; $("#email-template-modal-title").textContent="Add Email Template";
-    $("#email-template-kind").value = btn.dataset.addEt;
-    openModal("email-template-modal");
-  }));
   $("#email-template-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = $("#email-template-form-id").value;
@@ -14839,7 +14942,9 @@ function setupModals(){
       const created = await DataLayer.insert("email_templates", row);
       if (created) state.etSel[row.kind] = created.id;
     }
+    etPick(row.kind);
     closeModal("email-template-modal");
+    renderEmailTemplates();
     if (!IS_CONFIGURED) return; renderAll();
   });
 
@@ -15363,7 +15468,7 @@ function setupModals(){
       if (state.selectedRuleId === id) state.selectedRuleId = null;
       await DataLayer.remove("rules", id);
     }
-    if (action === "select-email-template"){ const t = state.emailTemplates.find(x => x.id === id); if (t) state.etSel[etKind(t)] = id; renderEmailTemplates(); }
+    if (action === "select-email-template"){ const t = state.emailTemplates.find(x => x.id === id); if (t){ state.etSel[etKind(t)] = id; etPick(etKind(t)); } renderEmailTemplates(); }
     if (action === "edit-email-template"){
       const t = state.emailTemplates.find(x => x.id === id);
       if (!t) return;
