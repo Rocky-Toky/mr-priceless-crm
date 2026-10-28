@@ -417,7 +417,7 @@ async function inspect(admin: any) {
       booking.calendars = cals.map((c: any) => ({ type: c.calendarType || null, team: (c.teamMembers || []).length, active: c.isActive !== false, slot: c.slotDuration || null, unit: c.slotDurationUnit || null }));
     } catch (e) { booking.calendars = { error: (e as any)?.status || String(e).slice(0, 60) }; }
     try {
-      const fields = (await ghl(`/locations/${encodeURIComponent(conn.location_id)}/customFields`, conn.token))?.customFields || [];
+      const fields = (await ghl(`/locations/${encodeURIComponent(conn.location_id)}/customFields?model=all`, conn.token))?.customFields || [];
       const pick = (re: RegExp) => fields.filter((f: any) => re.test(f.name || "")).map((f: any) => ({ type: f.dataType || null, model: f.model || null }));
       booking.fields = { total: fields.length, address: pick(ADDRESS_FIELD), scope: pick(SCOPE_FIELD) };
     } catch (e) { booking.fields = { error: (e as any)?.status || String(e).slice(0, 60) }; }
@@ -430,7 +430,8 @@ async function inspect(admin: any) {
 
 // ───────── Call outcomes back into GoHighLevel ─────────
 // What each of Carmen's outcomes does in the client's GHL:
-//   site_visit / consult_call  -> move to that stage, and book it in their calendar
+//   site_visit / consult_call  -> move to that stage, book it in their calendar
+//     (as the calendar's team member), and fill the address / Scope of Work fields
 //   not_interested / disqualified / wrong_number -> move to Disqualified
 //   call_back (call back later) -> move to Stuck
 //   unreachable (5 calls, no answer) -> move to No answer
@@ -494,7 +495,53 @@ async function clientSetup(admin: any, clientId: string) {
   return { stages: allStages, calendars: calendars.map((c: any) => ({ id: c.id, name: c.name })), calendar_error: calendarError, map: map || {}, suggest };
 }
 
-async function applyOutcome(admin: any, leadId: string, outcome: string, when: string | null, note: string) {
+// Who a booking goes to: the calendar's own team member (personal calendars
+// have one; for team calendars the first, preferring the primary).
+function calendarUser(cal: any) {
+  const team = (cal?.teamMembers || []).filter((m: any) => m?.userId);
+  return (team.find((m: any) => m.isPrimary) || team.sort((a: any, b: any) => (Number(b.priority) || 0) - (Number(a.priority) || 0))[0])?.userId || null;
+}
+const TEXT_TYPES = /^(TEXT|LARGE_TEXT|TEXTBOX_LIST)$/i;
+
+// The job's address and scope of work into the client's GoHighLevel: the
+// address on the contact's own Address field and any address custom field,
+// the scope into their "Scope of work" custom field (made on the contact if
+// they don't have one, which needs Edit Custom Fields on the key). Never the notes.
+async function fillJobFields(loc: string, token: string, contactId: string | null, oppId: string | null, address: string, scope: string, result: any) {
+  const filled: string[] = [];
+  let fields: any[] = [];
+  try { fields = (await ghl(`/locations/${encodeURIComponent(loc)}/customFields?model=all`, token))?.customFields || []; }
+  catch (e) { result.errors.push("Couldn't read their custom fields - tick View Custom Fields on the key."); }
+  const usable = (f: any) => !f.dataType || TEXT_TYPES.test(f.dataType);
+  const scopeFields = scope ? fields.filter((f: any) => SCOPE_FIELD.test(f.name || "") && usable(f)) : [];
+  const addrFields = address ? fields.filter((f: any) => ADDRESS_FIELD.test(f.name || "") && !/e-?mail|web|ip\b/i.test(f.name || "") && !SCOPE_FIELD.test(f.name || "") && usable(f)) : [];
+  if (scope && !scopeFields.length) {
+    try {
+      const made = await ghl(`/locations/${encodeURIComponent(loc)}/customFields`, token, { method: "POST", body: JSON.stringify({ name: "Scope of Work", dataType: "LARGE_TEXT", model: "contact", placeholder: "What the job is" }) });
+      const f = made?.customField || made;
+      if (f?.id) scopeFields.push({ ...f, model: "contact" });
+    } catch { result.errors.push(`They don't have a "Scope of Work" field in GoHighLevel and the key can't add one - add it in their GHL (Settings, Custom Fields) or tick Edit Custom Fields on the key.`); }
+  }
+  const onContact = [...addrFields.filter((f: any) => f.model !== "opportunity").map((f: any) => ({ id: f.id, field_value: address })), ...scopeFields.filter((f: any) => f.model !== "opportunity").map((f: any) => ({ id: f.id, field_value: scope }))];
+  const onOpp = [...addrFields.filter((f: any) => f.model === "opportunity").map((f: any) => ({ id: f.id, field_value: address })), ...scopeFields.filter((f: any) => f.model === "opportunity").map((f: any) => ({ id: f.id, field_value: scope }))];
+  if (contactId && (address || onContact.length)) {
+    try {
+      await ghl(`/contacts/${encodeURIComponent(contactId)}`, token, { method: "PUT", body: JSON.stringify({ ...(address ? { address1: address } : {}), ...(onContact.length ? { customFields: onContact } : {}) }) });
+      if (address) filled.push("address");
+      if (scopeFields.some((f: any) => f.model !== "opportunity")) filled.push("scope of work");
+    } catch (e) { result.errors.push("Couldn't save the address and scope on the contact: " + String((e as any)?.message || e).slice(0, 140)); }
+  }
+  if (oppId && onOpp.length) {
+    try {
+      await ghl(`/opportunities/${encodeURIComponent(oppId)}`, token, { method: "PUT", body: JSON.stringify({ customFields: onOpp }) });
+      if (!filled.includes("address") && addrFields.some((f: any) => f.model === "opportunity")) filled.push("address");
+      if (!filled.includes("scope of work") && scopeFields.some((f: any) => f.model === "opportunity")) filled.push("scope of work");
+    } catch (e) { result.errors.push("Couldn't save the scope on the opportunity: " + String((e as any)?.message || e).slice(0, 140)); }
+  }
+  if (filled.length) result.fields = filled;
+}
+
+async function applyOutcome(admin: any, leadId: string, outcome: string, when: string | null, note: string, job: { address?: string; scope?: string } = {}) {
   const kind = OUTCOME_STAGE[outcome];
   if (!kind) return { skipped: true };
   const { data: lead } = await admin.from("client_leads").select("id, client_id, name, external_lead_id, ghl_contact_id").eq("id", leadId).maybeSingle();
@@ -529,6 +576,9 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
     }
   } catch (e) { result.errors.push("Couldn't move the stage: " + String((e as any)?.message || e).slice(0, 160)); }
 
+  const address = String(job.address || "").trim().slice(0, 240), scope = String(job.scope || "").trim().slice(0, 2000);
+  if (kind === "site_visit" || kind === "consult") await fillJobFields(loc, token, contactId, oppId || (typeof result.created_opportunity === "string" ? result.created_opportunity : null), address, scope, result);
+
   // Bookings go in their calendar too.
   if ((kind === "site_visit" || kind === "consult") && when && contactId) {
     try {
@@ -539,10 +589,18 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
       else {
         const mins = Number(cal.slotDuration) && /hour/i.test(String(cal.slotDurationUnit || "")) ? Number(cal.slotDuration) * 60 : Number(cal.slotDuration) || (kind === "consult" ? 30 : 60);
         const start = new Date(when), end = new Date(start.getTime() + mins * 60e3);
-        const appt = await ghl(`/calendars/events/appointments`, token, { method: "POST", body: JSON.stringify({
+        const assignedUserId = calendarUser(cal);
+        const base = {
           calendarId: cal.id, locationId: loc, contactId, startTime: start.toISOString(), endTime: end.toISOString(),
-          title: `${kind === "consult" ? "Consultation call" : "Site visit"} - ${lead.name || "new lead"}`, appointmentStatus: "confirmed", ignoreFreeSlotValidation: true, toNotify: true,
-        }) }, CAL_VERSION);
+          title: `${kind === "consult" ? "Consultation call" : "Site visit"} - ${lead.name || "new lead"}${address && kind === "site_visit" ? ` - ${address}` : ""}`,
+          appointmentStatus: "confirmed", ignoreFreeSlotValidation: true, ignoreDateRange: true, toNotify: true,
+          ...(assignedUserId ? { assignedUserId } : {}),
+        };
+        const book = (body: any) => ghl(`/calendars/events/appointments`, token, { method: "POST", body: JSON.stringify(body) }, CAL_VERSION);
+        let appt: any;
+        // The address goes on the booking too; if GHL won't take it there, book without it.
+        if (address) { try { appt = await book({ ...base, meetingLocationType: "address", address }); } catch { appt = await book(base); } }
+        else appt = await book(base);
         result.appointment = appt?.id || appt?.appointment?.id || true; result.calendar = cal.name;
       }
     } catch (e) { result.errors.push("Couldn't book it in their calendar: " + String((e as any)?.message || e).slice(0, 160)); }
@@ -590,7 +648,7 @@ Deno.serve(async (req: Request) => {
   if (body.action === "sync") return json(await syncAll(admin));
   if (body.action === "outcome"){
     if (!body.lead_id || !body.outcome) return json({ error: "lead_id and outcome are needed." }, 400);
-    return json(await applyOutcome(admin, body.lead_id, body.outcome, body.when || null, String(body.note || "").slice(0, 2000)));
+    return json(await applyOutcome(admin, body.lead_id, body.outcome, body.when || null, String(body.note || "").slice(0, 2000), { address: body.address || "", scope: body.scope || "" }));
   }
   if (body.action === "setup"){
     if (!body.client_id) return json({ error: "client_id is needed." }, 400);
