@@ -11914,6 +11914,17 @@ function lqWhenPicker(kind){
   </div>`;
 }
 
+// A booking needs the job's address and what the job is: both go into the
+// client's GoHighLevel (the address on the contact and appointment, the scope
+// in their "Scope of work" custom field - not the notes).
+function lqBookingFields(l, kind){
+  const addr = lqDrafts[l.id + ":address"] ?? l.address ?? "", scope = lqDrafts[l.id + ":scope"] ?? l.job_scope ?? "";
+  return `<div class="lq3-book">
+    <label>${kind === "site_visit" ? "Address of the job" : "Their address"}${kind === "site_visit" ? "" : " <small>(if they gave it)</small>"}<input name="address" autocomplete="off" placeholder="e.g. 12 Smith Street, Petone, Lower Hutt" value="${escapeHtml(addr)}" ${kind === "site_visit" ? "required" : ""}></label>
+    <label>Scope of work<textarea name="scope" rows="3" required placeholder="What needs doing? e.g. New 40m² concrete driveway, old one needs removing">${escapeHtml(scope)}</textarea></label>
+  </div>`;
+}
+
 function lqDetailHtml(l){
   const c = lqClient(l), st = l.follow_status || "new", first = (l.name || "").split(" ")[0] || "there";
   const biz = lqBizName(c) || "the client", trade = c ? (clientIndustry(c).name || "") : "";
@@ -12031,7 +12042,8 @@ function lqDetailHtml(l){
       <div class="lq3-outs">${["site_visit", ...(lqHasConsult(l) ? ["consult_call"] : []), "no_answer", "call_back"].map(bigOut).join("")}</div>
       <div class="lq3-pills">${["not_interested", "disqualified", "wrong_number"].map(smallOut).join("")}</div>
       ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
-      ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" ? "site visit" : "consultation"} stage and the time's booked in their calendar.</p>` : ""}
+      ${LQ_OUTCOMES[lqPending]?.booking ? lqBookingFields(l, lqPending) : ""}
+      ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" ? "site visit" : "consultation"} stage, the time's booked in their calendar, and the address and scope of work go on the contact.</p>` : ""}
       ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's the 5th call. They'll move to "No answer" in ${escapeHtml(biz)}'s GoHighLevel.` : `They'll come back in the ${lqWaveOf(lqNextTry()) === "am" ? "morning" : "afternoon"} wave, ${escapeHtml(lqWhenWords(lqNextTry()))} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`}</p>` : ""}
       ${["not_interested", "disqualified", "wrong_number"].includes(lqPending) ? `<p class="lq3-tip">They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.</p>` : ""}
       <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
@@ -12045,7 +12057,7 @@ function lqDetailHtml(l){
     </section>` : ""}`;
 }
 
-async function lqSaveOutcome(l, outcome, note, when){
+async function lqSaveOutcome(l, outcome, note, when, job = {}){
   const nowIso = new Date().toISOString(), by = state.user?.email || "demo";
   const attempts = (Number(l.attempts) || 0) + 1;
   const patch = { attempts, last_attempt_at: nowIso, called_by: by, first_called_at: l.first_called_at || nowIso,
@@ -12056,8 +12068,10 @@ async function lqSaveOutcome(l, outcome, note, when){
     else { patch.follow_status = "no_answer"; patch.next_attempt_at = lqNextTry(attempts); }
   } else if (outcome === "call_back"){ patch.follow_status = "call_back"; patch.next_attempt_at = when; }
   else { patch.follow_status = outcome; patch.next_attempt_at = null; if (LQ_BOOKED.has(outcome)) patch.booked_for = when; }
+  if (job.address) patch.address = job.address;
+  if (job.scope) patch.job_scope = job.scope;
   Object.assign(l, patch);
-  delete lqDrafts[l.id];
+  for (const k of ["", ":address", ":scope"]) delete lqDrafts[l.id + k];
   lqPending = null; lqShowHistory = false;
   const next = lqQueue().due.find(x => x.id !== l.id);
   lqSel = next?.id || null;
@@ -12072,20 +12086,20 @@ async function lqSaveOutcome(l, outcome, note, when){
   }
   // Move them in the client's GoHighLevel (and book the calendar for a booking).
   const ghlOutcome = patch.follow_status === "unreachable" ? "unreachable" : outcome;
-  if (LQ_TO_GHL.has(ghlOutcome)) lqSendToGhl(l, ghlOutcome, when, note);
+  if (LQ_TO_GHL.has(ghlOutcome)) lqSendToGhl(l, ghlOutcome, when, note, job);
 }
-async function lqSendToGhl(l, outcome, when, note){
+async function lqSendToGhl(l, outcome, when, note, job = {}){
   const biz = lqClient(l)?.name || "the client";
   if (!IS_CONFIGURED){
     l.ghl_sync = { at: new Date().toISOString(), outcome, moved: true, stage: { site_visit: "Site Visit Booked", consult_call: "Consultation Booked", unreachable: "No Answer", call_back: "Stuck" }[outcome] || "Disqualified", ...(LQ_BOOKED.has(outcome) ? { appointment: true, calendar: "Bookings" } : {}) };
     return;
   }
   try {
-    const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "outcome", lead_id: l.id, outcome, when, note } });
+    const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "outcome", lead_id: l.id, outcome, when, note, address: job.address || null, scope: job.scope || null } });
     if (error) throw error;
     l.ghl_sync = data || {};
     if (data?.skipped) return;
-    const done = [data?.moved ? `moved to "${data.stage}"` : "", data?.appointment ? `booked in ${data.calendar ? `the ${data.calendar} calendar` : "their calendar"}` : ""].filter(Boolean).join(" and ");
+    const done = [data?.moved ? `moved to "${data.stage}"` : "", data?.appointment ? `booked in ${data.calendar ? `the ${data.calendar} calendar` : "their calendar"}` : "", data?.fields?.length ? `${data.fields.join(" and ")} filled in` : ""].filter(Boolean).join(", ");
     if (data?.errors?.length) rcToast(`${done ? `In ${biz}'s GoHighLevel: ${done}. ` : ""}${data.errors[0]}`);
     else if (done) rcToast(`Done - ${done} in ${biz}'s GoHighLevel.`);
   } catch(e){
@@ -12216,7 +12230,7 @@ function renderLeadResults(){
     <div class="lr-table">${health.map(h => `<div class="lr-sync ${h.cls}"><i></i><b>${escapeHtml(h.c.name)}</b><span>${escapeHtml(h.text)}</span><small>${h.r?.last_lead_at ? `last lead ${escapeHtml(lqShortAgo(Date.now() - new Date(h.r.last_lead_at)))} ago` : ""}${h.r ? `<button type="button" class="lq3-mini" data-lr-stages="${escapeHtml(h.c.id)}">Stages</button>` : ""}${h.cls !== "ok" ? `<button type="button" class="lq3-mini" data-lr-connect="${escapeHtml(h.c.id)}">${!h.r ? "Connect" : "Update key"}</button>` : ""}</small></div>
       ${lqStagesFor === h.c.id ? lqStagesHtml(h.c) : ""}
       ${lqConnectFor === h.c.id ? `<form class="lr-connect" data-lr-form="${escapeHtml(h.c.id)}">
-        <p>Paste these from <b>${escapeHtml(h.c.name)}</b>'s GoHighLevel. The Location ID is in <b>Settings → Business Profile</b>, and the key comes from <b>Settings → Private Integrations</b> (tick View Contacts, Opportunities, Forms and Custom Fields when you make it).</p>
+        <p>Paste these from <b>${escapeHtml(h.c.name)}</b>'s GoHighLevel. The Location ID is in <b>Settings → Business Profile</b>, and the key comes from <b>Settings → Private Integrations</b> (tick View and Edit Contacts, Opportunities, Custom Fields and Calendar Events, plus View Forms and Calendars, when you make it).</p>
         <div class="lr-connect-row"><label>Location ID<input name="location_id" required autocomplete="off"></label><label>Private Integration key<input name="token" type="password" required autocomplete="off"></label>
         <button type="submit" class="lq3-btn" ${lqConnecting ? "disabled" : ""}>${lqConnecting ? "Connecting…" : "Connect"}</button><button type="button" class="lq3-mini" data-lr-connect="">Cancel</button></div>
       </form>` : ""}`).join("") || `<div class="emp-empty">No live clients.</div>`}</div>
@@ -12876,6 +12890,7 @@ function setupLeadFollowUpUi(){
     });
     root.addEventListener("input", (ev) => {
       if (ev.target.matches('form[data-lq-form="outcome"] textarea[name="note"]') && lqSel) lqDrafts[lqSel] = ev.target.value;
+      if (ev.target.matches('form[data-lq-form="outcome"] [name="address"], form[data-lq-form="outcome"] [name="scope"]') && lqSel) lqDrafts[lqSel + ":" + ev.target.name] = ev.target.value;
     });
     root.addEventListener("submit", async (ev) => {
       const form = ev.target.closest("[data-lq-form]");
@@ -12890,7 +12905,14 @@ function setupLeadFollowUpUi(){
           if (!v.day || !v.time){ rcToast("Pick a day and a time first."); return; }
           when = new Date(`${v.day}T${v.time}:00`).toISOString();
         }
-        return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when);
+        const job = {};
+        if (LQ_OUTCOMES[lqPending]?.booking){
+          job.address = String(v.address || "").trim().slice(0, 240);
+          job.scope = String(v.scope || "").trim().slice(0, 2000);
+          if (lqPending === "site_visit" && !job.address){ rcToast("Add the address of the job first."); return; }
+          if (!job.scope){ rcToast("Add the scope of work first."); return; }
+        }
+        return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when, job);
       }
       if (form.dataset.lqForm === "area"){
         const c = state.clients.find(x => x.id === lqAreaFor);
