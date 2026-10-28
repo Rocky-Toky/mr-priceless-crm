@@ -103,6 +103,9 @@ function valueText(v: any): string {
 // tracking GHL and Facebook add. Matched loosely on the key.
 const SUBMISSION_NOISE = /^(event_?data|fields_?ori|signature|form_?id|location_?id|contact_?id|id|type|product_?type|source|last_?attribution|attribution|facebook_?(lead_?id|form_?id|page|ad)|lead_?id|ad_?(set)?_?(id|name)|campaign|timezone|time_?zone|ip|user_?agent|session|captcha|recaptcha|page|url|referrer|medium|utm_|fbclid|gclid|full_?name|first_?name|last_?name|name|email|e_?mail|phone|phone_?number|mobile|terms|consent|privacy|submission|created|date_?added|is_?organic|platform|__)/i;
 const ADDRESS_KEYS: Record<string, string> = { address: "street", address1: "street", street_address: "street", full_address: "street", street: "street", city: "city", suburb: "suburb", town: "city", postal_code: "postal", post_code: "postal", postcode: "postal", zip: "postal", zip_code: "postal", state: "state", region: "state", province: "state" };
+// The client's own custom fields we fill when Carmen books a job.
+const ADDRESS_FIELD = /address|job\s*(site|location)|site\s*location|property\s*location/i;
+const SCOPE_FIELD = /scope|job\s*(description|details|info)|work\s*(required|needed|description|details)|project\s*(description|details)|what\s*(they|the\s*customer)\s*(want|need)/i;
 const LOCATION_QUESTION = /(what|which)_(area|suburb|town|city|region)|suburb|where_(is|are|abouts)|whereabouts|location|located|property_in|address|postcode|post_code/;
 // Facebook sends multiple-choice answers as slugs ("next_3_months").
 const tidyAnswer = (a: string) => { const t = a.replace(/_+/g, " ").replace(/\s+/g, " ").trim(); return t === t.toLowerCase() ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
@@ -406,7 +409,21 @@ async function inspect(admin: any) {
       }
       samples.push(s);
     }
-    out.push({ client: n, samples });
+    // What booking needs: their calendars (type, team size) and whether they
+    // have address / scope of work fields. Shapes only.
+    const booking: any = {};
+    try {
+      const cals = (await ghl(`/calendars/?locationId=${encodeURIComponent(conn.location_id)}`, conn.token, {}, CAL_VERSION))?.calendars || [];
+      booking.calendars = cals.map((c: any) => ({ type: c.calendarType || null, team: (c.teamMembers || []).length, active: c.isActive !== false, slot: c.slotDuration || null, unit: c.slotDurationUnit || null }));
+    } catch (e) { booking.calendars = { error: (e as any)?.status || String(e).slice(0, 60) }; }
+    try {
+      const fields = (await ghl(`/locations/${encodeURIComponent(conn.location_id)}/customFields`, conn.token))?.customFields || [];
+      const pick = (re: RegExp) => fields.filter((f: any) => re.test(f.name || "")).map((f: any) => ({ type: f.dataType || null, model: f.model || null }));
+      booking.fields = { total: fields.length, address: pick(ADDRESS_FIELD), scope: pick(SCOPE_FIELD) };
+    } catch (e) { booking.fields = { error: (e as any)?.status || String(e).slice(0, 60) }; }
+    const { data: tried } = await admin.from("client_leads").select("ghl_sync").eq("client_id", conn.client_id).in("follow_status", ["booked", "site_visit", "consult_call"]).not("ghl_sync", "is", null).limit(20);
+    booking.bookings_tried = (tried || []).map((r: any) => ({ appointment: Boolean(r.ghl_sync?.appointment), moved: Boolean(r.ghl_sync?.moved), errors: (r.ghl_sync?.errors || []).map((x: string) => String(x).slice(0, 160)) }));
+    out.push({ client: n, samples, booking });
   }
   return out;
 }
