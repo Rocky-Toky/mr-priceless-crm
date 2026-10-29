@@ -85,11 +85,11 @@ Deno.serve(async (req: Request) => {
   // Allowlist check
   const { data: allowRows, error: allowError } = await admin
     .from("allowlist")
-    .select("email")
+    .select("email, access")
     .eq("email", email)
     .limit(1);
 
-  if (allowError || !allowRows || allowRows.length === 0) {
+  if (allowError || !allowRows || allowRows.length === 0 || allowRows[0].access === "leads") {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 

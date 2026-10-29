@@ -103,8 +103,9 @@ Deno.serve(async (req: Request) => {
   const { data: userData } = await authed.auth.getUser();
   const email = userData?.user?.email;
   if (!email) return json({ error: "Unauthorized." }, 401);
-  const { data: allowed } = await admin.from("allowlist").select("email").eq("email", email).maybeSingle();
-  if (!allowed) return json({ error: "Unauthorized." }, 401);
+  // Lead Follow Up only logins (allowlist.access = "leads") can't use this.
+  const { data: allowed } = await admin.from("allowlist").select("email, access").eq("email", email).maybeSingle();
+  if (!allowed || allowed.access === "leads") return json({ error: "Unauthorized." }, 401);
 
   let body: any = {};
   try { body = (await req.json()) ?? {}; } catch { body = {}; }

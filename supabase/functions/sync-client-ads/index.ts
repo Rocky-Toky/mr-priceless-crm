@@ -315,11 +315,12 @@ Deno.serve(async (req: Request) => {
 
   const { data: allowRows, error: allowError } = await supabaseAdmin
     .from("allowlist")
-    .select("email")
+    .select("email, access")
     .eq("email", email)
     .maybeSingle();
 
-  if (allowError || !allowRows) {
+  // Lead Follow Up only logins (allowlist.access = "leads") can't use this.
+  if (allowError || !allowRows || allowRows.access === "leads") {
     return json({ error: "Unauthorized." }, 401);
   }
 
