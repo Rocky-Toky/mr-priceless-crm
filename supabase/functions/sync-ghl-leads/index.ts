@@ -434,7 +434,7 @@ async function inspect(admin: any) {
 //     (as the calendar's team member), and fill the address / Scope of Work fields
 //   not_interested / disqualified / wrong_number -> move to Disqualified
 //   call_back (call back later) -> move to Stuck
-//   unreachable (5 calls, no answer) -> move to No answer
+//   unreachable (6 calls, no answer) -> move to No answer
 // The stage and calendar come from lead_stage_map when set for that client,
 // otherwise the best match by name. Every move also leaves a note on the contact.
 const CAL_VERSION = "2021-04-15";
@@ -609,7 +609,7 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
   // Leave the notes on the contact so the client sees them. No caller name: clients
   // shouldn't know who on the team rang each lead.
   if (contactId) {
-    const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer after 5 calls", call_back: "Call back" };
+    const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer after 6 calls", call_back: "Call back" };
     const whenText = when ? ` for ${new Date(when).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "";
     try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: `${label[outcome] || outcome}${whenText} - called by Mr Priceless.${note ? "\n\n" + note : ""}` }) }); result.note = true; }
     catch { /* a note is a nice-to-have */ }
