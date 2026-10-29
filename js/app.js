@@ -11173,7 +11173,7 @@ async function empSeedTeam(){
   } finally { empSeeding = false; }
 }
 function setupEmployees(){
-  loadEmployees().then(() => { renderEmployees(); empNavCount(); lpNavCount(); if (state.page === "lead-plan") renderLeadPlan(); }).catch(e => console.warn(e));
+  loadEmployees().then(() => { renderEmployees(); empNavCount(); lpNavCount(); if (state.page === "lead-plan") renderLeadPlan(); if (state.page === "lead-schedule") renderLeadSchedule(); }).catch(e => console.warn(e));
   if (!IS_CONFIGURED || empSubscribed) return;
   empSubscribed = true;
   let t = null;
@@ -11184,6 +11184,7 @@ function setupEmployees(){
       if ($("#emp-root")?.contains(document.activeElement) && document.activeElement.matches("input,textarea,select")) return;
       await loadEmployees(); renderEmployees(); empNavCount(); lpNavCount();
       if (state.page === "lead-plan") renderLeadPlan();
+      if (state.page === "lead-schedule") renderLeadSchedule();
     }, 400);
   }).subscribe();
 }
@@ -11591,8 +11592,9 @@ function setupEmployeesUi(){
    person: one person at a time, big text, big buttons, plain words. Brand-
    new leads come first - the goal is a call within 3 minutes - then retries
    that are due, then older leads sitting in Rep to contact / Stuck, longest
-   waiting first. A no-answer is tried again in alternating morning and
-   afternoon waves, 5 calls in all, before the lead is marked unreachable. */
+   waiting first. A no-answer is tried again 3 days in a row, then a week
+   later, another week later and a month later (6 calls in all, alternating
+   morning and afternoon), before the lead is marked unreachable. */
 const LQ_OPEN = new Set(["new", "no_answer", "call_back"]);
 const LQ_OUTCOMES = {
   site_visit: { label: "Site visit booked", icon: "🏠", hint: "Someone's going out to quote", cls: "green", final: true, booking: true },
@@ -11609,7 +11611,9 @@ const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call b
 // What a booking is, and which outcomes also move the lead in the client's GoHighLevel.
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
 const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable", "call_back"]);
-const LQ_MAX_TRIES = 5, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
+// Days between no-answer calls: 3 days in a row, then a week, a week, a month.
+const LQ_GAPS = [1, 1, 7, 7, 30];
+const LQ_MAX_TRIES = LQ_GAPS.length + 1, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
 let lqPlaceFor = null, lqFitFor = null, lqAreaFor = null;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
@@ -11687,16 +11691,20 @@ function lqRegion(l, c){
 // NZ mobiles start 02, AU mobiles 04 - anything else is treated as NZ.
 const lqCountry = (phone) => /^\s*(\+?61|04)/.test(phone || "") ? "61" : "64";
 // Retries go out in waves: a morning wave from 9am and an afternoon wave from
-// 2pm. A no-answer comes back in the other half of the day, so each try
-// catches them at a different time - morning, afternoon, morning...
+// 2pm. After a no-answer the next try is LQ_GAPS days later (3 days in a row,
+// then a week, a week, a month), in the other half of the day, so each try
+// catches them at a different time. Weekends move to Monday.
 const LQ_WAVES = { am: { h: 9, name: "Morning wave", from: "9am" }, pm: { h: 14, name: "Afternoon wave", from: "2pm" } };
 const lqWaveOf = (d) => new Date(d).getHours() < 12 ? "am" : "pm";
-function lqNextTry(){
-  const next = new Date();
-  if (lqWaveOf(next) === "am") next.setHours(LQ_WAVES.pm.h, 0, 0, 0);
-  else { next.setDate(next.getDate() + 1); next.setHours(LQ_WAVES.am.h, 0, 0, 0); }
+// calls = how many calls they've had, counting this one.
+function lqNextTry(calls = 1){
+  const next = new Date(), wave = lqWaveOf(next) === "am" ? "pm" : "am";
+  next.setDate(next.getDate() + (LQ_GAPS[Math.max(0, Math.min(calls, LQ_GAPS.length) - 1)] || 1));
+  while ([0, 6].includes(next.getDay())) next.setDate(next.getDate() + 1);
+  next.setHours(LQ_WAVES[wave].h, 0, 0, 0);
   return next.toISOString();
 }
+const lqGapWords = (calls) => { const d = LQ_GAPS[calls - 1] || 1; return d === 1 ? "tomorrow" : d === 7 ? "in a week" : d >= 28 ? "in a month" : `in ${d} days`; };
 // The lead's stage in the client's GoHighLevel, without GHL's "(3 Minutes)"-style notes.
 const lqStageName = (l) => l.source === "ghl" ? String(l.status || "").replace(/\s*\([^)]*\)\s*$/, "").trim() : "";
 function lqQueue(){
@@ -11876,8 +11884,8 @@ function lqGuideHtml(){
     <h3>The calling process</h3>
     <ol>
       ${step(1, "New enquiries first - within 3 minutes", "Anyone who's just enquired goes to the top, the one waiting longest first. Your goal is to ring every new enquiry within 3 minutes of it coming in.")}
-      ${step(2, "No answer? Leave the message and press No answer", "They come back in the next wave. The <b>morning wave</b> starts at 9am and the <b>afternoon wave</b> at 2pm. If you rang in the morning, the next try is that afternoon; if you rang in the afternoon, it's the next morning. That way you catch them at a different time of day each try.")}
-      ${step(3, "5 calls in all", "Each lead gets up to 5 calls - the first one straight away, then 4 more in alternating morning and afternoon waves (about 2 days). After the 5th no-answer, they move to \"No answer\" in the client's GoHighLevel and come off your list.")}
+      ${step(2, "No answer? Leave the message and press No answer", "They come back to you by themselves. If you rang in the morning, the next try is in the <b>afternoon wave</b> (from 2pm); if you rang in the afternoon, it's the <b>morning wave</b> (from 9am). That way you catch them at a different time of day each try.")}
+      ${step(3, "6 calls in all", "Day 1, day 2 and day 3 - one call each day. Then one more a <b>week</b> later, another a <b>week</b> after that, and a last one a <b>month</b> later. After the 6th no-answer, they move to \"No answer\" in the client's GoHighLevel and come off your list.")}
       ${step(4, "Call backs", "If they ask you to ring back, press Call back later and pick the time they asked for. They move to Stuck in the client's GoHighLevel and pop back up here at that time.")}
       ${step(5, "Then Rep to contact and Stuck", "When the new ones and the retries are done, work through the older leads sitting in the client's Rep to contact or Stuck stage - longest waiting first. Each lead shows its stage next to the client's name.")}
       ${step(6, "Booked, or not a fit", "Site visit or consultation booked: it goes straight into the client's GoHighLevel and calendar. Not interested, not a fit or wrong number: they move to Disqualified.")}
@@ -11982,6 +11990,8 @@ function lqDetailHtml(l){
       </div>
     </header>
 
+    ${lqBeforeHtml(l, log)}
+
     <section class="lq3-panel lq3-ad">
       ${creative?.image_url ? `<img class="lq3-ad-img" src="${escapeHtml(creative.image_url)}" alt="" loading="lazy">` : `<span class="lq3-ad-badge">${lqIcon("chat")}</span>`}
       <div class="lq3-ad-body">
@@ -12004,7 +12014,6 @@ function lqDetailHtml(l){
         ${answers.length ? `<dl class="lq3-answers">${answers.map(a => `<div><dt>${escapeHtml(a.q)}</dt><dd>${escapeHtml(a.a)}</dd></div>`).join("")}</dl>`
           : job ? `<dl class="lq3-answers"><div><dt>They asked about</dt><dd>${escapeHtml(job)}</dd></div></dl>`
           : `<p class="lq3-muted">No form answers came through. Ask them what they need done.</p>`}
-        ${l.follow_notes ? `<div class="lq3-note"><span>Notes from last time</span>${escapeHtml(l.follow_notes)}</div>` : ""}
       </section>
       <section class="lq3-panel">
         <h3>${lqIcon("pin")}Where they are</h3>
@@ -12044,17 +12053,27 @@ function lqDetailHtml(l){
       ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? lqBookingFields(l, lqPending) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" ? "site visit" : "consultation"} stage, the time's booked in their calendar, and the address and scope of work go on the contact.</p>` : ""}
-      ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's the 5th call. They'll move to "No answer" in ${escapeHtml(biz)}'s GoHighLevel.` : `They'll come back in the ${lqWaveOf(lqNextTry()) === "am" ? "morning" : "afternoon"} wave, ${escapeHtml(lqWhenWords(lqNextTry()))} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`}</p>` : ""}
+      ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's call ${LQ_MAX_TRIES} of ${LQ_MAX_TRIES}. They'll move to "No answer" in ${escapeHtml(biz)}'s GoHighLevel.` : `They'll come back ${lqGapWords(l.attempts + 1)} in the ${lqWaveOf(lqNextTry(l.attempts + 1)) === "am" ? "morning" : "afternoon"} wave, ${escapeHtml(lqWhenWords(lqNextTry(l.attempts + 1)))} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`}</p>` : ""}
       ${["not_interested", "disqualified", "wrong_number"].includes(lqPending) ? `<p class="lq3-tip">They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.</p>` : ""}
       <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
       <button type="submit" class="lq3-save" ${lqPending ? "" : "disabled"}>${lqPending ? `Save and go to the next person ${lqIcon("arrow")}` : "Choose how the call went"}</button>
       <button type="button" class="lq3-fu-link" data-lq-act="followup">📌 Set a follow-up for ${escapeHtml(first)}</button>
     </form>
 
-    ${log.length ? `<section class="lq3-history">
-      <button type="button" class="lq3-fold" data-lq-act="history">${lqShowHistory ? "Hide" : "Show"} earlier calls (${log.length})</button>
-      ${lqShowHistory ? `<ol>${log.map(x => `<li class="${x.outcome}">${lqIcon(x.outcome)}<div><b>${escapeHtml(LQ_OUTCOMES[x.outcome]?.label || x.outcome)}</b><span>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</span>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div></li>`).join("")}</ol>` : ""}
-    </section>` : ""}`;
+`;
+}
+// Have we rung them before? Every earlier call and its note, newest first,
+// right under their name so it's read before dialling.
+function lqBeforeHtml(l, log){
+  const noted = log.some(x => x.note);
+  if (!log.length && !l.follow_notes) return `<section class="lq3-before none"><b>First call</b><span>Nobody's rung ${escapeHtml((l.name || "them").split(" ")[0])} yet.</span></section>`;
+  const shown = lqShowHistory ? log : log.slice(0, 3);
+  return `<section class="lq3-before">
+    <h3>${lqIcon("phone")}Called before: ${log.length} time${log.length === 1 ? "" : "s"}${log[0] ? ` <small>· last ${escapeHtml(lqTime(log[0].at))}</small>` : ""}</h3>
+    ${!noted && l.follow_notes ? `<p class="lq3-before-note">${escapeHtml(l.follow_notes)}</p>` : ""}
+    ${log.length ? `<ol>${shown.map(x => `<li class="${escapeHtml(x.outcome)}">${lqIcon(x.outcome)}<div><b>${escapeHtml(LQ_OUTCOMES[x.outcome]?.label || x.outcome)}</b><span>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</span>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div></li>`).join("")}</ol>` : ""}
+    ${log.length > 3 ? `<button type="button" class="lq3-fold" data-lq-act="history">${lqShowHistory ? "Show fewer" : `Show all ${log.length} calls`}</button>` : ""}
+  </section>`;
 }
 
 async function lqSaveOutcome(l, outcome, note, when, job = {}){
@@ -12329,7 +12348,7 @@ const LP_PHASES = [
   ]},
   { title: "Days 31-60", goal: "Own the phones", items: [
     ["p2a", "Call 9 out of 10 new enquiries within 3 minutes"],
-    ["p2b", "Every lead gets all 5 tries before it's closed"],
+    ["p2b", "Every lead gets all 6 tries before it's closed"],
     ["p2c", "Book 20 or more site visits or consultation calls in a month"],
     ["p2d", "Handle the common objections without needing the script"],
     ["p2e", "60-day review with Rocky"],
@@ -12455,6 +12474,129 @@ function renderLeadPlan(){
     </div>
     <div class="lp-tabs" role="tablist">${LP_TABS.map(([k, l]) => `<button type="button" class="${lpTab === k ? "on" : ""}" data-lp-tab="${k}">${l}</button>`).join("")}</div>
     <div class="lp-body">${body}</div>`;
+}
+/* ───────── Lead Follow Up: Schedule ─────────
+   Carmen's working day as time blocks: calling in the morning and the
+   afternoon with breaks between, plus time to study the business, learn
+   Claude and practise writing to the founders. Rocky / Max change it in place
+   ("Change the schedule"); saved on employees.schedule (sql/096) as
+   { blocks: [{ id, from, to, kind, text, note }] }, the same every weekday. */
+const LS_KINDS = {
+  setup: { label: "Get set up", icon: "☕" },
+  calls: { label: "Calling", icon: "📞" },
+  followups: { label: "Follow-ups and call-backs", icon: "📌" },
+  break: { label: "Break", icon: "🥪" },
+  study: { label: "Study the business", icon: "📚" },
+  claude: { label: "Learn Claude", icon: "✨" },
+  writing: { label: "Write to Rocky and Max", icon: "✍️" },
+  other: { label: "Other", icon: "•" },
+};
+const LS_DEFAULT = [
+  ["08:30", "09:00", "setup", "Get set up", "Open the call queue and Follow-ups. Any new enquiries get rung first."],
+  ["09:00", "10:30", "calls", "Morning calls", "New enquiries first, then everyone due in the morning wave."],
+  ["10:30", "10:45", "break", "Break", ""],
+  ["10:45", "11:30", "study", "Study the business", "Learn our clients: their trades, the areas they cover, what makes a good job, and the ads they're running."],
+  ["11:30", "12:00", "followups", "Follow-ups and call-backs", "Anything on the Follow-ups page that's due."],
+  ["12:00", "12:30", "break", "Lunch", ""],
+  ["12:30", "13:15", "claude", "Learn how to use Claude", "Practise asking Claude to help write messages, sum up calls and answer questions about the business."],
+  ["13:15", "14:00", "writing", "Write to Rocky and Max", "Practise clear, short written updates: what happened, what you need, what's next."],
+  ["14:00", "15:30", "calls", "Afternoon calls", "New enquiries first, then everyone due in the afternoon wave."],
+  ["15:30", "15:45", "break", "Break", ""],
+  ["15:45", "16:30", "calls", "Last calls and follow-ups", "Call-backs that are due, then anyone still waiting."],
+  ["16:30", "17:00", "writing", "End-of-day update", "Send Rocky and Max how the day went: calls made, bookings, anything odd, anything you need help with."],
+];
+let lsEditing = false;
+const lsTime = (t) => { const [h, m] = String(t || "0:0").split(":").map(Number); const ap = h >= 12 ? "pm" : "am", hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`; };
+const lsMins = (t) => { const [h, m] = String(t || "0:0").split(":").map(Number); return h * 60 + (m || 0); };
+function lsBlocks(e){
+  const b = e?.schedule?.blocks;
+  const list = Array.isArray(b) && b.length ? b : LS_DEFAULT.map(([from, to, kind, text, note], i) => ({ id: "d" + i, from, to, kind, text, note }));
+  return list.map(x => ({ ...x })).sort((a, b) => lsMins(a.from) - lsMins(b.from));
+}
+async function lsSave(e, blocks){
+  const schedule = { blocks: blocks.map(({ id, from, to, kind, text, note }) => ({ id, from, to, kind, text: text || "", note: note || "" })) };
+  e.schedule = schedule;
+  await empSave(e.id, { schedule });
+}
+function lsNow(blocks){
+  const d = new Date(), wd = d.getDay(), m = d.getHours() * 60 + d.getMinutes();
+  if (wd === 0 || wd === 6) return { now: null, next: null, weekend: true };
+  return { now: blocks.find(b => lsMins(b.from) <= m && m < lsMins(b.to)) || null, next: blocks.find(b => lsMins(b.from) > m) || null };
+}
+function renderLeadSchedule(){
+  const root = $("#ls-root");
+  if (!root) return;
+  if (root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select:not(.lp-person)")) return;
+  if (!state.empLoaded){ root.innerHTML = `<div class="emp-empty">Loading…</div>`; return; }
+  const e = lpPerson();
+  if (!e){ root.innerHTML = `<div class="lp-empty"><h3>No one to show yet</h3><p>Add the team on the Team page first.</p></div>`; return; }
+  const mgr = empIsManager(), first = String(e.name || "").split(" ")[0], people = lpPeople();
+  const blocks = lsBlocks(e), { now, next, weekend } = lsNow(blocks);
+  const kindOpts = (k) => Object.entries(LS_KINDS).map(([v, x]) => `<option value="${v}" ${v === k ? "selected" : ""}>${x.icon} ${x.label}</option>`).join("");
+  const row = (b) => lsEditing
+    ? `<div class="ls-block edit ${escapeHtml(b.kind)}" data-ls-id="${escapeHtml(b.id)}">
+        <div class="ls-times"><input type="time" step="300" data-ls-f="from" value="${escapeHtml(b.from)}" aria-label="Starts"><span>to</span><input type="time" step="300" data-ls-f="to" value="${escapeHtml(b.to)}" aria-label="Ends"></div>
+        <div class="ls-fields"><select data-ls-f="kind" aria-label="What kind">${kindOpts(b.kind)}</select><input data-ls-f="text" value="${escapeHtml(b.text)}" placeholder="What it's called" aria-label="Name"><textarea data-ls-f="note" rows="2" placeholder="What to do (optional)" aria-label="What to do">${escapeHtml(b.note || "")}</textarea></div>
+        <button type="button" class="ls-del" data-ls-del="${escapeHtml(b.id)}" aria-label="Remove">✕</button>
+      </div>`
+    : `<div class="ls-block ${escapeHtml(b.kind)}${now?.id === b.id ? " now" : ""}">
+        <div class="ls-when"><b>${lsTime(b.from)}</b><span>${lsTime(b.to)}</span></div>
+        <div class="ls-what"><span class="ls-ic">${LS_KINDS[b.kind]?.icon || "•"}</span><div><h4>${escapeHtml(b.text || LS_KINDS[b.kind]?.label || "")}${now?.id === b.id ? ` <em>Now</em>` : ""}</h4>${b.note ? `<p>${escapeHtml(b.note)}</p>` : ""}</div></div>
+      </div>`;
+  root.innerHTML = `
+    <div class="lp-head">
+      <div><h2>${mgr ? `${escapeHtml(first)}'s schedule` : "My schedule"}</h2>
+        <p>${mgr ? `Every weekday. ${lsEditing ? "Change a time or a name and it saves by itself." : `Press Change the schedule to move things around - ${escapeHtml(first)} sees it straight away.`}` : "Your day, every weekday. New enquiries always come first, whatever the time."}</p></div>
+      <div class="lp-head-right">
+        ${mgr && people.length > 1 ? `<select class="lp-person" aria-label="Whose schedule">${people.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === e.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select>` : ""}
+        ${mgr ? `<button type="button" class="lp-edit ${lsEditing ? "on" : ""}" data-ls-act="edit">${lsEditing ? "Done changing" : "Change the schedule"}</button>` : ""}
+      </div>
+    </div>
+    ${lsEditing ? "" : `<div class="ls-now">
+      ${weekend ? `<div><span>Today</span><b>It's the weekend - no calling</b></div>`
+        : `<div><span>Right now</span><b>${now ? `${LS_KINDS[now.kind]?.icon || ""} ${escapeHtml(now.text)}` : next ? "Not started yet" : "Done for the day"}</b>${now ? `<small>until ${lsTime(now.to)}</small>` : ""}</div>
+           ${next ? `<div><span>Next</span><b>${LS_KINDS[next.kind]?.icon || ""} ${escapeHtml(next.text)}</b><small>at ${lsTime(next.from)}</small></div>` : ""}`}
+    </div>`}
+    <div class="ls-rules">
+      <h3>📞 The calling rules</h3>
+      <ul>
+        <li><b>Every new enquiry gets a call within 3 minutes</b> - even in a break or study time.</li>
+        <li><b>No answer?</b> Call again 3 days in a row, then 1 week later, another week later, and 1 month later. That's 6 calls in all, then they move to "No answer".</li>
+        <li>Morning calls and afternoon calls swap each time, so you catch them at a different time of day.</li>
+      </ul>
+    </div>
+    <div class="ls-day">${blocks.map(row).join("")}</div>
+    ${lsEditing ? `<div class="ls-edit-foot"><button type="button" class="lq3-btn" data-ls-act="add">+ Add a time block</button><button type="button" class="lq3-textbtn" data-ls-act="reset">Go back to the standard day</button></div>` : ""}`;
+}
+function setupLeadScheduleUi(){
+  const root = $("#ls-root");
+  if (!root) return;
+  const change = (fn, redraw) => { const e = lpPerson(); if (!e) return; const blocks = lsBlocks(e); fn(blocks); lsSave(e, blocks); if (redraw) renderLeadSchedule(); };
+  root.addEventListener("click", (ev) => {
+    const t = ev.target.closest("[data-ls-act],[data-ls-del]");
+    if (!t) return;
+    if (t.dataset.lsDel) return change(bl => { const i = bl.findIndex(b => b.id === t.dataset.lsDel); if (i >= 0) bl.splice(i, 1); }, true);
+    if (t.dataset.lsAct === "edit"){ lsEditing = !lsEditing; return renderLeadSchedule(); }
+    if (t.dataset.lsAct === "add") return change(bl => { const last = bl[bl.length - 1]; const from = last?.to || "09:00"; const end = Math.min(lsMins(from) + 30, 23 * 60 + 30); bl.push({ id: lpUid(), from, to: `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`, kind: "calls", text: "Calling", note: "" }); }, true);
+    if (t.dataset.lsAct === "reset"){
+      if (!confirm("Go back to the standard day? This replaces the current schedule.")) return;
+      return change(bl => { bl.splice(0, bl.length, ...LS_DEFAULT.map(([from, to, kind, text, note]) => ({ id: lpUid(), from, to, kind, text, note }))); }, true);
+    }
+  });
+  root.addEventListener("change", (ev) => {
+    if (ev.target.matches(".lp-person")){ lpSel = ev.target.value; ev.target.blur(); renderLeadSchedule(); return; }
+    const f = ev.target.dataset.lsF, id = ev.target.closest("[data-ls-id]")?.dataset.lsId;
+    if (!f || !id) return;
+    const v = ev.target.value;
+    if (f === "kind" || f === "from") ev.target.blur();
+    change(bl => {
+      const b = bl.find(x => x.id === id); if (!b) return;
+      // A new kind brings its usual name, unless they'd already named it.
+      if (f === "kind" && (!b.text || Object.values(LS_KINDS).some(k => k.label === b.text))) b.text = LS_KINDS[v]?.label || b.text;
+      b[f] = v;
+    }, f === "kind" || f === "from");
+    if (f !== "kind" && f !== "from") rcToast("Saved.");
+  });
 }
 function setupLeadPlanUi(){
   const root = $("#lp-root");
@@ -12854,6 +12996,7 @@ function setupFollowUpsUi(){
 function setupLeadFollowUpUi(){
   setupFollowUpsUi();
   setupLeadPlanUi();
+  setupLeadScheduleUi();
   $("#lk-root")?.addEventListener("change", (ev) => { if (ev.target.matches(".lk-period")){ lkPeriod = ev.target.value; ev.target.blur(); renderLeadKpis(); } });
   const root = $("#lq-root");
   if (root){
@@ -13060,7 +13203,7 @@ const RENDERERS = [
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
-  [renderLeadQueue, ["lead-queue"]], [renderLeadCalls, ["lead-calls"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
+  [renderLeadQueue, ["lead-queue"]], [renderLeadCalls, ["lead-calls"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [renderLeadSchedule, ["lead-schedule"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
