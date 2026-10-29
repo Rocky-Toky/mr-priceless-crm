@@ -39,8 +39,7 @@ Keep it light and genuine. Match their energy - a laid-back tradie doesn't want 
 
 ## 2. Set the expectations (1 min)
 This is what takes the pressure off. Say it plainly:
-> "So the way I usually like to run these - I'll give you a quick bit about us, then I'd love to ask you a few questions about the business, just to see if what we do would actually make sense for you."
-> "And look, if at any point you don't feel like it's a fit, feel free to be straight up with me about it. I'll do the same - if I don't think it's right for you, I'll tell you, and I'm more than happy to point you in the right direction elsewhere. Sound fair?"
+> "Look, we can keep our catch up pretty short and sharp. Keen to just show you what we're doing for some of our other guys, go through the numbers a little bit, and just see if this kind of marketing even makes sense for you - 'cause some guys I speak to run like a 4% margin, and it's just not gonna be worth running ads if that's where you're at. So yeah, look, if at any point I don't reckon it's a fit, I'll be pretty straight up, and feel free to do the same on your end as well - I'll be more than happy to point you in the right direction."
 
 ## 3. Quick intro on us (1 min)
 Keep it short. Fill in the numbers before the call.
