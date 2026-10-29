@@ -1334,6 +1334,7 @@ async function initAuth(){
     setupEmployees();
     setupFollowUps();
     setupLeadCalls();
+    setupAdProduction();
     reviewQueue = [{ id:"demo-review-1", meeting_title:"Discovery call - Reeve Builders", attendees:["marlon@reevebuilders.co.nz"] }];
     showNextReview();
     checkOverdueTasksPopup();
@@ -1438,6 +1439,7 @@ async function handleSignedInNow(session, freshLogin){
   setupEmployees();
   setupFollowUps();
   setupLeadCalls();
+  setupAdProduction();
   // None of these need to hold the page up.
   repairNzProspectCountryCodes().then(n => { if (n) renderAll(); }).catch(e => console.warn(e));
   fetchTeam().then(() => { if (state.page === "lead-engine") renderTeamFocusPanel(); }).catch(e => console.warn(e));
@@ -13466,6 +13468,530 @@ function lqSeedDemo(){
   );
 }
 
+/* ───────── Ad production (AI ad creative jobs) ─────────
+   Fill in a brief for a client and Claude drafts ad angles, then (once the
+   angles are ticked) the copy for each ad. A person approves or rejects each
+   one with a note. All the AI work runs in the creative-agent Edge Function,
+   never here: this page only saves the brief and shows progress, which
+   arrives live (realtime). Tables in sql/101. Phase 1 is copy only: the
+   image slot is a placeholder. Redrafting from a rejection comes later. */
+const AP_STATUS = {
+  drafting_angles: { label: "Drafting angles", cls: "blue", working: true },
+  awaiting_angle_check: { label: "Pick angles", cls: "gold", needsYou: true },
+  generating: { label: "Writing copy", cls: "blue", working: true },
+  in_review: { label: "Ready to review", cls: "gold", needsYou: true },
+  revising: { label: "Redrafting", cls: "blue", working: true },
+  approved: { label: "Approved", cls: "green" },
+  failed: { label: "Failed", cls: "red" },
+  paused: { label: "Paused", cls: "gray" },
+};
+const AP_PLATFORMS = { meta: "Meta (Facebook / Instagram)", google: "Google search", other: "Other" };
+const AP_CONCEPT_STATUS = { drafting: ["Writing…", "blue"], in_review: ["To review", "gold"], approved: ["Approved", "green"], rejected: ["Rejected", "red"], revising: ["Redrafting", "blue"], discarded: ["Discarded", "gray"] };
+Object.assign(state, { apJobs: [], apAngles: [], apConcepts: [], apVersions: [], apReviews: [], apBrands: [], apLoaded: false, apMissing: false });
+let apView = "list", apFilter = "all", apClient = "", apForm = null, apReject = null, apPick = null, apVerSel = {}, apBusy = false, apSubscribed = false, apPoll = null;
+
+async function loadAdProduction(){
+  if (!IS_CONFIGURED){ if (!state.apLoaded){ apSeedDemo(); state.apLoaded = true; } return; }
+  const q = (t, order, asc = true) => supabase.from(t).select("*").order(order, { ascending: asc }).limit(2000);
+  const res = await Promise.all([
+    q("creative_jobs", "created_at", false), q("creative_angles", "position"), q("creative_concepts", "concept_no"),
+    q("creative_versions", "version_no"), q("creative_reviews", "created_at"), supabase.from("client_brand").select("*"),
+  ]);
+  state.apLoaded = true;
+  state.apMissing = Boolean(res[0].error);
+  [state.apJobs, state.apAngles, state.apConcepts, state.apVersions, state.apReviews, state.apBrands] = res.map(r => r.data || []);
+}
+function apRefresh(){ apNavCount(); if (state.page === "ad-production") renderAdProduction(); }
+function setupAdProduction(){
+  if (isLeadsOnly()) return;
+  loadAdProduction().then(apRefresh).catch(e => console.warn(e));
+  if (!IS_CONFIGURED || apSubscribed) return;
+  apSubscribed = true;
+  let t = null;
+  const reload = () => { clearTimeout(t); t = setTimeout(async () => { await loadAdProduction(); apRefresh(); }, 400); };
+  const ch = supabase.channel("creative-jobs");
+  ["creative_jobs", "creative_angles", "creative_concepts", "creative_versions", "creative_reviews"].forEach(table => ch.on("postgres_changes", { event: "*", schema: "public", table }, reload));
+  ch.subscribe();
+  // A safety net in case a live update is missed while something's working.
+  apPoll = setInterval(() => {
+    if (state.page === "ad-production" && document.visibilityState === "visible" && state.apJobs.some(j => AP_STATUS[j.status]?.working)) reload();
+  }, 20000);
+}
+
+const apClientName = (id) => state.clients.find(c => c.id === id)?.name || "Deleted client";
+const apJob = (id) => state.apJobs.find(j => j.id === id) || null;
+const apConceptsOf = (jobId) => state.apConcepts.filter(c => c.job_id === jobId).sort((a, b) => a.concept_no - b.concept_no);
+const apAnglesOf = (jobId) => state.apAngles.filter(a => a.job_id === jobId).sort((a, b) => a.position - b.position);
+const apVersionsOf = (conceptId) => state.apVersions.filter(v => v.concept_id === conceptId).sort((a, b) => a.version_no - b.version_no);
+const apMoney = (n) => "$" + Number(n || 0).toFixed(2);
+function apCounts(jobId){
+  const cs = apConceptsOf(jobId).filter(c => c.status !== "discarded");
+  return { approved: cs.filter(c => c.status === "approved").length, total: cs.length };
+}
+const apNeedsReview = (j) => Boolean(AP_STATUS[j.status]?.needsYou);
+function apNavCount(){
+  const el = $("#nav-ap-count");
+  if (!el) return;
+  const n = state.apJobs.filter(apNeedsReview).length;
+  el.hidden = !n; el.textContent = n;
+}
+// Clients worth making ads for first, then the rest.
+function apClientOptions(selected){
+  const live = state.clients.filter(c => normalizeClientStage(c.stage) !== "churned").sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const gone = state.clients.filter(c => normalizeClientStage(c.stage) === "churned").sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const opt = (c) => `<option value="${escapeHtml(c.id)}" ${c.id === selected ? "selected" : ""}>${escapeHtml(c.name || "Unnamed")}</option>`;
+  return live.map(opt).join("") + (gone.length ? `<optgroup label="Churned">${gone.map(opt).join("")}</optgroup>` : "");
+}
+
+function renderAdProduction(){
+  const root = $("#ap-root");
+  if (!root) return;
+  if (root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select")) return;
+  if (apView !== "list" && apView !== "new" && !apJob(apView)) apView = "list";
+  root.innerHTML = state.apMissing
+    ? `<div class="ap-head"><div><h2>Ad production</h2></div></div><div class="inbox-setup"><b>Ad production is still being set up.</b> It switches on once the latest database update has run.</div>`
+    : apView === "new" ? apFormHtml() : apView === "list" ? apListHtml() : apJobHtml(apJob(apView));
+}
+
+function apListHtml(){
+  const me = state.user?.email || "";
+  let jobs = state.apJobs.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  if (apFilter === "review") jobs = jobs.filter(apNeedsReview);
+  if (apFilter === "mine") jobs = jobs.filter(j => (j.created_by || "").toLowerCase() === me.toLowerCase());
+  if (apClient) jobs = jobs.filter(j => j.client_id === apClient);
+  const clientsWithJobs = [...new Set(state.apJobs.map(j => j.client_id))].map(id => ({ id, name: apClientName(id) })).sort((a, b) => a.name.localeCompare(b.name));
+  const waiting = state.apJobs.filter(apNeedsReview).length;
+  return `
+    <div class="ap-head">
+      <div><h2>Ad production</h2><p>Give Claude a brief and it drafts the angles and the ad copy. You pick the angles and approve the ads.</p></div>
+      <button type="button" class="btn gold" data-ap-new>+ New job</button>
+    </div>
+    <div class="ap-filters">
+      <select class="filter-select" data-ap-filter aria-label="Which jobs">
+        <option value="all" ${apFilter === "all" ? "selected" : ""}>All jobs</option>
+        <option value="review" ${apFilter === "review" ? "selected" : ""}>Needs review${waiting ? ` (${waiting})` : ""}</option>
+        <option value="mine" ${apFilter === "mine" ? "selected" : ""}>Started by me</option>
+      </select>
+      <select class="filter-select" data-ap-client aria-label="Client">
+        <option value="">Every client</option>
+        ${clientsWithJobs.map(c => `<option value="${escapeHtml(c.id)}" ${c.id === apClient ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+      </select>
+    </div>
+    ${jobs.length ? `<div class="ap-list" role="list">
+      <div class="ap-row ap-row-head" aria-hidden="true"><span>Client</span><span>Jobs they want</span><span>Status</span><span>Approved</span><span>Cost</span><span>Started</span></div>
+      ${jobs.map(j => {
+        const s = AP_STATUS[j.status] || { label: j.status, cls: "gray" }, n = apCounts(j.id);
+        return `<button type="button" class="ap-row" role="listitem" data-ap-open="${escapeHtml(j.id)}">
+          <span class="ap-row-client">${escapeHtml(apClientName(j.client_id))}</span>
+          <span class="ap-row-jobs">${escapeHtml(j.target_jobs || "")}</span>
+          <span><span class="badge ${s.cls}">${escapeHtml(s.label)}</span></span>
+          <span class="ap-row-num">${n.total ? `${n.approved}/${n.total}` : "-"}</span>
+          <span class="ap-row-num">${apMoney(j.cost_usd)}</span>
+          <span class="ap-row-age">${escapeHtml(timeAgo(j.created_at))}</span>
+        </button>`;
+      }).join("")}
+    </div>` : `<div class="empty-state card"><p>${state.apJobs.length ? "No jobs match those filters." : "No jobs yet. Press “New job” to brief Claude on your first ads."}</p></div>`}`;
+}
+
+// The brief form. Brand details pre-fill from the client and save back to them.
+function apFormDefaults(clientId){
+  const c = state.clients.find(x => x.id === clientId) || {};
+  const b = state.apBrands.find(x => x.client_id === clientId) || {};
+  const refs = Array.isArray(b.reference_image_urls) ? b.reference_image_urls : [];
+  return {
+    client_id: clientId || "", target_jobs: "", offer: "", location: [c.lead_area, c.lead_region].filter(Boolean)[0] || "", platform: "meta", concept_count: 4, angle_check_enabled: true, notes: "",
+    voice: b.voice ?? c.branding_expectations ?? "", colours: b.colours || "", logo_url: b.logo_url || "", reference_image_urls: refs.join("\n"), do_not_say: b.do_not_say || "",
+  };
+}
+function apFormHtml(){
+  const f = apForm || (apForm = apFormDefaults(""));
+  const val = (k) => escapeHtml(f[k] ?? "");
+  return `
+    <div class="ap-head">
+      <div><button type="button" class="ap-back" data-ap-back>← All jobs</button><h2>New job</h2><p>Tell Claude what the ads are for. It drafts the angles first, and you pick which ones to run.</p></div>
+    </div>
+    <form class="ap-form card" data-ap-form>
+      <section class="ap-fsec">
+        <h3>1. The brief</h3>
+        <label class="ap-field"><span>Client</span>
+          <select name="client_id" required><option value="">Pick a client…</option>${apClientOptions(f.client_id)}</select></label>
+        <label class="ap-field"><span>Jobs they want more of</span>
+          <textarea name="target_jobs" rows="2" required placeholder="e.g. Hot water cylinder replacements">${val("target_jobs")}</textarea></label>
+        <div class="ap-two">
+          <label class="ap-field"><span>Where</span><input name="location" value="${val("location")}" placeholder="e.g. West Auckland"></label>
+          <label class="ap-field"><span>Offer <em>(optional)</em></span><input name="offer" value="${val("offer")}" placeholder="e.g. Free quote within 24 hours"></label>
+        </div>
+        <div class="ap-two">
+          <label class="ap-field"><span>Platform</span>
+            <select name="platform">${Object.entries(AP_PLATFORMS).map(([k, l]) => `<option value="${k}" ${f.platform === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+          <label class="ap-field"><span>How many ads</span>
+            <select name="concept_count">${[1, 2, 3, 4, 5, 6, 8].map(n => `<option value="${n}" ${Number(f.concept_count) === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        </div>
+        <label class="ap-field"><span>Notes for Claude <em>(optional)</em></span>
+          <textarea name="notes" rows="2" placeholder="Anything else: what's worked before, what to avoid, the season…">${val("notes")}</textarea></label>
+        <label class="ap-check"><input type="checkbox" name="angle_check_enabled" ${f.angle_check_enabled ? "checked" : ""}> Let me pick the angles before Claude writes the ads</label>
+      </section>
+      <section class="ap-fsec">
+        <h3>2. Their brand <em>(saved for next time)</em></h3>
+        ${f.client_id ? "" : `<p class="ap-muted">Pick a client and anything saved for them fills in here.</p>`}
+        <label class="ap-field"><span>How they talk</span>
+          <textarea name="voice" rows="2" placeholder="e.g. Friendly, straight-talking, a bit of Kiwi humour">${val("voice")}</textarea></label>
+        <div class="ap-two">
+          <label class="ap-field"><span>Brand colours</span><input name="colours" value="${val("colours")}" placeholder="e.g. Navy #1d3557 and orange"></label>
+          <label class="ap-field"><span>Logo link</span><input name="logo_url" value="${val("logo_url")}" placeholder="https://…"></label>
+        </div>
+        <label class="ap-field"><span>Reference image links <em>(one per line)</em></span>
+          <textarea name="reference_image_urls" rows="2" placeholder="https://…">${val("reference_image_urls")}</textarea></label>
+        <label class="ap-field"><span>Never say</span>
+          <textarea name="do_not_say" rows="2" placeholder="Words, claims or promises to stay away from">${val("do_not_say")}</textarea></label>
+      </section>
+      <div class="ap-form-foot">
+        <button type="button" class="btn ghost" data-ap-back>Cancel</button>
+        <button type="submit" class="btn gold" ${apBusy ? "disabled" : ""}>${apBusy ? "Starting…" : "Start the job"}</button>
+      </div>
+    </form>`;
+}
+function apReadForm(form){
+  const e = form.elements;
+  return {
+    client_id: e.client_id.value, target_jobs: e.target_jobs.value, offer: e.offer.value, location: e.location.value, platform: e.platform.value,
+    concept_count: Number(e.concept_count.value) || 4, angle_check_enabled: e.angle_check_enabled.checked, notes: e.notes.value,
+    voice: e.voice.value, colours: e.colours.value, logo_url: e.logo_url.value, reference_image_urls: e.reference_image_urls.value, do_not_say: e.do_not_say.value,
+  };
+}
+async function apSubmitForm(){
+  const f = apForm;
+  if (!f.client_id || !f.target_jobs.trim()){ rcToast("Pick a client and say which jobs they want more of."); return; }
+  const nz = (s) => (s || "").trim() || null;
+  const brand = {
+    client_id: f.client_id, voice: nz(f.voice), colours: nz(f.colours), logo_url: nz(f.logo_url), do_not_say: nz(f.do_not_say),
+    reference_image_urls: (f.reference_image_urls || "").split(/\s*\n\s*/).map(s => s.trim()).filter(Boolean),
+    updated_by: state.user?.email || "demo", updated_at: new Date().toISOString(),
+  };
+  const job = {
+    client_id: f.client_id, target_jobs: f.target_jobs.trim(), offer: nz(f.offer), location: nz(f.location), platform: f.platform,
+    concept_count: f.concept_count, angle_check_enabled: f.angle_check_enabled, notes: nz(f.notes), created_by: state.user?.email || "demo",
+  };
+  apBusy = true; renderAdProduction();
+  try {
+    let made;
+    if (IS_CONFIGURED){
+      const b = await supabase.from("client_brand").upsert(brand, { onConflict: "client_id" });
+      if (b.error) throw b.error;
+      const r = await supabase.from("creative_jobs").insert(job).select("*").single();
+      if (r.error) throw r.error;
+      made = r.data;
+      apCall("kick").catch(e => console.warn(e)); // the minute schedule picks it up anyway
+    } else {
+      state.apBrands = state.apBrands.filter(x => x.client_id !== brand.client_id).concat(brand);
+      made = { ...job, id: uid(), status: "drafting_angles", cost_usd: 0, cost_ceiling_usd: 10, created_at: new Date().toISOString() };
+      apDemoRun(made);
+    }
+    state.apJobs = state.apJobs.filter(j => j.id !== made.id).concat(made);
+    apForm = null; apView = made.id;
+    rcToast("Job started - Claude's drafting the angles.");
+  } catch (e){
+    rcToast("Couldn't start the job - " + (e.message || e));
+  } finally {
+    apBusy = false; apRefresh();
+  }
+}
+
+async function apCall(action, payload = {}){
+  const { data, error } = await supabase.functions.invoke("creative-agent", { body: { action, ...payload } });
+  if (error || data?.error){
+    let msg = data?.error || error?.message;
+    try { const body = await error?.context?.json?.(); if (body?.error) msg = body.error; } catch(e){}
+    throw new Error(msg || "Something went wrong.");
+  }
+  return data;
+}
+
+function apJobHtml(j){
+  const s = AP_STATUS[j.status] || { label: j.status, cls: "gray" }, n = apCounts(j.id);
+  const brief = [
+    ["Jobs", j.target_jobs], ["Where", j.location], ["Offer", j.offer], ["Platform", AP_PLATFORMS[j.platform] || j.platform],
+    ["Ads", j.concept_count], ["Notes", j.notes], ["Angle note", j.angle_note],
+  ].filter(([, v]) => v != null && v !== "");
+  let body = "";
+  if (j.status === "failed" || j.status === "paused"){
+    body += `<div class="ap-alert ${j.status}">
+      <div><b>${j.status === "failed" ? "This job stopped." : "This job is paused."}</b><p>${escapeHtml(j.error || "")}</p></div>
+      <button type="button" class="btn gold" data-ap-retry="${escapeHtml(j.id)}" ${apBusy ? "disabled" : ""}>${j.status === "failed" ? "Retry" : "Keep going"}</button>
+    </div>`;
+  }
+  const angles = apAnglesOf(j.id), concepts = apConceptsOf(j.id);
+  if (j.status === "drafting_angles" || (j.status === "failed" && !angles.length)){
+    if (j.status === "drafting_angles") body += apWorkingHtml("Claude's drafting the angles…", "Usually under a minute. You can leave this page - it carries on without you.");
+  } else if (j.status === "awaiting_angle_check" || (!concepts.length && angles.length)){
+    body += apAngleCheckHtml(j, angles);
+  } else {
+    const writing = concepts.filter(c => c.status === "drafting").length;
+    if (writing && j.status !== "failed") body += apWorkingHtml(`Claude's writing the ads… ${concepts.length - writing} of ${concepts.length} done`, "They show up below as each one's finished.");
+    body += `<div class="ap-cards">${concepts.map(c => apConceptHtml(j, c, angles)).join("")}</div>`;
+    const picked = angles.filter(a => a.selected);
+    if (picked.length) body += `<details class="ap-fold"><summary>The angles (${picked.length} picked of ${angles.length})</summary>${angles.map(a => `<div class="ap-fold-angle ${a.selected ? "" : "off"}"><b>${escapeHtml(a.name)}</b>${a.selected ? "" : " <em>(not picked)</em>"}<p>${escapeHtml(a.rationale || "")}</p></div>`).join("")}</details>`;
+  }
+  return `
+    <div class="ap-head">
+      <div>
+        <button type="button" class="ap-back" data-ap-back>← All jobs</button>
+        <h2>${escapeHtml(apClientName(j.client_id))}</h2>
+        <p>${escapeHtml(j.target_jobs || "")}${j.location ? ` · ${escapeHtml(j.location)}` : ""}</p>
+      </div>
+      <div class="ap-head-meta">
+        <span class="badge ${s.cls}">${escapeHtml(s.label)}</span>
+        ${n.total ? `<span class="ap-meta">${n.approved}/${n.total} approved</span>` : ""}
+        <span class="ap-meta" title="Spent on Claude so far, of a ${apMoney(j.cost_ceiling_usd)} limit">${apMoney(j.cost_usd)} spent</span>
+      </div>
+    </div>
+    <details class="ap-fold ap-brief"><summary>The brief</summary><dl>${brief.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(String(v))}</dd>`).join("")}</dl>
+      <p class="ap-muted">Started ${escapeHtml(timeAgo(j.created_at))}${j.created_by ? ` by ${escapeHtml(j.created_by.split("@")[0])}` : ""}.</p></details>
+    ${body}`;
+}
+const apWorkingHtml = (title, sub) => `<div class="ap-working"><span class="ap-spin" aria-hidden="true"></span><div><b>${escapeHtml(title)}</b><p>${escapeHtml(sub)}</p></div></div>`;
+
+function apAngleCheckHtml(j, angles){
+  if (!apPick || apPick.jobId !== j.id) apPick = { jobId: j.id, ids: new Set(angles.slice(0, Math.min(j.concept_count, angles.length)).map(a => a.id)), note: "" };
+  const waiting = j.status === "awaiting_angle_check";
+  return `
+    <div class="ap-step-title"><h3>Pick the angles to run</h3><p>Tick the ones worth making ads from. Claude writes ${j.concept_count} ad${j.concept_count === 1 ? "" : "s"}, spread across the ones you tick.</p></div>
+    <div class="ap-angles">
+      ${angles.map(a => `<label class="ap-angle ${apPick.ids.has(a.id) ? "on" : ""}">
+        <input type="checkbox" data-ap-angle="${escapeHtml(a.id)}" ${apPick.ids.has(a.id) ? "checked" : ""} ${waiting ? "" : "disabled"}>
+        <div><b>${escapeHtml(a.name)}</b><p>${escapeHtml(a.rationale || "")}</p>
+        <ol>${(a.hook_options || []).map(h => `<li>${escapeHtml(h)}</li>`).join("")}</ol></div>
+      </label>`).join("")}
+    </div>
+    ${waiting ? `<label class="ap-field"><span>A note for Claude on these <em>(optional)</em></span>
+      <textarea rows="2" data-ap-angle-note placeholder="e.g. Lean on the same-day angle, keep it less salesy">${escapeHtml(apPick.note)}</textarea></label>
+    <div class="ap-form-foot"><button type="button" class="btn gold" data-ap-continue ${apBusy || !apPick.ids.size ? "disabled" : ""}>${apBusy ? "Starting…" : `Write the ads (${apPick.ids.size} angle${apPick.ids.size === 1 ? "" : "s"})`}</button></div>` : ""}`;
+}
+
+// One ad, shown the way it'd look in the feed.
+function apConceptHtml(j, c, angles){
+  const versions = apVersionsOf(c.id);
+  const angle = angles.find(a => a.id === c.angle_id);
+  const [label, cls] = AP_CONCEPT_STATUS[c.status] || [c.status, "gray"];
+  const v = versions.find(x => x.id === apVerSel[c.id]) || versions[versions.length - 1];
+  const head = `<div class="ap-card-head"><span>Ad ${c.concept_no}${angle ? ` · ${escapeHtml(angle.name)}` : ""}</span><span class="badge ${cls}">${label}</span></div>`;
+  if (!v) return `<article class="ap-card">${head}<div class="ap-card-empty">${c.status === "drafting" ? `<span class="ap-spin" aria-hidden="true"></span> Writing…` : "No draft yet."}</div></article>`;
+  const reviews = state.apReviews.filter(r => r.version_id === v.id).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const name = apClientName(j.client_id);
+  const google = j.platform === "google";
+  const rejecting = apReject && apReject.versionId === v.id;
+  const latest = v === versions[versions.length - 1];
+  const fieldCopy = (k) => `<button type="button" class="ap-copy" data-ap-copy="${escapeHtml(v.id)}:${k}" title="Copy">Copy</button>`;
+  const preview = google ? `
+      <div class="ap-gad">
+        <div class="ap-gad-top"><b>Sponsored</b> · ${escapeHtml(name)}</div>
+        <div class="ap-gad-h">${escapeHtml(v.headline || "")}</div>
+        <p>${escapeHtml(v.primary_text || "")}</p>
+      </div>` : `
+      <div class="ap-feed">
+        <div class="ap-feed-top"><span class="ap-feed-av">${escapeHtml((name[0] || "?").toUpperCase())}</span><div><b>${escapeHtml(name)}</b><span>Sponsored</span></div></div>
+        <p class="ap-feed-text">${escapeHtml(v.primary_text || "")}</p>
+        <div class="ap-feed-img"><span>Image comes in the next update</span></div>
+        <div class="ap-feed-foot"><b>${escapeHtml(v.headline || "")}</b><span class="ap-feed-cta">${escapeHtml(v.cta || "")}</span></div>
+      </div>`;
+  return `<article class="ap-card ${c.status}">
+    ${head}
+    ${versions.length > 1 ? `<select class="filter-select ap-ver" data-ap-ver="${escapeHtml(c.id)}" aria-label="Draft">${versions.map(x => `<option value="${escapeHtml(x.id)}" ${x.id === v.id ? "selected" : ""}>Draft ${x.version_no}${x === versions[versions.length - 1] ? " (latest)" : ""}</option>`).join("")}</select>` : ""}
+    ${preview}
+    <dl class="ap-fields">
+      <div><dt>${google ? "Description" : "Main text"} ${fieldCopy("primary_text")}</dt></div>
+      <div><dt>Headline ${fieldCopy("headline")}</dt><dd>${escapeHtml(v.headline || "")}</dd></div>
+      <div><dt>Button ${fieldCopy("cta")}</dt><dd>${escapeHtml(v.cta || "")}</dd></div>
+      ${(v.hook_variants || []).length ? `<div><dt>Other first lines to test</dt><dd><ul>${v.hook_variants.map(h => `<li>${escapeHtml(h)}</li>`).join("")}</ul></dd></div>` : ""}
+    </dl>
+    ${reviews.length ? `<div class="ap-notes">${reviews.map(r => `<p><b>${r.decision === "approve" ? "Approved" : r.decision === "reject" ? `Rejected (redo ${escapeHtml(r.redo || "")})` : "Discarded"}</b> by ${escapeHtml((r.reviewer_email || "").split("@")[0])}, ${escapeHtml(timeAgo(r.created_at))}${r.note ? `: “${escapeHtml(r.note)}”` : ""}</p>`).join("")}</div>` : ""}
+    ${c.status === "rejected" && latest && !rejecting ? `<p class="ap-muted">Redrafting from your note comes in a later update. For now, approve it as is or discard it.</p>` : ""}
+    ${!latest ? "" : rejecting ? `
+      <div class="ap-reject">
+        <label class="ap-field"><span>What's wrong? <em>(Claude will use this)</em></span><textarea rows="3" data-ap-reject-note placeholder="e.g. Too salesy, and they don't do commercial work">${escapeHtml(apReject.note)}</textarea></label>
+        <div class="ap-redo" role="group" aria-label="What to redo">${[["copy", "The words"], ["image", "The image"], ["both", "Both"]].map(([k, l]) => `<button type="button" class="${apReject.redo === k ? "on" : ""}" data-ap-redo="${k}">${l}</button>`).join("")}</div>
+        <div class="ap-actions"><button type="button" class="btn ghost" data-ap-reject-cancel>Cancel</button><button type="button" class="btn danger" data-ap-reject-send ${apBusy ? "disabled" : ""}>Reject</button></div>
+      </div>` : `
+      <div class="ap-actions">
+        ${c.status !== "approved" ? `<button type="button" class="ap-approve" data-ap-review="${escapeHtml(v.id)}:approve" ${apBusy ? "disabled" : ""}>✓ Approve</button>` : ""}
+        ${c.status !== "rejected" ? `<button type="button" class="ap-reject-btn" data-ap-reject="${escapeHtml(v.id)}" ${apBusy ? "disabled" : ""}>Reject</button>` : ""}
+        ${c.status !== "discarded" ? `<button type="button" class="ap-discard" data-ap-review="${escapeHtml(v.id)}:discard" ${apBusy ? "disabled" : ""}>Discard</button>` : ""}
+      </div>`}
+  </article>`;
+}
+
+async function apReview(versionId, decision, note, redo){
+  apBusy = true; renderAdProduction();
+  try {
+    if (IS_CONFIGURED){
+      await apCall("review", { version_id: versionId, decision, note, redo });
+      await loadAdProduction();
+    } else apDemoReview(versionId, decision, note, redo);
+    apReject = null;
+    rcToast(decision === "approve" ? "Approved ✓" : decision === "reject" ? "Rejected - your note's saved." : "Discarded.");
+  } catch (e){ rcToast("Couldn't save that - " + e.message); }
+  finally { apBusy = false; apRefresh(); }
+}
+
+function setupAdProductionUi(){
+  const root = $("#ap-root");
+  if (!root) return;
+  $('.nav-item[data-page="ad-production"]')?.addEventListener("click", () => renderAdProduction());
+  root.addEventListener("click", async (ev) => {
+    const t = ev.target.closest("[data-ap-new],[data-ap-back],[data-ap-open],[data-ap-continue],[data-ap-retry],[data-ap-review],[data-ap-reject],[data-ap-reject-cancel],[data-ap-reject-send],[data-ap-redo],[data-ap-copy]");
+    if (!t) return;
+    const d = t.dataset;
+    if (d.apNew !== undefined){ apForm = apFormDefaults(apClient); apView = "new"; return renderAdProduction(); }
+    if (d.apBack !== undefined){ apForm = null; apReject = null; apView = "list"; return renderAdProduction(); }
+    if (d.apOpen){ apView = d.apOpen; apReject = null; return renderAdProduction(); }
+    if (d.apContinue !== undefined){
+      const j = apJob(apView);
+      if (!j || !apPick?.ids.size) return;
+      apBusy = true; renderAdProduction();
+      try {
+        if (IS_CONFIGURED){ await apCall("choose_angles", { job_id: j.id, angle_ids: [...apPick.ids], note: apPick.note }); await loadAdProduction(); }
+        else apDemoChoose(j, [...apPick.ids], apPick.note);
+        apPick = null;
+        rcToast("Claude's writing the ads now.");
+      } catch (e){ rcToast("Couldn't start - " + e.message); }
+      finally { apBusy = false; apRefresh(); }
+      return;
+    }
+    if (d.apRetry){
+      apBusy = true; renderAdProduction();
+      try {
+        if (IS_CONFIGURED){ await apCall("retry", { job_id: d.apRetry }); await loadAdProduction(); }
+        else { const j = apJob(d.apRetry); Object.assign(j, { status: "drafting_angles", error: null }); apDemoRun(j); }
+        rcToast("Going again.");
+      } catch (e){ rcToast("Couldn't retry - " + e.message); }
+      finally { apBusy = false; apRefresh(); }
+      return;
+    }
+    if (d.apReview){ const [id, decision] = d.apReview.split(":"); return apReview(id, decision, null, null); }
+    if (d.apReject){ apReject = { versionId: d.apReject, note: "", redo: "copy" }; renderAdProduction(); root.querySelector("[data-ap-reject-note]")?.focus(); return; }
+    if (d.apRejectCancel !== undefined){ apReject = null; return renderAdProduction(); }
+    if (d.apRedo){ apReject.redo = d.apRedo; root.querySelectorAll("[data-ap-redo]").forEach(b => b.classList.toggle("on", b === t)); return; }
+    if (d.apRejectSend !== undefined){
+      if (!apReject.note.trim()){ rcToast("Write what's wrong first - Claude needs it for the redo."); root.querySelector("[data-ap-reject-note]")?.focus(); return; }
+      return apReview(apReject.versionId, "reject", apReject.note.trim(), apReject.redo);
+    }
+    if (d.apCopy){
+      const [id, k] = d.apCopy.split(":");
+      const v = state.apVersions.find(x => x.id === id);
+      try { await navigator.clipboard.writeText(v?.[k] || ""); t.textContent = "Copied ✓"; setTimeout(() => { t.textContent = "Copy"; }, 1500); }
+      catch(e){ rcToast("Couldn't copy - select the text and copy it instead."); }
+    }
+  });
+  root.addEventListener("input", (ev) => {
+    const t = ev.target;
+    if (t.matches("[data-ap-reject-note]") && apReject) apReject.note = t.value;
+    if (t.matches("[data-ap-angle-note]") && apPick) apPick.note = t.value;
+  });
+  root.addEventListener("change", (ev) => {
+    const t = ev.target;
+    if (t.matches("[data-ap-filter]")){ apFilter = t.value; t.blur(); return renderAdProduction(); }
+    if (t.matches("[data-ap-client]")){ apClient = t.value; t.blur(); return renderAdProduction(); }
+    if (t.matches("[data-ap-ver]")){ apVerSel[t.dataset.apVer] = t.value; apReject = null; t.blur(); return renderAdProduction(); }
+    if (t.matches("[data-ap-angle]") && apPick){
+      t.checked ? apPick.ids.add(t.dataset.apAngle) : apPick.ids.delete(t.dataset.apAngle);
+      t.closest(".ap-angle")?.classList.toggle("on", t.checked);
+      const btn = root.querySelector("[data-ap-continue]");
+      if (btn){ btn.disabled = !apPick.ids.size; btn.textContent = `Write the ads (${apPick.ids.size} angle${apPick.ids.size === 1 ? "" : "s"})`; }
+      return;
+    }
+    // Picking a client fills in their saved brand (keeping the brief so far).
+    if (t.matches('[data-ap-form] [name="client_id"]')){
+      const kept = apReadForm(t.form), fresh = apFormDefaults(t.value);
+      apForm = { ...kept, ...Object.fromEntries(["voice", "colours", "logo_url", "reference_image_urls", "do_not_say"].map(k => [k, fresh[k]])), location: kept.location || fresh.location };
+      t.blur();
+      return renderAdProduction();
+    }
+  });
+  root.addEventListener("submit", (ev) => {
+    if (!ev.target.matches("[data-ap-form]")) return;
+    ev.preventDefault();
+    apForm = apReadForm(ev.target);
+    document.activeElement?.blur();
+    apSubmitForm();
+  });
+}
+
+// ── Demo mode: a few jobs at different stages, and a pretend pipeline ──
+const AP_DEMO_ANGLES = [
+  { name: "Cold shower tomorrow", rationale: "Nobody plans for their cylinder to die. Meet them in the moment it does, with a fix that's today, not next week.", hook_options: ["No hot water this morning? We can fix that today.", "Cylinder packed up? Hot water back by tonight.", "Cold showers aren't a plan. Same-day cylinder swaps."] },
+  { name: "Leaking cylinder warning signs", rationale: "Catches people before it fails: a small leak or rusty water is a reason to call now, not after the flood.", hook_options: ["Water pooling under your cylinder? Don't wait.", "Rusty hot water is your cylinder asking for help.", "That drip under the cylinder gets worse, not better."] },
+  { name: "Local and licensed", rationale: "Trust matters for a job inside the house. Lead with being local, licensed and on time.", hook_options: ["Licensed West Auckland plumbers, on time.", "Your local hot water team - not a call centre.", "Locals fixing locals' hot water since 2009."] },
+  { name: "Upfront price", rationale: "People fear the bill. A clear quote before work starts takes the risk away.", hook_options: ["Know the price before we start. Every time.", "Hot water cylinder swap, priced upfront.", "No surprises on the bill. Just hot water."] },
+];
+function apDemoCopy(job, angle, hookIndex){
+  const hook = angle.hook_options[hookIndex % angle.hook_options.length];
+  const google = job.platform === "google";
+  return google
+    ? { primary_text: `Same-day hot water cylinder replacement in ${job.location || "your area"}. Licensed, local, upfront price.`.slice(0, 90), headline: "Hot Water Back Today", cta: "Get a Quote", hook_variants: ["Same-Day Cylinder Swaps", "Licensed Local Plumbers"] }
+    : { primary_text: `${hook}\n\nWe replace hot water cylinders across ${job.location || "your area"}, usually the same day you call. Licensed plumbers, a clear price before we start, and we take the old one away.\n\nTap below for a quote.`, headline: "Hot water back today", cta: "Get Quote", hook_variants: angle.hook_options.filter(h => h !== hook).slice(0, 2) };
+}
+function apDemoAddConcepts(job, angleIds){
+  const picked = apAnglesOf(job.id).filter(a => angleIds.includes(a.id));
+  for (let i = 0; i < job.concept_count; i++){
+    const angle = picked[i % picked.length];
+    const c = { id: uid(), job_id: job.id, angle_id: angle.id, concept_no: i + 1, hook_index: Math.floor(i / picked.length) % 3, status: "drafting", created_at: new Date().toISOString() };
+    state.apConcepts.push(c);
+  }
+}
+function apDemoWrite(job){
+  const todo = apConceptsOf(job.id).filter(c => c.status === "drafting");
+  if (!todo.length) return;
+  todo.forEach(c => {
+    const angle = state.apAngles.find(a => a.id === c.angle_id);
+    state.apVersions.push({ id: uid(), concept_id: c.id, angle_id: angle.id, version_no: 1, ...apDemoCopy(job, angle, c.hook_index), prompt_template_version: "copy-v1", status: "in_review", created_at: new Date().toISOString() });
+    c.status = "in_review";
+  });
+  job.status = "in_review";
+  job.cost_usd = Number(job.cost_usd || 0) + 0.04 * job.concept_count;
+}
+// The pretend pipeline: angles after a moment, then copy after the angle check.
+function apDemoRun(job){
+  setTimeout(() => {
+    if (!apAnglesOf(job.id).length) AP_DEMO_ANGLES.forEach((a, i) => state.apAngles.push({ id: uid(), job_id: job.id, position: i + 1, selected: false, ...a }));
+    job.cost_usd = Number(job.cost_usd || 0) + 0.09;
+    if (job.angle_check_enabled) job.status = "awaiting_angle_check";
+    else { const ids = apAnglesOf(job.id).slice(0, job.concept_count).map(a => a.id); apAnglesOf(job.id).forEach(a => { a.selected = ids.includes(a.id); }); apDemoAddConcepts(job, ids); job.status = "generating"; setTimeout(() => { apDemoWrite(job); apRefresh(); }, 2500); }
+    apRefresh();
+  }, 2500);
+}
+function apDemoChoose(job, ids, note){
+  apAnglesOf(job.id).forEach(a => { a.selected = ids.includes(a.id); });
+  job.angle_note = (note || "").trim() || null;
+  apDemoAddConcepts(job, ids);
+  job.status = "generating";
+  setTimeout(() => { apDemoWrite(job); apRefresh(); }, 2500);
+}
+function apDemoReview(versionId, decision, note, redo){
+  const v = state.apVersions.find(x => x.id === versionId), c = state.apConcepts.find(x => x.id === v.concept_id), job = apJob(c.job_id);
+  state.apReviews.push({ id: uid(), version_id: v.id, reviewer_email: state.user?.email || "demo", decision, redo: decision === "reject" ? redo : null, note, created_at: new Date().toISOString() });
+  const st = decision === "approve" ? "approved" : decision === "reject" ? "rejected" : "discarded";
+  v.status = st; c.status = st;
+  job.status = apConceptsOf(job.id).every(x => x.status === "approved" || x.status === "discarded") ? "approved" : "in_review";
+}
+function apSeedDemo(){
+  const c = state.clients.filter(x => normalizeClientStage(x.stage) !== "churned");
+  if (!c.length) return;
+  const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  const mk = (i, p) => ({ id: uid(), client_id: c[i % c.length].id, target_jobs: "Hot water cylinder replacements", offer: "Free quote, same-day install", location: "West Auckland", platform: "meta", concept_count: 4, angle_check_enabled: true, notes: null, angle_note: null, error: null, cost_usd: 0, cost_ceiling_usd: 10, created_by: "demo@mrpriceless.co.nz", ...p });
+  const reviewJob = mk(0, { status: "awaiting_angle_check", created_at: ago(2), cost_usd: 0.09 });
+  const doneJob = mk(1, { status: "in_review", created_at: ago(26), cost_usd: 0.27, target_jobs: "Switchboard upgrades", location: "Tauranga", offer: null, angle_note: "Lean on safety, not price." });
+  const failedJob = mk(2, { status: "failed", created_at: ago(50), error: "Drafting the angles failed after 3 tries: Claude API error: overloaded", target_jobs: "Deck builds", location: "Hamilton", platform: "google" });
+  state.apJobs = [reviewJob, doneJob, failedJob];
+  [reviewJob, doneJob].forEach(j => AP_DEMO_ANGLES.forEach((a, i) => state.apAngles.push({ id: uid(), job_id: j.id, position: i + 1, selected: false, ...a })));
+  apDemoChoose(doneJob, apAnglesOf(doneJob.id).slice(0, 2).map(a => a.id), doneJob.angle_note);
+  apDemoWrite(doneJob);
+  doneJob.cost_usd = 0.27;
+  const [v1, v2] = state.apVersions;
+  apDemoReview(v1.id, "approve", null, null);
+  apDemoReview(v2.id, "reject", "Too much about price - Tauranga clients care that it's safe and done properly.", "copy");
+  state.apBrands = [{ client_id: reviewJob.client_id, voice: "Friendly and straight-talking, a bit of Kiwi humour", colours: "Navy and orange", logo_url: null, reference_image_urls: [], do_not_say: "Cheapest; 24/7" }];
+}
+
 const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
@@ -13479,6 +14005,7 @@ const RENDERERS = [
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
   [renderLeadQueue, ["lead-queue"]], [renderLeadCalls, ["lead-calls"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [renderLeadSchedule, ["lead-schedule"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]], [lqAlertCheck, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
+  [renderAdProduction, ["ad-production"]], [apNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
@@ -16641,6 +17168,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupEmployeesUi();
   setupLeadFollowUpUi();
   setupLeadCallsUi();
+  setupAdProductionUi();
   setupSitRate();
   setupNav();
   setupModals();
