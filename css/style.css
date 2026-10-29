@@ -2821,7 +2821,16 @@ body.jv-open .jv-fab{display:none;}
 .dd-person-text b{font-size:14.5px;}
 .dd-person-text small{font-size:12.5px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dd-add-contact{display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
-.dd-add-contact select{flex:1;min-width:0;font:inherit;font-size:13px;border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:var(--white);color:var(--text);}
+.dd-add-contact{position:relative;flex-direction:column;}
+.dd-add-contact input{width:100%;font:inherit;font-size:14px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--white);color:var(--text);}
+.dd-add-contact input:focus{outline:none;border-color:var(--gold);}
+.dd-addc-results{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;background:var(--white);overflow:hidden;}
+.dd-addc-results button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:9px 12px;border:0;border-top:1px solid var(--line);background:none;font:inherit;text-align:left;cursor:pointer;}
+.dd-addc-results button:first-child{border-top:0;}
+.dd-addc-results button:hover{background:#faf6ea;}
+.dd-addc-results b{font-size:14px;}
+.dd-addc-results small{font-size:12.5px;color:var(--text2);}
+.dd-addc-results p{padding:10px 12px;font-size:13.5px;color:var(--text2);}
 .dd-details{margin:0;display:flex;flex-direction:column;}
 .dd-details div{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px;}
 .dd-details div:first-child{border-top:0;padding-top:0;}
