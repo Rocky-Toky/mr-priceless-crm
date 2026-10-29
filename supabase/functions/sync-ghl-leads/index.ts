@@ -204,7 +204,28 @@ async function contactDetails(id: string, token: string, fieldNames: () => Promi
 // Leads read before we looked for which ad they came from get read again -
 // but not twice within half an hour, so every lead gets its turn.
 const DETAILS_FROM_SUBMISSIONS = "2026-10-26T08:30:00Z";
-const needsDetails = (r: any) => !r.details_at || (r.details_at < DETAILS_FROM_SUBMISSIONS && Date.now() - new Date(r.details_at).getTime() > 30 * 60e3);
+// A lead read straight after it came in can beat its form submission into GHL,
+// so a fresh lead with no answers yet is read again (every 10 minutes, for a day).
+const needsDetails = (r: any) => !r.details_at
+  || (r.details_at < DETAILS_FROM_SUBMISSIONS && Date.now() - new Date(r.details_at).getTime() > 30 * 60e3)
+  || (!(Array.isArray(r.answers) && r.answers.length) && r.lead_created_at && Date.now() - new Date(r.lead_created_at).getTime() < 86400e3 && Date.now() - new Date(r.details_at).getTime() > 10 * 60e3);
+
+// What the client's key is allowed to read. Leads only come in with their
+// form answers when it can read contacts and forms; custom fields and
+// calendars are for bookings. Anything GHL refuses (401/403) counts as no.
+export async function keyAccess(loc: string, token: string, contacts: boolean) {
+  const can = async (path: string, version?: string) => {
+    try { await ghl(path, token, {}, version); return true; }
+    catch (e) { return !(e instanceof GhlError && (e.status === 401 || e.status === 403)); }
+  };
+  const l = encodeURIComponent(loc);
+  const [forms, custom_fields, calendars] = await Promise.all([
+    can(`/forms/?locationId=${l}&limit=1`),
+    can(`/locations/${l}/customFields`),
+    can(`/calendars/?locationId=${l}`, "2021-04-15"),
+  ]);
+  return { contacts, forms, custom_fields, calendars, checked_at: new Date().toISOString() };
+}
 
 async function syncClient(admin: any, conn: any, client: any, deadline: number) {
   const loc = conn.location_id, token = conn.token;
@@ -234,7 +255,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
   const windowStart = Date.now() - WINDOW_MS;
   const opps = allOpps.filter((o: any) => !closed(o) && (createdAt(o) >= windowStart || inQueueStage(o)));
 
-  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at, answers, address, city, follow_status, status")
+  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at, answers, address, city, follow_status, status, lead_created_at")
     .eq("client_id", client.id).limit(20000);
 
   // Keep the queue in step with their pipeline: refresh each open lead's
@@ -313,7 +334,8 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     if (error) throw new Error(error.message);
     added = rows.length;
   }
-  return { added, contactsAccess: contacts !== null, lastLead, stages };
+  const access = await keyAccess(loc, token, contacts !== null).catch(() => null);
+  return { added, contactsAccess: contacts !== null, lastLead, stages, access };
 }
 
 async function syncAll(admin: any) {
@@ -348,6 +370,7 @@ async function syncAll(admin: any) {
       await admin.from("lead_sync_status").upsert({
         client_id: client.id, last_sync_at: now, last_ok_at: new Date().toISOString(), error: null, contacts_access: r.contactsAccess,
         ...(r.stages ? { stages: r.stages } : {}),
+        ...(r.access ? { access: r.access } : {}),
         leads_added: (prev?.leads_added || 0) + r.added, last_lead_at: r.lastLead && (!prev?.last_lead_at || r.lastLead > prev.last_lead_at) ? r.lastLead : prev?.last_lead_at || null,
       });
     } catch (e) {

@@ -3626,6 +3626,7 @@ body.workspace-leads .inbox-alert{display:none !important;}
 .lq3-answers dt{font-size:14.5px;color:var(--lq-muted);}
 .lq3-answers dd{margin:3px 0 0;font-size:21px;font-weight:700;line-height:1.3;overflow-wrap:anywhere;}
 .lq3-muted{font-size:16px;color:var(--lq-muted);line-height:1.5;}
+.lq3-keywarn{margin-top:8px;padding:8px 12px;border-radius:10px;background:#fef2f2;color:#b91c1c;font-size:14.5px;font-weight:600;}
 .lq3-note{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--lq-amber-soft);font-size:16px;line-height:1.45;}
 .lq3-note span{display:block;font-size:13px;font-weight:700;color:var(--lq-amber);margin-bottom:2px;}
 .lq3-place{font-size:22px;font-weight:700;line-height:1.3;}

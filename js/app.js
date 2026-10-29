@@ -11685,6 +11685,16 @@ const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
 const lqSetupCache = {};
 
+// What a client's GoHighLevel key can't do, from the last sync (lead_sync_status.access).
+const LQ_KEY_TICKS = { contacts: "View Contacts and Edit Contacts", forms: "View Forms", custom_fields: "View Custom Fields and Edit Custom Fields", calendars: "View Calendars and Edit Calendar Events" };
+function lqKeyMissing(r){
+  if (!r) return [];
+  const a = r.access || {};
+  const out = Object.keys(LQ_KEY_TICKS).filter(k => a[k] === false);
+  if (r.contacts_access === false && !out.includes("contacts")) out.unshift("contacts");
+  return out;
+}
+const lqKeyTicks = (missing) => missing.map(k => LQ_KEY_TICKS[k]).join(", ");
 const lqClient = (l) => state.clients.find(c => c.id === l.client_id) || null;
 const lqIn = (l) => new Date(l.lead_created_at || l.created_at).getTime();
 const lqIsOpen = (l) => LQ_OPEN.has(l.follow_status || "new");
@@ -12173,7 +12183,7 @@ function lqDetailHtml(l){
         <h3>${lqIcon("list")}What they're after</h3>
         ${answers.length ? `<dl class="lq3-answers">${answers.map(a => `<div><dt>${escapeHtml(a.q)}</dt><dd>${escapeHtml(a.a)}</dd></div>`).join("")}</dl>`
           : job ? `<dl class="lq3-answers"><div><dt>They asked about</dt><dd>${escapeHtml(job)}</dd></div></dl>`
-          : `<p class="lq3-muted">No form answers came through. Ask them what they need done.</p>`}
+          : `<p class="lq3-muted">No form answers came through. Ask them what they need done.</p>${canFit && lqKeyMissing((lqSyncRows || []).find(r => r.client_id === l.client_id)).some(k => k === "contacts" || k === "forms") ? `<p class="lq3-keywarn">${escapeHtml(biz)}'s GoHighLevel key can't read form answers. Fix it in Service Delivery - Lead calling setup.</p>` : ""}`}
       </section>
       <section class="lq3-panel">
         <h3>${lqIcon("pin")}Where they are</h3>
@@ -12389,7 +12399,7 @@ function renderLeadResults(){
       : r.error ? ["bad", "Problem: " + r.error]
       : !r.last_ok_at ? ["warn", "Connected - first check is still running"]
       : stale ? ["warn", `Hasn't checked in ${lqAgo(Date.now() - new Date(r.last_ok_at))}`]
-      : r.contacts_access === false ? ["warn", "Their key can't read contacts or forms, so leads come in without answers, and Carmen's notes and bookings can't be added - click Update key"]
+      : lqKeyMissing(r).length ? [lqKeyMissing(r).some(k => k === "contacts" || k === "forms") ? "bad" : "warn", `${lqKeyMissing(r).some(k => k === "contacts" || k === "forms") ? "Leads come in WITHOUT their form answers. " : ""}Their key is missing ${lqKeyTicks(lqKeyMissing(r))} - make a new key with those ticked and click Update key`]
       : r.stages?.missing?.length ? ["warn", `Their GoHighLevel has no ${r.stages.missing.map(k => LQ_FLOW_STAGE_NAMES[k] || k).join(", ")} stage - add it in GoHighLevel, or pick one under Stages`]
       : ["ok", "Working"];
     return { c, r, cls: state_[0], text: state_[1] };
@@ -13397,7 +13407,9 @@ function setupLeadFollowUpUi(){
     lqConnecting = false;
     if (r.error){ renderLeadResults(); rcToast("Couldn't connect: " + r.error); return; }
     lqConnectFor = null;
-    rcToast(`Connected to ${r.location_name || "GoHighLevel"} - pulling their leads now.`);
+    const missing = Object.keys(LQ_KEY_TICKS).filter(k => r.access && r.access[k] === false);
+    if (missing.length) alert(`Connected to ${r.location_name || "GoHighLevel"}, but this key is missing:\n\n${missing.map(k => "- " + LQ_KEY_TICKS[k]).join("\n")}\n\n${missing.some(k => k === "contacts" || k === "forms") ? "Until those are ticked, their leads come in without their form answers.\n\n" : ""}In their GoHighLevel: Settings - Private Integrations - edit the key (or make a new one) with those ticked, then click Update key here again.`);
+    else rcToast(`Connected to ${r.location_name || "GoHighLevel"} - everything's ticked. Pulling their leads now.`);
     renderLeadResults();
     await lqSync();
     renderLeadResults();
