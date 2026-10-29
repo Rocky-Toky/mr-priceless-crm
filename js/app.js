@@ -12482,18 +12482,18 @@ const LS_KINDS = {
   other: { label: "Other", icon: "•" },
 };
 const LS_DEFAULT = [
-  ["08:30", "09:00", "setup", "Get set up", "Open the call queue and Follow-ups. Any new enquiries get rung first."],
-  ["09:00", "10:30", "calls", "Morning calls", "New enquiries first, then everyone due in the morning wave."],
+  ["05:00", "05:15", "setup", "Get set up", "Open the call queue and Follow-ups. Any new enquiries get rung first."],
+  ["05:15", "07:00", "calls", "Morning calls", "New enquiries first, then everyone who's due."],
+  ["07:00", "07:15", "break", "Break", ""],
+  ["07:15", "08:00", "study", "Study the business", "Learn our clients: their trades, the areas they cover, what makes a good job, and the ads they're running."],
+  ["08:00", "08:30", "followups", "Follow-ups and call-backs", "Anything on the Follow-ups page that's due."],
+  ["08:30", "09:00", "break", "Break", ""],
+  ["09:00", "10:30", "calls", "Second round of calls", "New enquiries first, then everyone who's due."],
   ["10:30", "10:45", "break", "Break", ""],
-  ["10:45", "11:30", "study", "Study the business", "Learn our clients: their trades, the areas they cover, what makes a good job, and the ads they're running."],
-  ["11:30", "12:00", "followups", "Follow-ups and call-backs", "Anything on the Follow-ups page that's due."],
-  ["12:00", "12:30", "break", "Lunch", ""],
-  ["12:30", "13:15", "claude", "Learn how to use Claude", "Practise asking Claude to help write messages, sum up calls and answer questions about the business."],
-  ["13:15", "14:00", "writing", "Write to Rocky and Max", "Practise clear, short written updates: what happened, what you need, what's next."],
-  ["14:00", "15:30", "calls", "Afternoon calls", "New enquiries first, then everyone due in the afternoon wave."],
-  ["15:30", "15:45", "break", "Break", ""],
-  ["15:45", "16:30", "calls", "Last calls and follow-ups", "Call-backs that are due, then anyone still waiting."],
-  ["16:30", "17:00", "writing", "End-of-day update", "Send Rocky and Max how the day went: calls made, bookings, anything odd, anything you need help with."],
+  ["10:45", "11:30", "claude", "Learn how to use Claude", "Practise asking Claude to help write messages, sum up calls and answer questions about the business."],
+  ["11:30", "12:15", "calls", "Last calls and follow-ups", "Call-backs that are due, then anyone still waiting."],
+  ["12:15", "12:40", "writing", "Write to Rocky and Max", "Practise clear, short written updates: what happened, what you need, what's next."],
+  ["12:40", "13:00", "writing", "End-of-day update", "Send Rocky and Max how the day went: calls made, bookings, anything odd, anything you need help with."],
 ];
 let lsEditing = false;
 const lsTime = (t) => { const [h, m] = String(t || "0:0").split(":").map(Number); const ap = h >= 12 ? "pm" : "am", hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`; };
@@ -12536,7 +12536,7 @@ function renderLeadSchedule(){
   root.innerHTML = `
     <div class="lp-head">
       <div><h2>${mgr ? `${escapeHtml(first)}'s schedule` : "My schedule"}</h2>
-        <p>${mgr ? `Every weekday. ${lsEditing ? "Change a time or a name and it saves by itself." : `Press Change the schedule to move things around - ${escapeHtml(first)} sees it straight away.`}` : "Your day, every weekday. New enquiries always come first, whatever the time."}</p></div>
+        <p>${mgr ? `Every weekday. ${lsEditing ? "Change a time or a name and it saves by itself." : `Press Change the schedule to move things around - ${escapeHtml(first)} sees it straight away.`}` : "Your day, every weekday."}</p></div>
       <div class="lp-head-right">
         ${mgr && people.length > 1 ? `<select class="lp-person" aria-label="Whose schedule">${people.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === e.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select>` : ""}
         ${mgr ? `<button type="button" class="lp-edit ${lsEditing ? "on" : ""}" data-ls-act="edit">${lsEditing ? "Done changing" : "Change the schedule"}</button>` : ""}
@@ -12547,14 +12547,6 @@ function renderLeadSchedule(){
         : `<div><span>Right now</span><b>${now ? `${LS_KINDS[now.kind]?.icon || ""} ${escapeHtml(now.text)}` : next ? "Not started yet" : "Done for the day"}</b>${now ? `<small>until ${lsTime(now.to)}</small>` : ""}</div>
            ${next ? `<div><span>Next</span><b>${LS_KINDS[next.kind]?.icon || ""} ${escapeHtml(next.text)}</b><small>at ${lsTime(next.from)}</small></div>` : ""}`}
     </div>`}
-    <div class="ls-rules">
-      <h3>📞 The calling rules</h3>
-      <ul>
-        <li><b>Every new enquiry gets a call within 3 minutes</b> - even in a break or study time.</li>
-        <li><b>No answer?</b> Call again 3 days in a row, then 1 week later, another week later, and 1 month later. That's 6 calls in all, then they move to "No answer".</li>
-        <li>Morning calls and afternoon calls swap each time, so you catch them at a different time of day.</li>
-      </ul>
-    </div>
     <div class="ls-day">${blocks.map(row).join("")}</div>
     ${lsEditing ? `<div class="ls-edit-foot"><button type="button" class="lq3-btn" data-ls-act="add">+ Add a time block</button><button type="button" class="lq3-textbtn" data-ls-act="reset">Go back to the standard day</button></div>` : ""}`;
 }
