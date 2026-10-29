@@ -12201,7 +12201,7 @@ function lqDetailHtml(l){
         <h3>${lqIcon("list")}What they're after</h3>
         ${answers.length ? `<dl class="lq3-answers">${answers.map(a => `<div><dt>${escapeHtml(a.q)}</dt><dd>${escapeHtml(a.a)}</dd></div>`).join("")}</dl>`
           : job ? `<dl class="lq3-answers"><div><dt>They asked about</dt><dd>${escapeHtml(job)}</dd></div></dl>`
-          : `<p class="lq3-muted">No form answers came through. Ask them what they need done.</p>${canFit && lqKeyMissing((lqSyncRows || []).find(r => r.client_id === l.client_id)).some(k => k === "contacts" || k === "forms") ? `<p class="lq3-keywarn">${escapeHtml(biz)}'s GoHighLevel key can't read form answers. Fix it in Service Delivery - Lead calling setup.</p>` : ""}`}
+          : `<p class="lq3-muted">No form answers came through. Ask them what they need done.</p>${canFit && lqKeyMissing((lqSyncRows || []).find(r => r.client_id === l.client_id)).some(k => k === "contacts" || k === "forms") ? `<p class="lq3-keywarn">${escapeHtml(biz)}'s GoHighLevel key can't read form answers. Fix it in Lead calling setup (in this menu).</p>` : ""}`}
       </section>
       <section class="lq3-panel">
         <h3>${lqIcon("pin")}Where they are</h3>
