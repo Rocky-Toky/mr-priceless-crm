@@ -12611,22 +12611,32 @@ async function lsSaveWeek(e, days){
   e.schedule = schedule;
   await empSave(e.id, { schedule });
 }
-// The week as one bar per day, 5am to 1pm (or wider if the schedule is).
-function lsWeekChart(e){
+// The week as a calendar: a column per day, hours down the side. Calls are
+// the only filled block; everything else is plain. Phones get one day at a time.
+const LS_HOUR_PX = 60;
+function lsCalendar(e){
   const all = LS_DAYS.flatMap(([d]) => lsDayBlocks(e, d));
-  const start = Math.min(5 * 60, ...all.map(b => lsMins(b.from))), end = Math.max(13 * 60, ...all.map(b => lsMins(b.to)));
-  const span = end - start, today = lsToday(), pct = (m) => ((m - start) / span * 100).toFixed(3);
-  const hours = []; for (let h = Math.ceil(start / 60); h * 60 <= end; h++) hours.push(h);
-  const nowM = new Date().getHours() * 60 + new Date().getMinutes();
-  return `<div class="ls-chart">
-    <div class="ls-axis"><span></span><div>${hours.map(h => `<i style="left:${pct(h * 60)}%">${lsTime(String(h).padStart(2, "0") + ":00")}</i>`).join("")}</div></div>
-    ${LS_DAYS.map(([d, name]) => `<div class="ls-lane${d === today ? " today" : ""}">
-      <button type="button" data-ls-day="${d}">${name.slice(0, 3)}</button>
-      <div class="ls-track">${lsDayBlocks(e, d).map(b => {
-        const w = (lsMins(b.to) - lsMins(b.from)) / span * 100;
-        return `<span class="ls-seg ${escapeHtml(b.kind)}" style="left:${pct(lsMins(b.from))}%;width:${w.toFixed(3)}%" title="${escapeHtml(`${lsRange(b.from, b.to)} ${lsName(b)}`)}">${w >= 9 ? `<b>${escapeHtml(lsName(b))}</b>` : ""}</span>`;
-      }).join("")}${d === today && nowM >= start && nowM <= end ? `<em class="ls-nowline" style="left:${pct(nowM)}%"></em>` : ""}</div>
-    </div>`).join("")}
+  const start = Math.floor(Math.min(5 * 60, ...all.map(b => lsMins(b.from))) / 60) * 60;
+  const end = Math.ceil(Math.max(13 * 60, ...all.map(b => lsMins(b.to))) / 60) * 60;
+  const px = (m) => ((m - start) / 60 * LS_HOUR_PX).toFixed(1);
+  const today = lsToday(), now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
+  const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + (today ? 0 : 7));
+  const hours = []; for (let m = start; m <= end; m += 60) hours.push(m);
+  const block = (b) => {
+    const h = (lsMins(b.to) - lsMins(b.from)) / 60 * LS_HOUR_PX;
+    return `<div class="ls-ev ${escapeHtml(b.kind)}${h < 34 ? " short" : ""}" style="top:${px(lsMins(b.from))}px;height:${(h - 2).toFixed(1)}px" title="${escapeHtml(`${lsRange(b.from, b.to)}  ${lsName(b)}${b.note ? ` - ${b.note}` : ""}`)}">
+      <b>${escapeHtml(lsName(b))}</b><span>${lsRange(b.from, b.to)}</span>
+    </div>`;
+  };
+  return `<div class="ls-cal">
+    <div class="ls-cal-head"><span></span>${LS_DAYS.map(([d, n], i) => { const dt = new Date(monday); dt.setDate(monday.getDate() + i); return `<div class="${d === today ? "today" : ""}"><span>${n.slice(0, 3)}</span><b>${dt.getDate()}</b></div>`; }).join("")}</div>
+    <div class="ls-cal-body" style="height:${px(end)}px">
+      <div class="ls-cal-times">${hours.map(m => `<span style="top:${px(m)}px">${lsTime(`${String(m / 60).padStart(2, "0")}:00`)}</span>`).join("")}</div>
+      ${LS_DAYS.map(([d]) => `<div class="ls-cal-col${d === today ? " today" : ""}" style="background-size:100% ${LS_HOUR_PX}px">
+        ${lsDayBlocks(e, d).filter(b => b.kind !== "break").map(block).join("")}
+        ${d === today && nowM > start && nowM < end ? `<i class="ls-cal-now" style="top:${px(nowM)}px"></i>` : ""}
+      </div>`).join("")}
+    </div>
   </div>`;
 }
 function renderLeadSchedule(){
@@ -12640,23 +12650,21 @@ function renderLeadSchedule(){
   if (!lsDay) lsDay = today || "mon";
   const mgr = empIsManager(), first = String(e.name || "").split(" ")[0], people = lpPeople();
   const dayName = LS_DAYS.find(([d]) => d === lsDay)?.[1] || "";
-  const blocks = lsDayBlocks(e, lsDay), nowM = new Date().getHours() * 60 + new Date().getMinutes();
-  const isNow = (b) => lsDay === today && lsMins(b.from) <= nowM && nowM < lsMins(b.to);
-  const nowB = lsDay === today ? blocks.find(isNow) : null, nextB = lsDay === today ? blocks.find(b => lsMins(b.from) > nowM) : null;
-  const dayTabs = `<div class="ls-seg-ctl" role="tablist">${LS_DAYS.map(([d, n]) => `<button type="button" class="${d === lsDay ? "on" : ""}" data-ls-day="${d}">${n.slice(0, 3)}${d === today ? `<small>Today</small>` : ""}</button>`).join("")}</div>`;
+  const blocks = lsDayBlocks(e, lsDay);
+  const dayTabs = `<div class="ls-seg-ctl" role="tablist">${LS_DAYS.map(([d, n]) => `<button type="button" class="${d === lsDay ? "on" : ""}${d === today ? " today" : ""}" data-ls-day="${d}">${n.slice(0, 3)}</button>`).join("")}</div>`;
   const kindOpts = (k) => Object.entries(LS_KINDS).map(([v, x]) => `<option value="${v}" ${v === k ? "selected" : ""}>${x.label}</option>`).join("");
   const head = `<div class="ls-head">
-      <div><h2>${mgr ? `${escapeHtml(first)}'s week` : "My week"}</h2>
-        <p>Monday to Friday. One block of calls a day, at a different time each day.</p></div>
+      <div><h2>Schedule</h2>
+        <p>${mgr ? `${escapeHtml(first)} · ` : ""}Monday to Friday</p></div>
       <div class="ls-head-right">
         ${mgr && people.length > 1 ? `<select class="lp-person" aria-label="Whose schedule">${people.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === e.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select>` : ""}
-        ${mgr ? `<button type="button" class="ls-btn ${lsEditing ? "dark" : ""}" data-ls-act="edit">${lsEditing ? "Done" : "Change the schedule"}</button>` : ""}
+        ${mgr ? `<button type="button" class="ls-btn ${lsEditing ? "dark" : ""}" data-ls-act="edit">${lsEditing ? "Done" : "Edit"}</button>` : ""}
       </div>
     </div>`;
   if (lsEditing){
     root.innerHTML = `${head}
-      <section class="ls-card">
-        <div class="ls-card-h"><h3>Changing ${escapeHtml(dayName)}</h3>${dayTabs}</div>
+      <section class="ls-edit">
+        <div class="ls-edit-h">${dayTabs}</div>
         <div class="ls-edit-list">
           <div class="ls-edit-row ls-edit-labels"><span>Starts</span><span>Ends</span><span>What</span><span>Name</span><span>What to do</span><span></span></div>
           ${blocks.map(b => `<div class="ls-edit-row ${escapeHtml(b.kind)}" data-ls-id="${escapeHtml(b.id)}">
@@ -12677,20 +12685,13 @@ function renderLeadSchedule(){
       </section>`;
     return;
   }
+  const dayList = lsDayBlocks(e, lsDay);
   root.innerHTML = `${head}
-    <div class="ls-calltimes">${LS_DAYS.map(([d, n]) => {
-      const c = lsDayBlocks(e, d).filter(b => b.kind === "calls");
-      return `<button type="button" class="${d === today ? "today" : ""}${d === lsDay ? " on" : ""}" data-ls-day="${d}"><span>${n}</span><b>${c.length ? c.map(b => lsRange(b.from, b.to)).join(", ") : "No calls"}</b></button>`;
-    }).join("")}</div>
-    <section class="ls-card ls-week-card"><div class="ls-card-h"><h3>The week</h3></div>${lsWeekChart(e)}</section>
-    <section class="ls-card">
-      <div class="ls-card-h"><h3>${lsDay === today ? `Today, ${escapeHtml(dayName)}` : escapeHtml(dayName)}</h3>${dayTabs}</div>
-      ${lsDay === today && (nowB || nextB) ? `<p class="ls-status">${nowB ? `Now: <b>${escapeHtml(lsName(nowB))}</b> until ${lsTime(nowB.to)}` : ""}${nowB && nextB ? " · " : ""}${nextB ? `Next: <b>${escapeHtml(lsName(nextB))}</b> at ${lsTime(nextB.from)}` : ""}</p>` : ""}
-      <ol class="ls-list">${blocks.map(b => `<li class="${escapeHtml(b.kind)}${isNow(b) ? " now" : ""}">
-        <span class="ls-t">${lsRange(b.from, b.to)}</span>
-        <div><b>${escapeHtml(lsName(b))}</b>${b.note ? `<p>${escapeHtml(b.note)}</p>` : ""}</div>
-      </li>`).join("")}</ol>
-    </section>`;
+    <div class="ls-desk">${lsCalendar(e)}</div>
+    <div class="ls-phone">
+      ${dayTabs}
+      <ol class="ls-agenda">${dayList.map(b => `<li class="${escapeHtml(b.kind)}"><span>${lsRange(b.from, b.to)}</span><b>${escapeHtml(lsName(b))}</b></li>`).join("")}</ol>
+    </div>`;
 }
 function setupLeadScheduleUi(){
   const root = $("#ls-root");
