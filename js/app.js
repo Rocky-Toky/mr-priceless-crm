@@ -964,57 +964,7 @@ Never argue. Agree with the feeling first, then reframe - arguing makes people d
     { id:uid(), title:"Landing Pages & Websites", sort_order:2, content:"", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
     { id:uid(), title:"SEO", sort_order:3, content:"", created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString() },
   ];
-  state.emailTemplates = [
-    { id:uid(), title:"Welcome Email", sort_order:0, created_at:new Date(Date.now()-86400e3*30).toISOString(), updated_at:new Date(Date.now()-86400e3*30).toISOString(),
-      subject: "Welcome to Mr Priceless - here's what happens next",
-      body:
-`Hi [Name],
-
-Welcome aboard - we're genuinely stoked to be working with [Client]. We don't take on just anyone, so it means we're confident we can get you real results.
-
-Here's what happens next:
-1. We'll get your onboarding call booked in for this week.
-2. Before that call, keep an eye out for your CRM login - that's where you'll see every lead as it comes in.
-3. On the call we'll walk you through everything and get your calendar set up so quotes book straight in.
-
-If anything comes up before then, just reply to this email or give us a call.
-
-Looking forward to it,
-[Your Name]` },
-    { id:uid(), title:"Onboarding Call Confirmation", sort_order:1, created_at:new Date(Date.now()-86400e3*25).toISOString(), updated_at:new Date(Date.now()-86400e3*25).toISOString(),
-      subject: "Confirmed - your onboarding call [Date] at [Time]",
-      body:
-`Hi [Name],
-
-Confirming our onboarding call for [Date] at [Time].
-
-Quick heads up on what we'll cover:
-- What a great lead looks like for you (budget, job size, region)
-- Getting your Google Calendar set up so quotes book straight into your free time
-- A walkthrough of the CRM - it's genuinely simple, just a couple of sections to know
-- Your login and how the automated text notifications work
-
-Should only take about 30 minutes. Talk soon,
-[Your Name]` },
-    { id:uid(), title:"Monthly Report Cover Note", sort_order:2, created_at:new Date(Date.now()-86400e3*10).toISOString(), updated_at:new Date(Date.now()-86400e3*10).toISOString(),
-      subject: "[Client] - your [Month] results",
-      body:
-`Hi [Name],
-
-Your [Month] report is attached - here's the quick summary:
-
-- Ad spend: $[Spend]
-- Leads generated: [Leads]
-- Cost per lead: $[CPL]
-
-[One or two lines on what's working, what we're testing next, and any recommendation.]
-
-Let me know if you want to jump on a call to go through it in more detail.
-
-Cheers,
-[Your Name]` },
-    ...(window.MP_BUILTIN_EMAIL_TEMPLATES || []).map(t => ({ id:uid(), ...t, created_at:new Date().toISOString(), updated_at:new Date().toISOString() })),
-  ];
+  state.emailTemplates = (window.MP_BUILTIN_EMAIL_TEMPLATES || []).map(t => ({ id:uid(), ...t, created_at:new Date().toISOString(), updated_at:new Date().toISOString() }));
   state.expenses = [
     { id:uid(), title:"Meta + Google Ads platform fees", category:"software", amount:49, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*3).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*90).toISOString(), updated_at:new Date(Date.now()-86400e3*3).toISOString() },
     { id:uid(), title:"CRM hosting (Supabase + Cloudflare)", category:"software", amount:35, frequency:"monthly", expense_date:new Date(Date.now()-86400e3*5).toISOString().slice(0,10), notes:"", created_at:new Date(Date.now()-86400e3*90).toISOString(), updated_at:new Date(Date.now()-86400e3*5).toISOString() },
@@ -7191,7 +7141,7 @@ function nurtureSteps(){
     .map(t => ({ ...t, n: Number(t.title.match(/^Lead nurture · (\d+)\./)[1]) }))
     .sort((a, b) => a.n - b.n);
   const live = pick(state.emailTemplates || []);
-  return live.length ? live : pick(window.MP_BUILTIN_EMAIL_TEMPLATES || []);
+  return live.length ? live : pick(window.MP_NURTURE_EMAILS || []);
 }
 function nurtureState(d){
   const n = nurtureOf(d), start = nurtureStart(d), steps = nurtureSteps();
@@ -15251,7 +15201,7 @@ let builtinEmailTemplatesChecked = false;
 async function ensureBuiltinEmailTemplates(){
   if (builtinEmailTemplatesChecked || !IS_CONFIGURED || !state.user || !state.emailTemplatesLoaded) return;
   builtinEmailTemplatesChecked = true;
-  const KEY = "mp_builtin_et_v1";
+  const KEY = "mp_builtin_et_v2";
   let seen = {}; try { seen = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch(e){}
   const have = new Set(state.emailTemplates.map(t => (t.title || "").trim().toLowerCase()));
   const rows = (window.MP_BUILTIN_EMAIL_TEMPLATES || []).filter(t => !seen[t.title] && !have.has(t.title.toLowerCase()))

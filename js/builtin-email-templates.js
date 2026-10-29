@@ -3,119 +3,70 @@
    time a signed-in user loads the CRM and a template with that title isn't
    there yet. Once added they're ordinary templates: edit them in the app.
    Titles are "Group · Name" - the Email Templates page groups by the part
-   before the dot. Swap the [square bracket] bits before sending. */
+   before the dot. [Square brackets] and a lone X (their first name) are
+   the yellow blanks filled in on the page before copying. */
 window.MP_BUILTIN_EMAIL_TEMPLATES = [
 
-/* ───────── Onboarding ───────── */
-{ title: "Onboarding · Welcome to Mr Priceless", kind: "onboarding_pre", sort_order: 100,
-  subject: "Welcome to Mr Priceless, [First name] - here's what happens next",
-  body: `Hi [First name],
+/* ───────── Pre-onboarding: signed, before the onboarding meeting ───────── */
+{ title: "Pre-onboarding · Welcome and onboarding prep", kind: "onboarding_pre", sort_order: 100,
+  subject: "Welcome to Mr Priceless, X - see you on [onboarding day and time]",
+  body: `Hey X,
 
-Stoked to have [Business] on board. Here's exactly what happens over the next couple of weeks, so nothing's a surprise.
+Great to catch up earlier mate.
 
-1. Kickoff call (this week)
-We'll book a 45-minute call to get to know the business properly - the jobs you want more of, your area, your pricing and what a good lead looks like for you. Grab a time here: [booking link]
+Stoked to have you on board; I look forward to catching up [onboarding day and time].
 
-2. What we need from you before the call
-- Access to your Facebook page and ad account (we'll send a quick guide)
-- Some before and after photos of your best jobs, plus one of you and one of the team
-- Your average job value and roughly how many jobs you can take on each month
+I've attached 2 documents for you prior to our onboarding meeting. The welcome pack I would recommend reading through, just so you'd have everything you need. No need to go through the company intro, it's just a bit more info on us you might find handy.
 
-3. Your CRM
-We'll set up your CRM so every lead lands in one place, gets a call from us within minutes, and books straight into your calendar. We'll walk you through it on the call.
+Will work on getting all the backend technical setup ready for you now, and the CRM live and tailored to [Business].
 
-4. Ads go live
-Once we've got the creative sorted, your ads go live - usually within 10 to 14 days of today. From there, you'll get a report from us every fortnight showing exactly what's coming in.
+Main things we will cover:
 
-And remember: you're covered by our 10 Quote Guarantee. You don't pay a cent until we've delivered 10 quotes.
-
-Your welcome pack is attached with all of this in one place. Any questions at all, just reply or give me a call on [your number].
+- Recruitment strategy
+- Creative / ad strategy
+- Removing your time spent on sales and marketing, so you can focus on service constraints
+- Alignment for brand representation
 
 Cheers,
-[Your name]
-Mr Priceless` },
+[Your name]` },
 
-/* ───────── Pre-onboarding: signed, before the kickoff call ───────── */
-{ title: "Pre-onboarding · Your kickoff call is booked", kind: "onboarding_pre", sort_order: 110,
-  subject: "You're booked in, [First name] - kickoff on [Date]",
-  body: `Hi [First name],
+/* ───────── Sales: after the first meeting ───────── */
+{ title: "First meeting · Wrap up", kind: "sales", sort_order: 200,
+  subject: "Great to meet you, X - the numbers from today",
+  body: `Hey X,
 
-You're all locked in for your kickoff call on [Date] at [Time]. Here's the link: [meeting link]
+Great to learn more about what you do. [Their close rate] close rate is very impressive. Let's put that to use by booking qualified quotes straight into your calendar every month. I've attached more info on who we are.
 
-It takes about 45 minutes. We'll go through the jobs you want more of, the areas you cover, your pricing and what a good lead looks like for you - so the ads bring in the right work from day one.
+YOU ONLY PAY IF WE DELIVER
+We charge our fee only if we get you 10 qualified quotes in the first month. 9, and you pay us $0. Payment is at month's end, so you see results first.
 
-If anything comes up and you need to move it, just reply here and we'll find another time.
+YOUR INVESTMENT
+- Ad spend: [ad spend per day]/day (~[ad spend per month]/month)
+- Our fee: [our fee] + GST, paid end of month
 
-Cheers,
-[Your name]
-Mr Priceless` },
-{ title: "Pre-onboarding · What we need before we start", kind: "onboarding_pre", sort_order: 120,
-  subject: "A few quick things before your kickoff, [First name]",
-  body: `Hi [First name],
+THE NUMBERS (10 quotes, [average job value] average job, [their margin] margin)
+- At 20% conversion: 2 projects = [sales from 2 jobs] in sales, ~[profit from 2 jobs] profit
+- At 50% conversion: 5 projects = [sales from 5 jobs] in sales, ~[profit from 5 jobs] profit
 
-To hit the ground running on [Date], could you send these through before the call?
+WHAT YOU GET
+- Data-driven ad creation and ongoing management
+- In-person content shoot led by our creative director
+- Every lead called within 3 minutes by our NZ-based sales rep (5+ years in trade sales) and booked as a quote
+- A CRM system, provided by us
+- Fortnightly catch-ups and a monthly consulting workshop
 
-- Access to your Facebook page and ad account (reply and we'll send a 2-minute guide)
-- 5 to 10 photos of your best jobs - before and afters are gold
-- A photo of you, and one of the team if you've got one
-- Your average job value and how many jobs you can take on each month
-- The areas you want work from
-
-Don't stress if you can't get it all - send what you have and we'll sort the rest on the call.
+Looking forward to [next meeting day and time]. If anything's unclear before then, give us a call. We want you deciding with all the info.
 
 Cheers,
-[Your name]
-Mr Priceless` },
+[Your name]` },
 
-/* ───────── Post-onboarding: after the kickoff call ───────── */
-{ title: "Post-onboarding · Recap from our kickoff call", kind: "onboarding_post", sort_order: 150,
-  subject: "Recap from today, [First name] - here's the plan",
-  body: `Hi [First name],
+];
 
-Great chatting today. Here's what we agreed, so we're on the same page:
-
-- The jobs we're going after: [jobs]
-- Areas: [areas]
-- A good lead for you is: [good lead]
-- Ads go live by: [Date]
-
-What we're doing next: writing your ads, building your campaign and setting up your CRM so every lead gets a call within minutes.
-
-What we still need from you: [anything outstanding]
-
-Any questions in the meantime, just reply or call me on [your number].
-
-Cheers,
-[Your name]
-Mr Priceless` },
-{ title: "Post-onboarding · Your ads are live", kind: "onboarding_post", sort_order: 160,
-  subject: "We're live, [First name]!",
-  body: `Hi [First name],
-
-Your ads went live today. Leads will start coming through over the next few days, and every one gets a call from us within minutes to book you in.
-
-A couple of things that make a big difference:
-- Pick up when we put a booking in your calendar, and turn up on time - it's what turns leads into jobs
-- Let us know straight away if a lead isn't right for you, so we can tighten things up
-
-You'll get your first report from us in two weeks showing exactly what's come in.
-
-Cheers,
-[Your name]
-Mr Priceless` },
-{ title: "Post-onboarding · First week check-in", kind: "onboarding_post", sort_order: 170,
-  subject: "How's the first week been, [First name]?",
-  body: `Hi [First name],
-
-You've been live for a week now, so a quick check-in.
-
-So far we've had [number] leads come through and booked [number] quotes for you.
-
-How have they been? Are they the kind of jobs you want, in the right areas? Anything you'd like more or less of, just tell me and we'll adjust the ads.
-
-Cheers,
-[Your name]
-Mr Priceless` },
+/* The 6-month lead nurture sequence for ghosted / closed-lost deals. These
+   aren't on the Email Templates page any more (Rocky cleared it out on
+   30 Oct 2026); nurtureSteps() in app.js reads them from here unless saved
+   "Lead nurture · N." templates exist. */
+window.MP_NURTURE_EMAILS = [
 
 /* ───────── Lead nurture: tradies who ghosted or went closed-lost ─────────
    One every ~14 days for 6 months. Short, useful, never pushy. */
@@ -315,126 +266,4 @@ Cheers,
 [Your name]
 Mr Priceless` },
 
-/* ───────── For our clients to send their own past customers ─────────
-   Repeat and service work from jobs they've already done. */
-{ title: "Client customers · HVAC 6-month service reminder", sort_order: 300,
-  subject: "Time for your heat pump's 6-month service",
-  body: `Hi [Customer name],
-
-It's been about six months since we installed your [heat pump / air con], so it's due for its first service.
-
-A quick service keeps it running efficiently, keeps your power bill down and keeps your warranty valid. We'll clean the filters and coils, check the refrigerant and make sure everything's running as it should.
-
-It takes about an hour and costs [price]. Just reply with a day that suits, or book here: [booking link]
-
-Thanks again for choosing [Business].
-
-[Name]
-[Business] · [Phone]` },
-
-{ title: "Client customers · Plumbing hot water check", sort_order: 301,
-  subject: "Is your hot water cylinder due a check?",
-  body: `Hi [Customer name],
-
-Thanks again for having us at [address/suburb]. Just a quick heads up - hot water cylinders give very little warning before they fail, and a check every year or two can save a cold shower and a flooded cupboard.
-
-We'll check the valves, element and thermostat, and let you know if anything's on its way out. [price] for the check.
-
-Want us to pop round? Reply with a time that suits.
-
-[Name]
-[Business] · [Phone]` },
-
-{ title: "Client customers · Electrical safety check and upgrades", sort_order: 302,
-  subject: "A quick safety check for your home",
-  body: `Hi [Customer name],
-
-It's been a while since we were last out, so a friendly reminder on a few things worth checking:
-
-- Smoke alarms tested and in date (they last about 10 years)
-- Switchboard and RCD safety switches working
-- Any flickering lights or warm switches
-
-While we're there, we can also quote on LED upgrades, extra outdoor lighting or an EV charger if that's on your list.
-
-Reply here to book a time.
-
-[Name]
-[Business] · [Phone]` },
-
-{ title: "Client customers · Roof and gutter inspection", sort_order: 303,
-  subject: "Your roof after winter",
-  body: `Hi [Customer name],
-
-After a wet winter, it's a good time for a quick roof and gutter check - blocked gutters and lifted flashings are the most common cause of leaks we see, and they're cheap to fix early.
-
-We'll check the roof, clear the gutters and send you photos of anything that needs attention. [price].
-
-Reply with a day that suits and we'll get you in.
-
-[Name]
-[Business] · [Phone]` },
-
-{ title: "Client customers · Landscaping seasonal maintenance", sort_order: 304,
-  subject: "Keep your garden looking like the day we finished",
-  body: `Hi [Customer name],
-
-We loved how your [garden / landscaping] turned out, and we'd hate to see it go backwards.
-
-We offer a seasonal maintenance visit: pruning, weeding, mulch top-up and a tidy so it stays looking sharp all year. Most customers book one every [season / 3 months] - from [price].
-
-Want me to pencil you in? Just reply.
-
-[Name]
-[Business] · [Phone]` },
-
-{ title: "Client customers · Builders 6-month check-in", sort_order: 305,
-  subject: "How's everything holding up?",
-  body: `Hi [Customer name],
-
-It's about six months since we finished your [project], so I wanted to check everything's holding up well. If anything needs a tweak, let me know and we'll sort it.
-
-Also - if a deck re-oil, a new project or a bit of maintenance is on the horizon, we'd love to help again.
-
-And if you know anyone thinking about building or renovating, a recommendation means the world to a business like ours.
-
-[Name]
-[Business] · [Phone]` },
-
-{ title: "Client customers · Painting touch-up and wash", sort_order: 306,
-  subject: "Keep your paint looking fresh",
-  body: `Hi [Customer name],
-
-It's been about a year since we painted your [house / interior]. A gentle house wash and a few touch-ups now will keep it looking fresh and add years to the paint.
-
-We can do both in one visit from [price]. Reply here if you'd like a time.
-
-[Name]
-[Business] · [Phone]` },
-
-{ title: "Client customers · Solar panel clean and health check", sort_order: 307,
-  subject: "Is your solar running at full power?",
-  body: `Hi [Customer name],
-
-Dust, pollen and bird mess can quietly cut your solar output. A clean and system health check once a year keeps it producing what it should.
-
-We'll clean the panels, check the inverter and connections, and send you a quick report. [price].
-
-Reply to book a time that suits.
-
-[Name]
-[Business] · [Phone]` },
-
-{ title: "Client customers · Review and referral request", sort_order: 308,
-  subject: "Thanks for choosing [Business]",
-  body: `Hi [Customer name],
-
-Thanks again for having us. We hope you're loving the finished [job].
-
-If you've got a minute, a quick Google review would really help a small local business like ours: [review link]
-
-And if you know anyone who needs a hand with something similar, we'd be grateful for the recommendation.
-
-[Name]
-[Business] · [Phone]` },
 ];
