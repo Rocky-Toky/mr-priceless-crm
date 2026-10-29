@@ -142,8 +142,8 @@ Show, don't tell. Pull up a client in their trade (or the closest one), then the
 - Keep the numbers simple: enquiries this month and what each one cost.
 > "So that's [X] enquiries this month at about $[Y] each, for a [trade] in [area]."
 **Demo the CRM:**
-> "And this is where every one of those leads lands - the bit most agencies don't give you."
-- A new lead comes in, they get a text straight away, and we call the lead within minutes.
+> "And this is where every one of those leads lands."
+- A new lead comes in, they get a text straight away, and we follow up every lead within 3 minutes - that's what turns the most of them into booked jobs.
 - Drag leads through the stages - site visit, quoted, won - so we can see which ads bring real jobs.
 - Quotes book straight into their calendar, with a reminder text an hour before.
 - Every quote that goes quiet gets followed up.
