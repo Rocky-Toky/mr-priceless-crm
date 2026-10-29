@@ -36,8 +36,9 @@ Deno.serve(async (req) => {
   if (!user?.email) return json({ error: "Unauthorized." }, 401);
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  const { data: allowed } = await admin.from("allowlist").select("email").eq("email", user.email).maybeSingle();
-  if (!allowed) return json({ error: "Unauthorized." }, 401);
+  // Lead Follow Up only logins (allowlist.access = "leads") can't use this.
+  const { data: allowed } = await admin.from("allowlist").select("email, access").eq("email", user.email).maybeSingle();
+  if (!allowed || allowed.access === "leads") return json({ error: "Unauthorized." }, 401);
 
   const identity = user.email.replace(/[^a-zA-Z0-9_.-]/g, "_");
   const token = await buildAccessToken({

@@ -66,8 +66,8 @@ Deno.serve(async (req: Request) => {
     const { data: userData } = await userClient.auth.getUser();
     const email = userData?.user?.email;
     if (!email) return json({ error: "Unauthorized." }, 401);
-    const { data: allowed } = await admin.from("allowlist").select("email").eq("email", email).maybeSingle();
-    if (!allowed) return json({ error: "Unauthorized." }, 401);
+    const { data: allowed } = await admin.from("allowlist").select("email, access").eq("email", email).maybeSingle();
+    if (!allowed || allowed.access === "leads") return json({ error: "Unauthorized." }, 401);
     if (!body.client_id) return json({ error: "client_id is required for a manual send." }, 400);
   }
 

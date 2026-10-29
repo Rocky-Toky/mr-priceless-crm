@@ -46,6 +46,7 @@ A Claude session can't reach `*.supabase.co` directly (the sandbox proxy blocks 
 
 ## Security model
 - Only allowlisted, email-confirmed users get data: `public.is_allowlisted()`, and every table has a team-only RLS policy (`sql/066`).
+- Lead Follow Up only logins: `allowlist.access = 'leads'` (Carmen, `carmen.noche@gmail.com`, set in sql/100). `is_allowlisted()` only passes `access = 'full'`; sql/100 (`is_lead_caller()`, runs last on every deploy) lets them read/write `client_leads` and `lead_tasks`, read `clients`, `client_ad_creatives`, `client_campaigns`, `lead_sync_status`, `aircall_calls`, `aircall_sync_status`, `employees` and their own allowlist row, and nothing else. Every Edge Function except `sync-ghl-leads` and `sync-aircall-calls` refuses them. In the app, `isLeadsOnly()` (from their allowlist row) locks the workspace to Lead Follow Up, hides the switcher and every other menu item, and sends any other page back to the call queue (`LEADS_ONLY_PAGES`). To test in demo mode, set localStorage `mp_demo_access` to `leads`.
 - Server-only tables have RLS on with no policies: `app_secrets`, `client_ghl`, `crm_migrations`.
 - Sign-in is email + password. Google sign-in has no working Google Cloud project behind it, so don't build on it.
 

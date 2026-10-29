@@ -184,8 +184,9 @@ async function makeEvents(admin: SupabaseClient, m: any, by: string) {
 const clean = (v: unknown, max = 200) => (v == null ? "" : String(v).trim().slice(0, max));
 async function allowlisted(admin: SupabaseClient, email: string) {
   if (!email) return false;
-  const { data } = await admin.from("allowlist").select("email").ilike("email", email).maybeSingle();
-  return !!data;
+  // Lead Follow Up only logins (allowlist.access = "leads") don't count.
+  const { data } = await admin.from("allowlist").select("email, access").ilike("email", email).maybeSingle();
+  return !!data && data.access !== "leads";
 }
 
 async function book(admin: SupabaseClient, b: any, caller: string) {

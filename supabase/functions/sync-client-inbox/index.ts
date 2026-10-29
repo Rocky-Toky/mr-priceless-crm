@@ -304,8 +304,9 @@ Deno.serve(async (req: Request) => {
   const { data: userData } = await authed.auth.getUser();
   const user = userData?.user;
   if (!user?.email) return json({ error: "Unauthorized." }, 401);
-  const { data: allowed } = await admin.from("allowlist").select("email").ilike("email", user.email).maybeSingle();
-  if (!allowed) return json({ error: "Unauthorized." }, 401);
+  // Lead Follow Up only logins (allowlist.access = "leads") can't use this.
+  const { data: allowed } = await admin.from("allowlist").select("email, access").ilike("email", user.email).maybeSingle();
+  if (!allowed || allowed.access === "leads") return json({ error: "Unauthorized." }, 401);
 
   if (body.action === "make_key") {
     const bytes = crypto.getRandomValues(new Uint8Array(32));

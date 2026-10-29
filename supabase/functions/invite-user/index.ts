@@ -37,10 +37,10 @@ Deno.serve(async (req) => {
 
     const { data: callerAllowed } = await admin
       .from("allowlist")
-      .select("email")
+      .select("email, access")
       .eq("email", caller.email)
       .maybeSingle();
-    if (!callerAllowed) {
+    if (!callerAllowed || callerAllowed.access === "leads") {
       return json({ error: "You're not authorized to invite people." }, 403);
     }
 

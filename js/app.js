@@ -125,8 +125,13 @@ const DELIVERY_RESTRICTED_EMAILS = new Set([
 ]);
 function canAccessDelivery(){
   const email = (state.user?.email || "").toLowerCase();
-  return !DELIVERY_RESTRICTED_EMAILS.has(email);
+  return !isLeadsOnly() && !DELIVERY_RESTRICTED_EMAILS.has(email);
 }
+// Lead Follow Up only (allowlist.access = 'leads', e.g. Carmen): just the
+// calling pages, no workspace switcher. The database holds the real line
+// (sql/099): these people can only read and change what calling needs.
+const LEADS_ONLY_PAGES = ["lead-queue", "lead-followups", "lead-calls", "lead-kpis", "lead-schedule"];
+function isLeadsOnly(){ return state.myAccess === "leads"; }
 // Team Focus (who's pointed at which vertical) is Rocky's call to make, not
 // something everyone should be able to reassign for each other.
 function isRocky(){
@@ -1320,6 +1325,7 @@ async function initAuth(){
     state.clients.forEach(c => { c.stage = normalizeClientStage(c.stage); });
     await repairNzProspectCountryCodes();
     state.user = { email: "demo@mrpriceless.co.nz" };
+    try { state.myAccess = localStorage.getItem("mp_demo_access") || "full"; } catch(e){}
     state.team = [{ email: "demo@mrpriceless.co.nz", invited_by: "setup", created_at: new Date().toISOString() }];
     lqSeedDemo();
     pmSeedDemo();
@@ -1441,7 +1447,8 @@ async function handleSignedInNow(session, freshLogin){
 }
 
 async function isAllowlisted(email){
-  const { data } = await supabase.from("allowlist").select("email").eq("email", email).maybeSingle();
+  const { data } = await supabase.from("allowlist").select("*").eq("email", email).maybeSingle();
+  state.myAccess = data?.access || "full";
   return Boolean(data);
 }
 
@@ -1651,7 +1658,7 @@ const WORKSPACE_COPY = {
 // Sections of their own: none of the shared Sales / Delivery items show in these.
 const SOLO_WORKSPACES = new Set(["employees", "leads"]);
 // Carmen does lead follow-up, so that's where she starts.
-function getWorkspace(){ return localStorage.getItem(WORKSPACE_KEY) || (/^carmen/i.test(state.user?.email || "") ? "leads" : "sales"); }
+function getWorkspace(){ return isLeadsOnly() ? "leads" : localStorage.getItem(WORKSPACE_KEY) || (/^carmen/i.test(state.user?.email || "") ? "leads" : "sales"); }
 let workspaceLanded = false;
 function setWorkspace(w){
   try { localStorage.setItem(WORKSPACE_KEY, w); } catch(e){}
@@ -1664,6 +1671,7 @@ function applyWorkspace(){
     try { localStorage.setItem(WORKSPACE_KEY, ws); } catch(e){}
   }
   const select = $("#workspace-select");
+  document.body.classList.toggle("leads-only", isLeadsOnly());
   if (select){
     select.value = ws;
     const deliveryOption = select.querySelector('option[value="delivery"]');
@@ -1685,6 +1693,7 @@ function applyWorkspace(){
   });
   // Lead setup (GoHighLevel connections and stages) is for Rocky and Max only.
   $$(".nav-lead-setup").forEach(el => { if (IS_CONFIGURED && !(isRocky() || isMax())) el.style.display = "none"; });
+  if (isLeadsOnly()) $$(".nav-item[data-page], .nav-group-item, .nav-group-toggle").forEach(el => { if (!LEADS_ONLY_PAGES.includes(el.dataset.page)) el.style.display = "none"; });
   // Finance (receipts and expenses) sits in Team, but stays with whoever can see Service Delivery.
   $$(".nav-finance").forEach(el => { if (!canAccessDelivery()) el.style.display = "none"; });
   // Contacts lives under Add prospects; without Add prospects it's just Contacts.
@@ -1842,6 +1851,7 @@ function setupNav(){
   $("#coverage-industry-select")?.addEventListener("change", (e) => { state.coverageIndustry = e.target.value; renderRegionCoverage(); });
   $$(".nav-item[data-page]").forEach(btn => {
     btn.addEventListener("click", () => {
+      if (isLeadsOnly() && !LEADS_ONLY_PAGES.includes(btn.dataset.page)){ if (btn.dataset.page !== "lead-queue") $('.nav-item[data-page="lead-queue"]')?.click(); return; }
       flushRenders();
       state.page = btn.dataset.page;
       $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));

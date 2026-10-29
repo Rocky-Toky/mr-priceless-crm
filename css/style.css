@@ -4944,3 +4944,6 @@ body.ac-shown .ac-fab{display:none;}
 .lq-alert-more button:hover{background:#f4f4f5;}
 .lq-alert-more button[data-lq-alert="later"]{flex:0 0 32%;color:#71717a;font-weight:600;}
 .lq-alert-queue{margin-top:14px;font-size:14px;color:#71717a;}
+
+/* Lead Follow Up only (allowlist.access = 'leads'): no workspace switcher. */
+body.leads-only .workspace-switcher{display:none !important;}

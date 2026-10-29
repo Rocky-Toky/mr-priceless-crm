@@ -10,7 +10,10 @@
 --    any signed-in account see unassigned tasks.
 --  * Server-only tables (GHL keys, app secrets) have no browser access at all.
 
--- 1. The one check every rule uses.
+-- 1. The one check every rule uses. People with allowlist.access = 'leads'
+--    (Lead Follow Up only) don't pass it: sql/099 gives them just what
+--    calling needs.
+alter table public.allowlist add column if not exists access text not null default 'full';
 create or replace function public.is_allowlisted()
 returns boolean
 language sql
@@ -24,6 +27,7 @@ as $$
     join public.allowlist a on lower(a.email) = lower(u.email)
     where u.id = auth.uid()
       and u.email_confirmed_at is not null
+      and coalesce(a.access, 'full') = 'full'
   );
 $$;
 revoke all on function public.is_allowlisted() from public;
