@@ -574,6 +574,10 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
   const { data: conn } = await admin.from("client_ghl").select("location_id, token").eq("client_id", lead.client_id).maybeSingle();
   if (!conn) return { error: "This client isn't connected to GoHighLevel." };
   const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", lead.client_id).maybeSingle();
+  // Some clients (BB Build) book consultation calls through their site visit
+  // stage and calendar: same booking, but the note and title say what it is.
+  const { data: clientRow } = await admin.from("clients").select("lead_visit_is_consult").eq("id", lead.client_id).maybeSingle();
+  const visitIsConsult = kind === "site_visit" && !!clientRow?.lead_visit_is_consult;
   const result: any = { at: new Date().toISOString(), outcome, errors: [] as string[] };
   const loc = conn.location_id, token = conn.token;
   const oppId = String(lead.external_lead_id).startsWith("ghl:") ? String(lead.external_lead_id).slice(4) : null;
@@ -615,7 +619,7 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
         const assignedUserId = calendarUser(cal);
         const base = {
           calendarId: cal.id, locationId: loc, contactId, startTime: start.toISOString(), endTime: end.toISOString(),
-          title: `${kind === "consult" ? "Consultation call" : "Site visit"} - ${lead.name || "new lead"}${address && kind === "site_visit" ? ` - ${address}` : ""}`,
+          title: `${kind === "consult" || visitIsConsult ? "Consultation call" : "Site visit"} - ${lead.name || "new lead"}${address && kind === "site_visit" && !visitIsConsult ? ` - ${address}` : ""}`,
           appointmentStatus: "confirmed", ignoreFreeSlotValidation: true, ignoreDateRange: true, toNotify: true,
           ...(assignedUserId ? { assignedUserId } : {}),
         };
@@ -634,7 +638,7 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
   if (contactId) {
     const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer after 6 calls", call_back: "Call back" };
     const whenText = when ? ` for ${new Date(when).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : outcome === "consult_call" ? " - ASAP, no set time (please call them as soon as you can)" : "";
-    try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: `${label[outcome] || outcome}${whenText} - called by Mr Priceless.${note ? "\n\n" + note : ""}` }) }); result.note = true; }
+    try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: `${visitIsConsult ? "Consultation call booked" : label[outcome] || outcome}${whenText} - called by Mr Priceless.${note ? "\n\n" + note : ""}` }) }); result.note = true; }
     catch { /* a note is a nice-to-have */ }
   }
   if (!result.errors.length) delete result.errors;
