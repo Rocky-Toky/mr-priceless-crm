@@ -2816,6 +2816,8 @@ body.jv-open .jv-fab{display:none;}
 .dd-person:first-child{border-top:0;padding-top:0;}
 .dd-avatar{flex:0 0 38px;height:38px;border-radius:12px;background:linear-gradient(150deg,var(--gold-bright),var(--gold));color:var(--black);font-family:var(--font-display);font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;}
 .dd-person-text{flex:1;min-width:0;display:flex;flex-direction:column;}
+.dd-unlink{color:var(--text2);}
+.dd-unlink:hover{color:#c0392b;border-color:#c0392b;}
 .dd-person-text b{font-size:14.5px;}
 .dd-person-text small{font-size:12.5px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dd-add-contact{display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}

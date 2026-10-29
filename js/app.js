@@ -3263,14 +3263,15 @@ function renderDealDetail(deal){
   const extraContacts = dealContactsFor(deal.id);
   const primary = deal.contact_id ? state.contacts.find(c => c.id === deal.contact_id) : null;
   const rows = [];
-  if (primary) rows.push({ name: primary.name, phone: primary.phone, email: primary.email, role: "Primary" });
-  else if (deal.contact_name) rows.push({ name: deal.contact_name, phone: "", role: "Primary" });
-  extraContacts.forEach(dc => { const c = state.contacts.find(x => x.id === dc.contact_id); rows.push({ name: dc.name, phone: c?.phone || dc.phone, email: c?.email, role: dc.role || "Contact" }); });
+  if (primary) rows.push({ name: primary.name, phone: primary.phone, email: primary.email, role: "Primary", unlink: "primary" });
+  else if (deal.contact_name) rows.push({ name: deal.contact_name, phone: "", role: "Primary", unlink: "primary" });
+  extraContacts.forEach(dc => { const c = state.contacts.find(x => x.id === dc.contact_id); rows.push({ name: dc.name, phone: c?.phone || dc.phone, email: c?.email, role: dc.role || "Contact", unlink: dc.id }); });
   contactsBody.innerHTML = rows.length
     ? rows.map(r => `<div class="dd-person">
         <span class="dd-avatar">${escapeHtml((r.name || "?").trim().charAt(0).toUpperCase())}</span>
         <span class="dd-person-text"><b>${escapeHtml(r.name)}</b><small>${r.phone ? escapeHtml(formatPhone(r.phone)) : "No phone"}${r.role !== "Primary" ? ` · ${escapeHtml(r.role)}` : ""}</small>${r.email ? `<small>${escapeHtml(r.email)}</small>` : ""}</span>
         ${callButtonHtml(r.phone, r.name)}
+        <button type="button" class="icon-btn dd-unlink" data-dd-unlink="${escapeHtml(r.unlink)}" data-name="${escapeHtml(r.name || "")}" title="Remove from this deal" aria-label="Remove ${escapeHtml(r.name || "contact")} from this deal"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
       </div>`).join("")
     : `<p class="dd-empty">No contact linked to this deal.</p>`;
 
@@ -3373,6 +3374,14 @@ async function markDealCalled(dealId){
   });
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
+}
+// Take a contact off a deal. The contact itself stays in Contacts.
+async function removeContactFromDeal(dealId, which, name){
+  const deal = state.deals.find(d => d.id === dealId);
+  if (!deal || !which) return;
+  if (!confirm(`Remove ${name || "this contact"} from this deal?\n\nThey'll stay in your Contacts.`)) return;
+  if (which === "primary") await DataLayer.update("deals", dealId, { contact_id: null, contact_name: null });
+  else await DataLayer.remove("deal_contacts", which);
 }
 async function addExistingContactToDeal(dealId){
   const select = $("#deal-detail-contact-select");
@@ -15436,6 +15445,10 @@ function setupModals(){
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
   $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
+  $("#deal-detail-contacts")?.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-dd-unlink]");
+    if (b && state.selectedDealId) removeContactFromDeal(state.selectedDealId, b.dataset.ddUnlink, b.dataset.name);
+  });
   $("#deal-detail-stage")?.addEventListener("change", (e) => { if (state.selectedDealId) changeDealStage(state.selectedDealId, e.target.value); });
   $("#deal-detail-source")?.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-source]"); const d = state.deals.find(x => x.id === state.selectedDealId);
