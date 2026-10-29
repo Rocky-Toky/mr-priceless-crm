@@ -11614,7 +11614,7 @@ const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disq
 // Days between no-answer calls: 3 days in a row, then a week, a week, a month.
 const LQ_GAPS = [1, 1, 7, 7, 30];
 const LQ_MAX_TRIES = LQ_GAPS.length + 1, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
-let lqPlaceFor = null, lqFitFor = null, lqAreaFor = null;
+let lqRegionFor = null, lqFitFor = null, lqAreaFor = null;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
@@ -11649,8 +11649,7 @@ function lqWhenWords(iso){
 // A client's name the way you'd say it on the phone: "A and B Concrete Ltd -
 // Blade" becomes "A and B Concrete".
 const lqBizName = (c) => String(c?.name || "").replace(/\s+[-–|(].*$/, "").replace(/[,.]?\s+(pty\.?\s+)?(ltd|limited|co|nz ltd)\.?$/i, "").trim() || c?.name || "";
-// The region a lead is in when no suburb came through: the first place named
-// in their answers, the ad they saw, or the client's service area.
+// Region names offered when Rocky / Max set a client's region (clients.lead_region).
 const LQ_REGIONS = [
   ["Northland", /northland|whang[aā]rei|kerikeri|kaitaia|dargaville|bay of islands|paihia/],
   ["Auckland", /auckland|north shore|albany|manukau|papakura|pukekohe|waiheke|henderson|howick|orewa|silverdale|east tamaki|botany/],
@@ -11674,20 +11673,6 @@ const LQ_REGIONS = [
   ["Perth", /perth|western australia/],
   ["Adelaide", /adelaide|south australia/],
 ];
-function lqRegion(l, c){
-  const ad = l.ad_info || {};
-  const sources = [
-    (Array.isArray(l.answers) ? l.answers : []).map(a => a && a.a).join(" "),
-    [ad.adset, ad.campaign, ad.form, ad.ad, l.form_name].join(" "),
-    c?.qualified_lead_structure, c?.name,
-  ];
-  for (const text of sources){
-    const t = String(text || "").toLowerCase().replace(/_/g, " ");
-    const hit = t && LQ_REGIONS.find(([, re]) => re.test(t));
-    if (hit) return hit[0];
-  }
-  return "";
-}
 // NZ mobiles start 02, AU mobiles 04 - anything else is treated as NZ.
 const lqCountry = (phone) => /^\s*(\+?61|04)/.test(phone || "") ? "61" : "64";
 // Retries go out in waves: a morning wave from 9am and an afternoon wave from
@@ -11966,9 +11951,11 @@ function lqDetailHtml(l){
   const realForm = [ad.form, l.form_name].find(f => f && !/^(facebook( lead)?( form)?|gohighlevel|meta|instagram|website( form)?|lead form|form)$/i.test(String(f).trim()));
   const place = l.address || l.city || "";
   const country = lqCountry(l.phone) === "61" ? "Australia" : "New Zealand";
-  const region = place ? "" : lqRegion(l, c);
+  // The client's region, written by Rocky / Max (clients.lead_region, sql/097) -
+  // not guessed, since a client's leads can come from well outside its town.
+  const region = String(c?.lead_region || "").trim();
   const mapQ = encodeURIComponent([place || region, country].filter(Boolean).join(", "));
-  const mapZoom = place ? 12 : region ? 8 : 5;
+  const mapZoom = place ? 12 : 8;
   const B = (t) => `<b>${escapeHtml(t)}</b>`;
   const step = (n, title, body) => `<li><span class="lq3-n">${n}</span><div><h4>${title}</h4>${body}</div></li>`;
   const quote = (html) => `<p class="lq3-say">${html}</p>`;
@@ -12017,11 +12004,14 @@ function lqDetailHtml(l){
       </section>
       <section class="lq3-panel">
         <h3>${lqIcon("pin")}Where they are</h3>
-        ${place ? `<p class="lq3-place">${escapeHtml(lqNice(l.address || l.city))}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq3-muted">${escapeHtml(l.city)}</p>` : ""}`
-          : `<p class="lq3-place">${escapeHtml(region || country)}</p><p class="lq3-muted">${region ? "The region they're in - ask which suburb." : "Ask which suburb the job is in."}${lqPlaceFor === l.id ? "" : ` <button type="button" class="lq3-textbtn" data-lq-act="place">Add the suburb</button>`}</p>
-            ${lqPlaceFor === l.id ? `<form class="lq3-place-form" data-lq-form="place"><div><input name="place" placeholder="e.g. Petone, Lower Hutt" required><button type="submit" class="lq3-btn">Save</button></div></form>` : ""}`}
-          <div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=${mapZoom}&output=embed"></iframe></div>
-          <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>
+        ${place ? `<p class="lq3-place">${escapeHtml(lqNice(l.address || l.city))}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq3-muted">${escapeHtml(l.city)}</p>` : ""}` : ""}
+        ${lqRegionFor === c?.id
+          ? `<form class="lq3-cover lq3-fit-form lq3-region-form" data-lq-form="region"><span>Which region is ${escapeHtml(biz)} in?</span><input name="region" list="lq-region-list" value="${escapeHtml(region)}" placeholder="e.g. Taranaki" required autocomplete="off"><datalist id="lq-region-list">${LQ_REGIONS.map(([n]) => `<option value="${escapeHtml(n)}">`).join("")}</datalist><div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="region-cancel">Cancel</button></div></form>`
+          : region ? `<p class="${place ? "lq3-muted" : "lq3-place"}">${place ? "Region: " : ""}${escapeHtml(region)}${canFit ? ` <button type="button" class="lq3-textbtn" data-lq-act="region">Change</button>` : ""}</p>`
+          : canFit ? `<p class="lq3-cover"><button type="button" class="lq3-textbtn" data-lq-act="region">+ Add the region ${escapeHtml(biz)} is in</button></p>`
+          : !place ? `<p class="lq3-muted">Ask them where the job is.</p>` : ""}
+        ${place || region ? `<div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=${mapZoom}&output=embed"></iframe></div>
+          <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>` : ""}
         ${lqAreaFor === c?.id
           ? `<form class="lq3-cover lq3-fit-form" data-lq-form="area"><span>Where does ${escapeHtml(biz)} take jobs?</span><textarea name="area" rows="2" placeholder="e.g. Wellington, Lower Hutt and Porirua - not Upper Hutt">${escapeHtml(coverage)}</textarea><div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="area-cancel">Cancel</button></div></form>`
           : coverage ? `<p class="lq3-cover"><span>${escapeHtml(biz)} covers</span>${escapeHtml(coverage)}${canFit ? ` <button type="button" class="lq3-textbtn" data-lq-act="area">Change</button>` : ""}</p>`
@@ -13022,7 +13012,8 @@ function setupLeadFollowUpUi(){
       if (act === "add"){ lqAdding = true; return renderLeadQueue(); }
       if (act === "add-cancel"){ lqAdding = false; return renderLeadQueue(); }
       if (act === "done"){ lqShowDone = !lqShowDone; return renderLeadQueue(); }
-      if (act === "place"){ lqPlaceFor = lqSel; renderLeadQueue(); $(".lq3-place-form input")?.focus(); return; }
+      if (act === "region" && l){ lqRegionFor = l.client_id; renderLeadQueue(); $(".lq3-region-form input")?.focus(); return; }
+      if (act === "region-cancel"){ lqRegionFor = null; return renderLeadQueue(); }
       if (act === "fit" && l){ lqFitFor = l.client_id; renderLeadQueue(); $(".lq3-fit-form textarea")?.focus(); return; }
       if (act === "fit-cancel"){ lqFitFor = null; return renderLeadQueue(); }
       if (act === "area" && l){ lqAreaFor = l.client_id; renderLeadQueue(); $(".lq3-cover textarea")?.focus(); return; }
@@ -13085,16 +13076,18 @@ function setupLeadFollowUpUi(){
         rcToast(`Saved for every ${lqBizName(c)} lead.`);
         return;
       }
-      if (form.dataset.lqForm === "place"){
-        const l = state.clientLeads.find(x => x.id === lqSel), place = (v.place || "").trim();
-        if (!l || !place) return;
-        Object.assign(l, { address: place, city: place });
-        lqPlaceFor = null;
-        renderLeadQueue();
+      if (form.dataset.lqForm === "region"){
+        const c = state.clients.find(x => x.id === lqRegionFor);
+        if (!c) return;
+        const region = String(v.region || "").trim().slice(0, 80) || null;
+        lqRegionFor = null;
         if (IS_CONFIGURED){
-          const { error } = await supabase.from("client_leads").update({ address: place, city: place }).eq("id", l.id);
-          if (error) rcToast("Couldn't save the location - " + error.message);
+          const ok = await DataLayer.update("clients", c.id, { lead_region: region, updated_at: new Date().toISOString() });
+          if (!ok) return;
         }
+        c.lead_region = region;
+        renderLeadQueue();
+        rcToast(`Saved for every ${lqBizName(c)} lead.`);
         return;
       }
       if (form.dataset.lqForm === "add"){
