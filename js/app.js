@@ -3275,16 +3275,9 @@ function renderDealDetail(deal){
       </div>`).join("")
     : `<p class="dd-empty">No contact linked to this deal.</p>`;
 
-  const linkedIds = new Set(extraContacts.map(dc => dc.contact_id).filter(Boolean));
-  if (deal.contact_id) linkedIds.add(deal.contact_id);
-  const pickable = state.contacts.filter(c => !linkedIds.has(c.id)).sort((x, y) => (x.name || "").localeCompare(y.name || ""));
-  const select = $("#deal-detail-contact-select");
-  if (select){
-    select.innerHTML = pickable.length
-      ? `<option value="">Add another contact...</option>` + pickable.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")
-      : `<option value="">No other contacts to add</option>`;
-    select.disabled = !pickable.length;
-  }
+  // The add-a-contact search starts empty on each deal.
+  const search = $("#deal-detail-contact-search");
+  if (search && search.dataset.deal !== deal.id){ search.value = ""; search.dataset.deal = deal.id; $("#deal-detail-contact-results").hidden = true; }
 
   const det = (k, v) => v ? `<div><dt>${k}</dt><dd>${v}</dd></div>` : "";
   $("#deal-detail-details").innerHTML = [
@@ -3383,10 +3376,32 @@ async function removeContactFromDeal(dealId, which, name){
   if (which === "primary") await DataLayer.update("deals", dealId, { contact_id: null, contact_name: null });
   else await DataLayer.remove("deal_contacts", which);
 }
-async function addExistingContactToDeal(dealId){
-  const select = $("#deal-detail-contact-select");
-  const contactId = select?.value;
+// Contacts that could be added to the deal and match what's been typed.
+function dealContactMatches(dealId, q){
+  const deal = state.deals.find(d => d.id === dealId);
+  const linked = new Set(dealContactsFor(dealId).map(dc => dc.contact_id).filter(Boolean));
+  if (deal?.contact_id) linked.add(deal.contact_id);
+  const t = q.trim().toLowerCase(), digits = q.replace(/\D/g, "");
+  if (t.length < 2) return [];
+  return state.contacts.filter(c => !linked.has(c.id) && /[a-z0-9]/i.test(c.name || "") && (
+    (c.name || "").toLowerCase().includes(t) || (c.email || "").toLowerCase().includes(t) || (digits.length >= 3 && String(c.phone || "").replace(/\D/g, "").includes(digits))
+  )).sort((x, y) => (x.name || "").localeCompare(y.name || "")).slice(0, 8);
+}
+function renderDealContactResults(){
+  const box = $("#deal-detail-contact-results"), q = $("#deal-detail-contact-search")?.value || "";
+  if (!box) return;
+  if (q.trim().length < 2){ box.hidden = true; box.innerHTML = ""; return; }
+  const hits = dealContactMatches(state.selectedDealId, q);
+  box.innerHTML = hits.length
+    ? hits.map(c => `<button type="button" data-add-contact="${escapeHtml(c.id)}"><b>${escapeHtml(c.name)}</b><small>${escapeHtml([c.phone ? formatPhone(c.phone) : "", c.email || ""].filter(Boolean).join(" · ") || "No phone")}</small></button>`).join("")
+    : `<p>No contact matches "${escapeHtml(q.trim())}".</p>`;
+  box.hidden = false;
+}
+async function addExistingContactToDeal(dealId, contactId){
   if (!contactId) return;
+  const search = $("#deal-detail-contact-search");
+  if (search) search.value = "";
+  renderDealContactResults();
   await DataLayer.insert("deal_contacts", { deal_id: dealId, contact_id: contactId, role: "Contact" });
   if (!IS_CONFIGURED) return;
   await DataLayer.fetchAll(); renderAll();
@@ -15444,7 +15459,12 @@ function setupModals(){
   $("#deal-assignee")?.addEventListener("change", toggleDealCommissionFields);
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
-  $("#deal-detail-add-contact-btn")?.addEventListener("click", () => { if (state.selectedDealId) addExistingContactToDeal(state.selectedDealId); });
+  $("#deal-detail-contact-search")?.addEventListener("input", renderDealContactResults);
+  $("#deal-detail-contact-search")?.addEventListener("keydown", (ev) => { if (ev.key === "Escape"){ ev.target.value = ""; renderDealContactResults(); } });
+  $("#deal-detail-contact-results")?.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-add-contact]");
+    if (b && state.selectedDealId) addExistingContactToDeal(state.selectedDealId, b.dataset.addContact);
+  });
   $("#deal-detail-contacts")?.addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-dd-unlink]");
     if (b && state.selectedDealId) removeContactFromDeal(state.selectedDealId, b.dataset.ddUnlink, b.dataset.name);
