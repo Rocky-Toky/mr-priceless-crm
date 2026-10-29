@@ -69,6 +69,7 @@ on:
       - "sql/095_lead_job_scope.sql"
       - "sql/096_employee_schedule.sql"
       - "sql/097_client_lead_region.sql"
+      - "sql/098_lead_key_access.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
     inputs:
@@ -142,7 +143,7 @@ jobs:
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql sql/086_precall_tasks.sql sql/087_precall_messages.sql sql/088_lead_tasks.sql sql/089_employee_plan.sql sql/090_team_details.sql sql/091_client_lead_fit.sql sql/092_aircall_calls.sql sql/093_lead_callback_stage.sql sql/094_client_lead_area.sql sql/095_lead_job_scope.sql sql/096_employee_schedule.sql sql/097_client_lead_region.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql sql/086_precall_tasks.sql sql/087_precall_messages.sql sql/088_lead_tasks.sql sql/089_employee_plan.sql sql/090_team_details.sql sql/091_client_lead_fit.sql sql/092_aircall_calls.sql sql/093_lead_callback_stage.sql sql/094_client_lead_area.sql sql/095_lead_job_scope.sql sql/096_employee_schedule.sql sql/097_client_lead_region.sql sql/098_lead_key_access.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
@@ -288,6 +289,10 @@ jobs:
           echo
           echo "Sync status after the run:"
           q "select count(*) as rows, count(*) filter (where last_ok_at is not null and error is null) as working, count(*) filter (where error is not null) as with_error, count(*) filter (where contacts_access = false) as no_contacts_access, count(*) filter (where last_ok_at is null and error is null) as not_finished from lead_sync_status" | jq -c '.[0]'
+          echo "What the connected clients' keys can't read (clients missing each):"
+          q "select count(*) filter (where access is not null) as checked, count(*) filter (where (access->>'contacts')::boolean is false) as no_contacts, count(*) filter (where (access->>'forms')::boolean is false) as no_forms, count(*) filter (where (access->>'custom_fields')::boolean is false) as no_custom_fields, count(*) filter (where (access->>'calendars')::boolean is false) as no_calendars from lead_sync_status" | jq -c '.[0]'
+          echo "Leads in the last 3 days without form answers, by why:"
+          q "select case when s.contacts_access is false then 'key cannot read contacts/forms' when l.details_at is null then 'not read yet' else 'read, GHL had no answers' end as why, count(*) from client_leads l left join lead_sync_status s on s.client_id = l.client_id where l.source = 'ghl' and coalesce(l.lead_created_at, l.created_at) > now() - interval '3 days' and coalesce(jsonb_array_length(l.answers), 0) = 0 group by 1" | jq -c '.[]'
           echo "Errors seen (text only):"
           q "select left(error, 160) as error, count(*) from lead_sync_status where error is not null group by 1" | jq -c '.[]'
           echo "Pipeline stages the calling flow needs, how many connected clients are missing each:"

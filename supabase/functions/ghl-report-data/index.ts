@@ -195,7 +195,20 @@ Deno.serve(async (req: Request) => {
       await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(location_id)}`, token); // proves the Opportunities scope
       const { error } = await admin.from("client_ghl").upsert({ client_id, location_id, token, location_name, updated_at: new Date().toISOString() });
       if (error) return json({ error: error.message }, 500);
-      return json({ connected: true, location_name });
+      // What else the key can do: lead form answers need Contacts and Forms,
+      // bookings need Custom Fields and Calendars. Saved anyway, but say what's missing.
+      const can = async (path: string, version?: string) => {
+        const res = await fetch(GHL + path, { headers: { Authorization: `Bearer ${token}`, Version: version || "2021-07-28", Accept: "application/json" } }).catch(() => null);
+        return !(res && (res.status === 401 || res.status === 403));
+      };
+      const l = encodeURIComponent(location_id);
+      const [contacts, forms, custom_fields, calendars] = await Promise.all([
+        can(`/contacts/?locationId=${l}&limit=1`), can(`/forms/?locationId=${l}&limit=1`),
+        can(`/locations/${l}/customFields`), can(`/calendars/?locationId=${l}`, "2021-04-15"),
+      ]);
+      const access = { contacts, forms, custom_fields, calendars, checked_at: new Date().toISOString() };
+      await admin.from("lead_sync_status").upsert({ client_id, access, contacts_access: contacts });
+      return json({ connected: true, location_name, access });
     }
     if (action === "disconnect") {
       await admin.from("client_ghl").delete().eq("client_id", client_id);
