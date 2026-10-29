@@ -3387,15 +3387,55 @@ function dealContactMatches(dealId, q){
     (c.name || "").toLowerCase().includes(t) || (c.email || "").toLowerCase().includes(t) || (digits.length >= 3 && String(c.phone || "").replace(/\D/g, "").includes(digits))
   )).sort((x, y) => (x.name || "").localeCompare(y.name || "")).slice(0, 8);
 }
+// What's been typed, split into a name, phone and email for a new contact.
+function dealContactGuess(q){
+  const email = (q.match(/[^\s@]+@[^\s@]+\.[^\s@]+/) || [""])[0];
+  const phone = ((q.replace(email, "").match(/\+?\d[\d\s()-]{5,}\d/) || [""])[0]).trim();
+  const name = q.replace(email, "").replace(phone, "").replace(/\s+/g, " ").replace(/^[\s,·-]+|[\s,·-]+$/g, "").trim();
+  return { name, phone, email };
+}
+let ddNewContact = false;
 function renderDealContactResults(){
   const box = $("#deal-detail-contact-results"), q = $("#deal-detail-contact-search")?.value || "";
   if (!box) return;
-  if (q.trim().length < 2){ box.hidden = true; box.innerHTML = ""; return; }
+  if (q.trim().length < 2){ ddNewContact = false; box.hidden = true; box.innerHTML = ""; return; }
+  const g = dealContactGuess(q);
+  if (ddNewContact){
+    box.innerHTML = `<form class="dd-newc" id="dd-newc-form">
+      <h4>New contact</h4>
+      <label>Name<input name="name" value="${escapeHtml(g.name)}" required></label>
+      <label>Phone<input name="phone" type="tel" value="${escapeHtml(g.phone)}"></label>
+      <label>Email<input name="email" type="email" value="${escapeHtml(g.email)}"></label>
+      <div><button type="submit" class="btn primary sm">Add to this deal</button><button type="button" class="btn ghost sm" data-newc-cancel>Cancel</button></div>
+    </form>`;
+    box.hidden = false;
+    box.querySelector(g.name ? "input[name=phone]" : "input[name=name]")?.focus();
+    return;
+  }
   const hits = dealContactMatches(state.selectedDealId, q);
-  box.innerHTML = hits.length
+  box.innerHTML = (hits.length
     ? hits.map(c => `<button type="button" data-add-contact="${escapeHtml(c.id)}"><b>${escapeHtml(c.name)}</b><small>${escapeHtml([c.phone ? formatPhone(c.phone) : "", c.email || ""].filter(Boolean).join(" · ") || "No phone")}</small></button>`).join("")
-    : `<p>No contact matches "${escapeHtml(q.trim())}".</p>`;
+    : `<p>No contact matches "${escapeHtml(q.trim())}".</p>`)
+    + `<button type="button" class="dd-newc-btn" data-new-contact><b>+ Add a new contact${g.name ? `: ${escapeHtml(g.name)}` : ""}</b>${g.phone || g.email ? `<small>${escapeHtml([g.phone, g.email].filter(Boolean).join(" · "))}</small>` : ""}</button>`;
   box.hidden = false;
+}
+// Make the contact and put them on the deal (as its main contact if it has none).
+async function addNewContactToDeal(dealId, form){
+  const name = form.name.value.trim(), phone = form.phone.value.trim(), email = form.email.value.trim();
+  if (!name) return;
+  const digits = phone.replace(/\D/g, "");
+  const same = digits.length >= 7 && state.contacts.find(c => String(c.phone || "").replace(/\D/g, "").slice(-9) === digits.slice(-9));
+  if (same && !confirm(`${same.name} already has that number. Add ${same.name} instead of making a new contact?`)) return;
+  const contact = same || await DataLayer.insert("contacts", { name, phone, email, company: "", status: "lead", tags: "" });
+  if (!contact) return;
+  ddNewContact = false;
+  const search = $("#deal-detail-contact-search");
+  if (search) search.value = "";
+  renderDealContactResults();
+  const deal = state.deals.find(d => d.id === dealId);
+  if (deal && !deal.contact_id && !deal.contact_name) await DataLayer.update("deals", dealId, { contact_id: contact.id, contact_name: contact.name });
+  else await DataLayer.insert("deal_contacts", { deal_id: dealId, contact_id: contact.id, role: "Contact" });
+  rcToast(`${contact.name} added.`);
 }
 async function addExistingContactToDeal(dealId, contactId){
   if (!contactId) return;
@@ -15459,11 +15499,18 @@ function setupModals(){
   $("#deal-assignee")?.addEventListener("change", toggleDealCommissionFields);
   $("#deal-add-contact-row-btn")?.addEventListener("click", () => addDealContactRow());
   $("#deal-detail-save-notes")?.addEventListener("click", () => { if (state.selectedDealId) addDealNote(state.selectedDealId); });
-  $("#deal-detail-contact-search")?.addEventListener("input", renderDealContactResults);
+  $("#deal-detail-contact-search")?.addEventListener("input", () => { ddNewContact = false; renderDealContactResults(); });
   $("#deal-detail-contact-search")?.addEventListener("keydown", (ev) => { if (ev.key === "Escape"){ ev.target.value = ""; renderDealContactResults(); } });
   $("#deal-detail-contact-results")?.addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-new-contact]")){ ddNewContact = true; return renderDealContactResults(); }
+    if (ev.target.closest("[data-newc-cancel]")){ ddNewContact = false; return renderDealContactResults(); }
     const b = ev.target.closest("[data-add-contact]");
     if (b && state.selectedDealId) addExistingContactToDeal(state.selectedDealId, b.dataset.addContact);
+  });
+  $("#deal-detail-contact-results")?.addEventListener("submit", (ev) => {
+    const f = ev.target.closest("#dd-newc-form"); if (!f) return;
+    ev.preventDefault();
+    if (state.selectedDealId) addNewContactToDeal(state.selectedDealId, f);
   });
   $("#deal-detail-contacts")?.addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-dd-unlink]");
