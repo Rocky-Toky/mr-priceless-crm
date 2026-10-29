@@ -1673,6 +1673,7 @@ function applyWorkspace(){
   document.body.classList.toggle("workspace-delivery", ws === "delivery");
   document.body.classList.toggle("workspace-employees", ws === "employees");
   document.body.classList.toggle("workspace-leads", ws === "leads");
+  setTimeout(() => lqAlertCheck(), 0);
   $$("[data-workspace]").forEach(el => {
     el.style.display = ((el.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || el.dataset.workspace === ws) ? "" : "none";
   });
@@ -11790,6 +11791,95 @@ function lqNavCount(){
   const n = state.clientLeads.filter(lqDue).length;
   $$(".nav-lq-count").forEach(el => { el.hidden = !n; el.textContent = n; });
 }
+// A fresh enquiry nobody has rung yet gets a big pop-up in the Lead Follow Up
+// workspace (plus a chime, a flashing tab title and a desktop notification if
+// the CRM isn't in front), until someone calls them or presses Later. Only
+// enquiries from the last 30 minutes - older ones are just in the queue.
+const LQ_ALERT_MS = 30 * 60e3;
+const lqAlertSkip = new Set();
+let lqAlertId = null, lqAlertTick = null, lqAlertNotified = new Set(), lqAlertTitle = null;
+const lqFreshUncalled = () => state.clientLeads
+  .filter(l => (l.follow_status || "new") === "new" && !l.last_attempt_at && Date.now() - lqIn(l) < LQ_ALERT_MS && l.phone)
+  .sort((a, b) => lqIn(a) - lqIn(b));
+function lqChime(){
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.18, 0.36].forEach((t, i) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.value = [880, 1100, 1320][i]; o.type = "sine";
+      g.gain.setValueAtTime(0.0001, ac.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.25, ac.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.16);
+      o.connect(g); g.connect(ac.destination); o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.18);
+    });
+    setTimeout(() => ac.close(), 1000);
+  } catch(e){}
+}
+function lqAlertClose(){
+  $("#lq-alert")?.remove();
+  lqAlertId = null;
+  clearInterval(lqAlertTick); lqAlertTick = null;
+  if (lqAlertTitle){ clearInterval(lqAlertTitle); lqAlertTitle = null; document.title = document.title.replace(/^New lead - call now · /, ""); }
+}
+function lqAlertCheck(){
+  if (!document.body.classList.contains("workspace-leads")) return lqAlertClose();
+  const waiting = lqFreshUncalled().filter(l => !lqAlertSkip.has(l.id));
+  const l = waiting[0];
+  if (!l) return lqAlertClose();
+  const first = (l.name || "").split(" ")[0] || "them", biz = lqBizName(lqClient(l)) || "a client";
+  const isNew = lqAlertId !== l.id;
+  lqAlertId = l.id;
+  let box = $("#lq-alert");
+  // Already showing this lead: leave it be, so the buttons don't redraw under a click.
+  const sig = `${l.id}|${waiting.length}`;
+  if (box && box.dataset.sig === sig) return;
+  if (!box){ box = document.createElement("div"); box.id = "lq-alert"; box.className = "lq-alert"; box.setAttribute("role", "alertdialog"); box.setAttribute("aria-modal", "true"); document.body.appendChild(box); }
+  box.dataset.sig = sig;
+  box.innerHTML = `<div class="lq-alert-card">
+    <div class="lq-alert-ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.79 19.79 0 012.12 4.18 2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0122 16.92z"/></svg></div>
+    <p class="lq-alert-kicker">New enquiry - call now</p>
+    <h2>${escapeHtml(l.name || "New lead")}</h2>
+    <p class="lq-alert-for">for <b>${escapeHtml(biz)}</b>${l.form_name ? ` · ${escapeHtml(lqNice(l.form_name))}` : ""}</p>
+    <p class="lq-alert-phone">${escapeHtml(formatPhone(l.phone))}</p>
+    <p class="lq-alert-age" data-lq-age="${escapeHtml(l.id)}"></p>
+    <button type="button" class="lq-alert-call" data-lq-alert="call">Call ${escapeHtml(first)} now</button>
+    <div class="lq-alert-more">
+      <button type="button" data-lq-alert="open">See their details</button>
+      <button type="button" data-lq-alert="later">Later</button>
+    </div>
+    ${waiting.length > 1 ? `<p class="lq-alert-queue">${waiting.length - 1} more new ${waiting.length === 2 ? "enquiry" : "enquiries"} waiting after this one</p>` : ""}
+  </div>`;
+  const age = () => {
+    const el = $("#lq-alert [data-lq-age]"); if (!el) return;
+    const ms = Date.now() - lqIn(l), m = Math.floor(ms / 60000), sec = Math.floor(ms / 1000) % 60;
+    el.textContent = `Came in ${m ? `${m} min ${sec} sec` : `${sec} sec`} ago`;
+    el.classList.toggle("late", ms > LQ_FAST_MS);
+  };
+  age();
+  clearInterval(lqAlertTick); lqAlertTick = setInterval(age, 1000);
+  if (isNew && !lqAlertNotified.has(l.id)){
+    lqAlertNotified.add(l.id);
+    lqChime();
+    if (document.hidden){
+      try { if (window.Notification && Notification.permission === "granted") new Notification(`New lead for ${biz} - call now`, { body: `${l.name || "New lead"} · ${formatPhone(l.phone)}`, tag: "lq-new-" + l.id, requireInteraction: true }); } catch(e){}
+      if (!lqAlertTitle){ const base = document.title; let on = false; lqAlertTitle = setInterval(() => { on = !on; document.title = on ? "New lead - call now · " + base.replace(/^New lead - call now · /, "") : base.replace(/^New lead - call now · /, ""); if (!document.hidden){ clearInterval(lqAlertTitle); lqAlertTitle = null; document.title = base.replace(/^New lead - call now · /, ""); } }, 1000); }
+    }
+  }
+}
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-lq-alert]");
+  if (!b) return;
+  const l = state.clientLeads.find(x => x.id === lqAlertId);
+  const act = b.dataset.lqAlert;
+  if (act === "later"){ if (lqAlertId) lqAlertSkip.add(lqAlertId); lqAlertClose(); lqAlertCheck(); return; }
+  if (!l) return lqAlertClose();
+  lqAlertSkip.add(l.id);
+  lqAlertClose();
+  lqSel = l.id; lqPending = null;
+  if (state.page !== "lead-queue") goPage("lead-queue");
+  renderLeadQueue();
+  if (act === "call") placeCall(l.phone, l.name, lqCountry(l.phone));
+});
 // How each client's lead sync is going (lead_sync_status), for the "last
 // checked" line and the sync health list on Results.
 async function lqLoadSync(force){
@@ -13088,6 +13178,7 @@ function fuRemind(){
   }
   fuLastCheck = now;
   fuNavCount();
+  lqAlertCheck();
   if (state.page === "lead-followups") renderFollowUps();
 }
 function setupFollowUpsUi(){
@@ -13358,7 +13449,7 @@ const RENDERERS = [
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
   [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
-  [renderLeadQueue, ["lead-queue"]], [renderLeadCalls, ["lead-calls"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [renderLeadSchedule, ["lead-schedule"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]],
+  [renderLeadQueue, ["lead-queue"]], [renderLeadCalls, ["lead-calls"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [renderLeadSchedule, ["lead-schedule"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]], [lqAlertCheck, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
