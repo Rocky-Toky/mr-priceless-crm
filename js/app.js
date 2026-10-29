@@ -12011,7 +12011,7 @@ function renderLeadQueue(){
   const row = (l) => {
     const c = lqClient(l), st = l.follow_status || "new", waited = now - lqIn(l);
     const tone = st === "new" ? (lqBacklog(l) ? "due" : waited > LQ_FAST_MS ? "late" : "hot") : lqIsOpen(l) ? (lqDue(l) ? "due" : "later") : "done";
-    const when = st === "new" ? lqShortAgo(waited) : lqIsOpen(l) ? (lqDue(l) ? (st === "call_back" ? "Now" : `Try ${l.attempts + 1}`) : lqClock(l.next_attempt_at)) : (LQ_STATUS_LABEL[st] || st);
+    const when = st === "new" ? lqShortAgo(waited) : lqIsOpen(l) ? (lqDue(l) ? (st === "call_back" ? "Now" : `Try ${l.attempts + 1}`) : lqClock(l.next_attempt_at)) : (st === "site_visit" && lqVisitIsConsult(l) ? "Consultation booked" : LQ_STATUS_LABEL[st] || st);
     return `<button type="button" class="lq3-row ${tone}${l.id === lqSel ? " active" : ""}" data-lq-sel="${escapeHtml(l.id)}">
       <span class="lq3-av">${escapeHtml(lqInitials(l.name))}</span>
       <span class="lq3-row-id"><b>${escapeHtml(l.name || l.phone || "No name")}</b><small>${escapeHtml([lqBizName(c), lqStageName(l)].filter(Boolean).join(" · "))}</small></span>
@@ -12074,13 +12074,18 @@ function lqAddFormHtml(){
 
 // Times for the booking / call-back pickers, 7am to 7:30pm.
 const LQ_TIMES = Array.from({ length: 26 }, (_, i) => { const h = 7 + Math.floor(i / 2), m = i % 2 ? 30 : 0; return [`${String(h).padStart(2, "0")}:${m ? "30" : "00"}`, `${h % 12 || 12}:${m ? "30" : "00"} ${h < 12 ? "am" : "pm"}`]; });
-function lqWhenPicker(kind){
+// Some clients (BB Build) run consultation calls through the site visit stage
+// and calendar in their GoHighLevel, so for them the site visit button books a
+// consultation call (clients.lead_visit_is_consult, sql/099).
+function lqVisitIsConsult(l){ return !!lqClient(l)?.lead_visit_is_consult; }
+function lqOutLabel(l, k){ return k === "site_visit" && lqVisitIsConsult(l) ? "Consultation call booked" : LQ_OUTCOMES[k]?.label || k; }
+function lqWhenPicker(kind, l){
   const today = localDayStr(), tmr = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDayStr(t); })();
   const quick = kind === "call_back"
     ? [["60", "In an hour"], ["today-16", "Today 4pm"], ["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]]
     : [["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"], ...(kind === "consult_call" ? [["asap", "ASAP - no set time"]] : [])];
   return `<div class="lq3-when">
-    <p>${kind === "site_visit" ? "When is the site visit?" : kind === "consult_call" ? "When is the consultation call?" : "When should you call back?"}</p>
+    <p>${kind === "site_visit" && !(l && lqVisitIsConsult(l)) ? "When is the site visit?" : kind === "consult_call" || kind === "site_visit" ? "When is the consultation call?" : "When should you call back?"}</p>
     <div class="lq3-chips">${quick.map(([k, l]) => `<button type="button" data-lq-quick="${k}">${l}</button>`).join("")}</div>
     ${kind === "consult_call" ? `<input type="hidden" name="asap" value=""><p class="lq3-asap-note">No time gets booked. They go into the consultation stage in GoHighLevel and the client rings them as soon as they can.</p>` : ""}
     <div class="lq3-when-pick">
@@ -12095,8 +12100,9 @@ function lqWhenPicker(kind){
 // in their "Scope of work" custom field - not the notes).
 function lqBookingFields(l, kind){
   const addr = lqDrafts[l.id + ":address"] ?? l.address ?? "", scope = lqDrafts[l.id + ":scope"] ?? l.job_scope ?? "";
+  const visit = kind === "site_visit" && !lqVisitIsConsult(l);
   return `<div class="lq3-book">
-    <label>${kind === "site_visit" ? "Address of the job" : "Their address"}${kind === "site_visit" ? "" : " <small>(if they gave it)</small>"}<input name="address" autocomplete="off" placeholder="e.g. 12 Smith Street, Petone, Lower Hutt" value="${escapeHtml(addr)}" ${kind === "site_visit" ? "required" : ""}></label>
+    <label>${visit ? "Address of the job" : "Their address"}${visit ? "" : " <small>(if they gave it)</small>"}<input name="address" autocomplete="off" placeholder="e.g. 12 Smith Street, Petone, Lower Hutt" value="${escapeHtml(addr)}" ${visit ? "required" : ""}></label>
     <label>Scope of work<textarea name="scope" rows="3" required placeholder="What needs doing? e.g. New 40m² concrete driveway, old one needs removing">${escapeHtml(scope)}</textarea></label>
   </div>`;
 }
@@ -12119,7 +12125,7 @@ function lqDetailHtml(l){
     : st === "new" ? { tone: late ? "late" : "hot", text: `New enquiry · ${lqAgo(waited)} ago${late ? " · call now" : ""}` }
     : st === "call_back" ? { tone: "blue", text: `Call back ${lqWhenWords(l.next_attempt_at)}` }
     : st === "no_answer" ? { tone: "amber", text: `Call ${l.attempts + 1} of ${LQ_MAX_TRIES} · no answer ${lastTry ? lqWhenWords(lastTry.at) : "last time"}` }
-    : { tone: "done", text: `${LQ_STATUS_LABEL[st] || st}${l.booked_for ? ` · quote ${lqWhenWords(l.booked_for)}` : ""}` };
+    : { tone: "done", text: `${st === "site_visit" && lqVisitIsConsult(l) ? "Consultation booked" : LQ_STATUS_LABEL[st] || st}${l.booked_for ? ` · quote ${lqWhenWords(l.booked_for)}` : ""}` };
   // The job itself: an answer to "what are you looking to renovate / need
   // done" - never the timing, area, size or budget questions, and not a
   // vague "Other".
@@ -12142,7 +12148,7 @@ function lqDetailHtml(l){
   const B = (t) => `<b>${escapeHtml(t)}</b>`;
   const step = (n, title, body) => `<li><span class="lq3-n">${n}</span><div><h4>${title}</h4>${body}</div></li>`;
   const quote = (html) => `<p class="lq3-say">${html}</p>`;
-  const bigOut = (k) => `<button type="button" class="lq3-out ${k}${lqPending === k ? " picked" : ""}" data-lq-out="${k}">${lqIcon(k)}<span><b>${LQ_OUTCOMES[k].label}</b><small>${LQ_OUTCOMES[k].hint}</small></span></button>`;
+  const bigOut = (k) => `<button type="button" class="lq3-out ${k}${lqPending === k ? " picked" : ""}" data-lq-out="${k}">${lqIcon(k)}<span><b>${lqOutLabel(l, k)}</b><small>${k === "site_visit" && lqVisitIsConsult(l) ? "Booked in their calendar" : LQ_OUTCOMES[k].hint}</small></span></button>`;
   const smallOut = (k) => `<button type="button" class="lq3-pill ${lqPending === k ? "picked" : ""}" data-lq-out="${k}">${lqIcon(k)}${LQ_OUTCOMES[k].label}</button>`;
   return `
     <header class="lq3-hero ${status.tone}">
@@ -12221,11 +12227,11 @@ function lqDetailHtml(l){
 
     <form class="lq3-panel lq3-outcome" data-lq-form="outcome">
       <h3>${lqIcon("phone")}How did the call go?</h3>
-      <div class="lq3-outs">${["site_visit", ...(lqHasConsult(l) ? ["consult_call"] : []), "no_answer", "call_back"].map(bigOut).join("")}</div>
+      <div class="lq3-outs">${["site_visit", ...(lqHasConsult(l) && !lqVisitIsConsult(l) ? ["consult_call"] : []), "no_answer", "call_back"].map(bigOut).join("")}</div>
       <div class="lq3-pills">${["not_interested", "disqualified", "wrong_number"].map(smallOut).join("")}</div>
-      ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
+      ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending, l) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? lqBookingFields(l, lqPending) : ""}
-      ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" ? "site visit" : "consultation"} stage, the time's booked in their calendar (unless it's ASAP), and the address and scope of work go on the contact.</p>` : ""}
+      ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" && !lqVisitIsConsult(l) ? "site visit" : "consultation"} stage, the time's booked in their calendar (unless it's ASAP), and the address and scope of work go on the contact.</p>` : ""}
       ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's call ${LQ_MAX_TRIES} of ${LQ_MAX_TRIES}. They'll move to "No answer" in ${escapeHtml(biz)}'s GoHighLevel.` : (() => { const t = lqNextTryInfo(l.attempts + 1); const gap = lqGapWords(l.attempts + 1); return `They'll come back ${gap === "tomorrow" ? "" : gap + " - "}${escapeHtml(lqWhenWords(t.at))}, in ${escapeHtml(/^(calls|calling)$/i.test(t.name) ? "calling time" : t.name.toLowerCase())} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`; })()}</p>` : ""}
       ${["not_interested", "disqualified", "wrong_number"].includes(lqPending) ? `<p class="lq3-tip">They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.</p>` : ""}
       <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
@@ -12244,7 +12250,7 @@ function lqBeforeHtml(l, log){
   return `<section class="lq3-before">
     <h3>${lqIcon("phone")}Called before: ${log.length} time${log.length === 1 ? "" : "s"}${log[0] ? ` <small>· last ${escapeHtml(lqTime(log[0].at))}</small>` : ""}</h3>
     ${!noted && l.follow_notes ? `<p class="lq3-before-note">${escapeHtml(l.follow_notes)}</p>` : ""}
-    ${log.length ? `<ol>${shown.map(x => `<li class="${escapeHtml(x.outcome)}">${lqIcon(x.outcome)}<div><b>${escapeHtml(LQ_OUTCOMES[x.outcome]?.label || x.outcome)}</b><span>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</span>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div></li>`).join("")}</ol>` : ""}
+    ${log.length ? `<ol>${shown.map(x => `<li class="${escapeHtml(x.outcome)}">${lqIcon(x.outcome)}<div><b>${escapeHtml(lqOutLabel(l, x.outcome))}</b><span>${escapeHtml(lqTime(x.at))}${x.by ? " · " + escapeHtml(lqWho(x.by)) : ""}</span>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div></li>`).join("")}</ol>` : ""}
     ${log.length > 3 ? `<button type="button" class="lq3-fold" data-lq-act="history">${lqShowHistory ? "Show fewer" : `Show all ${log.length} calls`}</button>` : ""}
   </section>`;
 }
@@ -12269,7 +12275,7 @@ async function lqSaveOutcome(l, outcome, note, when, job = {}){
   lqSel = next?.id || null;
   rcToast(outcome === "no_answer"
     ? (patch.follow_status === "unreachable" ? `That's ${LQ_MAX_TRIES} calls with no answer, so they're marked "No answer".` : `Saved. They'll come back to you ${lqWhenWords(patch.next_attempt_at)}.`)
-    : `Saved: ${LQ_OUTCOMES[outcome].label}.${next ? " Here's the next person." : ""}`);
+    : `Saved: ${lqOutLabel(l, outcome)}.${next ? " Here's the next person." : ""}`);
   renderLeadQueue();
   $("#lq-root")?.scrollIntoView({ block: "start" });
   if (IS_CONFIGURED){
@@ -13306,7 +13312,7 @@ function setupLeadFollowUpUi(){
         if (LQ_OUTCOMES[lqPending]?.booking){
           job.address = String(v.address || "").trim().slice(0, 240);
           job.scope = String(v.scope || "").trim().slice(0, 2000);
-          if (lqPending === "site_visit" && !job.address){ rcToast("Add the address of the job first."); return; }
+          if (lqPending === "site_visit" && !lqVisitIsConsult(l) && !job.address){ rcToast("Add the address of the job first."); return; }
           if (!job.scope){ rcToast("Add the scope of work first."); return; }
         }
         return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when, job);
