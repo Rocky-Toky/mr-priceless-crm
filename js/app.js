@@ -11896,10 +11896,11 @@ function lqWhenPicker(kind){
   const today = localDayStr(), tmr = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDayStr(t); })();
   const quick = kind === "call_back"
     ? [["60", "In an hour"], ["today-16", "Today 4pm"], ["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]]
-    : [["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]];
+    : [["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"], ...(kind === "consult_call" ? [["asap", "ASAP - no set time"]] : [])];
   return `<div class="lq3-when">
     <p>${kind === "site_visit" ? "When is the site visit?" : kind === "consult_call" ? "When is the consultation call?" : "When should you call back?"}</p>
     <div class="lq3-chips">${quick.map(([k, l]) => `<button type="button" data-lq-quick="${k}">${l}</button>`).join("")}</div>
+    ${kind === "consult_call" ? `<input type="hidden" name="asap" value=""><p class="lq3-asap-note">No time gets booked. They go into the consultation stage in GoHighLevel and the client rings them as soon as they can.</p>` : ""}
     <div class="lq3-when-pick">
       <label>Day<input type="date" name="day" value="${kind === "call_back" ? today : tmr}" required></label>
       <label>Time<select name="time" required><option value="">Pick a time</option>${LQ_TIMES.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
@@ -12042,7 +12043,7 @@ function lqDetailHtml(l){
       <div class="lq3-pills">${["not_interested", "disqualified", "wrong_number"].map(smallOut).join("")}</div>
       ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? lqBookingFields(l, lqPending) : ""}
-      ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" ? "site visit" : "consultation"} stage, the time's booked in their calendar, and the address and scope of work go on the contact.</p>` : ""}
+      ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" ? "site visit" : "consultation"} stage, the time's booked in their calendar (unless it's ASAP), and the address and scope of work go on the contact.</p>` : ""}
       ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's call ${LQ_MAX_TRIES} of ${LQ_MAX_TRIES}. They'll move to "No answer" in ${escapeHtml(biz)}'s GoHighLevel.` : `They'll come back ${lqGapWords(l.attempts + 1)} in the ${lqWaveOf(lqNextTry(l.attempts + 1)) === "am" ? "morning" : "afternoon"} wave, ${escapeHtml(lqWhenWords(lqNextTry(l.attempts + 1)))} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`}</p>` : ""}
       ${["not_interested", "disqualified", "wrong_number"].includes(lqPending) ? `<p class="lq3-tip">They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.</p>` : ""}
       <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
@@ -12989,6 +12990,13 @@ function setupLeadFollowUpUi(){
       if (t.dataset.lqOut){ lqPending = lqPending === t.dataset.lqOut ? null : t.dataset.lqOut; return renderLeadQueue(); }
       if (t.dataset.lqQuick){
         const form = t.closest("form"), k = t.dataset.lqQuick, d = new Date();
+        // ASAP: no day or time - the client calls them as soon as they can.
+        const asap = k === "asap", wrap = t.closest(".lq3-when");
+        if (form.elements.asap) form.elements.asap.value = asap ? "1" : "";
+        wrap.classList.toggle("asap", asap);
+        form.elements.day.required = form.elements.time.required = !asap;
+        $$(".lq3-chips button", form).forEach(b => b.classList.toggle("picked", b === t));
+        if (asap) return;
         if (/^\d+$/.test(k)) d.setMinutes(d.getMinutes() + Number(k) + (30 - (d.getMinutes() + Number(k)) % 30) % 30);
         else { const [day, h] = k.split("-"); if (day === "tomorrow") d.setDate(d.getDate() + 1); d.setHours(Number(h), 0, 0, 0); }
         form.elements.day.value = localDayStr(d);
@@ -13016,6 +13024,10 @@ function setupLeadFollowUpUi(){
     });
     root.addEventListener("input", (ev) => {
       if (ev.target.matches('form[data-lq-form="outcome"] textarea[name="note"]') && lqSel) lqDrafts[lqSel] = ev.target.value;
+      if (ev.target.matches('form[data-lq-form="outcome"] [name="day"], form[data-lq-form="outcome"] [name="time"]')){
+        const form = ev.target.form, wrap = ev.target.closest(".lq3-when");
+        if (form.elements.asap?.value){ form.elements.asap.value = ""; wrap.classList.remove("asap"); form.elements.day.required = form.elements.time.required = true; $$(".lq3-chips button", form).forEach(b => b.classList.remove("picked")); }
+      }
       if (ev.target.matches('form[data-lq-form="outcome"] [name="address"], form[data-lq-form="outcome"] [name="scope"]') && lqSel) lqDrafts[lqSel + ":" + ev.target.name] = ev.target.value;
     });
     root.addEventListener("submit", async (ev) => {
@@ -13027,7 +13039,7 @@ function setupLeadFollowUpUi(){
         const l = state.clientLeads.find(x => x.id === lqSel);
         if (!l || !lqPending) return;
         let when = null;
-        if (LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back"){
+        if ((LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back") && !(lqPending === "consult_call" && v.asap === "1")){
           if (!v.day || !v.time){ rcToast("Pick a day and a time first."); return; }
           when = new Date(`${v.day}T${v.time}:00`).toISOString();
         }

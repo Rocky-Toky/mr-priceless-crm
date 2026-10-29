@@ -3662,6 +3662,9 @@ body.workspace-leads .inbox-alert{display:none !important;}
 .lq3-chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 14px;}
 .lq3-chips button{padding:10px 16px;border:2px solid var(--lq-line);border-radius:12px;background:var(--white);font:inherit;font-size:16px;font-weight:700;color:var(--lq-ink);cursor:pointer;}
 .lq3-chips button.picked{background:var(--lq-ink);border-color:var(--lq-ink);color:var(--gold-bright);}
+.lq3-asap-note{display:none;margin:0;font-size:15.5px;font-weight:600;color:var(--lq-ink);}
+.lq3-when.asap .lq3-asap-note{display:block;}
+.lq3-when.asap .lq3-when-pick{display:none;}
 .lq3-when-pick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
 .lq3-when-pick label,.lq3-notes,.lq3-add label{display:flex;flex-direction:column;gap:6px;font-size:14.5px;font-weight:700;color:var(--lq-muted);}
 .lq3-notes{margin-top:18px;}
