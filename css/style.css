@@ -3647,6 +3647,10 @@ body.workspace-leads .inbox-alert{display:none !important;}
 .lq3-steps > li > div{min-width:0;flex:1;}
 .lq3-say{margin-top:8px;padding:14px 18px;border-radius:4px 16px 16px 16px;background:#f7f4ec;font-size:19px;line-height:1.55;}
 .lq3-say b{font-weight:700;color:var(--lq-ink);}
+.lq3-do{margin-top:12px;font-size:16px;line-height:1.5;color:var(--lq-ink);}
+.lq3-do b{font-weight:800;}
+.lq3-cue{margin:8px 0 0 18px;font-size:14.5px;font-style:italic;color:var(--lq-muted);}
+.lq3-cue::before{content:"↓ ";font-style:normal;}
 .lq3-checks{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;}
 .lq3-checks li{display:flex;align-items:flex-start;gap:10px;font-size:17px;line-height:1.45;}
 .lq3-checks .lq3-ic{width:18px;height:18px;margin-top:4px;color:var(--lq-green);}
