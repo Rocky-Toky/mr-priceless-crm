@@ -456,13 +456,14 @@ async function inspect(admin: any) {
 //   site_visit / consult_call  -> move to that stage, book it in their calendar
 //     (as the calendar's team member), and fill the address / Scope of Work fields
 //   not_interested / disqualified / wrong_number -> move to Disqualified
-//   call_back (call back later) -> move to Stuck
-//   unreachable (6 calls, no answer) -> move to Stuck (Rocky wants them there, not a No answer stage)
+//   call_back (call back later) and no_answer -> move to Stuck, so Rep to
+//     contact only holds leads nobody has rung yet
+//   unreachable (no answer on the 6th and last call) -> move to Disqualified
 // The stage and calendar come from lead_stage_map when set for that client,
 // otherwise the best match by name. Every move also leaves a note on the contact.
 const CAL_VERSION = "2021-04-15";
 const OUTCOME_STAGE: Record<string, "site_visit" | "consult" | "disqualified" | "no_answer" | "stuck"> = {
-  site_visit: "site_visit", consult_call: "consult", not_interested: "disqualified", disqualified: "disqualified", wrong_number: "disqualified", unreachable: "stuck", call_back: "stuck",
+  site_visit: "site_visit", consult_call: "consult", not_interested: "disqualified", disqualified: "disqualified", wrong_number: "disqualified", no_answer: "stuck", unreachable: "disqualified", call_back: "stuck",
 };
 const STAGE_MATCH: Record<string, RegExp[]> = {
   site_visit: [/site\s*visit.*(booked|arranged|scheduled|confirmed)/i, /(booked|arranged|scheduled).*site\s*visit/i, /site\s*visit/i, /quote\s*(visit|booked|appointment)/i, /measure|appointment\s*booked/i],
@@ -584,7 +585,7 @@ async function checkOutcomes(admin: any, onlyClient: string | null = null) {
         }
       }
       r.outcomes[outcome] = o;
-      if (outcome === "disqualified" || outcome === "wrong_number") continue; // same stage as not_interested
+      if (["disqualified", "wrong_number", "unreachable", "no_answer"].includes(outcome)) continue; // same stage as not_interested / call_back
       if (o.problem) r.problems.push(`${outcome}: ${o.problem}`);
       if (o.calendar_problem) r.problems.push(`${outcome} calendar: ${o.calendar_problem}`);
     }
@@ -653,7 +654,7 @@ async function fillJobFields(loc: string, token: string, contactId: string | nul
 async function applyOutcome(admin: any, leadId: string, outcome: string, when: string | null, note: string, job: { address?: string; scope?: string } = {}) {
   const kind = OUTCOME_STAGE[outcome];
   if (!kind) return { skipped: true };
-  const { data: lead } = await admin.from("client_leads").select("id, client_id, name, external_lead_id, ghl_contact_id").eq("id", leadId).maybeSingle();
+  const { data: lead } = await admin.from("client_leads").select("id, client_id, name, external_lead_id, ghl_contact_id, attempts").eq("id", leadId).maybeSingle();
   if (!lead) return { error: "Lead not found." };
   const isGhl = String(lead.external_lead_id || "").startsWith("ghl");
   if (!isGhl && !lead.ghl_contact_id) return { skipped: true, reason: "This lead didn't come from GoHighLevel." };
@@ -722,7 +723,7 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
   // Leave the notes on the contact so the client sees them. No caller name: clients
   // shouldn't know who on the team rang each lead.
   if (contactId) {
-    const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer after 6 calls", call_back: "Call back" };
+    const label: Record<string, string> = { site_visit: "Site visit booked", consult_call: "Consultation call booked", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", no_answer: `No answer (call ${Number(lead.attempts) || 1} of 6)`, unreachable: "No answer after 6 calls", call_back: "Call back" };
     const whenText = when ? ` for ${new Date(when).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : outcome === "consult_call" ? " - ASAP, no set time (please call them as soon as you can)" : "";
     try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: `${visitIsConsult ? "Consultation call booked" : label[outcome] || outcome}${whenText} - called by Mr Priceless.${note ? "\n\n" + note : ""}` }) }); result.note = true; }
     catch { /* a note is a nice-to-have */ }
