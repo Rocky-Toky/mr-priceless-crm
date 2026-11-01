@@ -12057,8 +12057,8 @@ function lqGuideHtml(){
     <h3>The calling process</h3>
     <ol>
       ${step(1, "New enquiries first - within 3 minutes", "Anyone who's just enquired goes to the top, the one waiting longest first. Your goal is to ring every new enquiry within 3 minutes of it coming in.")}
-      ${step(2, "No answer? Leave the message and press No answer", "They come back to you by themselves. If you rang in the morning, the next try is in the <b>afternoon wave</b> (from 2pm); if you rang in the afternoon, it's the <b>morning wave</b> (from 9am). That way you catch them at a different time of day each try.")}
-      ${step(3, "6 calls in all", "Day 1, day 2 and day 3 - one call each day. Then one more a <b>week</b> later, another a <b>week</b> after that, and a last one a <b>month</b> later. After the 6th no-answer, they move to \"No answer\" in the client's GoHighLevel and come off your list.")}
+      ${step(2, "No answer? Leave the message and press No answer", "They come back to you by themselves, at the start of your calling time on the day (see your Schedule). Your calling time changes through the week, so you catch them at a different time of day each try.")}
+      ${step(3, "6 calls in all", "Day 1, day 2 and day 3 - one call each day. Then one more a <b>week</b> later, another a <b>week</b> after that, and a last one a <b>month</b> later. After the 6th no-answer, they move to \"Stuck\" in the client's GoHighLevel and come off your list.")}
       ${step(4, "Call backs", "If they ask you to ring back, press Call back later and pick the time they asked for. They move to Stuck in the client's GoHighLevel and pop back up here at that time.")}
       ${step(5, "Then Rep to contact and Stuck", "When the new ones and the retries are done, work through the older leads sitting in the client's Rep to contact or Stuck stage - longest waiting first. Each lead shows its stage next to the client's name.")}
       ${step(6, "Booked, or not a fit", "Site visit or consultation booked: it goes straight into the client's GoHighLevel and calendar. Not interested, not a fit or wrong number: they move to Disqualified.")}
@@ -12154,6 +12154,14 @@ function lqDetailHtml(l){
   const B = (t) => `<b>${escapeHtml(t)}</b>`;
   const step = (n, title, body) => `<li><span class="lq3-n">${n}</span><div><h4>${title}</h4>${body}</div></li>`;
   const quote = (html) => `<p class="lq3-say">${html}</p>`;
+  // Plain instructions between the lines to read out, and a pause for their answer.
+  const todo = (html) => `<p class="lq3-do">${html}</p>`;
+  const cue = (t) => `<p class="lq3-cue">${escapeHtml(t)}</p>`;
+  // What they enquired about, for "regarding your {service} inquiry": their form
+  // answer, else the form's name, else the client's trade.
+  const service = String(job || (realForm ? lqNice(realForm) : "") || trade || "").trim().toLowerCase()
+    .replace(/(\s*[-|:]?\s*\b(new\s+)?(enquiry|enquiries|inquiry|inquiries|form|leads?|quote\s*requests?|requests?|campaign)\b)+\s*$/i, "").trim().slice(0, 60);
+  const visitIsConsult = lqVisitIsConsult(l), hasConsult = lqHasConsult(l) && !visitIsConsult;
   const bigOut = (k) => `<button type="button" class="lq3-out ${k}${lqPending === k ? " picked" : ""}" data-lq-out="${k}">${lqIcon(k)}<span><b>${lqOutLabel(l, k)}</b><small>${k === "site_visit" && lqVisitIsConsult(l) ? "Booked in their calendar" : LQ_OUTCOMES[k].hint}</small></span></button>`;
   const smallOut = (k) => `<button type="button" class="lq3-pill ${lqPending === k ? "picked" : ""}" data-lq-out="${k}">${lqIcon(k)}${LQ_OUTCOMES[k].label}</button>`;
   return `
@@ -12217,16 +12225,36 @@ function lqDetailHtml(l){
     <section class="lq3-panel lq3-script">
       <h3>${lqIcon("chat")}What to say</h3>
       <ol class="lq3-steps">
-        ${step(1, "Say hello", quote(`Hi ${B(first)}, it's Carmen from ${B(biz)}. You just sent through an enquiry${job ? ` about ${B(job.toLowerCase())}` : " on Facebook"}. Have you got a quick minute?`))}
-        ${step(2, "Ask about the job", quote(`Awesome. Tell me a bit about what you're looking to get done?`))}
-        ${step(3, "Check it's a fit", lqFitFor === c?.id
+        ${step(1, "Say hello and ask about the job", `${quote(`Hey ${B(first)}, it's Carmen from ${B(biz)} regarding your ${service ? B(service) + " " : ""}inquiry.`)}
+          ${cue("Wait for them to answer")}
+          ${quote(`What were you looking to get done?`)}`)}
+        ${step(2, `Make sure the job suits ${escapeHtml(biz)}`, lqFitFor === c?.id
           ? `<form class="lq3-fit-form" data-lq-form="fit">
               <p class="lq3-muted">What makes a good job for ${B(biz)}? One per line - Carmen sees these on every ${escapeHtml(biz)} lead.</p>
               <textarea name="fit" rows="5" placeholder="e.g. Driveways and patios over 30m²&#10;Within 40km of Hamilton&#10;Wants it done in the next 3 months&#10;Budget over $5,000">${escapeHtml(checks.join("\n"))}</textarea>
               <div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="fit-cancel">Cancel</button></div>
             </form>`
-          : `${checks.length ? `<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : `<p class="lq3-muted">How big is the job, what's the budget, when do they want it done, and where is it?</p>`}${canFit ? `<button type="button" class="lq3-textbtn lq3-fit-edit" data-lq-act="fit">${checks.length ? `Change these for ${escapeHtml(biz)}` : `+ Add what makes a good job for ${escapeHtml(biz)}`}</button>` : ""}`)}
-        ${step(4, "Book the quote", quote(`Perfect. ${B(biz)} can come out and give you a quote. Does earlier or later in the week suit, morning or afternoon?`))}
+          : `${todo(`Check the job matches what ${B(biz)} wants${checks.length ? ":" : ". Find out how big it is, the budget and when they want it done."}`)}
+            ${checks.length ? `<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : ""}
+            ${canFit ? `<button type="button" class="lq3-textbtn lq3-fit-edit" data-lq-act="fit">${checks.length ? `Change these for ${escapeHtml(biz)}` : `+ Add what makes a good job for ${escapeHtml(biz)}`}</button>` : ""}
+            ${todo("If you don't know something yet, ask:")}
+            ${quote(`Roughly how big is the job, and when are you hoping to get it done?`)}
+            ${todo(`Not a match? Say this, then press <b>Not a fit</b>:`)}
+            ${quote(`Thanks so much for getting in touch, ${B(first)}. Unfortunately that's not a job ${B(biz)} takes on, so I don't want to waste your time.`)}`)}
+        ${step(3, "Get the address and check it's in their area", `${quote(place ? `And is the job at ${B(lqNice(place))}?` : `And what's the address of the job?`)}
+          ${todo(coverage ? `Check it's somewhere ${B(biz)} covers: ${B(coverage)}` : region ? `Check it's in ${B(region)}, where ${B(biz)} works.` : `Check it's somewhere ${B(biz)} works (see Where they are, above).`)}
+          ${todo(`Too far away? Say this, then press <b>Not a fit</b>:`)}
+          ${quote(`Ah, unfortunately that's outside the area ${B(biz)} covers. Sorry about that, and thanks for getting in touch.`)}`)}
+        ${step(4, visitIsConsult ? "Book the consultation call" : "Book the site visit", `${visitIsConsult
+          ? `${quote(`Perfect. The next step is a quick call with ${B(biz)} to talk it through. What day and time suits you best?`)}
+            ${todo(`Then press <b>Consultation call booked</b> below and put in the time.`)}`
+          : `${quote(`Perfect. ${B(biz)} can come out and have a look and give you a quote. Does earlier or later in the week suit, morning or afternoon?`)}
+            ${todo(`Then press <b>Site visit booked</b> below and put in the time.`)}
+            ${hasConsult ? `${todo(`If a phone call suits them better (or they can't do a visit), say:`)}
+            ${quote(`No worries. ${B(biz)} can give you a call first to talk it through. Is there a day and time that suits, or would you like them to call you as soon as they can?`)}
+            ${todo(`Then press <b>Consultation call booked</b> and put in the time, or pick <b>ASAP</b>.`)}` : ""}`}
+          ${todo("Finish with:")}
+          ${quote(`Awesome, that's all booked in. Thanks ${B(first)}, have a great day!`)}`)}
       </ol>
       <details class="lq3-vm"><summary>If nobody answers, leave this message</summary>${quote(`Hi ${escapeHtml(first)}, it's Carmen from ${escapeHtml(biz)} about your enquiry. I'll try you again shortly, no need to call back.`)}</details>
     </section>
