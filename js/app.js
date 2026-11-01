@@ -11634,7 +11634,7 @@ const LQ_OUTCOMES = {
   disqualified: { label: "Not a fit", icon: "🚫", hint: "Wrong area, too small, not our work", cls: "grey", final: true },
   wrong_number: { label: "Wrong number", icon: "❌", hint: "The number doesn't reach them", cls: "grey", final: true },
 };
-const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", site_visit: "Site visit booked", consult_call: "Consultation booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer - 5 tries", in_ghl: "Moved on in GoHighLevel", old: "Old" };
+const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", site_visit: "Site visit booked", consult_call: "Consultation booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer - 6 tries", in_ghl: "Moved on in GoHighLevel", old: "Old" };
 // What a booking is, and which outcomes also move the lead in the client's GoHighLevel.
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
 const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable", "call_back"]);
@@ -12238,7 +12238,7 @@ function lqDetailHtml(l){
       ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending, l) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? lqBookingFields(l, lqPending) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" && !lqVisitIsConsult(l) ? "site visit" : "consultation"} stage, the time's booked in their calendar (unless it's ASAP), and the address and scope of work go on the contact.</p>` : ""}
-      ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's call ${LQ_MAX_TRIES} of ${LQ_MAX_TRIES}. They'll move to "No answer" in ${escapeHtml(biz)}'s GoHighLevel.` : (() => { const t = lqNextTryInfo(l.attempts + 1); const gap = lqGapWords(l.attempts + 1); return `They'll come back ${gap === "tomorrow" ? "" : gap + " - "}${escapeHtml(lqWhenWords(t.at))}, in ${escapeHtml(/^(calls|calling)$/i.test(t.name) ? "calling time" : t.name.toLowerCase())} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`; })()}</p>` : ""}
+      ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's call ${LQ_MAX_TRIES} of ${LQ_MAX_TRIES}. They'll move to "Stuck" in ${escapeHtml(biz)}'s GoHighLevel.` : (() => { const t = lqNextTryInfo(l.attempts + 1); const gap = lqGapWords(l.attempts + 1); return `They'll come back ${gap === "tomorrow" ? "" : gap + " - "}${escapeHtml(lqWhenWords(t.at))}, in ${escapeHtml(/^(calls|calling)$/i.test(t.name) ? "calling time" : t.name.toLowerCase())} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`; })()}</p>` : ""}
       ${["not_interested", "disqualified", "wrong_number"].includes(lqPending) ? `<p class="lq3-tip">They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.</p>` : ""}
       <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
       <button type="submit" class="lq3-save" ${lqPending ? "" : "disabled"}>${lqPending ? `Save and go to the next person ${lqIcon("arrow")}` : "Choose how the call went"}</button>
@@ -12457,7 +12457,7 @@ function lqHasConsult(l){
 const LQ_FLOW_STAGE_NAMES = { rep_to_contact: "Rep to contact", site_visit: "Site visit booked", consult: "Consultation call booked", disqualified: "Disqualified", stuck: "Stuck", no_answer: "No answer" };
 // Which stage and calendar each outcome goes to in a client's GoHighLevel.
 // Blank = matched by name automatically (shown as "Automatic: ...").
-const LQ_STAGE_FIELDS = [["site_visit_stage", "Site visit booked", "stage"], ["consult_stage", "Consultation call booked", "stage"], ["disqualified_stage", "Not interested / Not a fit / Wrong number", "stage"], ["no_answer_stage", "No answer after 5 calls", "stage"], ["stuck_stage", "Call back later", "stage"], ["site_visit_calendar", "Calendar for site visits", "calendar"], ["consult_calendar", "Calendar for consultation calls", "calendar"]];
+const LQ_STAGE_FIELDS = [["site_visit_stage", "Site visit booked", "stage"], ["consult_stage", "Consultation call booked", "stage"], ["disqualified_stage", "Not interested / Not a fit / Wrong number", "stage"], ["stuck_stage", "Call back later / No answer after the last call", "stage"], ["site_visit_calendar", "Calendar for site visits", "calendar"], ["consult_calendar", "Calendar for consultation calls", "calendar"]];
 function lqStagesHtml(c){
   const d = lqSetupCache[c.id];
   if (!d) return `<div class="lr-connect"><p>Loading ${escapeHtml(c.name)}'s pipeline and calendars…</p></div>`;

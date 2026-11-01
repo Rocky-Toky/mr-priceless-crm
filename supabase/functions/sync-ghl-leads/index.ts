@@ -457,12 +457,12 @@ async function inspect(admin: any) {
 //     (as the calendar's team member), and fill the address / Scope of Work fields
 //   not_interested / disqualified / wrong_number -> move to Disqualified
 //   call_back (call back later) -> move to Stuck
-//   unreachable (6 calls, no answer) -> move to No answer
+//   unreachable (6 calls, no answer) -> move to Stuck (Rocky wants them there, not a No answer stage)
 // The stage and calendar come from lead_stage_map when set for that client,
 // otherwise the best match by name. Every move also leaves a note on the contact.
 const CAL_VERSION = "2021-04-15";
 const OUTCOME_STAGE: Record<string, "site_visit" | "consult" | "disqualified" | "no_answer" | "stuck"> = {
-  site_visit: "site_visit", consult_call: "consult", not_interested: "disqualified", disqualified: "disqualified", wrong_number: "disqualified", unreachable: "no_answer", call_back: "stuck",
+  site_visit: "site_visit", consult_call: "consult", not_interested: "disqualified", disqualified: "disqualified", wrong_number: "disqualified", unreachable: "stuck", call_back: "stuck",
 };
 const STAGE_MATCH: Record<string, RegExp[]> = {
   site_visit: [/site\s*visit.*(booked|arranged|scheduled|confirmed)/i, /(booked|arranged|scheduled).*site\s*visit/i, /site\s*visit/i, /quote\s*(visit|booked|appointment)/i, /measure|appointment\s*booked/i],
@@ -478,7 +478,7 @@ const CAL_MATCH: Record<string, RegExp[]> = {
 // Does this client's GoHighLevel have every stage the calling flow uses?
 // found = the stage each one goes to (their pick under Stages, else the best
 // name match, first pipeline first); missing = ones with nowhere to go.
-const FLOW_KINDS = ["rep_to_contact", "site_visit", "consult", "disqualified", "stuck", "no_answer"];
+const FLOW_KINDS = ["rep_to_contact", "site_visit", "consult", "disqualified", "stuck"];
 function stageCheck(pipes: any[], map: any) {
   const all = pipes.flatMap((p: any) => (p.stages || []).map((st: any) => ({ id: st.id, name: st.name || "" })));
   const main = (pipes[0]?.stages || []).map((st: any) => ({ id: st.id, name: st.name || "" }));
