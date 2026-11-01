@@ -2132,6 +2132,7 @@ function nzParts(d){
   return { y: +o.year, m: +o.month, d: +o.day, h: +o.hour % 24, mi: +o.minute };
 }
 const nzDayStr = (d = new Date()) => { const p = nzParts(d); return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`; };
+const nzDow = (day) => new Date(day + "T12:00:00Z").getUTCDay(); // 0 = Sunday
 const nzAddDays = (day, n) => { const t = new Date(day + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 // "2026-10-29" + "14:00" in NZ -> that moment.
 function nzToDate(day, time){
@@ -11620,14 +11621,15 @@ function setupEmployeesUi(){
    new leads come first - the goal is a call within 3 minutes - then retries
    that are due, then older leads sitting in Rep to contact / Stuck, longest
    waiting first. A no-answer is tried again 3 days in a row, then a week
-   later, another week later and a month later (6 calls in all, alternating
-   morning and afternoon), before the lead is marked unreachable. */
+   later, another week later and a month later (6 calls in all, at Carmen's
+   calling times, NZ time). The first no-answer moves the lead to Stuck in the
+   client's GHL; after the last it's marked unreachable and goes to Disqualified. */
 const LQ_OPEN = new Set(["new", "no_answer", "call_back"]);
 const LQ_OUTCOMES = {
   site_visit: { label: "Site visit booked", icon: "🏠", hint: "Someone's going out to quote", cls: "green", final: true, booking: true },
   consult_call: { label: "Consultation call booked", icon: "📞", hint: "The client will ring them", cls: "green", final: true, booking: true },
   booked: { label: "Booked a quote", icon: "✅", hint: "Someone's coming out", cls: "green", final: true, booking: true }, // older calls
-  no_answer: { label: "No answer", icon: "📵", hint: "They'll come back later", cls: "amber" },
+  no_answer: { label: "No answer", icon: "📵", hint: "Moves to Stuck, comes back later", cls: "amber" },
   call_back: { label: "Call back later", icon: "⏰", hint: "Pick a time to ring", cls: "blue" },
   qualified: { label: "Interested - client to call", icon: "👍", hint: "The client should call them", cls: "green", final: true },
   not_interested: { label: "Not interested", icon: "✋", hint: "They don't want it any more", cls: "grey", final: true },
@@ -11637,7 +11639,9 @@ const LQ_OUTCOMES = {
 const LQ_STATUS_LABEL = { new: "New", no_answer: "No answer", call_back: "Call back", booked: "Quote booked", site_visit: "Site visit booked", consult_call: "Consultation booked", qualified: "Passed to client", not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", unreachable: "No answer - 6 tries", in_ghl: "Moved on in GoHighLevel", old: "Old" };
 // What a booking is, and which outcomes also move the lead in the client's GoHighLevel.
 const LQ_BOOKED = new Set(["booked", "site_visit", "consult_call"]);
-const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "unreachable", "call_back"]);
+// A no-answer moves them to Stuck straight away (so Rep to contact only holds
+// leads nobody has rung yet); after the last one they go to Disqualified.
+const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disqualified", "wrong_number", "no_answer", "unreachable", "call_back"]);
 // Days between no-answer calls: 3 days in a row, then a week, a week, a month.
 const LQ_GAPS = [1, 1, 7, 7, 30];
 const LQ_MAX_TRIES = LQ_GAPS.length + 1, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
@@ -11649,7 +11653,7 @@ const lqSetupCache = {};
 // "What each button does" on Lead calling setup: a read-only run-through of
 // every outcome in each client's GoHighLevel (sync-ghl-leads check_outcomes).
 let lqCheck = null, lqChecking = false;
-const LQ_CHECK_ROWS = [["site_visit", "Site visit booked"], ["consult_call", "Consultation call booked"], ["not_interested", "Not interested / Not a fit / Wrong number"], ["call_back", "Call back later"], ["unreachable", "No answer (after the last try)"]];
+const LQ_CHECK_ROWS = [["site_visit", "Site visit booked"], ["consult_call", "Consultation call booked"], ["not_interested", "Not interested / Not a fit / Wrong number"], ["call_back", "Call back later"], ["no_answer", "No answer (calls 1 to 5)"], ["unreachable", "No answer on the last call"]];
 async function lqRunCheck(){
   if (lqChecking) return;
   lqChecking = true; renderLeadResults();
@@ -11682,7 +11686,6 @@ function lqCheckHtml(){
       ${r.lead_pipelines?.length ? `<p class="lr-check-p">Their leads are in the <b>${escapeHtml(r.lead_pipelines.join(", "))}</b> pipeline.</p>` : ""}
       <div class="lr-check-t">${rows.map(([k]) => { const o = r.outcomes?.[k] || {}, booking = k === "site_visit" || k === "consult_call";
         return `<div class="${o.problem || o.calendar_problem ? "bad" : ""}"><span>${escapeHtml(label(r, k))}</span><span>${o.stage ? `Moves to ${where(o)}` : `<em>${escapeHtml(o.problem || "Nothing")}</em>`}${o.stage && o.problem ? `<em>${escapeHtml(o.problem)}</em>` : ""}</span><span>${booking ? (o.calendar && !o.calendar_problem ? `Booked in <b>${escapeHtml(o.calendar)}</b> (${o.minutes} min)` : `<em>${escapeHtml(o.calendar_problem || "No calendar")}</em>`) : "No booking"}</span></div>`; }).join("")}
-        <div><span>No answer (before the last try)</span><span>Stays where it is - comes back in Carmen's queue</span><span>No booking</span></div>
         ${r.consult_button ? `<div><span>Consultation call - ASAP</span><span>Moves to ${where(r.outcomes?.consult_call) || "-"}</span><span>No booking - their GoHighLevel texts the client</span></div>` : ""}
       </div>
       <p class="lr-check-p">Every outcome also leaves a note on the contact ("called by Mr Priceless"). Bookings put the address on the contact${r.fields?.address?.length ? ` and in <b>${escapeHtml(r.fields.address.join(", "))}</b>` : ""}, and the scope of work in ${r.fields?.scope?.length ? `<b>${escapeHtml(r.fields.scope.join(", "))}</b>` : `a new "Scope of Work" field${r.notes_scope ? ` <em>(${escapeHtml(r.notes_scope.replace(/^No Scope of Work field yet - the first booking adds one,? ?/, ""))})</em>` : ""}`}.</p>
@@ -11719,12 +11722,12 @@ function lqAgo(ms){
   return `${d} day${d === 1 ? "" : "s"}`;
 }
 const lqShortAgo = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`; };
-const lqTime = (iso) => iso ? new Date(iso).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
-const lqClock = (iso) => iso ? new Date(iso).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" }) : "";
+// Lead Follow Up times are always NZ time, whatever the computer's clock says.
+const lqTime = (iso) => iso ? new Date(iso).toLocaleString("en-NZ", { timeZone: NZ_TZ, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "";
+const lqClock = (iso) => iso ? new Date(iso).toLocaleTimeString("en-NZ", { timeZone: NZ_TZ, hour: "numeric", minute: "2-digit" }) : "";
 function lqWhenWords(iso){
   if (!iso) return "";
-  const d = new Date(iso), day = localDayStr(d), today = localDayStr();
-  const tomorrow = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDayStr(t); })();
+  const day = nzDayStr(new Date(iso)), today = nzDayStr(), tomorrow = nzAddDays(today, 1);
   return day === today ? `today at ${lqClock(iso)}` : day === tomorrow ? `tomorrow at ${lqClock(iso)}` : lqTime(iso);
 }
 // A client's name the way you'd say it on the phone: "A and B Concrete Ltd -
@@ -11760,32 +11763,28 @@ const lqCountry = (phone) => /^\s*(\+?61|04)/.test(phone || "") ? "61" : "64";
 // a week, a week, a month), weekends moved to Monday, at the start of one of
 // the caller's calling blocks that day (their Schedule) - the other half of
 // the day from this call, so each try catches them at a different time.
-// Without a schedule it falls back to a 9am morning / 2pm afternoon wave.
-const LQ_WAVES = { am: { h: 9, name: "Morning wave", from: "9am" }, pm: { h: 14, name: "Afternoon wave", from: "2pm" } };
-const lqWaveOf = (d) => new Date(d).getHours() < 12 ? "am" : "pm";
+// Without a schedule it falls back to 10:30am / 3pm. All NZ time.
+const LQ_WAVES = { am: { at: "10:30", name: "Morning calls", from: "10:30am" }, pm: { at: "15:00", name: "Afternoon calls", from: "3pm" } };
 // calls = how many calls they've had, counting this one.
 function lqNextTryInfo(calls = 1){
-  const now = new Date(), next = new Date(now), gap = LQ_GAPS[Math.max(0, Math.min(calls, LQ_GAPS.length) - 1)] || 1;
-  const weekday = (d) => { while ([0, 6].includes(d.getDay())) d.setDate(d.getDate() + 1); };
-  next.setDate(next.getDate() + gap); weekday(next);
+  const np = nzParts(new Date()), today = nzDayStr(), gap = LQ_GAPS[Math.max(0, Math.min(calls, LQ_GAPS.length) - 1)] || 1;
+  const weekday = (d) => { while ([0, 6].includes(nzDow(d))) d = nzAddDays(d, 1); return d; };
+  let next = weekday(nzAddDays(today, gap));
   const who = lsCaller();
   const callsOn = (d) => who ? lsDayBlocks(who, lsDayOf(d)).filter(b => b.kind === "calls") : [];
   // A week or a month on can land on the same weekday and so the same calling
   // time as this call - then go a day later, so they're tried at a new time.
-  const sameTime = (d) => { const a = callsOn(d)[0], b = callsOn(now)[0]; return a && b && a.from === b.from; };
-  if (gap >= 7 && sameTime(next)){ next.setDate(next.getDate() + 1); weekday(next); }
+  const sameTime = (d) => { const a = callsOn(d)[0], b = callsOn(today)[0]; return a && b && a.from === b.from; };
+  if (gap >= 7 && sameTime(next)) next = weekday(nzAddDays(next, 1));
   const target = callsOn(next);
   if (target.length){
-    const m = now.getHours() * 60 + now.getMinutes();
+    const m = np.h * 60 + np.mi;
     // With more than one calling block that day: the other half of the day from this call.
-    const pick = target.length > 1 && m < 12 * 60 ? target[target.length - 1] : target[0];
-    const [h, mm] = pick.from.split(":").map(Number);
-    next.setHours(h, mm || 0, 0, 0);
-    return { at: next.toISOString(), name: pick.text || "Calls" };
+    const pick = target.length > 1 && m < 14 * 60 ? target[target.length - 1] : target[0];
+    return { at: nzToDate(next, pick.from).toISOString(), name: pick.text || "Calls" };
   }
-  const wave = lqWaveOf(now) === "am" ? "pm" : "am";
-  next.setHours(LQ_WAVES[wave].h, 0, 0, 0);
-  return { at: next.toISOString(), name: LQ_WAVES[wave].name };
+  const wave = np.h < 14 ? "pm" : "am";
+  return { at: nzToDate(next, LQ_WAVES[wave].at).toISOString(), name: LQ_WAVES[wave].name };
 }
 const lqNextTry = (calls = 1) => lqNextTryInfo(calls).at;
 const lqGapWords = (calls) => { const d = LQ_GAPS[calls - 1] || 1; return d === 1 ? "tomorrow" : d === 7 ? "in a week" : d >= 28 ? "in a month" : `in ${d} days`; };
@@ -12057,10 +12056,10 @@ function lqGuideHtml(){
     <h3>The calling process</h3>
     <ol>
       ${step(1, "New enquiries first - within 3 minutes", "Anyone who's just enquired goes to the top, the one waiting longest first. Your goal is to ring every new enquiry within 3 minutes of it coming in.")}
-      ${step(2, "No answer? Leave the message and press No answer", "They come back to you by themselves, at the start of your calling time on the day (see your Schedule). Your calling time changes through the week, so you catch them at a different time of day each try.")}
-      ${step(3, "6 calls in all", "Day 1, day 2 and day 3 - one call each day. Then one more a <b>week</b> later, another a <b>week</b> after that, and a last one a <b>month</b> later. After the 6th no-answer, they move to \"Stuck\" in the client's GoHighLevel and come off your list.")}
+      ${step(2, "No answer? Leave the message and press No answer", "They move to Stuck in the client's GoHighLevel and come back to you by themselves, at the start of your calling time on the day (see your Schedule). Your calling time changes through the week, so you catch them at a different time of day each try.")}
+      ${step(3, "6 calls in all", "Day 1, day 2 and day 3 - one call each day. Then one more a <b>week</b> later, another a <b>week</b> after that, and a last one a <b>month</b> later. After the 6th no-answer, they move to \"Disqualified\" in the client's GoHighLevel and come off your list.")}
       ${step(4, "Call backs", "If they ask you to ring back, press Call back later and pick the time they asked for. They move to Stuck in the client's GoHighLevel and pop back up here at that time.")}
-      ${step(5, "Then Rep to contact and Stuck", "When the new ones and the retries are done, work through the older leads sitting in the client's Rep to contact or Stuck stage - longest waiting first. Each lead shows its stage next to the client's name.")}
+      ${step(5, "Then Rep to contact and Stuck", "When the new ones and the retries are done, work through any older leads sitting in the client's Rep to contact or Stuck stage - longest waiting first. Rep to contact only holds people nobody has rung yet. Each lead shows its stage next to the client's name.")}
       ${step(6, "Booked, or not a fit", "Site visit or consultation booked: it goes straight into the client's GoHighLevel and calendar. Not interested, not a fit or wrong number: they move to Disqualified.")}
     </ol>
   </section>`;
@@ -12086,9 +12085,9 @@ const LQ_TIMES = Array.from({ length: 26 }, (_, i) => { const h = 7 + Math.floor
 function lqVisitIsConsult(l){ return !!lqClient(l)?.lead_visit_is_consult; }
 function lqOutLabel(l, k){ return k === "site_visit" && lqVisitIsConsult(l) ? "Consultation call booked" : LQ_OUTCOMES[k]?.label || k; }
 function lqWhenPicker(kind, l){
-  const today = localDayStr(), tmr = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return localDayStr(t); })();
+  const today = nzDayStr(), tmr = nzAddDays(today, 1);
   const quick = kind === "call_back"
-    ? [["60", "In an hour"], ["today-16", "Today 4pm"], ["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"]]
+    ? [["60", "In an hour"], ["today-16", "Today 4pm"], ["tomorrow-10", "Tomorrow 10am"], ["tomorrow-14", "Tomorrow 2pm"]]
     : [["tomorrow-9", "Tomorrow 9am"], ["tomorrow-14", "Tomorrow 2pm"], ...(kind === "consult_call" ? [["asap", "ASAP - no set time"]] : [])];
   return `<div class="lq3-when">
     <p>${kind === "site_visit" && !(l && lqVisitIsConsult(l)) ? "When is the site visit?" : kind === "consult_call" || kind === "site_visit" ? "When is the consultation call?" : "When should you call back?"}</p>
@@ -12266,7 +12265,7 @@ function lqDetailHtml(l){
       ${LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back" ? lqWhenPicker(lqPending, l) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? lqBookingFields(l, lqPending) : ""}
       ${LQ_OUTCOMES[lqPending]?.booking ? `<p class="lq3-tip">This goes straight into ${escapeHtml(biz)}'s GoHighLevel - the lead moves to their ${lqPending === "site_visit" && !lqVisitIsConsult(l) ? "site visit" : "consultation"} stage, the time's booked in their calendar (unless it's ASAP), and the address and scope of work go on the contact.</p>` : ""}
-      ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's call ${LQ_MAX_TRIES} of ${LQ_MAX_TRIES}. They'll move to "Stuck" in ${escapeHtml(biz)}'s GoHighLevel.` : (() => { const t = lqNextTryInfo(l.attempts + 1); const gap = lqGapWords(l.attempts + 1); return `They'll come back ${gap === "tomorrow" ? "" : gap + " - "}${escapeHtml(lqWhenWords(t.at))}, in ${escapeHtml(/^(calls|calling)$/i.test(t.name) ? "calling time" : t.name.toLowerCase())} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`; })()}</p>` : ""}
+      ${lqPending === "no_answer" ? `<p class="lq3-tip">${l.attempts + 1 >= LQ_MAX_TRIES ? `That's call ${LQ_MAX_TRIES} of ${LQ_MAX_TRIES}. They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.` : (() => { const t = lqNextTryInfo(l.attempts + 1); const gap = lqGapWords(l.attempts + 1); return `They'll move to "Stuck" in ${escapeHtml(biz)}'s GoHighLevel and come back ${gap === "tomorrow" ? "" : gap + " - "}${escapeHtml(lqWhenWords(t.at))}, in ${escapeHtml(/^(calls|calling)$/i.test(t.name) ? "calling time" : t.name.toLowerCase())} (call ${l.attempts + 2} of ${LQ_MAX_TRIES}).`; })()}</p>` : ""}
       ${["not_interested", "disqualified", "wrong_number"].includes(lqPending) ? `<p class="lq3-tip">They'll move to "Disqualified" in ${escapeHtml(biz)}'s GoHighLevel.</p>` : ""}
       <label class="lq3-notes">Notes<textarea name="note" rows="3" placeholder="What did they say? The job, budget, timing, anything ${escapeHtml(biz)} should know.">${escapeHtml(lqDrafts[l.id] || "")}</textarea></label>
       <button type="submit" class="lq3-save" ${lqPending ? "" : "disabled"}>${lqPending ? `Save and go to the next person ${lqIcon("arrow")}` : "Choose how the call went"}</button>
@@ -12323,7 +12322,7 @@ async function lqSaveOutcome(l, outcome, note, when, job = {}){
 async function lqSendToGhl(l, outcome, when, note, job = {}){
   const biz = lqClient(l)?.name || "the client";
   if (!IS_CONFIGURED){
-    l.ghl_sync = { at: new Date().toISOString(), outcome, moved: true, stage: { site_visit: "Site Visit Booked", consult_call: "Consultation Booked", unreachable: "No Answer", call_back: "Stuck" }[outcome] || "Disqualified", ...(LQ_BOOKED.has(outcome) ? { appointment: true, calendar: "Bookings" } : {}) };
+    l.ghl_sync = { at: new Date().toISOString(), outcome, moved: true, stage: { site_visit: "Site Visit Booked", consult_call: "Consultation Booked", no_answer: "Stuck", call_back: "Stuck" }[outcome] || "Disqualified", ...(LQ_BOOKED.has(outcome) ? { appointment: true, calendar: "Bookings" } : {}) };
     return;
   }
   try {
@@ -12485,7 +12484,7 @@ function lqHasConsult(l){
 const LQ_FLOW_STAGE_NAMES = { rep_to_contact: "Rep to contact", site_visit: "Site visit booked", consult: "Consultation call booked", disqualified: "Disqualified", stuck: "Stuck", no_answer: "No answer" };
 // Which stage and calendar each outcome goes to in a client's GoHighLevel.
 // Blank = matched by name automatically (shown as "Automatic: ...").
-const LQ_STAGE_FIELDS = [["site_visit_stage", "Site visit booked", "stage"], ["consult_stage", "Consultation call booked", "stage"], ["disqualified_stage", "Not interested / Not a fit / Wrong number", "stage"], ["stuck_stage", "Call back later / No answer after the last call", "stage"], ["site_visit_calendar", "Calendar for site visits", "calendar"], ["consult_calendar", "Calendar for consultation calls", "calendar"]];
+const LQ_STAGE_FIELDS = [["site_visit_stage", "Site visit booked", "stage"], ["consult_stage", "Consultation call booked", "stage"], ["disqualified_stage", "Not interested / Not a fit / Wrong number / No answer on the last call", "stage"], ["stuck_stage", "Call back later / No answer", "stage"], ["site_visit_calendar", "Calendar for site visits", "calendar"], ["consult_calendar", "Calendar for consultation calls", "calendar"]];
 function lqStagesHtml(c){
   const d = lqSetupCache[c.id];
   if (!d) return `<div class="lr-connect"><p>Loading ${escapeHtml(c.name)}'s pipeline and calendars…</p></div>`;
@@ -12716,13 +12715,14 @@ const LS_NOTE = {
   claude: "Practise using Claude to write messages and sum up calls.",
   writing: "A short written update: what happened, what you need, what's next.",
 };
-// One calling block a day, at a different time each day.
+// One calling block a day, at a different time each day. Carmen works
+// 10am - 6pm NZ time; every schedule time is NZ time.
 const LS_WEEK = {
-  mon: [["05:00", "05:30", "setup"], ["05:30", "07:30", "calls"], ["07:30", "08:00", "break"], ["08:00", "09:30", "study"], ["09:30", "10:30", "followups"], ["10:30", "11:00", "break"], ["11:00", "12:15", "claude"], ["12:15", "13:00", "writing"]],
-  tue: [["05:00", "05:30", "setup"], ["05:30", "07:00", "study"], ["07:00", "08:00", "claude"], ["08:00", "08:30", "break"], ["08:30", "09:00", "followups"], ["09:00", "11:00", "calls"], ["11:00", "11:30", "break"], ["11:30", "12:15", "study"], ["12:15", "13:00", "writing"]],
-  wed: [["05:00", "05:30", "setup"], ["05:30", "07:00", "study"], ["07:00", "09:00", "calls"], ["09:00", "09:30", "break"], ["09:30", "10:30", "followups"], ["10:30", "12:00", "claude"], ["12:00", "12:15", "break"], ["12:15", "13:00", "writing"]],
-  thu: [["05:00", "05:30", "setup"], ["05:30", "07:00", "claude"], ["07:00", "08:30", "study"], ["08:30", "09:00", "break"], ["09:00", "10:30", "followups"], ["10:30", "12:30", "calls"], ["12:30", "13:00", "writing"]],
-  fri: [["05:00", "05:30", "setup"], ["05:30", "06:00", "followups"], ["06:00", "08:00", "calls"], ["08:00", "08:30", "break"], ["08:30", "10:00", "study"], ["10:00", "11:30", "claude"], ["11:30", "12:00", "break"], ["12:00", "13:00", "writing"]],
+  mon: [["10:00", "10:30", "setup"], ["10:30", "12:30", "calls"], ["12:30", "13:00", "break"], ["13:00", "14:30", "study"], ["14:30", "15:30", "followups"], ["15:30", "16:00", "break"], ["16:00", "17:15", "claude"], ["17:15", "18:00", "writing"]],
+  tue: [["10:00", "10:30", "setup"], ["10:30", "12:00", "study"], ["12:00", "13:00", "claude"], ["13:00", "13:30", "break"], ["13:30", "14:00", "followups"], ["14:00", "16:00", "calls"], ["16:00", "16:30", "break"], ["16:30", "17:15", "study"], ["17:15", "18:00", "writing"]],
+  wed: [["10:00", "10:30", "setup"], ["10:30", "12:00", "study"], ["12:00", "14:00", "calls"], ["14:00", "14:30", "break"], ["14:30", "15:30", "followups"], ["15:30", "17:00", "claude"], ["17:00", "17:15", "break"], ["17:15", "18:00", "writing"]],
+  thu: [["10:00", "10:30", "setup"], ["10:30", "12:00", "claude"], ["12:00", "13:30", "study"], ["13:30", "14:00", "break"], ["14:00", "15:30", "followups"], ["15:30", "17:30", "calls"], ["17:30", "18:00", "writing"]],
+  fri: [["10:00", "10:30", "setup"], ["10:30", "11:00", "followups"], ["11:00", "13:00", "calls"], ["13:00", "13:30", "break"], ["13:30", "15:00", "study"], ["15:00", "16:30", "claude"], ["16:30", "17:00", "break"], ["17:00", "18:00", "writing"]],
 };
 const lsRow = (day) => ([from, to, kind], i) => ({ id: day ? day + i : lpUid(), from, to, kind, text: LS_KINDS[kind]?.label || "", note: LS_NOTE[kind] || "" });
 let lsEditing = false, lsDay = null;
@@ -12730,8 +12730,10 @@ const lsTime = (t) => { const [h, m] = String(t || "0:0").split(":").map(Number)
 const lsMins = (t) => { const [h, m] = String(t || "0:0").split(":").map(Number); return h * 60 + (m || 0); };
 // "5:30 - 7:30am", or "11am - 1pm" across midday.
 const lsRange = (a, b) => { const x = lsTime(a), y = lsTime(b); return x.slice(-2) === y.slice(-2) ? `${x.slice(0, -2)} - ${y}` : `${x} - ${y}`; };
-const lsToday = () => LS_DAYS[(new Date().getDay() + 6) % 7]?.[0] || null; // null at the weekend
-const lsDayOf = (d) => LS_DAYS[(d.getDay() + 6) % 7]?.[0] || null;
+// Days are NZ days ("2026-11-02", nzDayStr / nzAddDays) and times NZ time
+// (nzToDate), whatever the computer's own clock is set to.
+const lsToday = () => LS_DAYS[(nzDow(nzDayStr()) + 6) % 7]?.[0] || null; // null at the weekend
+const lsDayOf = (day) => LS_DAYS[(nzDow(day) + 6) % 7]?.[0] || null; // day = "2026-11-02"
 // Whose schedule decides retry times: the person signed in if they're on the
 // team list (Carmen), else the Lead Follow Up person.
 function lsCaller(){
@@ -12757,11 +12759,11 @@ async function lsSaveWeek(e, days){
 const LS_HOUR_PX = 60;
 function lsCalendar(e){
   const all = LS_DAYS.flatMap(([d]) => lsDayBlocks(e, d));
-  const start = Math.floor(Math.min(5 * 60, ...all.map(b => lsMins(b.from))) / 60) * 60;
-  const end = Math.ceil(Math.max(13 * 60, ...all.map(b => lsMins(b.to))) / 60) * 60;
+  const start = Math.floor(Math.min(10 * 60, ...all.map(b => lsMins(b.from))) / 60) * 60;
+  const end = Math.ceil(Math.max(18 * 60, ...all.map(b => lsMins(b.to))) / 60) * 60;
   const px = (m) => ((m - start) / 60 * LS_HOUR_PX).toFixed(1);
-  const today = lsToday(), now = new Date(), nowM = now.getHours() * 60 + now.getMinutes();
-  const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + (today ? 0 : 7));
+  const today = lsToday(), np = nzParts(new Date()), nowM = np.h * 60 + np.mi;
+  const monday = nzAddDays(nzDayStr(), -((nzDow(nzDayStr()) + 6) % 7) + (today ? 0 : 7));
   const hours = []; for (let m = start; m <= end; m += 60) hours.push(m);
   const block = (b) => {
     const h = (lsMins(b.to) - lsMins(b.from)) / 60 * LS_HOUR_PX;
@@ -12770,7 +12772,7 @@ function lsCalendar(e){
     </div>`;
   };
   return `<div class="ls-cal">
-    <div class="ls-cal-head"><span></span>${LS_DAYS.map(([d, n], i) => { const dt = new Date(monday); dt.setDate(monday.getDate() + i); return `<div class="${d === today ? "today" : ""}"><span>${n.slice(0, 3)}</span><b>${dt.getDate()}</b></div>`; }).join("")}</div>
+    <div class="ls-cal-head"><span></span>${LS_DAYS.map(([d, n], i) => { return `<div class="${d === today ? "today" : ""}"><span>${n.slice(0, 3)}</span><b>${Number(nzAddDays(monday, i).slice(8))}</b></div>`; }).join("")}</div>
     <div class="ls-cal-body" style="height:${px(end)}px">
       <div class="ls-cal-times">${hours.map(m => `<span style="top:${px(m)}px">${lsTime(`${String(m / 60).padStart(2, "0")}:00`)}</span>`).join("")}</div>
       ${LS_DAYS.map(([d]) => `<div class="ls-cal-col${d === today ? " today" : ""}" style="background-size:100% ${LS_HOUR_PX}px">
@@ -12796,7 +12798,7 @@ function renderLeadSchedule(){
   const kindOpts = (k) => Object.entries(LS_KINDS).map(([v, x]) => `<option value="${v}" ${v === k ? "selected" : ""}>${x.label}</option>`).join("");
   const head = `<div class="ls-head">
       <div><h2>Schedule</h2>
-        <p>${mgr ? `${escapeHtml(first)} · ` : ""}Monday to Friday</p></div>
+        <p>${mgr ? `${escapeHtml(first)} · ` : ""}Monday to Friday · NZ time</p></div>
       <div class="ls-head-right">
         ${mgr && people.length > 1 ? `<select class="lp-person" aria-label="Whose schedule">${people.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === e.id ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}</select>` : ""}
         ${mgr ? `<button type="button" class="ls-btn ${lsEditing ? "dark" : ""}" data-ls-act="edit">${lsEditing ? "Done" : "Edit"}</button>` : ""}
@@ -13142,9 +13144,9 @@ function fuCardHtml(x){
 }
 
 function fuFormHtml(){
-  const f = fuForm, today = localDayStr();
+  const f = fuForm, today = nzDayStr();
   const leads = state.clientLeads.filter(l => l.follow_status !== "old" && l.name).slice().sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  const quick = [["60", "In 1 hour"], ["today-14", "This afternoon (2pm)"], ["tomorrow-9", "Tomorrow morning (9am)"], ["monday-9", "Next Monday (9am)"]];
+  const quick = [["60", "In 1 hour"], ["today-14", "This afternoon (2pm)"], ["tomorrow-10", "Tomorrow morning (10am)"], ["monday-10", "Next Monday (10am)"]];
   const step = (n, title, body) => `<div class="fu-step"><h4><span>${n}</span>${title}</h4>${body}</div>`;
   return `<form class="fu-form" data-fu-form>
     <div class="fu-form-head"><h3>New follow-up</h3><button type="button" class="fu-x" data-fu-cancel aria-label="Close">✕</button></div>
@@ -13183,15 +13185,12 @@ function renderFollowUps(){
     </div>`;
 }
 
-// When a quick "When?" button is picked, as a Date.
+// When a quick "When?" button is picked, as a Date (NZ time).
 function fuQuickDate(k){
-  const d = new Date();
   if (k === "60") return new Date(Date.now() + 3600e3);
-  const [when, h] = k.split("-");
-  if (when === "tomorrow") d.setDate(d.getDate() + 1);
-  if (when === "monday") d.setDate(d.getDate() + (((8 - d.getDay()) % 7) || 7));
-  d.setHours(Number(h), 0, 0, 0);
-  return d;
+  const [when, h] = k.split("-"), today = nzDayStr();
+  const day = when === "tomorrow" ? nzAddDays(today, 1) : when === "monday" ? nzAddDays(today, ((8 - nzDow(today)) % 7) || 7) : today;
+  return nzToDate(day, `${String(Number(h)).padStart(2, "0")}:00`);
 }
 async function fuSaveTask(row){
   const made = { id: uid(), created_at: new Date().toISOString(), done_at: null, ...row };
@@ -13245,7 +13244,7 @@ function setupFollowUpsUi(){
     if (t.dataset.fuQuick){ keepForm(); fuForm.quick = t.dataset.fuQuick; fuForm.time = ""; return renderFollowUps(); }
     if (t.dataset.fuDone){ rcToast("Done ✓"); return fuPatch(t.dataset.fuDone, { done_at: new Date().toISOString(), done_by: state.user?.email || "demo" }); }
     if (t.dataset.fuUndo) return fuPatch(t.dataset.fuUndo, { done_at: null, done_by: null });
-    if (t.dataset.fuSnooze){ const d = fuQuickDate("tomorrow-9"); rcToast("Moved to tomorrow 9am."); return fuPatch(t.dataset.fuSnooze, { due_at: d.toISOString() }); }
+    if (t.dataset.fuSnooze){ const d = fuQuickDate("tomorrow-10"); rcToast("Moved to tomorrow 10am."); return fuPatch(t.dataset.fuSnooze, { due_at: d.toISOString() }); }
     if (t.dataset.fuShowdone !== undefined){ fuShowDone = !fuShowDone; return renderFollowUps(); }
     if (t.dataset.fuOpen){ lqSel = t.dataset.fuOpen; return goPage("lead-queue"); }
   });
@@ -13263,7 +13262,7 @@ function setupFollowUpsUi(){
     let due = f.quick ? fuQuickDate(f.quick) : null;
     if (!due){
       if (!f.day || !f.time){ rcToast("Pick when - a quick button, or a day and a time."); return; }
-      due = new Date(`${f.day}T${f.time}:00`);
+      due = nzToDate(f.day, f.time);
     }
     const note = (f.note || "").trim();
     const title = f.kind === "other" ? (note.split("\n")[0] || (lead ? `Follow up ${lead.name}` : "")) : `${k.verb} ${lead?.name || note.split("\n")[0] || "them"}`;
@@ -13297,11 +13296,12 @@ function setupLeadFollowUpUi(){
         form.elements.day.required = form.elements.time.required = !asap;
         $$(".lq3-chips button", form).forEach(b => b.classList.toggle("picked", b === t));
         if (asap) return;
-        if (/^\d+$/.test(k)) d.setMinutes(d.getMinutes() + Number(k) + (30 - (d.getMinutes() + Number(k)) % 30) % 30);
-        else { const [day, h] = k.split("-"); if (day === "tomorrow") d.setDate(d.getDate() + 1); d.setHours(Number(h), 0, 0, 0); }
-        form.elements.day.value = localDayStr(d);
-        const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-        if (![...form.elements.time.options].some(o => o.value === hm)) form.elements.time.add(new Option(lqClock(d.toISOString()), hm));
+        // NZ day and time.
+        let day, hm;
+        if (/^\d+$/.test(k)){ const t = new Date(Math.ceil((d.getTime() + Number(k) * 60e3) / 1800e3) * 1800e3), p = nzParts(t); day = nzDayStr(t); hm = `${String(p.h).padStart(2, "0")}:${String(p.mi).padStart(2, "0")}`; }
+        else { const [when, h] = k.split("-"); day = when === "tomorrow" ? nzAddDays(nzDayStr(), 1) : nzDayStr(); hm = `${String(Number(h)).padStart(2, "0")}:00`; }
+        form.elements.day.value = day;
+        if (![...form.elements.time.options].some(o => o.value === hm)) form.elements.time.add(new Option(lqClock(nzToDate(day, hm).toISOString()), hm));
         form.elements.time.value = hm;
         $$(".lq3-chips button", form).forEach(b => b.classList.toggle("picked", b === t));
         return;
@@ -13341,7 +13341,7 @@ function setupLeadFollowUpUi(){
         let when = null;
         if ((LQ_OUTCOMES[lqPending]?.booking || lqPending === "call_back") && !(lqPending === "consult_call" && v.asap === "1")){
           if (!v.day || !v.time){ rcToast("Pick a day and a time first."); return; }
-          when = new Date(`${v.day}T${v.time}:00`).toISOString();
+          when = nzToDate(v.day, v.time).toISOString();
         }
         const job = {};
         if (LQ_OUTCOMES[lqPending]?.booking){
