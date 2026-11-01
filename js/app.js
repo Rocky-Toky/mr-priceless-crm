@@ -11645,7 +11645,7 @@ const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disq
 // Days between no-answer calls: 3 days in a row, then a week, a week, a month.
 const LQ_GAPS = [1, 1, 7, 7, 30];
 const LQ_MAX_TRIES = LQ_GAPS.length + 1, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
-let lqRegionFor = null, lqFitFor = null, lqAreaFor = null;
+let lqRegionFor = null, lqFitFor = null, lqAreaFor = null, lqTimesFor = null;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
@@ -12258,6 +12258,14 @@ function lqDetailHtml(l){
       <details class="lq3-vm"><summary>If nobody answers, leave this message</summary>${quote(`Hi ${escapeHtml(first)}, it's Carmen from ${escapeHtml(biz)} about your enquiry. I'll try you again shortly, no need to call back.`)}</details>
     </section>
 
+    ${(() => {
+      // When this client likes bookings (clients.lead_book_times, sql/106),
+      // written by Rocky / Max - shown right above the outcome buttons.
+      const times = String(c?.lead_book_times || "").trim();
+      if (lqTimesFor === c?.id) return `<form class="lq3-booktimes lq3-fit-form" data-lq-form="times"><b>When does ${escapeHtml(biz)} like bookings?</b><textarea name="times" rows="2" placeholder="e.g. 11am - 12pm best, 4 - 5pm if needed, weekends only if needed">${escapeHtml(times)}</textarea><div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="times-cancel">Cancel</button></div></form>`;
+      if (!times && !canFit) return "";
+      return `<div class="lq3-booktimes">${lqIcon("call_back")}<div><b>When ${escapeHtml(biz)} likes bookings</b>${times ? `<p>${escapeHtml(times)}</p>` : ""}${canFit ? `<button type="button" class="lq3-textbtn" data-lq-act="times">${times ? "Change" : `+ Add when ${escapeHtml(biz)} likes bookings`}</button>` : ""}</div></div>`;
+    })()}
     <form class="lq3-panel lq3-outcome" data-lq-form="outcome">
       <h3>${lqIcon("phone")}How did the call go?</h3>
       <div class="lq3-outs">${["site_visit", ...(lqHasConsult(l) && !lqVisitIsConsult(l) ? ["consult_call"] : []), "no_answer", "call_back"].map(bigOut).join("")}</div>
@@ -13318,6 +13326,8 @@ function setupLeadFollowUpUi(){
       if (act === "fit-cancel"){ lqFitFor = null; return renderLeadQueue(); }
       if (act === "area" && l){ lqAreaFor = l.client_id; renderLeadQueue(); $(".lq3-cover textarea")?.focus(); return; }
       if (act === "area-cancel"){ lqAreaFor = null; return renderLeadQueue(); }
+      if (act === "times" && l){ lqTimesFor = l.client_id; renderLeadQueue(); $(".lq3-booktimes textarea")?.focus(); return; }
+      if (act === "times-cancel"){ lqTimesFor = null; return renderLeadQueue(); }
       if (act === "followup") return fuOpenForm(lqSel);
       if (act === "recordings" && l){ lcLead = l.id; lcPeriod = "all"; lcPlaying = null; goPage("lead-calls"); return renderLeadCalls(); }
       if (act === "history"){ lqShowHistory = !lqShowHistory; return renderLeadQueue(); }
@@ -13351,6 +13361,20 @@ function setupLeadFollowUpUi(){
           if (!job.scope){ rcToast("Add the scope of work first."); return; }
         }
         return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when, job);
+      }
+      if (form.dataset.lqForm === "times"){
+        const c = state.clients.find(x => x.id === lqTimesFor);
+        if (!c) return;
+        const times = String(v.times || "").trim().slice(0, 300) || null;
+        lqTimesFor = null;
+        if (IS_CONFIGURED){
+          const ok = await DataLayer.update("clients", c.id, { lead_book_times: times, updated_at: new Date().toISOString() });
+          if (!ok) return;
+        }
+        c.lead_book_times = times;
+        renderLeadQueue();
+        rcToast(`Saved for every ${lqBizName(c)} lead.`);
+        return;
       }
       if (form.dataset.lqForm === "area"){
         const c = state.clients.find(x => x.id === lqAreaFor);
