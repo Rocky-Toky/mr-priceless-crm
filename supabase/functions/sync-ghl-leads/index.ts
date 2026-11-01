@@ -597,7 +597,7 @@ async function checkOutcomes(admin: any, onlyClient: string | null = null) {
       if (acc[k] === false) r.problems.push(`The key is missing ${k.replace("_", " ")} access - ${why}`);
     }
     // What really happened when outcomes were sent (most recent first).
-    const { data: sent } = await admin.from("client_leads").select("follow_status, ghl_sync").eq("client_id", conn.client_id).not("ghl_sync", "is", null).order("last_attempt_at", { ascending: false }).limit(8);
+    const { data: sent } = await admin.from("client_leads").select("follow_status, ghl_sync").eq("client_id", conn.client_id).not("ghl_sync->>outcome", "is", null).order("last_attempt_at", { ascending: false, nullsFirst: false }).limit(8);
     r.recent = (sent || []).map((x: any) => ({ outcome: x.ghl_sync?.outcome || x.follow_status, at: x.ghl_sync?.at || null, moved: !!x.ghl_sync?.moved, stage: x.ghl_sync?.stage || null, booked: !!x.ghl_sync?.appointment, calendar: x.ghl_sync?.calendar || null, fields: x.ghl_sync?.fields || [], errors: x.ghl_sync?.errors || [], skipped: x.ghl_sync?.skipped ? (x.ghl_sync?.reason || "skipped") : null }));
     out.push(r);
   }
