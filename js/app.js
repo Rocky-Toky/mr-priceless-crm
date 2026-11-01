@@ -11646,6 +11646,50 @@ let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSync
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
 const lqSetupCache = {};
+// "What each button does" on Lead calling setup: a read-only run-through of
+// every outcome in each client's GoHighLevel (sync-ghl-leads check_outcomes).
+let lqCheck = null, lqChecking = false;
+const LQ_CHECK_ROWS = [["site_visit", "Site visit booked"], ["consult_call", "Consultation call booked"], ["not_interested", "Not interested / Not a fit / Wrong number"], ["call_back", "Call back later"], ["unreachable", "No answer (after the last try)"]];
+async function lqRunCheck(){
+  if (lqChecking) return;
+  lqChecking = true; renderLeadResults();
+  if (!IS_CONFIGURED){
+    await new Promise(r => setTimeout(r, 300));
+    lqCheck = state.clients.filter(c => c.stage !== "churned").slice(0, 3).map((c, i) => ({ client_id: c.id, name: c.name, visit_is_consult: i === 1, consult_button: i === 0, lead_pipelines: ["Leads"],
+      outcomes: { site_visit: { stage: "Site Visit Booked", pipeline: "Leads", stage_how: "matched by name", calendar: "Quotes", minutes: 60 }, consult_call: i === 0 ? { stage: "Consultation Booked", pipeline: "Leads", stage_how: "matched by name", calendar: "Phone calls", minutes: 30 } : { problem: "No stage for this in their pipeline (Leads) - the lead won't move" }, not_interested: { stage: "Disqualified", pipeline: "Leads" }, call_back: { stage: "Stuck", pipeline: "Leads" }, unreachable: i === 2 ? { problem: "No stage for this in their pipeline (Leads) - the lead won't move" } : { stage: "No Answer", pipeline: "Leads" } },
+      fields: { address: ["Job address"], scope: i ? [] : ["Scope of Work"] }, problems: i === 2 ? ["unreachable: No stage for this in their pipeline (Leads) - the lead won't move"] : [], recent: i ? [] : [{ outcome: "site_visit", at: new Date().toISOString(), moved: true, stage: "Site Visit Booked", booked: true, calendar: "Quotes", fields: ["address", "scope of work"], errors: [] }] }));
+  } else {
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "check_outcomes" } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      lqCheck = data || [];
+    } catch(e){ rcToast("Couldn't check: " + (e?.message || e)); }
+  }
+  lqChecking = false; renderLeadResults();
+}
+function lqCheckHtml(){
+  const head = `<h4 class="emp-h">What each button does in their GoHighLevel <button type="button" class="lq3-mini" data-lr-check="1" ${lqChecking ? "disabled" : ""}>${lqChecking ? "Checking every client… (up to a minute)" : lqCheck ? "Check again" : "Check every client"}</button></h4>`;
+  if (!lqCheck) return head + `<div class="emp-empty">Click "Check every client" to see, for each client, where every call outcome moves the lead and which calendar a booking goes in. It only looks - nothing changes in their GoHighLevel.</div>`;
+  if (!lqCheck.length) return head + `<div class="emp-empty">No clients are connected to GoHighLevel yet.</div>`;
+  const ago = (iso) => iso ? lqShortAgo(Date.now() - new Date(iso)) + " ago" : "";
+  const label = (r, k) => k === "site_visit" && r.visit_is_consult ? "Consultation call booked (their Site visit button)" : LQ_CHECK_ROWS.find(x => x[0] === k)?.[1] || LQ_OUTCOMES[k]?.label || k;
+  return head + `<div class="lr-check">${lqCheck.map(r => {
+    const rows = LQ_CHECK_ROWS.filter(([k]) => k !== "consult_call" || r.consult_button);
+    const where = (o) => o?.stage ? `${(r.pipelines || []).length > 1 || (r.lead_pipelines || []).length > 1 ? escapeHtml(o.pipeline) + " → " : ""}<b>${escapeHtml(o.stage)}</b>` : "";
+    return `<details class="lr-check-c ${r.problems?.length ? "bad" : "ok"}" ${r.problems?.length ? "open" : ""}>
+      <summary><i></i><b>${escapeHtml(r.name)}</b><span>${r.problems?.length ? `${r.problems.length} to fix` : "All working"}</span></summary>
+      ${r.lead_pipelines?.length ? `<p class="lr-check-p">Their leads are in the <b>${escapeHtml(r.lead_pipelines.join(", "))}</b> pipeline.</p>` : ""}
+      <div class="lr-check-t">${rows.map(([k]) => { const o = r.outcomes?.[k] || {}, booking = k === "site_visit" || k === "consult_call";
+        return `<div class="${o.problem || o.calendar_problem ? "bad" : ""}"><span>${escapeHtml(label(r, k))}</span><span>${o.stage ? `Moves to ${where(o)}` : `<em>${escapeHtml(o.problem || "Nothing")}</em>`}${o.stage && o.problem ? `<em>${escapeHtml(o.problem)}</em>` : ""}</span><span>${booking ? (o.calendar && !o.calendar_problem ? `Booked in <b>${escapeHtml(o.calendar)}</b> (${o.minutes} min)` : `<em>${escapeHtml(o.calendar_problem || "No calendar")}</em>`) : "No booking"}</span></div>`; }).join("")}
+        <div><span>No answer (before the last try)</span><span>Stays where it is - comes back in Carmen's queue</span><span>No booking</span></div>
+        ${r.consult_button ? `<div><span>Consultation call - ASAP</span><span>Moves to ${where(r.outcomes?.consult_call) || "-"}</span><span>No booking - their GoHighLevel texts the client</span></div>` : ""}
+      </div>
+      <p class="lr-check-p">Every outcome also leaves a note on the contact ("called by Mr Priceless"). Bookings put the address on the contact${r.fields?.address?.length ? ` and in <b>${escapeHtml(r.fields.address.join(", "))}</b>` : ""}, and the scope of work in ${r.fields?.scope?.length ? `<b>${escapeHtml(r.fields.scope.join(", "))}</b>` : `a new "Scope of Work" field${r.notes_scope ? ` <em>(${escapeHtml(r.notes_scope.replace(/^No Scope of Work field yet - the first booking adds one,? ?/, ""))})</em>` : ""}`}.</p>
+      ${r.problems?.length ? `<ul class="lr-check-x">${r.problems.map(x => `<li>${escapeHtml(x.replace(/^([a-z_]+)( calendar)?: /, (m, k, cal) => `${label(r, k === "disqualified" || k === "wrong_number" ? "not_interested" : k)}${cal ? " - calendar" : ""}: `))}</li>`).join("")}</ul>` : ""}
+      ${r.recent?.length ? `<p class="lr-check-p"><b>Last real calls sent to their GoHighLevel:</b></p><ul class="lr-check-r">${r.recent.map(x => `<li class="${x.errors?.length ? "bad" : ""}">${escapeHtml(lqOutLabel({ client_id: r.client_id }, x.outcome))} · ${escapeHtml(ago(x.at))} · ${x.skipped ? escapeHtml(x.skipped) : [x.moved ? `moved to ${escapeHtml(x.stage || "?")}` : "not moved", x.booked ? `booked in ${escapeHtml(x.calendar || "their calendar")}` : "", (x.fields || []).length ? escapeHtml(x.fields.join(" and ")) + " filled in" : ""].filter(Boolean).join(", ")}${(x.errors || []).map(e => `<em>${escapeHtml(e)}</em>`).join("")}</li>`).join("")}</ul>` : `<p class="lr-check-p">No calls sent to their GoHighLevel yet.</p>`}
+    </details>`; }).join("")}</div>`;
+}
 
 // What a client's GoHighLevel key can't do, from the last sync (lead_sync_status.access).
 const LQ_KEY_TICKS = { contacts: "View Contacts and Edit Contacts", forms: "View Forms", custom_fields: "View Custom Fields and Edit Custom Fields", calendars: "View Calendars and Edit Calendar Events" };
@@ -12394,6 +12438,7 @@ function renderLeadResults(){
         <div class="lr-connect-row"><label>Location ID<input name="location_id" required autocomplete="off"></label><label>Private Integration key<input name="token" type="password" required autocomplete="off"></label>
         <button type="submit" class="lq3-btn" ${lqConnecting ? "disabled" : ""}>${lqConnecting ? "Connecting…" : "Connect"}</button><button type="button" class="lq3-mini" data-lr-connect="">Cancel</button></div>
       </form>` : ""}`).join("") || `<div class="emp-empty">No live clients.</div>`}</div>
+    ${lqCheckHtml()}
     <h4 class="emp-h">By client</h4>
     ${rows.length ? `<div class="lr-table"><div class="lr-row head"><span>Client</span><span>Leads</span><span>Called</span><span>Speed</span><span>Booked</span></div>
       ${rows.map(r => `<div class="lr-row"><span>${escapeHtml(r.name)}</span><span>${r.leads}</span><span>${pct(r.called, r.leads)}</span><span>${r.speed == null ? "-" : lqShortAgo(r.speed)}</span><span>${r.booked} <small>(${pct(r.booked, r.leads)})</small></span></div>`).join("")}</div>` : `<div class="emp-empty">No leads in this period yet.</div>`}
@@ -13336,8 +13381,9 @@ function setupLeadFollowUpUi(){
     });
   }
   $("#lr-root")?.addEventListener("click", (ev) => {
-    const t = ev.target.closest("[data-lr-period],[data-lr-connect],[data-lr-stages]");
+    const t = ev.target.closest("[data-lr-period],[data-lr-connect],[data-lr-stages],[data-lr-check]");
     if (!t) return;
+    if (t.dataset.lrCheck) return lqRunCheck();
     if (t.dataset.lrPeriod){ lqPeriod = t.dataset.lrPeriod; return renderLeadResults(); }
     if (t.dataset.lrStages !== undefined){
       lqStagesFor = t.dataset.lrStages || null; lqConnectFor = null;

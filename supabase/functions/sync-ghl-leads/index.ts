@@ -518,6 +518,92 @@ async function clientSetup(admin: any, clientId: string) {
   return { stages: allStages, calendars: calendars.map((c: any) => ({ id: c.id, name: c.name })), calendar_error: calendarError, map: map || {}, suggest };
 }
 
+// A read-only run-through of every outcome button for each connected client:
+// which pipeline and stage each one would move the lead to, which calendar a
+// booking goes in (and whether GHL will take it there), where the address and
+// scope go, plus what really happened on the last calls. Changes nothing in GHL.
+// Uses exactly the same choices as applyOutcome.
+async function checkOutcomes(admin: any, onlyClient: string | null = null) {
+  let q = admin.from("client_ghl").select("client_id, location_id, token");
+  if (onlyClient) q = q.eq("client_id", onlyClient);
+  const { data: conns } = await q;
+  const out: any[] = [];
+  for (const conn of conns || []) {
+    const { data: client } = await admin.from("clients").select("id, name, stage, lead_visit_is_consult").eq("id", conn.client_id).maybeSingle();
+    const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", conn.client_id).maybeSingle();
+    const { data: sync } = await admin.from("lead_sync_status").select("stages, access, error, last_ok_at").eq("client_id", conn.client_id).maybeSingle();
+    const r: any = { client_id: conn.client_id, name: client?.name || "Unknown client", client_stage: client?.stage || null, visit_is_consult: !!client?.lead_visit_is_consult, access: sync?.access || null, sync_error: sync?.error || null, problems: [] as string[], outcomes: {} as any };
+    const loc = conn.location_id, token = conn.token;
+    let pipes: any[] = [];
+    try { pipes = (await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(loc)}`, token))?.pipelines || []; }
+    catch (e) { r.problems.push("Can't read their pipelines: " + String((e as any)?.message || e).slice(0, 120)); out.push(r); continue; }
+    r.pipelines = pipes.map((p: any) => ({ name: p.name, stages: (p.stages || []).map((st: any) => st.name) }));
+    // The pipelines their recent leads actually sit in - applyOutcome only looks
+    // for the stage inside the lead's own pipeline.
+    const { data: recent } = await admin.from("client_leads").select("external_lead_id").eq("client_id", conn.client_id).like("external_lead_id", "ghl:%").order("created_at", { ascending: false }).limit(3);
+    const leadPipes = new Set<string>();
+    for (const l of recent || []) {
+      try { const o = (await ghl(`/opportunities/${encodeURIComponent(String(l.external_lead_id).slice(4))}`, token))?.opportunity; if (o?.pipelineId) leadPipes.add(o.pipelineId); } catch { /* deleted in GHL */ }
+    }
+    const usePipes = leadPipes.size ? pipes.filter((p: any) => leadPipes.has(p.id)) : pipes.slice(0, 1);
+    r.lead_pipelines = usePipes.map((p: any) => p.name);
+    const all = pipes.flatMap((p: any) => (p.stages || []).map((st: any) => ({ ...st, pipeline_id: p.id, pipeline: p.name })));
+    let cals: any[] = [], calErr = "";
+    try { cals = (await ghl(`/calendars/?locationId=${encodeURIComponent(loc)}`, token, {}, CAL_VERSION))?.calendars || []; }
+    catch (e) { calErr = (e as any)?.status === 401 || (e as any)?.status === 403 ? "The key can't see calendars (tick View Calendars and Edit Calendar Events)" : String((e as any)?.message || e).slice(0, 120); }
+    let fields: any[] = [], fieldErr = "";
+    try { fields = (await ghl(`/locations/${encodeURIComponent(loc)}/customFields?model=all`, token))?.customFields || []; }
+    catch { fieldErr = "The key can't read custom fields (tick View Custom Fields)"; }
+    const usable = (f: any) => !f.dataType || TEXT_TYPES.test(f.dataType);
+    r.fields = fieldErr ? { error: fieldErr } : {
+      address: fields.filter((f: any) => ADDRESS_FIELD.test(f.name || "") && !/e-?mail|web|ip\b/i.test(f.name || "") && !SCOPE_FIELD.test(f.name || "") && usable(f)).map((f: any) => f.name),
+      scope: fields.filter((f: any) => SCOPE_FIELD.test(f.name || "") && usable(f)).map((f: any) => f.name),
+    };
+    for (const [outcome, kind] of Object.entries(OUTCOME_STAGE)) {
+      const o: any = {};
+      const picked = map?.[kind + "_stage"] && all.find((st: any) => st.id === map[kind + "_stage"]);
+      const per = usePipes.map((p: any) => ({ p, st: picked || bestStage((p.stages || []).map((st: any) => ({ ...st, pipeline_id: p.id })), kind) }));
+      const hit = per.find((x: any) => x.st);
+      if (hit) { o.stage = hit.st.name; o.pipeline = picked ? picked.pipeline : hit.p.name; o.stage_how = picked ? "picked under Stages" : "matched by name"; }
+      const gaps = per.filter((x: any) => !x.st).map((x: any) => x.p.name);
+      if (!hit) o.problem = `No stage for this in their pipeline${usePipes.length > 1 ? "s" : ""} (${usePipes.map((p: any) => p.name).join(", ")}) - the lead won't move`;
+      else if (gaps.length) o.problem = `Leads in ${gaps.join(", ")} have no stage for this and won't move`;
+      if (kind === "site_visit" || kind === "consult") {
+        if (calErr) o.calendar_problem = calErr;
+        else {
+          const cp = map?.[kind + "_calendar"];
+          const cal = (cp && cals.find((c: any) => c.id === cp)) || bestCalendar(cals, kind);
+          if (!cal) o.calendar_problem = cals.length ? `None of their ${cals.length} calendars matches - pick one under Stages, or nothing gets booked` : "They have no calendars - nothing gets booked";
+          else {
+            o.calendar = cal.name; o.calendar_how = cp && cal.id === cp ? "picked under Stages" : "matched by name";
+            const mins = Number(cal.slotDuration) && /hour/i.test(String(cal.slotDurationUnit || "")) ? Number(cal.slotDuration) * 60 : Number(cal.slotDuration) || (kind === "consult" ? 30 : 60);
+            o.minutes = mins;
+            if (!calendarUser(cal)) o.calendar_problem = `"${cal.name}" has no team member, so GoHighLevel will refuse the booking`;
+            else if (cal.isActive === false) o.calendar_problem = `"${cal.name}" is switched off in GoHighLevel`;
+          }
+        }
+      }
+      r.outcomes[outcome] = o;
+      if (outcome === "disqualified" || outcome === "wrong_number") continue; // same stage as not_interested
+      if (o.problem) r.problems.push(`${outcome}: ${o.problem}`);
+      if (o.calendar_problem) r.problems.push(`${outcome} calendar: ${o.calendar_problem}`);
+    }
+    // Which buttons Carmen sees for this client (same rules as the call screen).
+    r.consult_button = !!sync?.stages?.found?.consult && !r.visit_is_consult;
+    if (r.consult_button && !r.outcomes.consult_call?.stage) r.problems.push("The Consultation call button shows, but their leads' pipeline has no consultation stage");
+    if (!fieldErr && !r.fields.scope.length) r.notes_scope = "No Scope of Work field yet - the first booking adds one" + (sync?.access?.custom_fields === false ? ", but the key can't (tick Edit Custom Fields)" : "");
+    const acc = sync?.access || {};
+    for (const [k, why] of Object.entries({ contacts: "leads come in without names/answers and notes can't be added", forms: "leads come in without form answers", calendars: "bookings can't go in their calendar", custom_fields: "the address and scope can't be saved" })) {
+      if (acc[k] === false) r.problems.push(`The key is missing ${k.replace("_", " ")} access - ${why}`);
+    }
+    // What really happened when outcomes were sent (most recent first).
+    const { data: sent } = await admin.from("client_leads").select("follow_status, ghl_sync").eq("client_id", conn.client_id).not("ghl_sync", "is", null).order("last_attempt_at", { ascending: false }).limit(8);
+    r.recent = (sent || []).map((x: any) => ({ outcome: x.ghl_sync?.outcome || x.follow_status, at: x.ghl_sync?.at || null, moved: !!x.ghl_sync?.moved, stage: x.ghl_sync?.stage || null, booked: !!x.ghl_sync?.appointment, calendar: x.ghl_sync?.calendar || null, fields: x.ghl_sync?.fields || [], errors: x.ghl_sync?.errors || [], skipped: x.ghl_sync?.skipped ? (x.ghl_sync?.reason || "skipped") : null }));
+    out.push(r);
+  }
+  return out.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
 // Who a booking goes to: the calendar's own team member (personal calendars
 // have one; for team calendars the first, preferring the primary).
 function calendarUser(cal: any) {
@@ -661,6 +747,7 @@ Deno.serve(async (req: Request) => {
     let cb: any = {};
     try { cb = (await req.json()) ?? {}; } catch { cb = {}; }
     if (cb.action === "inspect") return json(await inspect(admin));
+    if (cb.action === "check_outcomes") return json(await checkOutcomes(admin));
     return json(await syncAll(admin));
   }
 
@@ -676,6 +763,9 @@ Deno.serve(async (req: Request) => {
   if (body.action === "outcome"){
     if (!body.lead_id || !body.outcome) return json({ error: "lead_id and outcome are needed." }, 400);
     return json(await applyOutcome(admin, body.lead_id, body.outcome, body.when || null, String(body.note || "").slice(0, 2000), { address: body.address || "", scope: body.scope || "" }));
+  }
+  if (body.action === "check_outcomes"){
+    try { return json(await checkOutcomes(admin, body.client_id || null)); } catch (e) { return json({ error: String((e as any)?.message || e) }); }
   }
   if (body.action === "setup"){
     if (!body.client_id) return json({ error: "client_id is needed." }, 400);

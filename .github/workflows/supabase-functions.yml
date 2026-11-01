@@ -112,6 +112,10 @@ on:
         description: "Type yes to sync Aircall calls now and print how it's going (counts and statuses only, no names or numbers)"
         required: false
         default: ""
+      check_outcomes:
+        description: "Check what every call outcome does in each client's GoHighLevel (read-only). Type yes for counts only, or paste a base64 public key to get the full per-client report encrypted"
+        required: false
+        default: ""
 
 jobs:
   deploy:
@@ -336,6 +340,34 @@ jobs:
           q "select count(*) filter (where details_at is not null) as details_read, count(*) filter (where ghl_contact_id is not null) as with_contact_id, count(*) as total from client_leads where source = 'ghl' and coalesce(lead_created_at, created_at) > now() - interval '3 days'" | jq -c '.[0]'
           echo "Leads in the last 3 days by source:"
           q "select coalesce(source,'none') as source, count(*), count(*) filter (where jsonb_array_length(answers) > 0) as with_answers, count(*) filter (where coalesce(address,city) is not null) as with_location from client_leads where coalesce(lead_created_at, created_at) > now() - interval '3 days' group by 1" | jq -c '.[]'
+      # Run by hand with check_outcomes: a read-only run-through of every call
+      # outcome for each connected client (stage, calendar, fields, last real
+      # calls). "yes" prints counts only. A base64 PEM public key prints the
+      # full report encrypted to that key (these logs are public).
+      - name: Check call outcomes
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_outcomes != ''
+        env:
+          REPORT_KEY: ${{ inputs.check_outcomes }}
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          secret=$(q "select value from app_secrets where name = 'leads_cron_secret'" | jq -r '.[0].value')
+          echo "::add-mask::$secret"
+          curl -sS -m 160 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/sync-ghl-leads" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data '{"action":"check_outcomes"}' -o /tmp/report.json -w "HTTP %{http_code}, %{time_total}s\n"
+          echo "Clients checked, and how many have problems:"
+          jq -c '{clients: length, with_problems: map(select(.problems | length > 0)) | length, problems: map(.problems | length) | add}' /tmp/report.json
+          echo "Real outcomes sent so far (last 8 per client): with errors / booked in a calendar / moved:"
+          jq -c '[.[].recent[]] | {sent: length, with_errors: map(select(.errors | length > 0)) | length, booked: map(select(.booked)) | length, moved: map(select(.moved)) | length}' /tmp/report.json
+          if [ "$REPORT_KEY" != "yes" ]; then
+            echo "$REPORT_KEY" | base64 -d > /tmp/pub.pem
+            openssl rand -hex 32 > /tmp/k
+            openssl enc -aes-256-cbc -pbkdf2 -salt -in /tmp/report.json -out /tmp/report.enc -pass file:/tmp/k
+            openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -pkeyopt rsa_padding_mode:oaep -in /tmp/k -out /tmp/k.enc
+            echo "ENCRYPTED KEY:"; base64 -w0 /tmp/k.enc; echo
+            echo "ENCRYPTED REPORT:"; base64 -w0 /tmp/report.enc; echo
+          fi
+          rm -f /tmp/report.json /tmp/k
       # Run by hand with check_inbox=yes: how each connected Gmail is doing and
       # what's come in. Statuses and counts only - these logs are public.
       - name: Check the client inbox
