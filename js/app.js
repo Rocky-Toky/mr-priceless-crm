@@ -12086,6 +12086,13 @@ function lqAddFormHtml(){
   </form>`;
 }
 
+// The script's recap line follows the booking time Carmen picks.
+function lqRecap(form){
+  const r = $(".lq3-recap");
+  if (!r || !form?.elements?.day) return;
+  const day = form.elements.day.value, time = form.elements.time?.value;
+  r.textContent = form.elements.asap?.value ? "as soon as they can" : day && time ? lqTime(nzToDate(day, time).toISOString()) : "[day and time]";
+}
 // Times for the booking / call-back pickers, 7am to 7:30pm.
 const LQ_TIMES = Array.from({ length: 26 }, (_, i) => { const h = 7 + Math.floor(i / 2), m = i % 2 ? 30 : 0; return [`${String(h).padStart(2, "0")}:${m ? "30" : "00"}`, `${h % 12 || 12}:${m ? "30" : "00"} ${h < 12 ? "am" : "pm"}`]; });
 // Some clients (BB Build) run consultation calls through the site visit stage
@@ -12164,12 +12171,16 @@ function lqDetailHtml(l){
   const quote = (html) => `<p class="lq3-say">${html}</p>`;
   // Plain instructions between the lines to read out, and a pause for their answer.
   const todo = (html) => `<p class="lq3-do">${html}</p>`;
-  const cue = (t) => `<p class="lq3-cue">${escapeHtml(t)}</p>`;
   // What they enquired about, for "regarding your {service} inquiry": their form
   // answer, else the form's name, else the client's trade.
   const service = String(job || (realForm ? lqNice(realForm) : "") || trade || "").trim().toLowerCase()
     .replace(/(\s*[-|:]?\s*\b(new\s+)?(enquiry|enquiries|inquiry|inquiries|form|leads?|quote\s*requests?|requests?|campaign)\b)+\s*$/i, "").trim().slice(0, 60);
   const visitIsConsult = lqVisitIsConsult(l), hasConsult = lqHasConsult(l) && !visitIsConsult;
+  // Concreting gets the driveway questions; painting / building the size and budget ones.
+  const tradeText = `${trade} ${c?.name || ""} ${service} ${c?.industry || ""}`.toLowerCase();
+  const tradeKind = /concret|driveway|civil|paving|asphalt|earthwork/.test(tradeText) ? "concrete" : "reno";
+  const role = tradeKind === "concrete" ? "concreter" : /paint|decorat/.test(tradeText) ? "painter" : "builder";
+  const bookWhat = visitIsConsult ? "consultation call" : "site visit";
   const bigOut = (k) => `<button type="button" class="lq3-out ${k}${lqPending === k ? " picked" : ""}" data-lq-out="${k}">${lqIcon(k)}<span><b>${lqOutLabel(l, k)}</b><small>${k === "site_visit" && lqVisitIsConsult(l) ? "Booked in their calendar" : LQ_OUTCOMES[k].hint}</small></span></button>`;
   const smallOut = (k) => `<button type="button" class="lq3-pill ${lqPending === k ? "picked" : ""}" data-lq-out="${k}">${lqIcon(k)}${LQ_OUTCOMES[k].label}</button>`;
   return `
@@ -12190,10 +12201,62 @@ function lqDetailHtml(l){
 
     ${lqBeforeHtml(l, log)}
 
-    <section class="lq3-panel lq3-ad">
+    <div class="lq3-call-grid">
+      <section class="lq3-panel lq3-script">
+        <h3>${lqIcon("chat")}What to say</h3>
+        <ol class="lq3-steps">
+          ${step(1, "Introduce yourself", `${quote(`Hey ${B(first)}, this is Carmen from ${B(biz)} regarding your ${service ? B(service) + " " : ""}inquiry.`)}
+            ${quote(`What were you looking to get done?`)}`)}
+          ${step(2, `Check it's a job ${escapeHtml(biz)} takes on`, lqFitFor === c?.id
+            ? `<form class="lq3-fit-form" data-lq-form="fit">
+                <p class="lq3-muted">What makes a good job for ${B(biz)}? One per line - Carmen sees these on every ${escapeHtml(biz)} lead.</p>
+                <textarea name="fit" rows="5" placeholder="e.g. Driveways and patios over 30m²&#10;Within 40km of Hamilton&#10;Wants it done in the next 3 months&#10;Budget over $5,000">${escapeHtml(checks.join("\n"))}</textarea>
+                <div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="fit-cancel">Cancel</button></div>
+              </form>`
+            : `${tradeKind === "concrete" ? `${quote(`Were you looking to get the whole driveway replaced?`)}${todo(`Ask for the size, or find it on Google Maps${place ? ` (<a href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">open the map</a>)` : ""}.`)}`
+                : `${todo("Make sure the job is big enough.")}${quote(`What were you looking to invest?`)}`}
+              ${quote(`When are you looking to get it done?`)}
+              ${checks.length ? `${todo(`${B(biz)} wants:`)}<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : ""}
+              ${coverage || region ? todo(`The job must be in ${B(coverage || region)}.`) : ""}
+              ${canFit ? `<button type="button" class="lq3-textbtn lq3-fit-edit" data-lq-act="fit">${checks.length ? `Change ${escapeHtml(biz)}'s job list` : `+ Add what makes a good job for ${escapeHtml(biz)}`}</button>` : ""}`)}
+          ${step(3, "Not a fit, or too far away?", `<div class="lq3-nofit">
+              <div><span>Not a fit</span>${quote(`Unfortunately that's not a job ${B(biz)} takes on and I don't want to waste your time. Thank you for taking my call.`)}</div>
+              <div><span>Too far away</span>${quote(`Unfortunately that's outside the area ${B(biz)} covers. Thank you for taking my call.`)}</div>
+            </div>${todo(`Then press <b>Not a fit</b>.`)}`)}
+          ${step(4, `It fits? Book the ${bookWhat}`, `${todo(`Find a free time on ${B(biz)}'s calendar and tell them. If they agree, press <b>${escapeHtml(lqOutLabel(l, "site_visit"))}</b> below and book it.${hasConsult ? ` Phone call suits them better? Press <b>Consultation call booked</b>.` : ""}`)}
+            ${!visitIsConsult ? quote(`You'll get a confirmation email with the ${escapeHtml(role)}'s contact details.`) : ""}
+            ${todo("Recap, then end the call:")}
+            ${quote(`So that's your ${bookWhat} on <b class="lq3-recap">[day and time]</b>. Thanks for taking my call, ${B(first)}!`)}`)}
+        </ol>
+              <details class="lq3-vm"><summary>If nobody answers, leave this message</summary>${quote(`Hi ${escapeHtml(first)}, it's Carmen from ${escapeHtml(biz)} about your enquiry. I'll try you again shortly, no need to call back.`)}</details>
+      </section>
+      <aside class="lq3-facts">
+        <section class="lq3-panel">
+          <h3>${lqIcon("list")}What they're after</h3>
+          ${answers.length ? `<dl class="lq3-answers">${answers.map(a => `<div><dt>${escapeHtml(a.q)}</dt><dd>${escapeHtml(a.a)}</dd></div>`).join("")}</dl>`
+            : job ? `<dl class="lq3-answers"><div><dt>They asked about</dt><dd>${escapeHtml(job)}</dd></div></dl>`
+            : `<p class="lq3-muted">No form answers came through. Ask them what they need done.</p>${canFit && lqKeyMissing((lqSyncRows || []).find(r => r.client_id === l.client_id)).some(k => k === "contacts" || k === "forms") ? `<p class="lq3-keywarn">${escapeHtml(biz)}'s GoHighLevel key can't read form answers. Fix it in Lead calling setup (in this menu).</p>` : ""}`}
+        </section>
+        <section class="lq3-panel">
+          <h3>${lqIcon("pin")}Where they are</h3>
+          ${place ? `<p class="lq3-place">${escapeHtml(lqNice(l.address || l.city))}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq3-muted">${escapeHtml(l.city)}</p>` : ""}` : ""}
+          ${lqRegionFor === c?.id
+            ? `<form class="lq3-cover lq3-fit-form lq3-region-form" data-lq-form="region"><span>Which region is ${escapeHtml(biz)} in?</span><input name="region" list="lq-region-list" value="${escapeHtml(region)}" placeholder="e.g. Taranaki" required autocomplete="off"><datalist id="lq-region-list">${LQ_REGIONS.map(([n]) => `<option value="${escapeHtml(n)}">`).join("")}</datalist><div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="region-cancel">Cancel</button></div></form>`
+            : region ? `<p class="${place ? "lq3-muted" : "lq3-place"}">${place ? "Region: " : ""}${escapeHtml(region)}${canFit ? ` <button type="button" class="lq3-textbtn" data-lq-act="region">Change</button>` : ""}</p>`
+            : canFit ? `<p class="lq3-cover"><button type="button" class="lq3-textbtn" data-lq-act="region">+ Add the region ${escapeHtml(biz)} is in</button></p>`
+            : !place ? `<p class="lq3-muted">Ask them where the job is.</p>` : ""}
+          ${place || region ? `<div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=${mapZoom}&output=embed"></iframe></div>
+            <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>` : ""}
+          ${lqAreaFor === c?.id
+            ? `<form class="lq3-cover lq3-fit-form" data-lq-form="area"><span>Where does ${escapeHtml(biz)} take jobs?</span><textarea name="area" rows="2" placeholder="e.g. Wellington, Lower Hutt and Porirua - not Upper Hutt">${escapeHtml(coverage)}</textarea><div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="area-cancel">Cancel</button></div></form>`
+            : coverage ? `<p class="lq3-cover"><span>${escapeHtml(biz)} covers</span>${escapeHtml(coverage)}${canFit ? ` <button type="button" class="lq3-textbtn" data-lq-act="area">Change</button>` : ""}</p>`
+            : canFit ? `<p class="lq3-cover"><button type="button" class="lq3-textbtn" data-lq-act="area">+ Add the areas ${escapeHtml(biz)} covers</button></p>` : ""}
+        </section>
+        <details class="lq3-panel lq3-ad-fold">
+          <summary>${lqIcon("chat")}About the ad they saw</summary>
+          <div class="lq3-ad">
       ${creative?.image_url ? `<img class="lq3-ad-img" src="${escapeHtml(creative.image_url)}" alt="" loading="lazy">` : `<span class="lq3-ad-badge">${lqIcon("chat")}</span>`}
       <div class="lq3-ad-body">
-        <h3>About the ad they saw</h3>
         <p class="lq3-ad-lead"><b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}${ad.campaign || realForm ? ` - the ad was for <b>${escapeHtml(lqNice(ad.campaign || realForm))}</b>` : ""}</p>
         <dl class="lq3-ad-facts">
           ${creative ? `<div><dt>${adHit.sure ? "Ad" : "Ad (most likely)"}</dt><dd>${escapeHtml(creative.name)}</dd></div>` : ad.ad ? `<div><dt>Ad</dt><dd>${escapeHtml(lqNice(ad.ad))}</dd></div>` : ""}
@@ -12204,68 +12267,11 @@ function lqDetailHtml(l){
           ${!creative && !ad.ad && liveAds.length ? `<div><dt>${escapeHtml(biz)}'s ads running now</dt><dd>${liveAds.map(x => escapeHtml(x.name)).join(" · ")}</dd></div>` : ""}
         </dl>
       </div>
-    </section>
+</div>
 
-    <div class="lq3-info">
-      <section class="lq3-panel">
-        <h3>${lqIcon("list")}What they're after</h3>
-        ${answers.length ? `<dl class="lq3-answers">${answers.map(a => `<div><dt>${escapeHtml(a.q)}</dt><dd>${escapeHtml(a.a)}</dd></div>`).join("")}</dl>`
-          : job ? `<dl class="lq3-answers"><div><dt>They asked about</dt><dd>${escapeHtml(job)}</dd></div></dl>`
-          : `<p class="lq3-muted">No form answers came through. Ask them what they need done.</p>${canFit && lqKeyMissing((lqSyncRows || []).find(r => r.client_id === l.client_id)).some(k => k === "contacts" || k === "forms") ? `<p class="lq3-keywarn">${escapeHtml(biz)}'s GoHighLevel key can't read form answers. Fix it in Lead calling setup (in this menu).</p>` : ""}`}
-      </section>
-      <section class="lq3-panel">
-        <h3>${lqIcon("pin")}Where they are</h3>
-        ${place ? `<p class="lq3-place">${escapeHtml(lqNice(l.address || l.city))}</p>${l.address && l.city && !l.address.includes(l.city.split(",")[0]) ? `<p class="lq3-muted">${escapeHtml(l.city)}</p>` : ""}` : ""}
-        ${lqRegionFor === c?.id
-          ? `<form class="lq3-cover lq3-fit-form lq3-region-form" data-lq-form="region"><span>Which region is ${escapeHtml(biz)} in?</span><input name="region" list="lq-region-list" value="${escapeHtml(region)}" placeholder="e.g. Taranaki" required autocomplete="off"><datalist id="lq-region-list">${LQ_REGIONS.map(([n]) => `<option value="${escapeHtml(n)}">`).join("")}</datalist><div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="region-cancel">Cancel</button></div></form>`
-          : region ? `<p class="${place ? "lq3-muted" : "lq3-place"}">${place ? "Region: " : ""}${escapeHtml(region)}${canFit ? ` <button type="button" class="lq3-textbtn" data-lq-act="region">Change</button>` : ""}</p>`
-          : canFit ? `<p class="lq3-cover"><button type="button" class="lq3-textbtn" data-lq-act="region">+ Add the region ${escapeHtml(biz)} is in</button></p>`
-          : !place ? `<p class="lq3-muted">Ask them where the job is.</p>` : ""}
-        ${place || region ? `<div class="lq3-map"><iframe title="Map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${mapQ}&z=${mapZoom}&output=embed"></iframe></div>
-          <a class="lq3-link" href="https://www.google.com/maps/search/?api=1&query=${mapQ}" target="_blank" rel="noopener">Open in Google Maps ${lqIcon("arrow")}</a>` : ""}
-        ${lqAreaFor === c?.id
-          ? `<form class="lq3-cover lq3-fit-form" data-lq-form="area"><span>Where does ${escapeHtml(biz)} take jobs?</span><textarea name="area" rows="2" placeholder="e.g. Wellington, Lower Hutt and Porirua - not Upper Hutt">${escapeHtml(coverage)}</textarea><div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="area-cancel">Cancel</button></div></form>`
-          : coverage ? `<p class="lq3-cover"><span>${escapeHtml(biz)} covers</span>${escapeHtml(coverage)}${canFit ? ` <button type="button" class="lq3-textbtn" data-lq-act="area">Change</button>` : ""}</p>`
-          : canFit ? `<p class="lq3-cover"><button type="button" class="lq3-textbtn" data-lq-act="area">+ Add the areas ${escapeHtml(biz)} covers</button></p>` : ""}
-      </section>
+        </details>
+      </aside>
     </div>
-
-    <section class="lq3-panel lq3-script">
-      <h3>${lqIcon("chat")}What to say</h3>
-      <ol class="lq3-steps">
-        ${step(1, "Say hello and ask about the job", `${quote(`Hey ${B(first)}, it's Carmen from ${B(biz)} regarding your ${service ? B(service) + " " : ""}inquiry.`)}
-          ${cue("Wait for them to answer")}
-          ${quote(`What were you looking to get done?`)}`)}
-        ${step(2, `Make sure the job suits ${escapeHtml(biz)}`, lqFitFor === c?.id
-          ? `<form class="lq3-fit-form" data-lq-form="fit">
-              <p class="lq3-muted">What makes a good job for ${B(biz)}? One per line - Carmen sees these on every ${escapeHtml(biz)} lead.</p>
-              <textarea name="fit" rows="5" placeholder="e.g. Driveways and patios over 30m²&#10;Within 40km of Hamilton&#10;Wants it done in the next 3 months&#10;Budget over $5,000">${escapeHtml(checks.join("\n"))}</textarea>
-              <div><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="fit-cancel">Cancel</button></div>
-            </form>`
-          : `${todo(`Check the job matches what ${B(biz)} wants${checks.length ? ":" : ". Find out how big it is, the budget and when they want it done."}`)}
-            ${checks.length ? `<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : ""}
-            ${canFit ? `<button type="button" class="lq3-textbtn lq3-fit-edit" data-lq-act="fit">${checks.length ? `Change these for ${escapeHtml(biz)}` : `+ Add what makes a good job for ${escapeHtml(biz)}`}</button>` : ""}
-            ${todo("If you don't know something yet, ask:")}
-            ${quote(`Roughly how big is the job, and when are you hoping to get it done?`)}
-            ${todo(`Not a match? Say this, then press <b>Not a fit</b>:`)}
-            ${quote(`Thanks so much for getting in touch, ${B(first)}. Unfortunately that's not a job ${B(biz)} takes on, so I don't want to waste your time.`)}`)}
-        ${step(3, "Get the address and check it's in their area", `${quote(place ? `And is the job at ${B(lqNice(place))}?` : `And what's the address of the job?`)}
-          ${todo(coverage ? `Check it's somewhere ${B(biz)} covers: ${B(coverage)}` : region ? `Check it's in ${B(region)}, where ${B(biz)} works.` : `Check it's somewhere ${B(biz)} works (see Where they are, above).`)}
-          ${todo(`Too far away? Say this, then press <b>Not a fit</b>:`)}
-          ${quote(`Ah, unfortunately that's outside the area ${B(biz)} covers. Sorry about that, and thanks for getting in touch.`)}`)}
-        ${step(4, visitIsConsult ? "Book the consultation call" : "Book the site visit", `${visitIsConsult
-          ? `${quote(`Perfect. The next step is a quick call with ${B(biz)} to talk it through. What day and time suits you best?`)}
-            ${todo(`Then press <b>Consultation call booked</b> below and put in the time.`)}`
-          : `${quote(`Perfect. ${B(biz)} can come out and have a look and give you a quote. Does earlier or later in the week suit, morning or afternoon?`)}
-            ${todo(`Then press <b>Site visit booked</b> below and put in the time.`)}
-            ${hasConsult ? `${todo(`If a phone call suits them better (or they can't do a visit), say:`)}
-            ${quote(`No worries. ${B(biz)} can give you a call first to talk it through. Is there a day and time that suits, or would you like them to call you as soon as they can?`)}
-            ${todo(`Then press <b>Consultation call booked</b> and put in the time, or pick <b>ASAP</b>.`)}` : ""}`}
-          ${todo("Finish with:")}
-          ${quote(`Awesome, that's all booked in. Thanks ${B(first)}, have a great day!`)}`)}
-      </ol>
-      <details class="lq3-vm"><summary>If nobody answers, leave this message</summary>${quote(`Hi ${escapeHtml(first)}, it's Carmen from ${escapeHtml(biz)} about your enquiry. I'll try you again shortly, no need to call back.`)}</details>
-    </section>
 
     ${(() => {
       // When this client likes bookings (clients.lead_book_times, sql/106),
@@ -13312,7 +13318,7 @@ function setupLeadFollowUpUi(){
         wrap.classList.toggle("asap", asap);
         form.elements.day.required = form.elements.time.required = !asap;
         $$(".lq3-chips button", form).forEach(b => b.classList.toggle("picked", b === t));
-        if (asap) return;
+        if (asap) return lqRecap(form);
         // NZ day and time.
         let day, hm;
         if (/^\d+$/.test(k)){ const t = new Date(Math.ceil((d.getTime() + Number(k) * 60e3) / 1800e3) * 1800e3), p = nzParts(t); day = nzDayStr(t); hm = `${String(p.h).padStart(2, "0")}:${String(p.mi).padStart(2, "0")}`; }
@@ -13320,6 +13326,7 @@ function setupLeadFollowUpUi(){
         form.elements.day.value = day;
         if (![...form.elements.time.options].some(o => o.value === hm)) form.elements.time.add(new Option(lqClock(nzToDate(day, hm).toISOString()), hm));
         form.elements.time.value = hm;
+        lqRecap(form);
         $$(".lq3-chips button", form).forEach(b => b.classList.toggle("picked", b === t));
         return;
       }
@@ -13347,6 +13354,7 @@ function setupLeadFollowUpUi(){
         const form = ev.target.form, wrap = ev.target.closest(".lq3-when");
         if (form.elements.asap?.value){ form.elements.asap.value = ""; wrap.classList.remove("asap"); form.elements.day.required = form.elements.time.required = true; $$(".lq3-chips button", form).forEach(b => b.classList.remove("picked")); }
       }
+      if (ev.target.matches('form[data-lq-form="outcome"] [name="day"], form[data-lq-form="outcome"] [name="time"]')) lqRecap(ev.target.form);
       if (ev.target.matches('form[data-lq-form="outcome"] [name="address"], form[data-lq-form="outcome"] [name="scope"]') && lqSel) lqDrafts[lqSel + ":" + ev.target.name] = ev.target.value;
     });
     root.addEventListener("submit", async (ev) => {
