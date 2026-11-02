@@ -192,21 +192,21 @@ jobs:
       # secret and this copies it into the Supabase project's function secrets.
       - name: Pass Jarvis his API key
         if: steps.token.outputs.ok == 'true' && env.ANTHROPIC_API_KEY != ''
-        run: supabase secrets set ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" --project-ref "$PROJECT_REF"
+        run: supabase secrets set ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" --project-ref "$PROJECT_REF" --yes
       # Jarvis runs free on Google Gemini: add a key from aistudio.google.com
       # once as the GEMINI_API_KEY repo secret (it wins over the Claude key).
       - name: Pass Jarvis his Gemini key
         if: steps.token.outputs.ok == 'true' && env.GEMINI_API_KEY != ''
-        run: supabase secrets set GEMINI_API_KEY="$GEMINI_API_KEY" --project-ref "$PROJECT_REF"
+        run: supabase secrets set GEMINI_API_KEY="$GEMINI_API_KEY" --project-ref "$PROJECT_REF" --yes
       # Emails that send themselves (receipts): add RESEND_API_KEY (resend.com)
       # and EMAIL_FROM (e.g. Mr Priceless <accounts@mrpriceless.com>) as repo
       # secrets; EMAIL_REPLY_TO is optional.
       - name: Pass the email sender its keys
         if: steps.token.outputs.ok == 'true' && env.RESEND_API_KEY != ''
         run: |
-          supabase secrets set RESEND_API_KEY="$RESEND_API_KEY" --project-ref "$PROJECT_REF"
-          if [ -n "$EMAIL_FROM" ]; then supabase secrets set EMAIL_FROM="$EMAIL_FROM" --project-ref "$PROJECT_REF"; fi
-          if [ -n "$EMAIL_REPLY_TO" ]; then supabase secrets set EMAIL_REPLY_TO="$EMAIL_REPLY_TO" --project-ref "$PROJECT_REF"; fi
+          supabase secrets set RESEND_API_KEY="$RESEND_API_KEY" --project-ref "$PROJECT_REF" --yes
+          if [ -n "$EMAIL_FROM" ]; then supabase secrets set EMAIL_FROM="$EMAIL_FROM" --project-ref "$PROJECT_REF" --yes; fi
+          if [ -n "$EMAIL_REPLY_TO" ]; then supabase secrets set EMAIL_REPLY_TO="$EMAIL_REPLY_TO" --project-ref "$PROJECT_REF" --yes; fi
       # Meeting invites on the closer's Google Calendar: the service account key
       # file from Google Cloud, pasted whole as the GOOGLE_SERVICE_ACCOUNT_JSON
       # repo secret. It's passed on base64-encoded (so nothing in it gets
@@ -218,20 +218,20 @@ jobs:
             echo "::error::GOOGLE_SERVICE_ACCOUNT_JSON isn't a Google service account key file. Paste the whole .json file into the secret again."
             exit 1
           fi
-          supabase secrets set GOOGLE_SERVICE_ACCOUNT_B64="$(printf '%s' "$sa" | base64 -w0)" --project-ref "$PROJECT_REF" > /dev/null
+          supabase secrets set GOOGLE_SERVICE_ACCOUNT_B64="$(printf '%s' "$sa" | base64 -w0)" --project-ref "$PROJECT_REF" --yes > /dev/null
           echo "Google key set."
       # Booked meetings sync to our own GoHighLevel sub-account: a Private
       # Integration token and the location ID, as the GHL_PRECALL_TOKEN and
       # GHL_PRECALL_LOCATION_ID repo secrets.
       - name: Pass the meeting booker its GHL key
         if: steps.token.outputs.ok == 'true' && env.GHL_PRECALL_TOKEN != '' && env.GHL_PRECALL_LOCATION_ID != ''
-        run: supabase secrets set GHL_PRECALL_TOKEN="$GHL_PRECALL_TOKEN" GHL_PRECALL_LOCATION_ID="$GHL_PRECALL_LOCATION_ID" --project-ref "$PROJECT_REF" > /dev/null
+        run: supabase secrets set GHL_PRECALL_TOKEN="$GHL_PRECALL_TOKEN" GHL_PRECALL_LOCATION_ID="$GHL_PRECALL_LOCATION_ID" --project-ref "$PROJECT_REF" --yes > /dev/null
       # Aircall's API key (Aircall Dashboard -> Integrations & API -> API keys),
       # for the Recorded calls page. Add the repo secrets AIRCALL_API_ID and
       # AIRCALL_API_TOKEN; until then the call sync does nothing.
       - name: Pass the call sync its Aircall key
         if: steps.token.outputs.ok == 'true' && env.AIRCALL_API_ID != '' && env.AIRCALL_API_TOKEN != ''
-        run: supabase secrets set AIRCALL_API_ID="$AIRCALL_API_ID" AIRCALL_API_TOKEN="$AIRCALL_API_TOKEN" --project-ref "$PROJECT_REF" > /dev/null
+        run: supabase secrets set AIRCALL_API_ID="$AIRCALL_API_ID" AIRCALL_API_TOKEN="$AIRCALL_API_TOKEN" --project-ref "$PROJECT_REF" --yes > /dev/null
       # Ad production (creative-agent) settings, all optional: repo variables
       # (not secrets - they aren't private) CLAUDE_MODEL_STRATEGY (angles),
       # CLAUDE_MODEL_DEFAULT (copy) and CREATIVE_JOB_COST_CEILING_USD. It uses
@@ -243,12 +243,12 @@ jobs:
           [ -n "$CLAUDE_MODEL_STRATEGY" ] && args="$args CLAUDE_MODEL_STRATEGY=$CLAUDE_MODEL_STRATEGY"
           [ -n "$CLAUDE_MODEL_DEFAULT" ] && args="$args CLAUDE_MODEL_DEFAULT=$CLAUDE_MODEL_DEFAULT"
           [ -n "$CREATIVE_JOB_COST_CEILING_USD" ] && args="$args CREATIVE_JOB_COST_CEILING_USD=$CREATIVE_JOB_COST_CEILING_USD"
-          supabase secrets set $args --project-ref "$PROJECT_REF" > /dev/null
+          supabase secrets set $args --project-ref "$PROJECT_REF" --yes > /dev/null
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
           for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings sync-aircall-calls creative-agent; do
-            supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --no-verify-jwt
+            supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --yes --no-verify-jwt
           done
       # Run this workflow by hand with a test_email to check sending works.
       - name: Send a test email
