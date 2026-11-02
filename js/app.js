@@ -3774,8 +3774,6 @@ function renderDialer(){
   // means it just self-corrects on the next render instead, and stays put
   // once the user's made an actual choice (including "" for Everyone).
   if (state.dialerOwnerFilter === null && activePerson) state.dialerOwnerFilter = activePerson;
-  const personSel = $("#dialer-person-select");
-  if (personSel && activePerson && document.activeElement !== personSel) personSel.value = activePerson;
   // Same playbook_usage record the Meetings Booked page's picker reads/
   // writes (see renderPlaybookUsagePicker/savePlaybookUsage) - picking it
   // here just means you don't have to leave the Dialler to set it, and the
@@ -17133,11 +17131,6 @@ function setupDialerFilters(){
   // (Industry scoping itself now comes straight from their Team Focus
   // assignment on every render - see renderProspectList - rather than a
   // one-off manual filter set here, which used to go stale across a switch.)
-  $("#dialer-person-select")?.addEventListener("change", (e) => {
-    window.setActivePerson?.(e.target.value);
-    state.dialerOwnerFilter = e.target.value;
-    renderProspectViews();
-  });
   $("#dialer-playbook-select")?.addEventListener("change", async (e) => {
     const activePerson = window.getActivePerson ? window.getActivePerson() : null;
     if (activePerson) await savePlaybookUsage(activePerson, e.target.value);

@@ -1190,11 +1190,12 @@ if(personSelect){
   state = await loadState();
   renderAll();
 })();
-// Until someone picks "Tracking as" on this device, track as whoever is signed
-// in (app.js calls this after sign-in) rather than defaulting to Rocky - which
-// put everyone's taps on Rocky's numbers.
+// Calls and taps belong to whoever is signed in (app.js calls this after
+// sign-in), so the Dialler has no "Calling as" picker - it always uses the
+// logged-in person, even if an older pick was saved on this device.
 window.CRM_TRACKER_DEFAULT_PERSON = async function(person){
-  try { if (!person || localStorage.getItem(PERSON_KEY)) return; } catch(e){ return; }
+  if (!person) return;
+  if (person === getActivePerson() && (() => { try { return localStorage.getItem(PERSON_KEY); } catch(e){ return null; } })()) return;
   setActivePerson(person);
   if (personSelect) personSelect.value = person;
   state = await loadState();
