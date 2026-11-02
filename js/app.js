@@ -11381,42 +11381,34 @@ function empRespHtml(e){
       </div>
     </form>`;
   }
-  return `<section class="emp-resp">
-    <div class="emp-resp-head"><h4>Responsibilities</h4>${empCanEdit() ? `<button type="button" class="emp-link" data-emp-act="resp-edit">Edit</button>` : ""}</div>
-    ${list.length ? `<div class="emp-resp-grid">${list.map((x, i) => `<article class="emp-resp-card"><span class="emp-resp-n">${i + 1}</span><div><h5>${escapeHtml(x.title || "")}</h5>${x.detail ? `<p>${escapeHtml(x.detail)}</p>` : ""}</div></article>`).join("")}</div>`
-      : `<p class="emp-text">Nothing written down yet.${empCanEdit() ? " Click Edit to add what they're responsible for." : ""}</p>`}
+  return `<section class="tp-resp">
+    <div class="tp-resp-head"><h3>Responsibilities</h3>${empCanEdit() ? `<button type="button" class="tp-link" data-emp-act="resp-edit">Edit</button>` : ""}</div>
+    ${list.length ? `<ol class="tp-resp-list">${list.map((x, i) => `<li><span class="tp-n">${String(i + 1).padStart(2, "0")}</span><div><h4>${escapeHtml(x.title || "")}</h4>${x.detail ? `<p>${escapeHtml(x.detail)}</p>` : ""}</div></li>`).join("")}</ol>`
+      : `<p class="tp-empty">Nothing written down yet.${empCanEdit() ? " Press Edit to add what they're responsible for." : ""}</p>`}
   </section>`;
 }
 
+// Someone's page is just who they are and what they're responsible for
+// (Rocky's call): a clean header, then the list. Managers can edit both.
 function empDetailHtml(e){
   const mgr = empIsManager(), self = empIsSelf(e);
-  const tabs = [["overview", "Overview"], ["performance", "Performance"], ["onboarding", e.status === "left" ? "Offboarding" : "Onboarding"], ["checkins", "1:1s"], ["leave", "Leave"], ...(mgr ? [["pay", "Pay & contract"]] : [])];
-  if (!tabs.some(([k]) => k === empTab)) empTab = "overview";
-  const body = empEditing && empTab === "overview" ? empEditHtml(e) : ({ overview: empOverviewHtml, performance: empPerfHtml, onboarding: empOnbHtml, checkins: empCheckinsHtml, leave: empLeaveHtml, pay: empPayHtml }[empTab] || empOverviewHtml)(e);
-  const chip = (icon, text, href) => text ? (href ? `<a class="tm-chip" href="${href}"><i>${icon}</i>${escapeHtml(text)}</a>` : `<span class="tm-chip"><i>${icon}</i>${escapeHtml(text)}</span>`) : "";
-  return `
-    <header class="tm-hero">
-      <span class="tm-av ${empColour(e)}">${escapeHtml(empInitials(e.name))}</span>
-      <div class="tm-hero-id">
-        <div class="tm-hero-top">
-          <h3>${escapeHtml(e.name)}${self ? ` <small>(you)</small>` : ""}</h3>
-          <span class="tm-status ${EMP_STATUS[e.status]?.cls || ""}">${EMP_STATUS[e.status]?.label || e.status}</span>
-        </div>
-        <p>${escapeHtml(e.role || "No role yet")}</p>
-        <div class="tm-chips">
-          ${chip("🏷", EMP_TEAMS[e.team] || "")}
-          ${chip("📅", e.start_date ? `Started ${empDay(e.start_date)} · ${empTenure(e.start_date)}` : "")}
-          ${chip("📍", e.location || "")}
-          ${chip("👤", e.manager && ASSIGNEES[e.manager] ? `Reports to ${ASSIGNEES[e.manager].label}` : "")}
-          ${chip("✉", e.email || "", e.email ? `mailto:${escapeHtml(e.email)}` : "")}
-          ${chip("📞", e.phone || "", e.phone ? `tel:${escapeHtml(e.phone)}` : "")}
-        </div>
+  const contact = [
+    e.email ? `<a href="mailto:${escapeHtml(e.email)}">${escapeHtml(e.email)}</a>` : "",
+    e.phone ? `<a href="tel:${escapeHtml(e.phone)}">${escapeHtml(e.phone)}</a>` : "",
+    e.status === "left" && e.end_date ? `Left ${escapeHtml(empDay(e.end_date))}` : "",
+  ].filter(Boolean).join(`<span class="tp-dot">·</span>`);
+  return `<article class="tp">
+    <header class="tp-head">
+      <span class="tp-av">${escapeHtml(empInitials(e.name))}</span>
+      <div class="tp-id">
+        <h2>${escapeHtml(e.name)}${self ? ` <small>You</small>` : ""}</h2>
+        <p class="tp-role">${escapeHtml(e.role || "No role yet")}</p>
+        ${contact ? `<p class="tp-contact">${contact}</p>` : ""}
       </div>
-      ${mgr && !empEditing ? `<button type="button" class="tm-edit" data-emp-act="edit">Edit details</button>` : ""}
+      ${mgr && !empEditing ? `<button type="button" class="tp-btn" data-emp-act="edit">Edit details</button>` : ""}
     </header>
-    ${e.status === "left" || empEditing ? "" : empRespHtml(e)}
-    ${empEditing ? "" : `<nav class="tm-tabs" role="tablist">${tabs.map(([k, l]) => `<button type="button" class="${k === empTab ? "active" : ""}" data-emp-tab="${k}">${l}</button>`).join("")}</nav>`}
-    <div class="emp-body tm-body">${body}</div>`;
+    ${empEditing ? `<div class="emp-body tm-body">${empEditHtml(e)}</div>` : e.status === "left" ? "" : empRespHtml(e)}
+  </article>`;
 }
 
 function empOverviewHtml(e){
