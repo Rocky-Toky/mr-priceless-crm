@@ -1637,7 +1637,7 @@ function applyWorkspace(){
   document.body.classList.toggle("workspace-leads", ws === "leads");
   setTimeout(() => lqAlertCheck(), 0);
   $$("[data-workspace]").forEach(el => {
-    el.style.display = ((el.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || el.dataset.workspace === ws) ? "" : "none";
+    el.style.display = (el.dataset.workspace === "all" || (el.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || el.dataset.workspace === ws) ? "" : "none";
   });
   // Lead Engine is Rocky/Max only regardless of workspace - override the
   // workspace loop above rather than fold it into data-workspace, since
@@ -1650,6 +1650,8 @@ function applyWorkspace(){
   if (isLeadsOnly()) $$(".nav-item[data-page], .nav-group-item, .nav-group-toggle").forEach(el => { if (!LEADS_ONLY_PAGES.includes(el.dataset.page)) el.style.display = "none"; });
   // Finance (receipts and expenses) sits in Team, but stays with whoever can see Service Delivery.
   $$(".nav-finance").forEach(el => { if (!canAccessDelivery()) el.style.display = "none"; });
+  // The Client inbox shows in every workspace, for anyone with Service Delivery.
+  $$(".nav-inbox").forEach(el => { if (!canAccessDelivery() || isLeadsOnly()) el.style.display = "none"; });
   // Contacts lives under Add prospects; without Add prospects it's just Contacts.
   $$(".nav-prospects-label").forEach(el => { el.textContent = canAccessLeadEngine() ? "Add Prospects" : "Contacts"; });
   const copy = WORKSPACE_COPY[ws] || WORKSPACE_COPY.sales;
@@ -1665,7 +1667,7 @@ function applyWorkspace(){
   // Each workspace opens on its main page: Meetings Booked, Clients, Employees, or the call queue.
   const landing = ws === "delivery" ? "clients" : ws === "employees" ? "employees" : ws === "leads" ? "lead-queue" : "cold-calls";
   const pageBtns = $$(`.nav-item[data-page="${state.page}"]`);
-  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => (b.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || b.dataset.workspace === ws))){
+  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => b.dataset.workspace === "all" || (b.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || b.dataset.workspace === ws))){
     workspaceLanded = true;
     $(`.nav-item[data-page="${landing}"]`)?.click();
   }
@@ -1721,7 +1723,7 @@ const PAGE_GROUPS = {
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
   library: [["meeting", "Meeting structure"], ["sit-rate", "Meeting Sit Rate Process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks"], ["rules", "Rules"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
-  ads: [["ad-production", "Ad production"], ["ads-month", "Ads this month"], ["content-library", "Video scripts"]],
+  ads: [["ad-production", "Ad production"], ["ads-month", "Ads this month"]],
 };
 const groupOfPage = (page) => Object.keys(PAGE_GROUPS).find(g => PAGE_GROUPS[g].some(([p]) => p === page)) || null;
 function goPage(page){ $(`.nav-item[data-page="${page}"]`)?.click(); }
@@ -8093,6 +8095,7 @@ async function makeReport(){
     const row = { client_id: c.id, period_start: from, period_end: to, metrics, status: "made" };
     const same = rpExisting || monthReportsFor(c.id).find(r => r.period_start === from && r.period_end === to);
     if (same) await DataLayer.update("client_reports", same.id, row); else await DataLayer.insert("client_reports", row);
+    for (const e of state.clientEmails.filter(x => x.client_id === c.id && x.status === "new" && inboxIsReport(x))) await setClientEmailStatus(e.id, "done");
     if (IS_CONFIGURED){ await DataLayer.fetchAll(); renderAll(); }
 
     if (rpLastUrl) URL.revokeObjectURL(rpLastUrl);
@@ -10682,10 +10685,13 @@ function inboxDur(ms){
 }
 // A weekly check-in call for a new client (sql/107), not an email.
 const inboxIsCheckin = (e) => String(e.gmail_id || "").startsWith("checkin:");
+// A fortnightly report reminder (sql/108), not an email.
+const inboxIsReport = (e) => String(e.gmail_id || "").startsWith("report:");
 const inboxGmailLink = (e) => `https://mail.google.com/mail/u/${encodeURIComponent(e.inbox_email || "")}/#all/${encodeURIComponent(e.thread_id || e.gmail_id || "")}`;
 function inboxDemo(){
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   return [
+    { id: uid(), gmail_id: "report:demo:2026-11-01", client_id: (state.clients[1] || {}).id, client_name: (state.clients[1] || {}).name || "Kauri Property Group", from_name: "Mr Priceless CRM", from_email: "", inbox_email: "demo@mrpriceless.co.nz", subject: "Fortnightly report due", snippet: "Make their fortnightly report on the Reporting page and email it to them. Press \"Sent it\" once it's gone.", received_at: ago(30), status: "new" },
     { id: uid(), gmail_id: "checkin:demo:2", client_id: (state.clients[0] || {}).id, client_name: (state.clients[0] || {}).name || "Reeve Builders", from_name: "Mr Priceless CRM", from_email: "", inbox_email: "demo@mrpriceless.co.nz", subject: "Week 2 of 4 - check-in call", snippet: "Give them a call for a friendly check-in: how the first weeks are going, how the leads look, and anything they need from us. Press \"Called them\" once you have.", received_at: ago(45), status: "new" },
     { id: uid(), client_name: "Reeve Builders", from_name: "Marlon Reeve", from_email: "marlon@reevebuilders.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Leads this week?", snippet: "Hey mate, only had two come through since Monday - is everything still running ok on your end?", received_at: ago(275), status: "new" },
     { id: uid(), client_name: "Ritchie Building", from_name: "Sam Ritchie", from_email: "sam@ritchiebuilding.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "New photos for the ads", snippet: "Just finished the Ponsonby deck, uploaded a heap of before and afters to the folder.", received_at: ago(70), status: "new" },
@@ -10914,7 +10920,7 @@ async function setClientEmailStatus(id, status){
 // The count in the menu, the tab title, and the priority bar on every other page.
 // The Client inbox lives in Service Delivery only, so its count, tab title
 // and bar only show there.
-const inboxHere = () => document.body.classList.contains("workspace-delivery");
+const inboxHere = () => canAccessDelivery() && !isLeadsOnly();
 function renderInboxAlert(){
   const waiting = inboxHere() ? inboxWaiting() : [];
   $$(".nav-inbox-count").forEach(el => { el.hidden = !waiting.length; el.textContent = waiting.length; });
@@ -10975,6 +10981,8 @@ function renderClientInbox(){
       <div class="ib-actions">
         ${inboxIsCheckin(e) ? (() => { const c = state.clients.find(x => x.id === e.client_id); return `${c?.phone ? `<button type="button" class="ib-btn reply" data-action="call-number" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name || "")}">Call ${escapeHtml(inboxShortName(c.name) || "them")}</button>` : ""}
         <button type="button" class="ib-btn" data-inbox-done="${escapeHtml(e.id)}">Called them ✓</button>`; })()
+        : inboxIsReport(e) ? `<button type="button" class="ib-btn reply" data-inbox-act="report">Make the report</button>
+        <button type="button" class="ib-btn" data-inbox-done="${escapeHtml(e.id)}">Sent it ✓</button>`
         : `<a class="ib-btn reply" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail</a>
         <button type="button" class="ib-btn" data-inbox-done="${escapeHtml(e.id)}">No reply needed</button>`}
       </div>
@@ -10983,8 +10991,8 @@ function renderClientInbox(){
   const handledList = handled.filter(e => inboxHandledTab === "all" || e.status === inboxHandledTab);
   const handledRow = (e) => `<div class="ib-done-row">
       <div><b>${escapeHtml(inboxShortName(e.client_name) || e.from_email || "")}</b><span>${escapeHtml(e.subject || "(no subject)")}</span>
-        <small class="${e.status}">${e.status === "replied" ? `✓ Replied${e.replied_at ? ` in ${inboxDur(new Date(e.replied_at) - new Date(e.received_at))}` : ""}` : `${inboxIsCheckin(e) ? "Called" : "No reply needed"}${e.done_by ? " · " + escapeHtml(ASSIGNEES[personKeyFromEmail(e.done_by)]?.label || e.done_by.split("@")[0]) : ""}`}</small></div>
-      ${e.status === "done" ? `<button type="button" class="ib-mini" data-inbox-undo="${escapeHtml(e.id)}">Undo</button>` : inboxIsCheckin(e) ? "" : `<a class="ib-mini" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Open</a>`}
+        <small class="${e.status}">${e.status === "replied" ? `✓ Replied${e.replied_at ? ` in ${inboxDur(new Date(e.replied_at) - new Date(e.received_at))}` : ""}` : `${inboxIsCheckin(e) ? "Called" : inboxIsReport(e) ? (e.done_by === "Report made" ? "Report made" : "Sent") : "No reply needed"}${e.done_by ? " · " + escapeHtml(ASSIGNEES[personKeyFromEmail(e.done_by)]?.label || e.done_by.split("@")[0]) : ""}`}</small></div>
+      ${e.status === "done" ? `<button type="button" class="ib-mini" data-inbox-undo="${escapeHtml(e.id)}">Undo</button>` : (inboxIsCheckin(e) || inboxIsReport(e)) ? "" : `<a class="ib-mini" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Open</a>`}
     </div>`;
   const conns = state.inboxConnections.filter(c => c.status !== "waiting" || c.user_id === state.user?.id);
   const allOk = conns.length && conns.every(c => c.status === "ok" && !stale(c));
@@ -11052,6 +11060,7 @@ function setupClientInboxUi(){
     if (t.dataset.inboxUndo) return setClientEmailStatus(t.dataset.inboxUndo, "new");
     const act = t.dataset.inboxAct;
     if (act === "copy") return copyInboxScript();
+    if (act === "report") return goPage("reporting");
     if (act === "setup-open"){ inboxSetupOpen = true; return renderClientInbox(); }
     if (act === "setup-close"){ inboxSetupOpen = false; inboxScriptFallback = ""; return renderClientInbox(); }
     if (act === "handled"){ inboxShowHandled = !inboxShowHandled; return renderClientInbox(); }
