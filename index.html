@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=365">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=365">
+<link rel="stylesheet" href="css/style.css?v=366">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=366">
 </head>
 <body>
 
@@ -226,9 +226,13 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="13" width="3" height="5"/><rect x="12" y="9" width="3" height="9"/><rect x="17" y="5" width="3" height="13"/></svg>
         <span>Stats</span>
       </button>
+      <button class="nav-item" data-page="onboarding" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>
+        <span>Onboarding</span><span class="nav-count" id="nav-onb-count" hidden title="Clients onboarding"></span>
+      </button>
       <button class="nav-item" data-page="clients" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/></svg>
-        <span>Clients</span><span class="nav-count" id="nav-onb-count" hidden title="Clients onboarding"></span>
+        <span>Clients</span>
       </button>
       <button class="nav-item" data-page="workshops" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4h18v12H3z"/><path d="M8 20h8M12 16v4"/><path d="M7 12l3-3 2 2 4-4"/></svg>
@@ -238,13 +242,13 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
         <span>Creative</span>
       </button>
-      <button class="nav-item" data-page="ad-production" data-workspace="delivery">
+      <button class="nav-item nav-hidden" data-page="ad-production" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/><path d="M5 17l.6 1.4L7 19l-1.4.6L5 21l-.6-1.4L3 19l1.4-.6z"/></svg>
-        <span>Ad production</span><span class="nav-count" id="nav-ap-count" hidden title="Jobs waiting on you"></span>
+        <span>Ad production</span>
       </button>
       <button type="button" class="nav-item nav-group-item" data-group="ads" data-workspace="delivery">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M9 15l2 2 4-4"/></svg>
-        <span>Ads</span><span class="nav-count" id="nav-ads-count" hidden title="Ads still to go live this month"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/><path d="M5 17l.6 1.4L7 19l-1.4.6L5 21l-.6-1.4L3 19l1.4-.6z"/></svg>
+        <span>Ad production</span><span class="nav-count" id="nav-ads-count" hidden title="Ads still to go live this month"></span>
       </button>
       <button class="nav-item" data-page="reporting" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
@@ -1083,14 +1087,14 @@
     <!-- Onboarding: every new client from signed to live -->
     <section class="page" id="page-onboarding">
       <div class="page-header">
-        <div><h2>Onboarding</h2><p>Every new client from signed to ads live. Drag them along as they go, and open one to see what's left.</p></div>
+        <div><h2>Onboarding</h2><p>Everyone being set up, from signed to ads live. Open one to see what's left. They move to Clients once onboarding is finished.</p></div>
         <button class="btn gold" data-action="onb-add-client">+ Add Client</button>
       </div>
       <div class="onb-kpis" id="onb-kpis"></div>
       <div class="card onb-empty" id="onb-empty" hidden>
         <div class="onb-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg></div>
         <div><h3>No one's onboarding right now</h3>
-        <p>Drag a deal into <b>Onboarding</b> on the Sales pipeline and they'll land in Welcome automatically, or add a client yourself.</p></div>
+        <p>When a deal reaches <b>Pending Results</b> on the Sales pipeline they land here automatically, or add one yourself.</p></div>
       </div>
       <div class="onb-board" id="onb-board"></div>
     </section>
@@ -2912,17 +2916,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=365"></script>
-<script src="js/supabaseClient.js?v=365"></script>
-<script src="js/report-pdf.js?v=365"></script>
-<script src="js/plan-pdf.js?v=365"></script>
-<script src="js/workshop-pdf.js?v=365"></script>
-<script src="js/receipt-pdf.js?v=365"></script>
-<script src="js/welcome-pdf.js?v=365"></script>
-<script src="js/builtin-playbooks.js?v=365"></script>
-<script src="js/builtin-email-templates.js?v=365"></script>
-<script src="js/app.js?v=365"></script>
-<script src="js/meetings-tracker.js?v=365"></script>
-<script src="js/todo.js?v=365"></script>
+<script src="js/config.js?v=366"></script>
+<script src="js/supabaseClient.js?v=366"></script>
+<script src="js/report-pdf.js?v=366"></script>
+<script src="js/plan-pdf.js?v=366"></script>
+<script src="js/workshop-pdf.js?v=366"></script>
+<script src="js/receipt-pdf.js?v=366"></script>
+<script src="js/welcome-pdf.js?v=366"></script>
+<script src="js/builtin-playbooks.js?v=366"></script>
+<script src="js/builtin-email-templates.js?v=366"></script>
+<script src="js/app.js?v=366"></script>
+<script src="js/meetings-tracker.js?v=366"></script>
+<script src="js/todo.js?v=366"></script>
 </body>
 </html>
