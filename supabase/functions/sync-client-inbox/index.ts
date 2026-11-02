@@ -246,6 +246,18 @@ async function remind(admin: any) {
   for (const e of data || []) {
     if (!e.inbox_email) continue;
     const hrs = Math.floor((Date.now() - new Date(e.received_at).getTime()) / 3600e3);
+    // A fortnightly report reminder (sql/108), not an email.
+    if (String(e.gmail_id || "").startsWith("report:")) {
+      const r = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: EMAIL_FROM, to: [e.inbox_email], subject: `Report due - ${e.client_name || "a client"}'s fortnightly report`.slice(0, 200),
+          text: `${e.client_name || "A client"}'s fortnightly report has been due for ${hrs} hours.\n\n${e.snippet}\n\nClient inbox: ${CRM_URL}` }),
+      });
+      await admin.from("client_emails").update({ reminded_at: new Date().toISOString() }).eq("id", e.id);
+      if (r.ok) sent++;
+      continue;
+    }
     // A weekly check-in call for a new client (sql/107), not an email.
     if (String(e.gmail_id || "").startsWith("checkin:")) {
       const r = await fetch("https://api.resend.com/emails", {
