@@ -337,8 +337,12 @@ function clientMonthNumber(c){
   return Math.max(1, (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth() + (now.getDate() >= d.getDate() ? 1 : 0));
 }
 const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
+// Churned isn't a stage you can pick any more (Rocky removed it). Older
+// churned clients keep their data for the stats but stay off the Clients page.
+// The pick list keeps it only for a client who's already churned.
+const clientPickStages = (current) => CLIENT_STAGES.filter(s => s.key !== "churned" || current === "churned");
 // The Clients page's tabs - onboarding has its own page.
-const CLIENT_LIST_STAGES = CLIENT_STAGES.filter(s => s.key !== "onboarding");
+const CLIENT_LIST_STAGES = CLIENT_STAGES.filter(s => !["onboarding", "churned"].includes(s.key));
 const ARCHIVED_STAGE = "archived";
 const archivedClientName = (id) => (state.archivedClients || []).find(c => c.id === id)?.name || "";
 // An archived client's campaigns, content, reports and leads stay in the
@@ -1636,6 +1640,8 @@ function applyWorkspace(){
   document.body.classList.toggle("workspace-employees", ws === "employees");
   document.body.classList.toggle("workspace-leads", ws === "leads");
   setTimeout(() => lqAlertCheck(), 0);
+  // The Library's emails differ by workspace (sales vs service/onboarding).
+  setTimeout(() => { try { renderEmailTemplates(); } catch(e){} }, 0);
   $$("[data-workspace]").forEach(el => {
     el.style.display = (el.dataset.workspace === "all" || (el.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || el.dataset.workspace === ws) ? "" : "none";
   });
@@ -1717,7 +1723,7 @@ function setupWsMenu(){
 }
 // Pages that live together under one menu item, switched with tabs at the top.
 const PAGE_GROUPS = {
-  deals: [["deals", "Pipeline"], ["nurture", "Nurture"]],
+  deals: [["deals", "Pipeline"]],
   prospects: [["lead-engine", "Add prospects"], ["contacts", "Contacts"]],
   stats: [["rates", "Rates"]],
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
@@ -1728,7 +1734,12 @@ const PAGE_GROUPS = {
 const groupOfPage = (page) => Object.keys(PAGE_GROUPS).find(g => PAGE_GROUPS[g].some(([p]) => p === page)) || null;
 function goPage(page){ $(`.nav-item[data-page="${page}"]`)?.click(); }
 // Tabs someone can actually open (Add prospects is Rocky and Max only).
-const groupPages = (group) => PAGE_GROUPS[group].filter(([p]) => p !== "lead-engine" || canAccessLeadEngine());
+// The Library is split by workspace: the sales side (meeting structure, sit
+// rate, playbooks, sales emails) and the delivery side (service and
+// onboarding emails, rules). Email templates show in both, filtered.
+const LIBRARY_WS = { meeting: "sales", "sit-rate": "sales", playbooks: "sales", rules: "delivery" };
+const tabInWorkspace = (p) => !LIBRARY_WS[p] || LIBRARY_WS[p] === (getWorkspace() === "sales" ? "sales" : "delivery");
+const groupPages = (group) => PAGE_GROUPS[group].filter(([p]) => (p !== "lead-engine" || canAccessLeadEngine()) && tabInWorkspace(p));
 function lastTabOf(group){
   let p = null; try { p = localStorage.getItem("mp_tab_" + group); } catch(e){}
   const pages = groupPages(group);
@@ -1743,7 +1754,7 @@ function syncPageGroup(){
   $$(".page-tabs").forEach(t => {
     t.querySelectorAll("button").forEach(b => {
       b.classList.toggle("active", b.dataset.goto === state.page);
-      b.hidden = b.dataset.goto === "lead-engine" && !canAccessLeadEngine();
+      b.hidden = (b.dataset.goto === "lead-engine" && !canAccessLeadEngine()) || !tabInWorkspace(b.dataset.goto);
     });
     t.hidden = [...t.querySelectorAll("button")].filter(b => !b.hidden).length < 2;
   });
@@ -3556,7 +3567,7 @@ function openEditClientModal(c){
   $("#client-ad-start-date").value = c.ad_start_date||"";
   $("#client-report-email").value = c.report_email||"";
   $("#client-churn-risk").value = c.churn_risk||"";
-  $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
+  $("#client-stage").innerHTML = clientPickStages(c.stage).map(s => `<option value="${s.key}">${s.label}</option>`).join("");
   $("#client-stage").value = c.stage||"onboarding";
   $("#client-quote-target").value = c.quote_target != null ? c.quote_target : "";
   toggleClientQuoteTargetField();
@@ -5044,7 +5055,7 @@ function renderClients(){
 function renderClientsList(){
   const avg = clientAvgCPL();
   const alertsById = new Map(state.clients.map(c => [c.id, getClientAlerts(c)]));
-  const realClients = state.clients.filter(c => !inOnboardingSection(c));
+  const realClients = state.clients.filter(c => !inOnboardingSection(c) && c.stage !== "churned");
   const attention = realClients.filter(c => alertsById.get(c.id).length);
   const active = realClients.filter(c => c.stage !== "churned");
   const onboardingNow = state.clients.filter(inOnboardingSection).length;
@@ -5087,7 +5098,7 @@ function renderClientsList(){
 
   // Searching looks across every stage, so you don't have to know where someone is.
   const q = state.clientsGallerySearch.trim().toLowerCase();
-  const rows = (q ? state.clients : realClients)
+  const rows = (q ? state.clients.filter(c => c.stage !== "churned") : realClients)
     .filter(c => q ? (c.name || "").toLowerCase().includes(q) : stageOf(c) === tab)
     .sort((a, b) => (alertsById.get(b.id).length ? 1 : 0) - (alertsById.get(a.id).length ? 1 : 0) || (a.name || "").localeCompare(b.name || ""));
   if (!rows.length){
@@ -5600,12 +5611,15 @@ function renderClientInfoGrid(c){
 }
 function renderClientDetail(c){
   $("#client-detail-name").textContent = c.name;
+  // While onboarding, the page is just the header and the checklist: the
+  // money numbers and ads only mean something once they're live.
+  $("#clients-detail-view")?.classList.toggle("cp-onb", isOnboardingClient(c));
   renderClientOnboarding(c);
   const stageInfo = CLIENT_STAGE_MAP[c.stage] || CLIENT_STAGES[0];
   // Stage: a dropdown, not dragging cards around.
   const stageSel = $("#client-detail-stage-select");
   if (stageSel){
-    stageSel.innerHTML = CLIENT_STAGES.map(st => `<option value="${st.key}">${escapeHtml(st.label)}</option>`).join("");
+    stageSel.innerHTML = clientPickStages(c.stage).map(st => `<option value="${st.key}">${escapeHtml(st.label)}</option>`).join("");
     stageSel.value = stageInfo.key;
     stageSel.dataset.id = c.id;
     stageSel.closest(".cp-stage").className = `cp-stage ${stageInfo.cls}`;
@@ -5797,19 +5811,13 @@ function renderClientProfileTop(c, qs){
   if (!["quote_guarantee", "live", "at_risk"].includes(stage)){ month.innerHTML = ""; return; }
   const am = amClientProgress(c), wsDone = isWorkshopClient(c) ? doneThisMonth(c) : null, due = reportDueInfo(c);
   const mName = monthNameOf(localDayStr());
-  month.innerHTML = `
-    <div class="cp-tile">
-      <div class="cp-tile-head"><span>Ads in ${escapeHtml(mName)}</span><b>${am.live}/3 live</b></div>
-      <div class="cp-tile-ads">${am.slots.map(s => { const look = AM_LOOK[s.status] || AM_LOOK[""]; return `<button type="button" class="am-box am-${look.cls}${s.late ? " is-late" : ""}" data-action="am-tap" data-id="${c.id}" data-slot="${s.key}" title="${escapeHtml(s.label)} - tap to change">${escapeHtml(s.kind === "video" ? "Video" : s.label.replace("Static ad ", "Static "))}</button>`; }).join("")}</div>
-    </div>
-    <div class="cp-tile">
-      <div class="cp-tile-head"><span>Workshop</span><b class="${wsDone ? "ok" : ""}">${wsDone ? `Done ${escapeHtml(fmtShortDate(wsDone.date))}` : "Due this month"}</b></div>
-      ${isWorkshopClient(c) ? `<button type="button" class="btn ${wsDone ? "ghost" : "gold"} sm" data-action="ws-open" data-id="${c.id}">${wsDone ? "Open" : "Log workshop"}</button>` : `<small class="cp-tile-note">No monthly workshop for this client</small>`}
-    </div>
-    <div class="cp-tile">
-      <div class="cp-tile-head"><span>Report</span><b class="${due.due ? "" : "ok"}">${escapeHtml(due.label)}</b></div>
-      <button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make report</button>
-    </div>`;
+  // This month's three jobs as one short list: what it is, where it's at, the button.
+  const row = (label, status, ok, action) => `<div class="cp-todo-row"><span class="cp-todo-k">${label}</span><span class="cp-todo-s${ok ? " ok" : ""}">${status}</span><span class="cp-todo-a">${action}</span></div>`;
+  month.innerHTML = `<div class="cp-todo"><h3>This month</h3>
+    ${row(`Ads for ${escapeHtml(mName)}`, `${am.live} of 3 live`, am.live >= 3, `<span class="cp-tile-ads">${am.slots.map(s => { const look = AM_LOOK[s.status] || AM_LOOK[""]; return `<button type="button" class="am-box am-${look.cls}${s.late ? " is-late" : ""}" data-action="am-tap" data-id="${c.id}" data-slot="${s.key}" title="${escapeHtml(s.label)} - tap to change">${escapeHtml(s.kind === "video" ? "Video" : s.label.replace("Static ad ", "Static "))}</button>`; }).join("")}</span>`)}
+    ${isWorkshopClient(c) ? row("Workshop", wsDone ? `Done ${escapeHtml(fmtShortDate(wsDone.date))}` : "Due this month", !!wsDone, `<button type="button" class="btn ${wsDone ? "ghost" : "gold"} sm" data-action="ws-open" data-id="${c.id}">${wsDone ? "Open" : "Log workshop"}</button>`) : ""}
+    ${row("Fortnightly report", escapeHtml(due.label), !due.due, `<button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make report</button>`)}
+  </div>`;
 }
 function setCpTab(tab){
   state.cpTab = tab;
@@ -6298,25 +6306,42 @@ function renderOnboarding(){
   const waiting = clients.filter(c => states.get(c.id).waitingOnClient).length;
   const behind = clients.filter(c => ["late", "stalled"].includes(states.get(c.id).status.key)).length;
   const live = clients.filter(c => states.get(c.id).launched).length;
+  // One quiet summary line instead of a row of boxes.
   const kpis = $("#onb-kpis");
-  if (kpis) kpis.innerHTML = `
-    <div class="onb-kpi"><span class="onb-kpi-label">Onboarding</span><span class="onb-kpi-value">${clients.length}</span><span class="onb-kpi-sub">${live ? `${live} with ads live` : "clients being set up"}</span></div>
-    <div class="onb-kpi"><span class="onb-kpi-label">Signed to live</span><span class="onb-kpi-value">${avgLaunch != null ? `${avgLaunch}<small> days</small>` : "-"}</span><span class="onb-kpi-sub">${avgLaunch != null ? `average of ${launchedDurations.length}` : "shows once ads go live"}</span></div>
-    <div class="onb-kpi ${waiting ? "warn" : ""}"><span class="onb-kpi-label">Waiting on client</span><span class="onb-kpi-value">${waiting}</span><span class="onb-kpi-sub">${waiting ? "chase these up" : "nothing to chase"}</span></div>
-    <div class="onb-kpi ${behind ? "bad" : ""}"><span class="onb-kpi-label">Behind</span><span class="onb-kpi-value">${behind}</span><span class="onb-kpi-sub">${behind ? "overdue or gone quiet" : "all moving"}</span></div>`;
+  if (kpis){
+    kpis.className = "ob-summary";
+    kpis.innerHTML = clients.length ? [
+      `<span><b>${clients.length}</b> being set up</span>`,
+      behind ? `<span class="bad"><b>${behind}</b> behind</span>` : "",
+      waiting ? `<span class="warn"><b>${waiting}</b> waiting on the client</span>` : "",
+      live ? `<span class="ok"><b>${live}</b> ready to finish</span>` : "",
+      avgLaunch != null ? `<span>Signed to live in <b>${avgLaunch}</b> days on average</span>` : "",
+    ].filter(Boolean).join("") : "";
+  }
 
-  // One plain list (no dragging), most urgent first. Every row opens the
-  // client's page with the full checklist.
-  const rank = (c) => ({ late: 0, stalled: 1, soon: 2, client: 3 })[states.get(c.id).status.key] ?? 4;
+  // One plain list, most urgent first: where each client is up to, the one
+  // thing to do next, and whether it's on track. A row opens their page.
+  const rank = (c) => ({ late: 0, stalled: 1, client: 2, soon: 3, ready: 4 })[states.get(c.id).status.key] ?? 5;
   const rows = clients.slice().sort((a, b) => rank(a) - rank(b) || states.get(b.id).daysIn - states.get(a.id).daysIn);
-  board.className = "cl-list onb-list";
-  board.innerHTML = rows.length ? `<div class="cl-rows">${rows.map(c => {
-    const st = states.get(c.id).status;
-    const extra = ["late", "stalled", "client", "soon"].includes(st.key) ? [{ type: ["late", "stalled"].includes(st.key) ? "danger" : "warn", text: st.label }] : [];
-    return clientTabRowHtml(c, [...extra, ...getClientAlerts(c)], !isOnboardingClient(c));
-  }).join("")}</div>` : "";
+  board.className = "ob-list";
+  board.innerHTML = rows.length ? rows.map(c => obRowHtml(c, states.get(c.id))).join("") : "";
   $("#onb-empty")?.toggleAttribute("hidden", clients.length > 0);
   if (state.onbOpenId) renderOnbModal();
+}
+function obRowHtml(c, ls){
+  const tone = { late: "bad", stalled: "bad", client: "warn", soon: "warn", ready: "ok" }[ls.status.key] || "ok";
+  const steps = LAUNCH_MILESTONES.map((m, i) => `<span class="obx-step ${i < ls.current || ls.milestones[i].complete ? "done" : i === ls.current ? "now" : ""}" title="${escapeHtml(m.label)}"></span>`).join("");
+  const owner = ls.owner && ASSIGNEES[ls.owner] ? ASSIGNEES[ls.owner].label : "";
+  const next = ls.launched
+    ? `<button type="button" class="btn gold sm" data-action="onb-finish" data-id="${c.id}">Finish onboarding</button>`
+    : ls.nextTask ? `<span class="ob-next"><small>To do</small>${ls.nextTask.who === "client" ? `<em>Client</em>` : ""}${escapeHtml(ls.nextTask.label)}</span>` : `<span class="ob-next"><small>To do</small>Move to the next step</span>`;
+  return `<div class="ob-row" role="button" tabindex="0" data-action="view-client" data-id="${c.id}" aria-label="Open ${escapeHtml(c.name)}">
+      <span class="ob-id"><b>${escapeHtml(c.name)}</b><small>Day ${ls.daysIn + 1}${owner ? ` · ${escapeHtml(owner)}` : ""}</small></span>
+      <span class="ob-prog"><span class="obx-steps">${steps}</span><small>Step ${ls.current + 1} of ${LAUNCH_MILESTONES.length} · ${escapeHtml(ls.stage.label)}</small></span>
+      ${next}
+      <span class="ob-status ${tone}">${escapeHtml(ls.status.label)}</span>
+      <span class="ob-go" aria-hidden="true">›</span>
+    </div>`;
 }
 function onbCardHtml(c, ls){
   const m = ls.stage;
@@ -15367,10 +15392,13 @@ const etKind = (t) => {
   return "sales";
 };
 const etSegOf = (kind) => ET_SEGMENTS.find(sg => sg.kinds.some(([k]) => k === kind)) || ET_SEGMENTS[0];
+// Sales sees sales emails; Service Delivery sees service and onboarding ones.
+const etSegsHere = () => ET_SEGMENTS.filter(sg => (getWorkspace() === "sales") === (sg.key === "sales"));
 let etSeg = "sales", etSub = "onboarding_pre";
 try { etSeg = localStorage.getItem("mp_et_seg") || "sales"; etSub = localStorage.getItem("mp_et_sub") || "onboarding_pre"; } catch(e){}
 function etCurrentKind(){
-  const sg = ET_SEGMENTS.find(x => x.key === etSeg) || ET_SEGMENTS[0];
+  const here = etSegsHere();
+  const sg = here.find(x => x.key === etSeg) || here[0] || ET_SEGMENTS[0];
   return sg.kinds.length > 1 ? (sg.kinds.some(([k]) => k === etSub) ? etSub : sg.kinds[0][0]) : sg.kinds[0][0];
 }
 function etPick(kind){
@@ -15382,7 +15410,7 @@ function renderEmailTemplates(){
   ensureBuiltinEmailTemplates();
   const kind = etCurrentKind(), seg = etSegOf(kind);
   const segs = $("#et-segs");
-  if (segs) segs.innerHTML = ET_SEGMENTS.map(sg => {
+  if (segs) segs.innerHTML = etSegsHere().length < 2 ? "" : etSegsHere().map(sg => {
     const n = state.emailTemplates.filter(t => sg.kinds.some(([k]) => k === etKind(t))).length;
     return `<button type="button" class="et-seg${sg.key === seg.key ? " active" : ""}" data-et-seg="${sg.key}">${escapeHtml(sg.label)}<b>${n}</b></button>`;
   }).join("") + (seg.kinds.length > 1 ? `<div class="et-sub" role="tablist">${seg.kinds.map(([k, label]) => `<button type="button" class="${k === kind ? "active" : ""}" data-et-sub="${k}">${escapeHtml(label)}<b>${etListFor(k).length}</b></button>`).join("")}</div>` : "");
@@ -16387,7 +16415,7 @@ function setupModals(){
 
   $("#add-client-btn")?.addEventListener("click", () => {
     $("#client-form").reset(); $("#client-form-id").value="";
-    $("#client-stage").innerHTML = CLIENT_STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join("");
+    $("#client-stage").innerHTML = clientPickStages().map(s => `<option value="${s.key}">${s.label}</option>`).join("");
     toggleClientQuoteTargetField();
     $("#client-modal-title").textContent="Add Client"; openModal("client-modal");
   });
