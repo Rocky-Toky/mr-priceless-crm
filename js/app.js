@@ -12173,14 +12173,22 @@ function lqDetailHtml(l){
   const todo = (html) => `<p class="lq3-do">${html}</p>`;
   // What they enquired about, for "regarding your {service} inquiry": their form
   // answer, else the form's name, else the client's trade.
-  const service = String(job || (realForm ? lqNice(realForm) : "") || trade || "").trim().toLowerCase()
-    .replace(/(\s*[-|:]?\s*\b(new\s+)?(enquiry|enquiries|inquiry|inquiries|form|leads?|quote\s*requests?|requests?|campaign)\b)+\s*$/i, "").trim().slice(0, 60);
-  const visitIsConsult = lqVisitIsConsult(l), hasConsult = lqHasConsult(l) && !visitIsConsult;
+  // The client's trade, for "regarding your {service} inquiry" - concreting,
+  // painting, renovation - never the ad form's wording.
+  const tradeText = `${trade} ${c?.industry || ""} ${c?.name || ""}`.toLowerCase();
+  const service = /concret|driveway|paving|civil|asphalt|excavat|earthwork/.test(tradeText) ? "concreting"
+    : /paint|decorat/.test(tradeText) ? "painting"
+    : /build|renovat|construct|carpent|joiner|kitchen|bathroom/.test(tradeText) ? "renovation"
+    : String(trade || "").trim().toLowerCase();
+  const visitIsConsult = lqVisitIsConsult(l);
   // Concreting gets the driveway questions; painting / building the size and budget ones.
-  const tradeText = `${trade} ${c?.name || ""} ${service} ${c?.industry || ""}`.toLowerCase();
-  const tradeKind = /concret|driveway|civil|paving|asphalt|earthwork/.test(tradeText) ? "concrete" : "reno";
-  const role = tradeKind === "concrete" ? "concreter" : /paint|decorat/.test(tradeText) ? "painter" : "builder";
-  const bookWhat = visitIsConsult ? "consultation call" : "site visit";
+  const tradeKind = service === "concreting" ? "concrete" : "reno";
+  const role = service === "concreting" ? "concreter" : service === "painting" ? "painter" : "builder";
+  // Site visit or consultation call is up to the client (their requirements):
+  // the script follows whichever button Carmen picks.
+  const isConsult = lqPending === "consult_call" || visitIsConsult;
+  const bookWhat = isConsult ? "consultation call" : "site visit";
+  const bizs = /s$/i.test(biz) ? `${biz}'` : `${biz}'s`; // "Paradise Painting Services'"
   const bigOut = (k) => `<button type="button" class="lq3-out ${k}${lqPending === k ? " picked" : ""}" data-lq-out="${k}">${lqIcon(k)}<span><b>${lqOutLabel(l, k)}</b><small>${k === "site_visit" && lqVisitIsConsult(l) ? "Booked in their calendar" : LQ_OUTCOMES[k].hint}</small></span></button>`;
   const smallOut = (k) => `<button type="button" class="lq3-pill ${lqPending === k ? "picked" : ""}" data-lq-out="${k}">${lqIcon(k)}${LQ_OUTCOMES[k].label}</button>`;
   return `
@@ -12218,13 +12226,13 @@ function lqDetailHtml(l){
               ${quote(`When are you looking to get it done?`)}
               ${checks.length ? `${todo(`${B(biz)} wants:`)}<ul class="lq3-checks">${checks.map(x => `<li>${lqIcon("tick")}<span>${escapeHtml(x)}</span></li>`).join("")}</ul>` : ""}
               ${coverage || region ? todo(`The job must be in ${B(coverage || region)}.`) : ""}
-              ${canFit ? `<button type="button" class="lq3-textbtn lq3-fit-edit" data-lq-act="fit">${checks.length ? `Change ${escapeHtml(biz)}'s job list` : `+ Add what makes a good job for ${escapeHtml(biz)}`}</button>` : ""}`)}
+              ${canFit ? `<button type="button" class="lq3-textbtn lq3-fit-edit" data-lq-act="fit">${checks.length ? `Change ${escapeHtml(bizs)} job list` : `+ Add what makes a good job for ${escapeHtml(biz)}`}</button>` : ""}`)}
           ${step(3, "Not a fit, or too far away?", `<div class="lq3-nofit">
               <div><span>Not a fit</span>${quote(`Unfortunately that's not a job ${B(biz)} takes on and I don't want to waste your time. Thank you for taking my call.`)}</div>
               <div><span>Too far away</span>${quote(`Unfortunately that's outside the area ${B(biz)} covers. Thank you for taking my call.`)}</div>
             </div>${todo(`Then press <b>Not a fit</b>.`)}`)}
-          ${step(4, `It fits? Book the ${bookWhat}`, `${todo(`Find a free time on ${B(biz)}'s calendar and tell them. If they agree, press <b>${escapeHtml(lqOutLabel(l, "site_visit"))}</b> below and book it.${hasConsult ? ` Phone call suits them better? Press <b>Consultation call booked</b>.` : ""}`)}
-            ${!visitIsConsult ? quote(`You'll get a confirmation email with the ${escapeHtml(role)}'s contact details.`) : ""}
+          ${step(4, "It fits? Book it in", `${todo(`Find a free time on ${B(bizs)} calendar and tell them. If they agree, book it below.`)}
+            ${!isConsult ? quote(`You'll get a confirmation email with the ${escapeHtml(role)}'s contact details.`) : ""}
             ${todo("Recap, then end the call:")}
             ${quote(`So that's your ${bookWhat} on <b class="lq3-recap">[day and time]</b>. Thanks for taking my call, ${B(first)}!`)}`)}
         </ol>
