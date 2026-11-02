@@ -337,6 +337,8 @@ function clientMonthNumber(c){
   return Math.max(1, (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth() + (now.getDate() >= d.getDate() ? 1 : 0));
 }
 const CLIENT_STAGE_MAP = Object.fromEntries(CLIENT_STAGES.map(s => [s.key, s]));
+// The Clients page's tabs - onboarding has its own page.
+const CLIENT_LIST_STAGES = CLIENT_STAGES.filter(s => s.key !== "onboarding");
 const ARCHIVED_STAGE = "archived";
 const archivedClientName = (id) => (state.archivedClients || []).find(c => c.id === id)?.name || "";
 // An archived client's campaigns, content, reports and leads stay in the
@@ -1719,7 +1721,7 @@ const PAGE_GROUPS = {
   tasks: [["todo", "This week"], ["tasks", "All tasks"]],
   library: [["meeting", "Meeting structure"], ["sit-rate", "Meeting Sit Rate Process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks"], ["rules", "Rules"]],
   finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
-  ads: [["ads-month", "This month"], ["content-library", "Video scripts"]],
+  ads: [["ad-production", "Ad production"], ["ads-month", "Ads this month"], ["content-library", "Video scripts"]],
 };
 const groupOfPage = (page) => Object.keys(PAGE_GROUPS).find(g => PAGE_GROUPS[g].some(([p]) => p === page)) || null;
 function goPage(page){ $(`.nav-item[data-page="${page}"]`)?.click(); }
@@ -1898,8 +1900,8 @@ function renderDashboard(){
   `).join("") : emptyState("No follow-ups scheduled.");
 
   // Service Delivery view: client health & delivery instead of agency revenue
-  const activeClients = state.clients.filter(c => c.stage !== "churned");
-  const onboardingCount = state.clients.filter(c => c.stage === "onboarding").length;
+  const activeClients = state.clients.filter(c => c.stage !== "churned" && !inOnboardingSection(c));
+  const onboardingCount = state.clients.filter(inOnboardingSection).length;
   const adSpendManaged = activeClients.reduce((s,c) => s + (Number(c.monthly_ad_spend)||0), 0);
   $("#stat-ad-spend-managed").textContent = fmtMoney(adSpendManaged);
   $("#stat-active-clients").textContent = activeClients.length;
@@ -5032,15 +5034,18 @@ function renderClients(){
   } else {
     listView.style.display = "none";
     detailView.style.display = "";
+    const back = detailView.querySelector(".cl-back");
+    if (back) back.textContent = state.clientBackTo === "onboarding" ? "← Onboarding" : "← All Clients";
     renderClientDetail(selected);
   }
 }
 function renderClientsList(){
   const avg = clientAvgCPL();
   const alertsById = new Map(state.clients.map(c => [c.id, getClientAlerts(c)]));
-  const attention = state.clients.filter(c => alertsById.get(c.id).length);
-  const active = state.clients.filter(c => c.stage !== "churned");
-  const onboardingNow = active.filter(isOnboardingClient).length;
+  const realClients = state.clients.filter(c => !inOnboardingSection(c));
+  const attention = realClients.filter(c => alertsById.get(c.id).length);
+  const active = realClients.filter(c => c.stage !== "churned");
+  const onboardingNow = state.clients.filter(inOnboardingSection).length;
   $("#clients-stat-total").textContent = active.length;
   const totalSub = $("#clients-stat-total-sub");
   if (totalSub) totalSub.textContent = onboardingNow ? `${onboardingNow} onboarding` : "";
@@ -5059,8 +5064,8 @@ function renderClientsList(){
   const tabs = $("#clients-stage-tabs");
   let tab = clientsTab();
   if (tabs){
-    tabs.innerHTML = CLIENT_STAGES.map(st => {
-      const col = state.clients.filter(c => stageOf(c) === st.key);
+    tabs.innerHTML = CLIENT_LIST_STAGES.map(st => {
+      const col = realClients.filter(c => stageOf(c) === st.key);
       const mrr = col.map(clientRetainer).filter(v => v != null).reduce((a, b) => a + b, 0);
       return `<button type="button" role="tab" class="cl-tab ${st.cls}${tab === st.key ? " active" : ""}" data-cl-tab="${st.key}" aria-selected="${tab === st.key}">
         <span class="cl-tab-name">${escapeHtml(st.label)}<b>${col.length}</b></span>
@@ -5070,7 +5075,7 @@ function renderClientsList(){
   }
   const tabSel = $("#clients-stage-select");
   if (tabSel){
-    tabSel.innerHTML = CLIENT_STAGES.map(st => `<option value="${st.key}">${escapeHtml(st.label)} (${state.clients.filter(c => stageOf(c) === st.key).length})</option>`).join("");
+    tabSel.innerHTML = CLIENT_LIST_STAGES.map(st => `<option value="${st.key}">${escapeHtml(st.label)} (${realClients.filter(c => stageOf(c) === st.key).length})</option>`).join("");
     tabSel.value = tab;
   }
 
@@ -5080,7 +5085,7 @@ function renderClientsList(){
 
   // Searching looks across every stage, so you don't have to know where someone is.
   const q = state.clientsGallerySearch.trim().toLowerCase();
-  const rows = state.clients
+  const rows = (q ? state.clients : realClients)
     .filter(c => q ? (c.name || "").toLowerCase().includes(q) : stageOf(c) === tab)
     .sort((a, b) => (alertsById.get(b.id).length ? 1 : 0) - (alertsById.get(a.id).length ? 1 : 0) || (a.name || "").localeCompare(b.name || ""));
   if (!rows.length){
@@ -5091,7 +5096,7 @@ function renderClientsList(){
 }
 function clientsTab(){
   if (!state.clientsTab){ try { state.clientsTab = localStorage.getItem("mp_clients_tab") || ""; } catch(e){ state.clientsTab = ""; } }
-  if (!CLIENT_STAGE_MAP[state.clientsTab]) state.clientsTab = "onboarding";
+  if (!CLIENT_LIST_STAGES.some(st => st.key === state.clientsTab)) state.clientsTab = "live";
   return state.clientsTab;
 }
 // The problems worth seeing on a client at a glance.
@@ -6163,6 +6168,15 @@ const ONB_STAGE_KEYS = LAUNCH_MILESTONES.map(m => m.key);
 const LAUNCH_TASKS = LAUNCH_MILESTONES.flatMap(m => m.tasks.map(t => ({ ...t, milestone: m.key })));
 const ONB_STALL_DAYS = 5;
 const isOnboardingClient = (c) => (c.stage || "onboarding") === "onboarding";
+// Someone only counts as a client once their deal is at Pending Results or
+// beyond (Rocky's rule). Anyone still onboarding, or whose deal hasn't got
+// to Pending Results yet, sits on the Onboarding page instead of Clients.
+const PRE_CLIENT_DEAL_STAGES = new Set(["qualified", "no_show", "proposal", "negotiation", "onboarding"]);
+function dealBeforeClient(c){
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  return !!deal && PRE_CLIENT_DEAL_STAGES.has(deal.stage);
+}
+const inOnboardingSection = (c) => isOnboardingClient(c) || ((c.stage || "") !== "churned" && dealBeforeClient(c));
 
 function launchEssentialsDone(c){
   const p = c.onboarding_progress || {};
@@ -6267,7 +6281,7 @@ function clientAsksMessage(c, ls){
 function renderOnboarding(){
   const board = $("#onb-board");
   if (!board) return;
-  const clients = state.clients.filter(isOnboardingClient);
+  const clients = state.clients.filter(inOnboardingSection);
   const states = new Map(clients.map(c => [c.id, launchState(c)]));
   const navCount = $("#nav-onb-count");
   if (navCount){ navCount.hidden = !clients.length; navCount.textContent = clients.length; }
@@ -6289,25 +6303,16 @@ function renderOnboarding(){
     <div class="onb-kpi ${waiting ? "warn" : ""}"><span class="onb-kpi-label">Waiting on client</span><span class="onb-kpi-value">${waiting}</span><span class="onb-kpi-sub">${waiting ? "chase these up" : "nothing to chase"}</span></div>
     <div class="onb-kpi ${behind ? "bad" : ""}"><span class="onb-kpi-label">Behind</span><span class="onb-kpi-value">${behind}</span><span class="onb-kpi-sub">${behind ? "overdue or gone quiet" : "all moving"}</span></div>`;
 
-  const order = (a, b) => {
-    const rank = (c) => ({ late: 0, stalled: 1, soon: 2, client: 3 })[states.get(c.id).status.key] ?? 4;
-    return rank(a) - rank(b) || states.get(b.id).daysIn - states.get(a.id).daysIn;
-  };
-  board.innerHTML = LAUNCH_MILESTONES.map((m, i) => {
-    const col = clients.filter(c => states.get(c.id).current === i).sort(order);
-    return `
-      <section class="onb-col" data-stage="${m.key}" aria-label="${escapeHtml(m.label)}">
-        <header class="onb-col-head">
-          <span class="onb-col-num">${i + 1}</span>
-          <div><div class="onb-col-title">${escapeHtml(m.label)}</div><div class="onb-col-blurb">${escapeHtml(m.blurb)}</div></div>
-          <span class="onb-col-count">${col.length}</span>
-        </header>
-        <div class="onb-col-body">
-          ${boardColumnCards("onb", m.key, col.map(c => onbCardHtml(c, states.get(c.id))))}
-          <div class="onb-drop-hint">${col.length ? "Drop here" : (clients.length ? "Drag a client here" : "Nobody here yet")}</div>
-        </div>
-      </section>`;
-  }).join("");
+  // One plain list (no dragging), most urgent first. Every row opens the
+  // client's page with the full checklist.
+  const rank = (c) => ({ late: 0, stalled: 1, soon: 2, client: 3 })[states.get(c.id).status.key] ?? 4;
+  const rows = clients.slice().sort((a, b) => rank(a) - rank(b) || states.get(b.id).daysIn - states.get(a.id).daysIn);
+  board.className = "cl-list onb-list";
+  board.innerHTML = rows.length ? `<div class="cl-rows">${rows.map(c => {
+    const st = states.get(c.id).status;
+    const extra = ["late", "stalled", "client", "soon"].includes(st.key) ? [{ type: ["late", "stalled"].includes(st.key) ? "danger" : "warn", text: st.label }] : [];
+    return clientTabRowHtml(c, [...extra, ...getClientAlerts(c)], !isOnboardingClient(c));
+  }).join("")}</div>` : "";
   $("#onb-empty")?.toggleAttribute("hidden", clients.length > 0);
   if (state.onbOpenId) renderOnbModal();
 }
@@ -16860,9 +16865,9 @@ function setupModals(){
       if (!confirm(`Reopen ${what}? Its prospects come back into Prospecting.`)) return;
       await DataLayer.remove("completed_verticals", id); if (!IS_CONFIGURED) return; await DataLayer.fetchAll(); renderAll();
     }
-    if (action === "view-client"){ state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
+    if (action === "view-client"){ state.clientBackTo = state.page === "onboarding" ? "onboarding" : null; state.selectedClientId = id; renderClients(); $('.nav-item[data-page="clients"]')?.click(); }
     if (action === "client-stage-to"){ await setClientStage(state.clients.find(x => x.id === id), btn.dataset.stage); return; }
-    if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); }
+    if (action === "back-to-clients"){ state.selectedClientId = null; renderClients(); if (state.clientBackTo === "onboarding"){ state.clientBackTo = null; goPage("onboarding"); } }
     if (action === "toggle-board-col"){
       const key = btn.dataset.key;
       if (boardExpanded.has(key)) boardExpanded.delete(key); else boardExpanded.add(key);
