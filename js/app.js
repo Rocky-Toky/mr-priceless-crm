@@ -7289,9 +7289,10 @@ function dealBusinessName(deal){
   const fromTitle = (deal.title || "").split(" - ")[0];
   return (contact?.company || fromContactName || fromTitle || deal.contact_name || deal.title || "").trim();
 }
-// Signing (Onboarding on the pipeline) or winning a deal makes them a client,
-// straight onto the Onboarding board. Returns the new client, if one was made.
-const CLIENT_FROM_DEAL_STAGES = new Set(["onboarding", "pending_results", "closed_won"]);
+// A deal only becomes a client once it reaches Pending Results (or Closed
+// Won) - Rocky's rule. They land on the Onboarding board, and their 4 weekly
+// check-in calls start from that day (sql/107). Returns the new client, if one was made.
+const CLIENT_FROM_DEAL_STAGES = new Set(["pending_results", "closed_won"]);
 async function maybeCreateClientFromDeal(deal){
   if (!deal || !CLIENT_FROM_DEAL_STAGES.has(deal.stage)) return null;
   if (state.clients.some(c => c.source_deal_id === deal.id)) return null;
@@ -10676,10 +10677,13 @@ function inboxDur(ms){
   const h = Math.floor(m / 60);
   return h < 24 ? `${h}h${m % 60 ? ` ${m % 60}m` : ""}` : `${Math.floor(h / 24)}d ${h % 24}h`;
 }
+// A weekly check-in call for a new client (sql/107), not an email.
+const inboxIsCheckin = (e) => String(e.gmail_id || "").startsWith("checkin:");
 const inboxGmailLink = (e) => `https://mail.google.com/mail/u/${encodeURIComponent(e.inbox_email || "")}/#all/${encodeURIComponent(e.thread_id || e.gmail_id || "")}`;
 function inboxDemo(){
   const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
   return [
+    { id: uid(), gmail_id: "checkin:demo:2", client_id: (state.clients[0] || {}).id, client_name: (state.clients[0] || {}).name || "Reeve Builders", from_name: "Mr Priceless CRM", from_email: "", inbox_email: "demo@mrpriceless.co.nz", subject: "Week 2 of 4 - check-in call", snippet: "Give them a call for a friendly check-in: how the first weeks are going, how the leads look, and anything they need from us. Press \"Called them\" once you have.", received_at: ago(45), status: "new" },
     { id: uid(), client_name: "Reeve Builders", from_name: "Marlon Reeve", from_email: "marlon@reevebuilders.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Leads this week?", snippet: "Hey mate, only had two come through since Monday - is everything still running ok on your end?", received_at: ago(275), status: "new" },
     { id: uid(), client_name: "Ritchie Building", from_name: "Sam Ritchie", from_email: "sam@ritchiebuilding.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "New photos for the ads", snippet: "Just finished the Ponsonby deck, uploaded a heap of before and afters to the folder.", received_at: ago(70), status: "new" },
     { id: uid(), client_name: "Ritchie Building", from_name: "Sam Ritchie", from_email: "sam@ritchiebuilding.co.nz", inbox_email: "demo@mrpriceless.co.nz", subject: "Invoice", snippet: "Paid that one this morning, cheers.", received_at: ago(1500), status: "replied", replied_at: ago(1460) },
@@ -10966,16 +10970,18 @@ function renderClientInbox(){
       <h3>${escapeHtml(e.subject || "(no subject)")}</h3>
       <p><b>${escapeHtml(who)}:</b> ${escapeHtml(e.snippet || "")}</p>
       <div class="ib-actions">
-        <a class="ib-btn reply" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail</a>
-        <button type="button" class="ib-btn" data-inbox-done="${escapeHtml(e.id)}">No reply needed</button>
+        ${inboxIsCheckin(e) ? (() => { const c = state.clients.find(x => x.id === e.client_id); return `${c?.phone ? `<button type="button" class="ib-btn reply" data-action="call-number" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name || "")}">Call ${escapeHtml(inboxShortName(c.name) || "them")}</button>` : ""}
+        <button type="button" class="ib-btn" data-inbox-done="${escapeHtml(e.id)}">Called them ✓</button>`; })()
+        : `<a class="ib-btn reply" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail</a>
+        <button type="button" class="ib-btn" data-inbox-done="${escapeHtml(e.id)}">No reply needed</button>`}
       </div>
     </article>`;
   };
   const handledList = handled.filter(e => inboxHandledTab === "all" || e.status === inboxHandledTab);
   const handledRow = (e) => `<div class="ib-done-row">
       <div><b>${escapeHtml(inboxShortName(e.client_name) || e.from_email || "")}</b><span>${escapeHtml(e.subject || "(no subject)")}</span>
-        <small class="${e.status}">${e.status === "replied" ? `✓ Replied${e.replied_at ? ` in ${inboxDur(new Date(e.replied_at) - new Date(e.received_at))}` : ""}` : `No reply needed${e.done_by ? " · " + escapeHtml(ASSIGNEES[personKeyFromEmail(e.done_by)]?.label || e.done_by.split("@")[0]) : ""}`}</small></div>
-      ${e.status === "done" ? `<button type="button" class="ib-mini" data-inbox-undo="${escapeHtml(e.id)}">Undo</button>` : `<a class="ib-mini" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Open</a>`}
+        <small class="${e.status}">${e.status === "replied" ? `✓ Replied${e.replied_at ? ` in ${inboxDur(new Date(e.replied_at) - new Date(e.received_at))}` : ""}` : `${inboxIsCheckin(e) ? "Called" : "No reply needed"}${e.done_by ? " · " + escapeHtml(ASSIGNEES[personKeyFromEmail(e.done_by)]?.label || e.done_by.split("@")[0]) : ""}`}</small></div>
+      ${e.status === "done" ? `<button type="button" class="ib-mini" data-inbox-undo="${escapeHtml(e.id)}">Undo</button>` : inboxIsCheckin(e) ? "" : `<a class="ib-mini" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Open</a>`}
     </div>`;
   const conns = state.inboxConnections.filter(c => c.status !== "waiting" || c.user_id === state.user?.id);
   const allOk = conns.length && conns.every(c => c.status === "ok" && !stale(c));
