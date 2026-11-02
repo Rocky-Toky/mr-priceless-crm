@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=370">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=370">
+<link rel="stylesheet" href="css/style.css?v=371">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=371">
 </head>
 <body>
 
@@ -319,9 +319,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span>To Do</span>
       </button>
-      <button class="nav-item nav-hidden" data-page="meeting" data-workspace="both"><span>Meeting structure</span></button>
-      <button class="nav-item nav-hidden" data-page="sit-rate" data-workspace="both"><span>Meeting Sit Rate Process</span></button>
-      <button class="nav-item nav-hidden" data-page="playbooks" data-workspace="both">
+      <button class="nav-item nav-hidden" data-page="meeting" data-workspace="sales"><span>Meeting structure</span></button>
+      <button class="nav-item nav-hidden" data-page="sit-rate" data-workspace="sales"><span>Meeting Sit Rate Process</span></button>
+      <button class="nav-item nav-hidden" data-page="playbooks" data-workspace="sales">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
             <span>Playbooks</span>
           </button>
@@ -329,7 +329,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 6l10 7L22 6"/></svg>
             <span>Email templates</span>
           </button>
-      <button class="nav-item nav-hidden" data-page="rules" data-workspace="both">
+      <button class="nav-item nav-hidden" data-page="rules" data-workspace="delivery">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg>
             <span>Rules</span>
           </button>
@@ -944,16 +944,17 @@
     <section class="page" id="page-clients">
       <div id="clients-list-view">
         <div class="page-header">
-          <div><h2>Clients</h2><p>Track cost per lead, retention, and how every client is tracking.</p></div>
+          <div><h2>Clients</h2><p>Everyone past onboarding. Open a client to see their ads, workshops and reports.</p></div>
           <button class="btn gold" id="add-client-btn">+ Add Client</button>
         </div>
         <div class="stat-grid as-line stat-grid-5">
           <div class="stat-card"><div class="stat-label">Active Clients</div><div class="stat-value" id="clients-stat-total">0</div><div class="stat-sub" id="clients-stat-total-sub"></div></div>
           <div class="stat-card"><div class="stat-label">Monthly Retainers</div><div class="stat-value" id="clients-stat-mrr">-</div><div class="stat-sub" id="clients-stat-mrr-sub"></div></div>
-          <div class="stat-card"><div class="stat-label">Avg Cost Per Lead</div><div class="stat-value" id="clients-stat-cpl">-</div></div>
-          <div class="stat-card"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="clients-stat-campaigns">0</div></div>
+          <div class="stat-card cl-off"><div class="stat-label">Avg Cost Per Lead</div><div class="stat-value" id="clients-stat-cpl">-</div></div>
+          <div class="stat-card cl-off"><div class="stat-label">Campaigns Running</div><div class="stat-value" id="clients-stat-campaigns">0</div></div>
           <div class="stat-card"><div class="stat-label">Needs Attention</div><div class="stat-value" id="clients-stat-attention">0</div></div>
         </div>
+        <div class="cl-headbar">
         <div class="cl-tabs" id="clients-stage-tabs" role="tablist" aria-label="Client stages"></div>
         <div class="cl-toolbar">
           <div class="search">
@@ -961,6 +962,7 @@
             <input type="text" id="clients-gallery-search" placeholder="Search every client...">
           </div>
           <select class="filter-select cl-stage-pick" id="clients-stage-select" aria-label="Stage"></select>
+        </div>
         </div>
         <div class="cl-list" id="clients-gallery"></div>
       </div>
@@ -1087,7 +1089,7 @@
     <!-- Onboarding: every new client from signed to live -->
     <section class="page" id="page-onboarding">
       <div class="page-header">
-        <div><h2>Onboarding</h2><p>Everyone being set up, from signed to ads live. Open one to see what's left. They move to Clients once onboarding is finished.</p></div>
+        <div><h2>Onboarding</h2><p>Everyone being set up, from signed to ads live. Open one to tick off what's left.</p></div>
         <button class="btn gold" data-action="onb-add-client">+ Add Client</button>
       </div>
       <div class="onb-kpis" id="onb-kpis"></div>
@@ -2916,17 +2918,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=370"></script>
-<script src="js/supabaseClient.js?v=370"></script>
-<script src="js/report-pdf.js?v=370"></script>
-<script src="js/plan-pdf.js?v=370"></script>
-<script src="js/workshop-pdf.js?v=370"></script>
-<script src="js/receipt-pdf.js?v=370"></script>
-<script src="js/welcome-pdf.js?v=370"></script>
-<script src="js/builtin-playbooks.js?v=370"></script>
-<script src="js/builtin-email-templates.js?v=370"></script>
-<script src="js/app.js?v=370"></script>
-<script src="js/meetings-tracker.js?v=370"></script>
-<script src="js/todo.js?v=370"></script>
+<script src="js/config.js?v=371"></script>
+<script src="js/supabaseClient.js?v=371"></script>
+<script src="js/report-pdf.js?v=371"></script>
+<script src="js/plan-pdf.js?v=371"></script>
+<script src="js/workshop-pdf.js?v=371"></script>
+<script src="js/receipt-pdf.js?v=371"></script>
+<script src="js/welcome-pdf.js?v=371"></script>
+<script src="js/builtin-playbooks.js?v=371"></script>
+<script src="js/builtin-email-templates.js?v=371"></script>
+<script src="js/app.js?v=371"></script>
+<script src="js/meetings-tracker.js?v=371"></script>
+<script src="js/todo.js?v=371"></script>
 </body>
 </html>
