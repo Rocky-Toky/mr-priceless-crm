@@ -246,6 +246,18 @@ async function remind(admin: any) {
   for (const e of data || []) {
     if (!e.inbox_email) continue;
     const hrs = Math.floor((Date.now() - new Date(e.received_at).getTime()) / 3600e3);
+    // A weekly check-in call for a new client (sql/107), not an email.
+    if (String(e.gmail_id || "").startsWith("checkin:")) {
+      const r = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: EMAIL_FROM, to: [e.inbox_email], subject: `Call ${e.client_name || "your new client"} - ${e.subject}`.slice(0, 200),
+          text: `${e.client_name || "A new client"}'s ${e.subject.toLowerCase()} has been due for ${hrs} hours.\n\n${e.snippet}\n\nClient inbox: ${CRM_URL}` }),
+      });
+      await admin.from("client_emails").update({ reminded_at: new Date().toISOString() }).eq("id", e.id);
+      if (r.ok) sent++;
+      continue;
+    }
     const text = `${e.client_name || e.from_email} emailed ${hrs} hours ago and is still waiting on a reply.\n\n` +
       `From: ${e.from_name ? e.from_name + " <" + e.from_email + ">" : e.from_email}\nSubject: ${e.subject || "(no subject)"}\n\n${e.snippet}\n\n` +
       `Open it in Gmail: https://mail.google.com/mail/u/${encodeURIComponent(e.inbox_email)}/#all/${e.thread_id}\nClient inbox: ${CRM_URL}`;
