@@ -3649,8 +3649,36 @@ body.workspace-leads .inbox-alert{display:none !important;}
 .lq3-say b{font-weight:700;color:var(--lq-ink);}
 .lq3-do{margin-top:12px;font-size:16px;line-height:1.5;color:var(--lq-ink);}
 .lq3-do b{font-weight:800;}
-.lq3-cue{margin:8px 0 0 18px;font-size:14.5px;font-style:italic;color:var(--lq-muted);}
-.lq3-cue::before{content:"↓ ";font-style:normal;}
+/* The call: lead details first (what they're after, where), then the script;
+   side by side on wide screens. The ad they saw is folded away. */
+.lq3-call-grid{display:grid;gap:18px;grid-template-areas:"side" "script";}
+.lq3-call-grid > .lq3-script{grid-area:script;}
+.lq3-facts{grid-area:side;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px;align-content:start;}
+.lq3-facts > .lq3-ad-fold{grid-column:1 / -1;}
+@media (min-width:1600px){
+  .lq3-call-grid{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);grid-template-areas:"script side";align-items:start;}
+  .lq3-facts{grid-template-columns:1fr;}
+}
+@media (max-width:1300px){ .lq3-facts{grid-template-columns:1fr;} }
+.lq3-facts .lq3-map{aspect-ratio:16/8;}
+.lq3-ad-fold{padding:14px 20px;}
+.lq3-ad-fold > summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none;font-size:16px;font-weight:800;color:var(--lq-ink);}
+.lq3-ad-fold > summary::-webkit-details-marker{display:none;}
+.lq3-ad-fold > summary::after{content:"Show";margin-left:auto;font-size:14px;font-weight:700;color:var(--gold-deep);}
+.lq3-ad-fold[open] > summary::after{content:"Hide";}
+.lq3-ad-fold > summary .lq3-ic{color:var(--gold);}
+.lq3-ad-fold .lq3-ad{margin-top:14px;}
+.lq3-script .lq3-steps > li{padding-bottom:16px;}
+.lq3-script .lq3-say{padding:11px 16px;font-size:18px;line-height:1.45;}
+.lq3-script .lq3-do{margin-top:8px;font-size:15.5px;}
+.lq3-script .lq3-do a{color:var(--gold-deep);font-weight:700;}
+.lq3-script .lq3-checks{margin-top:6px;gap:4px;}
+.lq3-nofit{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:8px;}
+.lq3-nofit > div{min-width:0;}
+.lq3-nofit span{display:block;font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--danger);}
+.lq3-nofit .lq3-say{margin-top:4px;font-size:16px;}
+@media (max-width:700px){ .lq3-nofit{grid-template-columns:1fr;} }
+.lq3-recap{padding:1px 6px;border-radius:6px;background:#fff1b8;}
 .lq3-checks{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;}
 .lq3-checks li{display:flex;align-items:flex-start;gap:10px;font-size:17px;line-height:1.45;}
 .lq3-checks .lq3-ic{width:18px;height:18px;margin-top:4px;color:var(--lq-green);}
