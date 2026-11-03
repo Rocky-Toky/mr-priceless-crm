@@ -8,7 +8,13 @@
 -- someone presses "Sent it" or makes the report on the Reporting page, and the
 -- usual 2-hour reminder email goes out if nobody does. Rows are marked
 -- gmail_id 'report:<client>:<due date>' so each due date is only added once.
+-- Each client can have their own report day (clients.report_anchor, set on
+-- the Reporting page or their page): then a report is due on that date and
+-- every 14 days from it, a report made from 3 days before covers it, and
+-- "Sent it" on the reminder covers that date.
 -- Run after 107. Safe to re-run.
+
+alter table clients add column if not exists report_anchor date;
 
 create or replace function public.queue_client_reports()
 returns integer
@@ -26,9 +32,10 @@ declare
   who text;
   who_id uuid;
   key text;
+  today date := (now() at time zone 'Pacific/Auckland')::date;
 begin
   for r in
-    select c.id, c.name, c.onboarding_progress ->> 'owner' as owner,
+    select c.id, c.name, c.onboarding_progress ->> 'owner' as owner, c.report_anchor,
       (select max(cr.period_end) from client_reports cr
         where cr.client_id = c.id and coalesce(cr.metrics ->> 'kind', '') = 'mtd') as last_report,
       coalesce(c.ad_start_date,
@@ -39,6 +46,17 @@ begin
     where coalesce(c.stage, 'onboarding') not in ('onboarding', 'churned', 'archived')
       and coalesce(d.stage, '') not in ('qualified', 'no_show', 'proposal', 'negotiation', 'onboarding')
   loop
+    -- A set report day: due on it and every 14 days after.
+    if r.report_anchor is not null then
+      continue when today < r.report_anchor;
+      due := r.report_anchor + ((today - r.report_anchor) / 14) * 14;
+      if exists (select 1 from client_reports cr where cr.client_id = r.id and coalesce(cr.metrics ->> 'kind', '') = 'mtd'
+                  and (cr.created_at at time zone 'Pacific/Auckland')::date >= due - 3) then
+        update client_emails set status = 'done', done_by = 'Report made'
+          where client_id = r.id and status = 'new' and gmail_id like 'report:%';
+        continue;
+      end if;
+    else
     base := coalesce(r.last_report, r.started) + 14;
     -- A report made since: anything still open for an earlier due date is done.
     update client_emails set status = 'done', done_by = 'Report made'
@@ -48,11 +66,14 @@ begin
     select max((created_at at time zone 'Pacific/Auckland')::date) + 14 into after_last
       from client_emails where client_id = r.id and gmail_id like 'report:%';
     due := greatest(base, coalesce(after_last, base));
-    continue when due > (now() at time zone 'Pacific/Auckland')::date;
+    continue when due > today;
+    end if;
     continue when exists (select 1 from client_emails where client_id = r.id and status = 'new' and gmail_id like 'report:%');
     key := 'report:' || r.id || ':' || due;
     continue when exists (select 1 from client_emails where gmail_id = key);
     due_at := (due::timestamp + interval '9 hours') at time zone 'Pacific/Auckland';
+    -- Shows from 9am NZ on the day it's due.
+    continue when due_at > now();
     who := case r.owner when 'max' then 'maximus.smith@mrpriceless.com' else 'rocky.oneill@mrpriceless.com' end;
     select u.id into who_id from auth.users u where lower(u.email) = who limit 1;
     insert into client_emails (user_id, inbox_email, gmail_id, client_id, client_name, from_email, from_name, subject, snippet, received_at)

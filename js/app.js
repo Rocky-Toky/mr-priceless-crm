@@ -5816,7 +5816,7 @@ function renderClientProfileTop(c, qs){
   month.innerHTML = `<div class="cp-todo"><h3>This month</h3>
     ${row(`Ads for ${escapeHtml(mName)}`, `${am.live} of 3 live`, am.live >= 3, `<span class="cp-tile-ads">${am.slots.map(s => { const look = AM_LOOK[s.status] || AM_LOOK[""]; return `<button type="button" class="am-box am-${look.cls}${s.late ? " is-late" : ""}" data-action="am-tap" data-id="${c.id}" data-slot="${s.key}" title="${escapeHtml(s.label)} - tap to change">${escapeHtml(s.kind === "video" ? "Video" : s.label.replace("Static ad ", "Static "))}</button>`; }).join("")}</span>`)}
     ${isWorkshopClient(c) ? row("Workshop", wsDone ? `Done ${escapeHtml(fmtShortDate(wsDone.date))}` : "Due this month", !!wsDone, `<button type="button" class="btn ${wsDone ? "ghost" : "gold"} sm" data-action="ws-open" data-id="${c.id}">${wsDone ? "Open" : "Log workshop"}</button>`) : ""}
-    ${row("Fortnightly report", escapeHtml(due.label), !due.due, `<button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make report</button>`)}
+    ${row("Fortnightly report", escapeHtml(due.label), !due.due, `${rpDayPickHtml(c, due)}<button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make report</button>`)}
   </div>`;
 }
 function setCpTab(tab){
@@ -7607,10 +7607,29 @@ function fmtReportPeriod(from, to){
   if (full) return `${monthNameOf(to, true)} · full month`;
   return `${monthNameOf(to, true)} · ${ymOf(from) === ymOf(to) ? `${localDateOnly(from).getDate()}–${d(to)}` : `${d(from)} – ${d(to)}`}`;
 }
-// When the next report is due: a fortnight after the last one.
+// When the next report is due. Each client can have their own report day
+// (clients.report_anchor, set on Reporting or their page): due on that date
+// and every 14 days from it. A report made from 3 days before a due date
+// covers it, and so does "Sent it" on its Client inbox reminder (sql/108).
+// Without a set day: a fortnight after the last report.
+const fmtDueDay = (d) => localDateOnly(d).toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" });
 function reportDueInfo(c){
   const reps = monthReportsFor(c.id);
   const last = reps[reps.length - 1];
+  if (c.report_anchor){
+    const today = localDayStr(), anchor = String(c.report_anchor).slice(0, 10);
+    const gap = daysBetween(localDateOnly(anchor), localDateOnly(today));
+    const cur = gap >= 0 ? addDays(anchor, Math.floor(gap / REPORT_EVERY_DAYS) * REPORT_EVERY_DAYS) : null;
+    const madeOn = reps.map(r => localDayStr(new Date(r.created_at || r.period_end))).sort().pop() || "";
+    const covered = cur && ((madeOn && madeOn >= addDays(cur, -3)) || (state.clientEmails || []).some(e => e.gmail_id === `report:${c.id}:${cur}` && e.status !== "new"));
+    if (cur && !covered){
+      const late = daysBetween(localDateOnly(cur), localDateOnly(today));
+      return { due: true, label: late === 0 ? "Due today" : `Due ${late}d ago`, last, next: cur };
+    }
+    const next = cur ? addDays(cur, REPORT_EVERY_DAYS) : anchor;
+    const days = daysBetween(localDateOnly(today), localDateOnly(next));
+    return { due: false, label: days === 1 ? "Due tomorrow" : `Due ${fmtDueDay(next)}`, last, next };
+  }
   if (!last) return { due: true, label: "First report due", last: null };
   const days = daysBetween(localDateOnly(localDayStr()), localDateOnly(addDays(last.period_end, REPORT_EVERY_DAYS)));
   return { due: days <= 0, label: days <= 0 ? (days === 0 ? "Due today" : `Due ${-days}d ago`) : `Due in ${days}d`, last };
@@ -9098,6 +9117,7 @@ function renderReporting(){
         <div class="rp-row-stat"><span>Revenue to date</span><b>${info.last ? fmtMoney(m.revenueToDate) : "-"}</b></div>
         <div class="rp-row-stat"><span>Quotes</span><b>${got} / ${target}</b></div>
         <span class="onb-status ${info.due ? "client" : "track"}">${escapeHtml(info.label)}</span>
+        ${rpDayPickHtml(c, info)}
         <div class="rp-row-actions">
           ${reps.length ? `<select class="filter-select rp-past" data-client="${c.id}" aria-label="Past reports for ${escapeHtml(c.name)}"><option value="">Past reports (${reps.length})</option>${reps.map(r => `<option value="${r.id}">Report ${r.metrics.report_number || ""} · ${escapeHtml(fmtReportPeriod(r.period_start, r.period_end))}</option>`).join("")}</select>` : ""}
           <button type="button" class="btn gold sm" data-action="make-report" data-id="${c.id}">Make report</button>
@@ -9106,6 +9126,20 @@ function renderReporting(){
   }).join("");
   ensureWeeklyCreativeSnapshot();
 }
+// Pick the day a client's fortnightly report is due; it repeats every 14 days.
+function rpDayPickHtml(c, info){
+  const v = info.next || (c.report_anchor ? String(c.report_anchor).slice(0, 10) : "");
+  return `<label class="rp-day" title="Their report is due on this day, then every 2 weeks"><span>${c.report_anchor ? "Report day" : "Set report day"}</span><input type="date" data-rp-anchor="${c.id}" value="${escapeHtml(v)}"></label>`;
+}
+async function setReportAnchor(id, value){
+  const c = state.clients.find(x => x.id === id);
+  if (!c || !/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return;
+  await DataLayer.update("clients", id, { report_anchor: value });
+  if (IS_CONFIGURED){ await DataLayer.fetchAll(); }
+  renderAll();
+  rcToast(`${c.name}'s report is due ${fmtDueDay(value)}, then every 2 weeks.`);
+}
+document.addEventListener("change", (e) => { const t = e.target.closest?.("[data-rp-anchor]"); if (t) setReportAnchor(t.dataset.rpAnchor, t.value); });
 function setupReporting(){
   $("#report-form")?.addEventListener("input", (e) => {
     if (e.target.closest("#rp-ghl-connect")) return;
