@@ -1643,7 +1643,7 @@ function applyWorkspace(){
   // The Library's emails differ by workspace (sales vs service/onboarding).
   setTimeout(() => { try { renderEmailTemplates(); } catch(e){} }, 0);
   $$("[data-workspace]").forEach(el => {
-    el.style.display = (el.dataset.workspace === "all" || (el.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || el.dataset.workspace === ws) ? "" : "none";
+    el.style.display = ((el.dataset.workspace === "all" && ws !== "leads") || (el.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || el.dataset.workspace === ws) ? "" : "none";
   });
   // Lead Engine is Rocky/Max only regardless of workspace - override the
   // workspace loop above rather than fold it into data-workspace, since
@@ -1673,7 +1673,7 @@ function applyWorkspace(){
   // Each workspace opens on its main page: Meetings Booked, Clients, Employees, or the call queue.
   const landing = ws === "delivery" ? "clients" : ws === "employees" ? "employees" : ws === "leads" ? "lead-queue" : "cold-calls";
   const pageBtns = $$(`.nav-item[data-page="${state.page}"]`);
-  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => b.dataset.workspace === "all" || (b.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || b.dataset.workspace === ws))){
+  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => (b.dataset.workspace === "all" && ws !== "leads") || (b.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || b.dataset.workspace === ws))){
     workspaceLanded = true;
     $(`.nav-item[data-page="${landing}"]`)?.click();
   }
@@ -10979,7 +10979,8 @@ async function setClientEmailStatus(id, status){
 // The count in the menu, the tab title, and the priority bar on every other page.
 // The Client inbox lives in Service Delivery only, so its count, tab title
 // and bar only show there.
-const inboxHere = () => canAccessDelivery() && !isLeadsOnly();
+// Every workspace except Lead Follow Up (Rocky took it off there).
+const inboxHere = () => canAccessDelivery() && !isLeadsOnly() && getWorkspace() !== "leads";
 function renderInboxAlert(){
   const waiting = inboxHere() ? inboxWaiting() : [];
   $$(".nav-inbox-count").forEach(el => { el.hidden = !waiting.length; el.textContent = waiting.length; });
