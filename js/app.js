@@ -12565,8 +12565,10 @@ function renderLeadResults(){
 }
 
 // Consultation call only shows when the client's own GoHighLevel pipeline has
-// that stage (found by the sync, lead_sync_status.stages).
+// that stage (found by the sync, lead_sync_status.stages), and not for clients
+// that only do site visits (clients.lead_site_visits_only, sql/109).
 function lqHasConsult(l){
+  if (lqClient(l)?.lead_site_visits_only) return false;
   if (!IS_CONFIGURED) return true;
   const r = (lqSyncRows || []).find(x => x.client_id === l.client_id);
   return !!r?.stages?.found?.consult;
