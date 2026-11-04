@@ -5287,3 +5287,7 @@ button.ap-row:hover{background:var(--gold-soft);}
 /* The calls list scrolls inside the page. */
 #lc-root > .lc-list{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
 @media (max-width:760px){ #lc-root > .lc-list{overflow-y:visible;} }
+.lc-loading-box{display:flex;align-items:center;gap:14px;}
+.lc-loading-box p{margin:0;}
+.lc-spin{width:22px;height:22px;border-radius:50%;border:3px solid #ebe6db;border-top-color:var(--gold);animation:lcspin .8s linear infinite;flex:none;}
+@keyframes lcspin{to{transform:rotate(360deg);}}
