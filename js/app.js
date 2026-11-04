@@ -13054,6 +13054,28 @@ function setupFollowUps(){
    to the lead or client. Play asks the function for a fresh link to the
    recording (Aircall's links only last a few minutes). */
 let lcPeriod = "week", lcWho = "", lcLead = null, lcPlaying = null, lcSubscribed = false;
+// Recorded calls are sorted into what came of them, from the outcome picked
+// on the call screen (client_leads.call_log) for that call.
+const LC_SECTIONS = [
+  ["all", "All calls", ""], ["site_visit", "Site visit booked", "green"], ["consult_call", "Consultation booked", "green"],
+  ["call_back", "Call back later", "blue"], ["no_answer", "No answer", "amber"], ["not_interested", "Not interested", "grey"],
+  ["disqualified", "Not a fit", "grey"], ["wrong_number", "Wrong number", "grey"], ["none", "No outcome picked", "grey"],
+];
+let lcSec = "all";
+try { lcSec = localStorage.getItem("mp_lc_sec") || "all"; } catch(e){}
+// The outcome picked for this call: the first one saved on that lead from
+// 5 minutes before the call started to an hour after it ended.
+function lcOutcomeOf(c){
+  const lead = c.lead_id ? state.clientLeads.find(l => l.id === c.lead_id) : null;
+  const log = lead && Array.isArray(lead.call_log) ? lead.call_log : [];
+  const start = new Date(c.started_at).getTime();
+  const end = c.ended_at ? new Date(c.ended_at).getTime() : start + (Number(c.duration) || 0) * 1000;
+  const hit = log.filter(e => e && e.at && e.outcome).map(e => ({ ...e, t: new Date(e.at).getTime() }))
+    .filter(e => e.t >= start - 5 * 60e3 && e.t <= end + 60 * 60e3).sort((a, b) => a.t - b.t)[0];
+  if (!hit) return { key: "none", note: "" };
+  const key = hit.outcome === "booked" ? "site_visit" : hit.outcome;
+  return { key: LC_SECTIONS.some(([k]) => k === key) ? key : "none", note: hit.note || "" };
+}
 async function loadAircallCalls(){
   if (!IS_CONFIGURED){
     if (!state.lcLoaded){
@@ -13066,6 +13088,16 @@ async function loadAircallCalls(){
         mk(4, L(3), "outbound", 60 * 20, 312), mk(5, L(0), "outbound", 60 * 26, 41), mk(6, {}, "inbound", 60 * 30, 75, { number: "+61400111222" }),
         mk(7, L(4), "outbound", 60 * 24 * 3, 228),
       ];
+      // Line each demo call up with the outcome its lead was given, like a real call would be.
+      const used = new Set();
+      state.aircallCalls.forEach(c => {
+        const lead = state.clientLeads.find(l => l.id === c.lead_id);
+        const e = (lead?.call_log || []).filter(x => x.at && !used.has(lead.id + x.at)).pop();
+        if (!e || !c.duration) return;
+        used.add(lead.id + e.at);
+        c.ended_at = new Date(new Date(e.at).getTime() - 60e3).toISOString();
+        c.started_at = new Date(new Date(c.ended_at).getTime() - c.duration * 1000).toISOString();
+      });
       state.aircallStatus = { connected: true, last_ok_at: new Date().toISOString() };
       state.lcLoaded = true;
     }
@@ -13113,6 +13145,11 @@ function lcShown(){
   return state.aircallCalls.filter(c => (!lcLead || c.lead_id === lcLead) && (!lcWho || c.user_name === lcWho) && new Date(c.started_at).getTime() >= from)
     .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
 }
+function lcSections(calls){
+  const counts = { all: calls.length };
+  calls.forEach(c => { const k = lcOutcomeOf(c).key; counts[k] = (counts[k] || 0) + 1; });
+  return LC_SECTIONS.filter(([k]) => k === "all" || counts[k] || k === lcSec).map(([k, l, cls]) => ({ k, l, cls, n: counts[k] || 0 }));
+}
 function renderLeadCalls(){
   const root = $("#lc-root");
   if (!root) return;
@@ -13132,10 +13169,14 @@ function renderLeadCalls(){
   }
   const people = [...new Set(calls.map(c => c.user_name).filter(Boolean))].sort();
   const leadName = lcLead ? (state.clientLeads.find(l => l.id === lcLead)?.name || "this lead") : "";
-  const shown = lcShown();
+  const inPeriod = lcShown();
+  const secs = lcSections(inPeriod);
+  if (!secs.some(x => x.k === lcSec)) lcSec = "all";
+  const shown = lcSec === "all" ? inPeriod : inPeriod.filter(c => lcOutcomeOf(c).key === lcSec);
+  const secLabel = (LC_SECTIONS.find(([k]) => k === lcSec) || [])[1] || "";
   let lastDay = "";
   const rows = shown.map(c => {
-    const who = lcWhoOf(c), day = lcDayLabel(c.started_at);
+    const who = lcWhoOf(c), day = lcDayLabel(c.started_at), out = lcOutcomeOf(c), sec = LC_SECTIONS.find(([k]) => k === out.key);
     const head = day !== lastDay ? `<h3 class="lc-day">${escapeHtml(day)}</h3>` : "";
     lastDay = day;
     const missed = c.status === "missed" || (!c.duration && !c.recorded);
@@ -13143,7 +13184,7 @@ function renderLeadCalls(){
     const playing = lcPlaying && lcPlaying.id === c.id;
     return `${head}<div class="lc-row${missed ? " missed" : ""}${playing ? " playing" : ""}" data-lc-row="${c.id}">
       ${canPlay ? `<button type="button" class="lc-play" data-lc-play="${c.id}" aria-label="Play the call with ${escapeHtml(who.name)}">${playing ? "■" : "▶"}</button>` : `<span class="lc-play off" title="${missed ? "Missed - nothing to play" : "Not recorded"}">${missed ? "✕" : "–"}</span>`}
-      <div class="lc-who"><b>${escapeHtml(who.name)}</b><span>${escapeHtml(who.sub)}</span></div>
+      <div class="lc-who"><b>${escapeHtml(who.name)}</b><span>${escapeHtml(who.sub)}</span>${out.key !== "none" ? `<span class="lc-out ${sec[2]}">${escapeHtml(sec[1])}${out.note ? `<i>${escapeHtml(out.note)}</i>` : ""}</span>` : ""}</div>
       <div class="lc-when"><span class="lc-dir ${c.direction}">${c.direction === "outbound" ? "↗ You called" : "↙ They called"}</span><span>${escapeHtml(lqClock(c.started_at))}${missed ? " · missed" : c.duration ? ` · ${escapeHtml(lcLength(c.duration))}` : ""}${c.voicemail ? " · voicemail" : ""}</span></div>
       <div class="lc-by">${c.user_name ? escapeHtml(c.user_name) : ""}</div>
       ${who.leadId ? `<button type="button" class="lc-open" data-lc-open="${who.leadId}">Open lead</button>` : "<span></span>"}
@@ -13152,15 +13193,17 @@ function renderLeadCalls(){
   }).join("");
   root.innerHTML = `
     <header class="lc-head">
-      <div><h2>Recorded calls</h2><p>${shown.length} call${shown.length === 1 ? "" : "s"}${lcLead ? ` with ${escapeHtml(leadName)}` : ""}. Press ▶ to listen.</p></div>
+      <div><h2>Recorded calls</h2><p>${shown.length} call${shown.length === 1 ? "" : "s"}${lcSec !== "all" ? ` · ${escapeHtml(secLabel)}` : ""}${lcLead ? ` with ${escapeHtml(leadName)}` : ""}. Press ▶ to listen.</p></div>
       <div class="lc-filters">
         ${lcLead ? `<button type="button" class="lc-chip" data-lc-clear>With ${escapeHtml(leadName)} ✕</button>` : ""}
         <select data-lc-period aria-label="When">${[["today", "Today"], ["week", "Last 7 days"], ["month", "Last 30 days"], ["all", "Everything"]].map(([v, l]) => `<option value="${v}" ${lcPeriod === v ? "selected" : ""}>${l}</option>`).join("")}</select>
         ${people.length > 1 ? `<select data-lc-who aria-label="Who"><option value="">Everyone</option>${people.map(n => `<option ${lcWho === n ? "selected" : ""}>${escapeHtml(n)}</option>`).join("")}</select>` : ""}
       </div>
     </header>
+    <nav class="lc-secs" aria-label="What happened on the call">${secs.map(x => `<button type="button" class="lc-sec${x.k === lcSec ? " active" : ""}" data-lc-sec="${x.k}">${escapeHtml(x.l)}<b>${x.n}</b></button>`).join("")}</nav>
+    <select class="lc-sec-pick" data-lc-sec-pick aria-label="What happened on the call">${secs.map(x => `<option value="${x.k}" ${x.k === lcSec ? "selected" : ""}>${escapeHtml(x.l)} (${x.n})</option>`).join("")}</select>
     ${manager && st?.last_error ? `<p class="lc-err">Aircall sync problem: ${escapeHtml(st.last_error)}</p>` : ""}
-    <div class="lc-list">${rows || `<div class="lc-empty"><p>No calls ${lcPeriod === "today" ? "today" : "in this time"} yet.</p></div>`}</div>`;
+    <div class="lc-list">${rows || `<div class="lc-empty"><p>No ${lcSec !== "all" ? `"${escapeHtml(secLabel)}" ` : ""}calls ${lcPeriod === "today" ? "today" : "in this time"} yet.</p></div>`}</div>`;
 }
 async function lcPlay(id){
   if (lcPlaying && lcPlaying.id === id){ lcPlaying = null; return renderLeadCalls(); }
@@ -13182,10 +13225,13 @@ function setupLeadCallsUi(){
     const o = e.target.closest("[data-lc-open]");
     if (o){ lqSel = o.dataset.lcOpen; lqPending = null; goPage("lead-queue"); return renderLeadQueue(); }
     if (e.target.closest("[data-lc-clear]")){ lcLead = null; return renderLeadCalls(); }
+    const sec = e.target.closest("[data-lc-sec]");
+    if (sec){ lcSec = sec.dataset.lcSec; try { localStorage.setItem("mp_lc_sec", lcSec); } catch(e2){} return renderLeadCalls(); }
   });
   root.addEventListener("change", (e) => {
     if (e.target.matches("[data-lc-period]")){ lcPeriod = e.target.value; renderLeadCalls(); }
     if (e.target.matches("[data-lc-who]")){ lcWho = e.target.value; renderLeadCalls(); }
+    if (e.target.matches("[data-lc-sec-pick]")){ lcSec = e.target.value; try { localStorage.setItem("mp_lc_sec", lcSec); } catch(e2){} renderLeadCalls(); }
   });
 }
 
