@@ -13670,6 +13670,10 @@ function setupLeadFollowUpUi(){
     await lqSync();
     renderLeadResults();
   });
+  // New leads show up without a refresh even if the live connection dropped.
+  setInterval(lqPollLeads, 30e3);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) lqPollLeads(); });
+  window.addEventListener("focus", () => lqPollLeads());
   // Keeps the "came in 4 minutes ago" times ticking, and the sync line fresh.
   setInterval(() => {
     if (state.page === "lead-queue") renderLeadQueue(); else lqNavCount();
@@ -13678,6 +13682,26 @@ function setupLeadFollowUpUi(){
     fuRemind();
     if (["lead-queue", "lead-results"].includes(state.page)) lqLoadSync(true);
   }, 60e3);
+}
+
+// Safety net for live updates: while Lead Follow Up is open, check every 30
+// seconds (and when the tab comes back into view) whether any recent lead is
+// new or has changed, and reload if so. Live updates can drop without a word,
+// e.g. after a laptop sleeps, and then new leads only showed after a refresh.
+let lqPolling = false;
+async function lqPollLeads(){
+  if (!IS_CONFIGURED || lqPolling || document.hidden || getWorkspace() !== "leads") return;
+  lqPolling = true;
+  try {
+    const since = new Date(Date.now() - 3 * 86400e3).toISOString();
+    const { data, error } = await supabase.from("client_leads").select("id, updated_at, follow_status, status")
+      .or(`created_at.gte.${since},updated_at.gte.${since}`).limit(2000);
+    if (error || !data) return;
+    const known = new Map(state.clientLeads.map(l => [l.id, l]));
+    const changed = data.some(r => { const l = known.get(r.id); return !l || l.updated_at !== r.updated_at || l.follow_status !== r.follow_status || l.status !== r.status; });
+    if (changed){ await DataLayer.fetchAll(); renderAll(); }
+  } catch(e){ console.warn(e); }
+  finally { lqPolling = false; }
 }
 
 // Demo mode: a few leads at different stages so the queue has something in it.
