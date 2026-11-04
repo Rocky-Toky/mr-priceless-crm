@@ -458,3 +458,9 @@ jobs:
           q "select count(*) as calls, count(*) filter (where recorded) as recorded, count(*) filter (where direction='inbound') as inbound, count(*) filter (where status='missed') as missed, count(lead_id) as matched_to_a_lead, count(client_id) as matched_to_a_client from aircall_calls where started_at > now() - interval '30 days'" | jq -c '.[0]'
           echo "Schedule (last 3 runs):"
           q "select status, start_time from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'sync-aircall-calls') order by start_time desc limit 3" | jq -c '.[]'
+          echo "5-minute sync job set up:"
+          q "select count(*) as jobs from cron.job where jobname = 'sync-aircall-calls'" | jq -c '.[0]'
+          # What a Lead Follow Up only login can see (counts only), checked as that login.
+          echo "Seen by a Lead Follow Up only login:"
+          q "begin; select set_config('request.jwt.claims', json_build_object('sub', (select u.id from auth.users u join public.allowlist a on lower(a.email) = lower(u.email) where a.access = 'leads' limit 1), 'role', 'authenticated')::text, true); set local role authenticated; select public.is_lead_caller() as lead_caller, (select count(*) from public.aircall_calls) as calls, (select count(*) from public.aircall_sync_status) as status_rows, (select count(*) from public.client_leads) as leads; commit;" | jq -c '.' || echo "(that check couldn't run)"
+          q "select count(*) as leads_logins, count(u.email_confirmed_at) as confirmed from public.allowlist a left join auth.users u on lower(u.email) = lower(a.email) where a.access = 'leads'" | jq -c '.[0]'
