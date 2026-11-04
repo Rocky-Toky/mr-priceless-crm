@@ -13156,6 +13156,12 @@ function renderLeadCalls(){
   if (!root) return;
   const st = state.aircallStatus, manager = !IS_CONFIGURED || isRocky() || isMax();
   const calls = state.aircallCalls || [];
+  // Not loaded yet (or the start-up load never ran): load them now.
+  if (!state.lcLoaded && !state.lcLoading){
+    state.lcLoading = true;
+    loadAircallCalls().catch(e => { console.warn(e); state.lcLoaded = true; state.lcMissing = true; })
+      .finally(() => { state.lcLoading = false; if (state.page === "lead-calls") renderLeadCalls(); });
+  }
   // Still loading: say so, rather than flashing the setup steps.
   if (!state.lcLoaded && !calls.length){
     root.innerHTML = `<header class="lc-head"><div><h2>Recorded calls</h2><p>Every Aircall call, recorded, so you can listen back.</p></div></header>
@@ -13269,7 +13275,7 @@ function setupLeadCallsUi(){
     const o = e.target.closest("[data-lc-open]");
     if (o){ lqSel = o.dataset.lcOpen; lqPending = null; goPage("lead-queue"); return renderLeadQueue(); }
     if (e.target.closest("[data-lc-clear]")){ lcLead = null; return renderLeadCalls(); }
-    if (e.target.closest("[data-lc-retry]")){ state.lcLoaded = false; state.lcMissing = false; renderLeadCalls(); return loadAircallCalls().then(renderLeadCalls).catch(() => { state.lcLoaded = true; state.lcMissing = true; renderLeadCalls(); }); }
+    if (e.target.closest("[data-lc-retry]")){ state.lcLoaded = false; state.lcMissing = false; return renderLeadCalls(); }
     const sec = e.target.closest("[data-lc-sec]");
     if (sec){ lcSec = sec.dataset.lcSec; try { localStorage.setItem("mp_lc_sec", lcSec); } catch(e2){} return renderLeadCalls(); }
   });
