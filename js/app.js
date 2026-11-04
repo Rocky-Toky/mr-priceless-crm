@@ -13188,9 +13188,11 @@ function renderLeadCalls(){
       <div class="lc-when"><span class="lc-dir ${c.direction}">${c.direction === "outbound" ? "↗ You called" : "↙ They called"}</span><span>${escapeHtml(lqClock(c.started_at))}${missed ? " · missed" : c.duration ? ` · ${escapeHtml(lcLength(c.duration))}` : ""}${c.voicemail ? " · voicemail" : ""}</span></div>
       <div class="lc-by">${c.user_name ? escapeHtml(c.user_name) : ""}</div>
       ${who.leadId ? `<button type="button" class="lc-open" data-lc-open="${who.leadId}">Open lead</button>` : "<span></span>"}
-      ${playing ? `<div class="lc-player">${lcPlaying.url ? `<audio controls autoplay src="${escapeHtml(lcPlaying.url)}"></audio>` : `<span class="lc-loading">${escapeHtml(lcPlaying.msg || "Getting the recording…")}</span>`}</div>` : ""}
+      ${playing ? `<div class="lc-player">${lcPlaying.url ? `<audio controls autoplay preload="auto" src="${escapeHtml(lcPlaying.url)}"></audio>` : `<span class="lc-loading">${escapeHtml(lcPlaying.msg || "Getting the recording…")}</span>`}</div>` : ""}
     </div>`;
   }).join("");
+  const keepAudio = root.querySelector(".lc-player audio");
+  const keepScroll = root.querySelector(".lc-list")?.scrollTop || 0;
   root.innerHTML = `
     <header class="lc-head">
       <div><h2>Recorded calls</h2><p>${shown.length} call${shown.length === 1 ? "" : "s"}${lcSec !== "all" ? ` · ${escapeHtml(secLabel)}` : ""}${lcLead ? ` with ${escapeHtml(leadName)}` : ""}. Press ▶ to listen.</p></div>
@@ -13204,16 +13206,45 @@ function renderLeadCalls(){
     <select class="lc-sec-pick" data-lc-sec-pick aria-label="What happened on the call">${secs.map(x => `<option value="${x.k}" ${x.k === lcSec ? "selected" : ""}>${escapeHtml(x.l)} (${x.n})</option>`).join("")}</select>
     ${manager && st?.last_error ? `<p class="lc-err">Aircall sync problem: ${escapeHtml(st.last_error)}</p>` : ""}
     <div class="lc-list">${rows || `<div class="lc-empty"><p>No ${lcSec !== "all" ? `"${escapeHtml(secLabel)}" ` : ""}calls ${lcPeriod === "today" ? "today" : "in this time"} yet.</p></div>`}</div>`;
+  // A call that's playing keeps playing when the list refreshes, and the list stays where it was.
+  const fresh = root.querySelector(".lc-player audio");
+  if (keepAudio && fresh && lcPlaying?.url && keepAudio.getAttribute("src") === lcPlaying.url) fresh.replaceWith(keepAudio);
+  const list = root.querySelector(".lc-list");
+  if (list) list.scrollTop = keepScroll;
+  lcWarm(shown);
+}
+// Aircall's recording links only last a few minutes, so each one is fetched
+// when needed - but early: the moment a finger or mouse reaches ▶, and for
+// the newest few calls as the page opens - and kept for 8 minutes.
+const lcLinks = new Map();
+function lcGetLink(id){
+  const hit = lcLinks.get(id);
+  if (hit?.p) return hit.p;
+  if (hit?.url && Date.now() - hit.at < 8 * 60e3) return Promise.resolve(hit);
+  const p = supabase.functions.invoke("sync-aircall-calls", { body: { action: "recording", call_id: id } })
+    .then(({ data, error }) => {
+      if (error || !data?.url){ lcLinks.delete(id); return { msg: data?.error || "Couldn't get the recording - try again in a minute." }; }
+      const r = { url: data.url, at: Date.now() };
+      lcLinks.set(id, r);
+      return r;
+    }).catch(() => { lcLinks.delete(id); return { msg: "Couldn't get the recording - try again in a minute." }; });
+  lcLinks.set(id, { p });
+  return p;
+}
+function lcWarm(calls){
+  if (!IS_CONFIGURED) return;
+  calls.filter(c => c.recorded || c.voicemail).slice(0, 3).forEach(c => lcGetLink(c.id));
 }
 async function lcPlay(id){
   if (lcPlaying && lcPlaying.id === id){ lcPlaying = null; return renderLeadCalls(); }
-  lcPlaying = { id, url: null };
+  if (!IS_CONFIGURED){ lcPlaying = { id, url: null, msg: "Demo mode - real recordings play here once Aircall is connected." }; return renderLeadCalls(); }
+  const cached = lcLinks.get(id);
+  lcPlaying = { id, url: cached?.url && Date.now() - cached.at < 8 * 60e3 ? cached.url : null };
   renderLeadCalls();
-  if (!IS_CONFIGURED){ lcPlaying.msg = "Demo mode - real recordings play here once Aircall is connected."; return renderLeadCalls(); }
-  const { data, error } = await supabase.functions.invoke("sync-aircall-calls", { body: { action: "recording", call_id: id } });
+  if (lcPlaying.url) return;
+  const r = await lcGetLink(id);
   if (!lcPlaying || lcPlaying.id !== id) return;
-  if (error || !data?.url){ lcPlaying.msg = data?.error || "Couldn't get the recording - try again in a minute."; return renderLeadCalls(); }
-  lcPlaying.url = data.url;
+  if (r.url) lcPlaying.url = r.url; else lcPlaying.msg = r.msg;
   renderLeadCalls();
 }
 function setupLeadCallsUi(){
@@ -13228,6 +13259,11 @@ function setupLeadCallsUi(){
     const sec = e.target.closest("[data-lc-sec]");
     if (sec){ lcSec = sec.dataset.lcSec; try { localStorage.setItem("mp_lc_sec", lcSec); } catch(e2){} return renderLeadCalls(); }
   });
+  // Start fetching the recording the moment someone reaches for ▶.
+  const warm = (e) => { const b = e.target.closest?.("[data-lc-play]"); if (b && IS_CONFIGURED) lcGetLink(Number(b.dataset.lcPlay)); };
+  root.addEventListener("pointerover", warm);
+  root.addEventListener("pointerdown", warm);
+  root.addEventListener("focusin", warm);
   root.addEventListener("change", (e) => {
     if (e.target.matches("[data-lc-period]")){ lcPeriod = e.target.value; renderLeadCalls(); }
     if (e.target.matches("[data-lc-who]")){ lcWho = e.target.value; renderLeadCalls(); }
