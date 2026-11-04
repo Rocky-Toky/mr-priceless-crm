@@ -13114,7 +13114,8 @@ async function loadAircallCalls(){
   state.aircallStatus = st || null;
 }
 function setupLeadCalls(){
-  loadAircallCalls().then(() => { if (state.page === "lead-calls") renderLeadCalls(); if (state.page === "lead-queue") renderLeadQueue(); }).catch(e => console.warn(e));
+  loadAircallCalls().catch(e => { console.warn(e); state.lcLoaded = true; state.lcMissing = true; })
+    .then(() => { if (state.page === "lead-calls") renderLeadCalls(); if (state.page === "lead-queue") renderLeadQueue(); });
   if (!IS_CONFIGURED || lcSubscribed) return;
   lcSubscribed = true;
   let t = null;
@@ -13155,7 +13156,19 @@ function renderLeadCalls(){
   if (!root) return;
   const st = state.aircallStatus, manager = !IS_CONFIGURED || isRocky() || isMax();
   const calls = state.aircallCalls || [];
-  if (!calls.length && !(st?.connected && st?.last_ok_at)){
+  // Still loading: say so, rather than flashing the setup steps.
+  if (!state.lcLoaded && !calls.length){
+    root.innerHTML = `<header class="lc-head"><div><h2>Recorded calls</h2><p>Every Aircall call, recorded, so you can listen back.</p></div></header>
+      <div class="lc-empty lc-loading-box"><span class="lc-spin" aria-hidden="true"></span><p>Loading your calls…</p></div>`;
+    return;
+  }
+  if (state.lcMissing && !calls.length){
+    root.innerHTML = `<header class="lc-head"><div><h2>Recorded calls</h2><p>Every Aircall call, recorded, so you can listen back.</p></div></header>
+      <div class="lc-empty"><p>Couldn't load your calls just now.</p><p><button type="button" class="lc-open" data-lc-retry>Try again</button></p></div>`;
+    return;
+  }
+  // The setup steps only show once we know Aircall really isn't connected.
+  if (!calls.length && !st?.connected){
     root.innerHTML = `<header class="lc-head"><div><h2>Recorded calls</h2><p>Every Aircall call, recorded, so you can listen back.</p></div></header>
       <div class="lc-empty">${manager ? `<h3>Two quick things to switch this on</h3>
         <ol>
@@ -13256,6 +13269,7 @@ function setupLeadCallsUi(){
     const o = e.target.closest("[data-lc-open]");
     if (o){ lqSel = o.dataset.lcOpen; lqPending = null; goPage("lead-queue"); return renderLeadQueue(); }
     if (e.target.closest("[data-lc-clear]")){ lcLead = null; return renderLeadCalls(); }
+    if (e.target.closest("[data-lc-retry]")){ state.lcLoaded = false; state.lcMissing = false; renderLeadCalls(); return loadAircallCalls().then(renderLeadCalls).catch(() => { state.lcLoaded = true; state.lcMissing = true; renderLeadCalls(); }); }
     const sec = e.target.closest("[data-lc-sec]");
     if (sec){ lcSec = sec.dataset.lcSec; try { localStorage.setItem("mp_lc_sec", lcSec); } catch(e2){} return renderLeadCalls(); }
   });
