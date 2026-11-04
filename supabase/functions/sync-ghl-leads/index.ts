@@ -530,7 +530,7 @@ async function checkOutcomes(admin: any, onlyClient: string | null = null) {
   const { data: conns } = await q;
   const out: any[] = [];
   for (const conn of conns || []) {
-    const { data: client } = await admin.from("clients").select("id, name, stage, lead_visit_is_consult").eq("id", conn.client_id).maybeSingle();
+    const { data: client } = await admin.from("clients").select("id, name, stage, lead_visit_is_consult, lead_site_visits_only").eq("id", conn.client_id).maybeSingle();
     const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", conn.client_id).maybeSingle();
     const { data: sync } = await admin.from("lead_sync_status").select("stages, access, error, last_ok_at").eq("client_id", conn.client_id).maybeSingle();
     const r: any = { client_id: conn.client_id, name: client?.name || "Unknown client", client_stage: client?.stage || null, visit_is_consult: !!client?.lead_visit_is_consult, access: sync?.access || null, sync_error: sync?.error || null, problems: [] as string[], outcomes: {} as any };
@@ -590,7 +590,7 @@ async function checkOutcomes(admin: any, onlyClient: string | null = null) {
       if (o.calendar_problem) r.problems.push(`${outcome} calendar: ${o.calendar_problem}`);
     }
     // Which buttons Carmen sees for this client (same rules as the call screen).
-    r.consult_button = !!sync?.stages?.found?.consult && !r.visit_is_consult;
+    r.consult_button = !!sync?.stages?.found?.consult && !r.visit_is_consult && !client?.lead_site_visits_only;
     if (r.consult_button && !r.outcomes.consult_call?.stage) r.problems.push("The Consultation call button shows, but their leads' pipeline has no consultation stage");
     if (!fieldErr && !r.fields.scope.length) r.notes_scope = "No Scope of Work field yet - the first booking adds one" + (sync?.access?.custom_fields === false ? ", but the key can't (tick Edit Custom Fields)" : "");
     const acc = sync?.access || {};
