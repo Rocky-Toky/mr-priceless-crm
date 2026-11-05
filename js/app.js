@@ -2533,11 +2533,10 @@ function pmGhlSchedule(m){
   const after11 = nzParts(new Date(M)).h >= 11;
   const at = (day, time) => nzToDate(day, time).getTime();
   const out = [];
-  if (daysOut >= 2){
-    out.push({ at: at(nzAddDays(dayB, 1), "09:00"), label: "Case study email" });
-    out.push({ at: at(nzAddDays(dayB, 1), "13:00"), label: "Prep-question text" });
-  }
-  if (daysOut >= 4) out.push({ at: at(nzAddDays(dayB, 2), "09:00"), label: "FAQ email" });
+  // Case study the morning after booking; prep question 2 days before the
+  // meeting, unless that's the day they booked. No FAQ email.
+  if (daysOut >= 2) out.push({ at: at(nzAddDays(dayB, 1), "09:00"), label: "Case study email" });
+  if (daysOut >= 3) out.push({ at: at(nzAddDays(dayM, -2), "13:00"), label: "Prep-question text" });
   if (daysOut >= 1){
     const t = at(nzAddDays(dayM, -1), after11 ? "16:00" : "12:00");
     const late = daysOut === 1 && from > at(dayB, after11 ? "14:00" : "10:00");
