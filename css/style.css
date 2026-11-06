@@ -5291,3 +5291,7 @@ button.ap-row:hover{background:var(--gold-soft);}
 .lc-loading-box p{margin:0;}
 .lc-spin{width:22px;height:22px;border-radius:50%;border:3px solid #ebe6db;border-top-color:var(--gold);animation:lcspin .8s linear infinite;flex:none;}
 @keyframes lcspin{to{transform:rotate(360deg);}}
+/* Lead Follow Up: who runs the client's business */
+.lq3-contact-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin:4px 0;}
+.lq3-contact-form label{display:flex;flex-direction:column;gap:4px;font-size:13px;}
+.lq3-contact-form input{padding:9px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:16px;min-width:0;width:200px;max-width:100%;}
