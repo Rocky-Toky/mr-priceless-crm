@@ -2525,28 +2525,34 @@ async function pmCopy(text, btn, label = "Copy text"){
 const pmMessages = (m) => state.precallMessages.filter(x => x.meeting_id === m.id);
 const pmUnread = (m) => pmMessages(m).filter(x => x.direction === "inbound" && !x.read_at);
 const pmFailed = (m) => pmMessages(m).filter(x => x.direction === "outbound" && /fail|undeliver/i.test(x.status || ""));
-// What GHL is set up to send (built in GHL; worked out here only to show what's next).
+// What GHL's "Pre-call - nurture" workflow sends (built in GHL; worked out
+// here only to show what's next - keep it in step with the workflow):
+//   4_days:   case study email 9am the day after booking, prep text 1pm
+//             2 days before the meeting (skipped if that's already gone)
+//   2_3_days: case study email 9am the day after booking, prep text 1pm
+//             that same day
+//   then:     confirmation text 4pm the day before (none if they booked
+//             after 2pm the day before); for 11am+ meetings a morning-of
+//             text at 8:30am if they've confirmed by then
 function pmGhlSchedule(m){
   const M = Date.parse(m.starts_at), from = Date.parse(m.tasks_from || m.booked_at || m.created_at);
   const dayM = nzDayStr(new Date(M)), dayB = nzDayStr(new Date(from));
-  const daysOut = Math.round((Date.parse(dayM) - Date.parse(dayB)) / 86400e3);
+  const win = m.booking_window || pmWindow(new Date(from), new Date(M));
   const after11 = nzParts(new Date(M)).h >= 11;
   const at = (day, time) => nzToDate(day, time).getTime();
   const out = [];
-  if (daysOut >= 2){
-    out.push({ at: at(nzAddDays(dayB, 1), "09:00"), label: "Case study email" });
-    out.push({ at: at(nzAddDays(dayB, 1), "13:00"), label: "Prep-question text" });
+  if (win === "4_days" || win === "2_3_days"){
+    const study = at(nzAddDays(dayB, 1), "09:00");
+    out.push({ at: study, label: "Case study email" });
+    const prep = win === "4_days" ? at(nzAddDays(dayM, -2), "13:00") : at(nzAddDays(dayB, 1), "13:00");
+    if (prep > study) out.push({ at: prep, label: "Prep-question text" });
   }
-  if (daysOut >= 4) out.push({ at: at(nzAddDays(dayB, 2), "09:00"), label: "FAQ email" });
-  if (daysOut >= 1){
-    const t = at(nzAddDays(dayM, -1), after11 ? "16:00" : "12:00");
-    const late = daysOut === 1 && from > at(dayB, after11 ? "14:00" : "10:00");
-    if (!late && t > from) out.push({ at: t, label: "Day-before confirmation text" });
-  }
+  if (dayM !== dayB && from < at(nzAddDays(dayM, -1), "14:00")) out.push({ at: at(nzAddDays(dayM, -1), "16:00"), label: "Day-before confirmation text" });
   if (after11) out.push({ at: at(dayM, "08:30"), label: "Morning-of text", note: "only if they've confirmed by then" });
   if (m.onehour_noanswer_at) out.push({ at: Date.parse(m.onehour_noanswer_at), label: "Text after the unanswered one-hour call" });
   return out.filter(x => x.at < M && x.at >= from - 60e3).sort((a, b) => a.at - b.at);
 }
+if (!IS_CONFIGURED) window.__pmGhlSchedule = pmGhlSchedule; // demo-mode tests only
 const pmNextTouch = (m) => m.status === "scheduled" ? pmGhlSchedule(m).find(x => x.at > Date.now()) : null;
 
 let pmTl = { id: null, events: [], loading: false };
