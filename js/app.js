@@ -11715,7 +11715,7 @@ const LQ_TO_GHL = new Set(["site_visit", "consult_call", "not_interested", "disq
 // Days between no-answer calls: 3 days in a row, then a week, a week, a month.
 const LQ_GAPS = [1, 1, 7, 7, 30];
 const LQ_MAX_TRIES = LQ_GAPS.length + 1, LQ_FAST_MS = 3 * 60e3, LQ_FRESH_MS = 48 * 3600e3;
-let lqRegionFor = null, lqFitFor = null, lqAreaFor = null, lqTimesFor = null;
+let lqRegionFor = null, lqFitFor = null, lqAreaFor = null, lqTimesFor = null, lqContactFor = null;
 let lqSel = null, lqPending = null, lqAdding = false, lqShowDone = false, lqSyncing = false, lqPeriod = "today", lqShowHistory = false;
 const lqDrafts = {};
 let lqSyncRows = null, lqSyncLoading = false, lqConnectFor = null, lqConnecting = false, lqStagesFor = null;
@@ -12257,7 +12257,13 @@ function lqDetailHtml(l){
       <div class="lq3-hero-id">
         <span class="lq3-status"><i></i>${escapeHtml(status.text)}</span>
         <h2>${escapeHtml(l.name || "No name")}</h2>
-        <p>Calling for <b>${escapeHtml(biz)}</b>${trade ? ` · ${escapeHtml(trade)}` : ""}</p>
+        ${(() => {
+          // Who runs the client's business, by first name (clients.lead_contact, sql/111),
+          // written by Rocky / Max - so Carmen knows whose business she's calling for.
+          const who = String(c?.lead_contact || "").trim();
+          if (lqContactFor === c?.id) return `<form class="lq3-contact-form" data-lq-form="contact"><label>Who runs ${escapeHtml(biz)}? (first name)<input name="who" maxlength="40" value="${escapeHtml(who)}" placeholder="e.g. Brett"></label><button type="submit" class="lq3-btn">Save</button><button type="button" class="lq3-textbtn" data-lq-act="contact-cancel">Cancel</button></form>`;
+          return `<p>Calling for <b>${escapeHtml(biz)}</b>${who ? ` · <b>${escapeHtml(who)}</b>'s business` : ""}${trade ? ` · ${escapeHtml(trade)}` : ""}${canFit ? ` <button type="button" class="lq3-textbtn" data-lq-act="contact">${who ? "Change" : `+ Add who runs ${escapeHtml(biz)}`}</button>` : ""}</p>`;
+        })()}
         ${(() => { const n = (state.aircallCalls || []).filter(c => c.lead_id === l.id && (c.recorded || c.voicemail)).length; return n ? `<p class="lq3-ghl"><button type="button" class="lq3-textbtn" data-lq-act="recordings">🎧 ${n} recorded call${n === 1 ? "" : "s"} - listen back</button></p>` : ""; })()}
         ${(() => { const t = state.leadTasks.filter(x => !x.done_at && x.lead_id === l.id).sort((a, b) => new Date(a.due_at) - new Date(b.due_at))[0]; return t ? `<p class="lq3-ghl">📌 Follow-up: ${escapeHtml(t.title)} · ${escapeHtml(lqWhenWords(t.due_at))}</p>` : ""; })()}
         ${l.ghl_sync?.at && !l.ghl_sync.skipped ? `<p class="lq3-ghl ${l.ghl_sync.errors?.length ? "bad" : ""}">${l.ghl_sync.errors?.length ? `⚠ GoHighLevel: ${escapeHtml(l.ghl_sync.errors[0])}` : `✓ In GoHighLevel: ${escapeHtml([l.ghl_sync.moved ? `moved to "${l.ghl_sync.stage}"` : "", l.ghl_sync.appointment ? `booked in ${l.ghl_sync.calendar || "their calendar"}` : ""].filter(Boolean).join(" · "))}`}</p>` : ""}
@@ -13516,6 +13522,8 @@ function setupLeadFollowUpUi(){
       if (act === "area" && l){ lqAreaFor = l.client_id; renderLeadQueue(); $(".lq3-cover textarea")?.focus(); return; }
       if (act === "area-cancel"){ lqAreaFor = null; return renderLeadQueue(); }
       if (act === "times" && l){ lqTimesFor = l.client_id; renderLeadQueue(); $(".lq3-booktimes textarea")?.focus(); return; }
+      if (act === "contact" && l){ lqContactFor = l.client_id; renderLeadQueue(); $(".lq3-contact-form input")?.focus(); return; }
+      if (act === "contact-cancel"){ lqContactFor = null; return renderLeadQueue(); }
       if (act === "times-cancel"){ lqTimesFor = null; return renderLeadQueue(); }
       if (act === "followup") return fuOpenForm(lqSel);
       if (act === "recordings" && l){ lcLead = l.id; lcPeriod = "all"; lcPlaying = null; goPage("lead-calls"); return renderLeadCalls(); }
@@ -13551,6 +13559,21 @@ function setupLeadFollowUpUi(){
           if (!job.scope){ rcToast("Add the scope of work first."); return; }
         }
         return lqSaveOutcome(l, lqPending, (v.note || "").trim(), when, job);
+      }
+      if (form.dataset.lqForm === "contact"){
+        const c = state.clients.find(x => x.id === lqContactFor);
+        if (!c) return;
+        const who = String(v.who || "").trim().slice(0, 40) || null;
+        lqContactFor = null;
+        document.activeElement?.blur(); // the screen holds still while a box has the cursor
+        if (IS_CONFIGURED){
+          const ok = await DataLayer.update("clients", c.id, { lead_contact: who, updated_at: new Date().toISOString() });
+          if (!ok) return;
+        }
+        c.lead_contact = who;
+        renderLeadQueue();
+        rcToast(`Saved for every ${lqBizName(c)} lead.`);
+        return;
       }
       if (form.dataset.lqForm === "times"){
         const c = state.clients.find(x => x.id === lqTimesFor);
