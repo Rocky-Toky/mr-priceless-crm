@@ -3626,6 +3626,9 @@ const OUTCOME_BUTTONS = [
   { key:"call_back", label:"Call Back", cls:"ghost" },
   { key:"not_interested", label:"Not Interested", cls:"ghost" },
   { key:"disqualified", label:"Disqualified", cls:"ghost" },
+  // Spotted from the name or number without ringing: parked as Disqualified,
+  // but it isn't a dial, so it doesn't count towards anyone's calls.
+  { key:"dq_skip", label:"Disqualified (didn't call)", cls:"ghost" },
   { key:"booked_meeting", label:"Booked Meeting", cls:"gold" },
 ];
 // Logging a call snoozes a prospect for a few days so it drops out of
@@ -4025,6 +4028,8 @@ function openBookMeetingModalFromProspect(p){
 // opts.correct: changing the outcome of the last call (picked the wrong one,
 // or they rang back) - it isn't a new dial, so the call count stays put and
 // only the conversation / meeting counts move to match.
+// opts.noCall: disqualified without ringing them - parked like Disqualified,
+// but no dial is counted (calls_made, last called and the day's counts stay put).
 async function logDialOutcome(prospectId, outcome, note, region, followupDate, opts = {}){
   const p = state.prospects.find(x => x.id === prospectId);
   if (!p) return;
@@ -4032,17 +4037,18 @@ async function logDialOutcome(prospectId, outcome, note, region, followupDate, o
   const stamp = new Date().toLocaleString("en-NZ", { dateStyle: "medium", timeStyle: "short" });
   const label = OUTCOMES[outcome]?.label || outcome;
   const correcting = Boolean(opts.correct && p.last_called_at);
-  const entry = `[${stamp} - ${who.split("@")[0]}] ${correcting ? `Changed to ${label}` : label}${note ? ": " + note : ""}`;
+  const noCall = Boolean(opts.noCall);
+  const entry = `[${stamp} - ${who.split("@")[0]}] ${correcting ? `Changed to ${label}` : noCall ? `${label} (didn't call)` : label}${note ? ": " + note : ""}`;
   const priorCallsMade = Number(p.calls_made||0);
   let next = nextCallDate(outcome, correcting ? Math.max(0, priorCallsMade - 1) : priorCallsMade);
   // Decision maker unavailable with a date: they come back up that morning.
   if (outcome === "dm_unavailable" && followupDate) next = new Date(followupDate + "T07:00:00");
   const before = p.last_outcome, beforeBy = p.last_called_by, beforeAt = p.last_called_at;
   const update = {
-    calls_made: correcting ? priorCallsMade : priorCallsMade + 1,
-    last_called_at: correcting ? p.last_called_at : new Date().toISOString(),
+    calls_made: correcting || noCall ? priorCallsMade : priorCallsMade + 1,
+    last_called_at: correcting || noCall ? p.last_called_at : new Date().toISOString(),
     last_outcome: outcome,
-    last_called_by: correcting ? (p.last_called_by || who) : who,
+    last_called_by: correcting || noCall ? (p.last_called_by || null) : who,
     snoozed_until: next ? next.toISOString() : null,
     notes: [entry, p.notes].filter(Boolean).join("\n\n"),
     updated_at: new Date().toISOString(),
@@ -4062,7 +4068,7 @@ async function logDialOutcome(prospectId, outcome, note, region, followupDate, o
       const deltas = { conversations: convo(outcome) - convo(before), meetings_booked: (outcome === "booked_meeting" ? 1 : 0) - (before === "booked_meeting" ? 1 : 0) };
       if (deltas.conversations || deltas.meetings_booked) await window.CRM_CALL_ACTIVITY.bump(person, deltas);
     }
-  } else await bumpCallActivity(personKeyFromEmail(who), outcome);
+  } else if (!noCall) await bumpCallActivity(personKeyFromEmail(who), outcome);
   // A Call Back isn't just a cooldown any more - it has to leave behind an
   // actual task, since a follow-up you only remember by stumbling back onto
   // the Follow Up list is a follow-up that gets missed.
@@ -17115,6 +17121,8 @@ function setupModals(){
       // prospect, same as No Answer / Booked Meeting - no reason required.
       if (outcome === "call_back" || outcome === "not_interested" || outcome === "dm_unavailable"){
         openLogCallModal(state.prospects.find(x => x.id === id), outcome);
+      } else if (outcome === "dq_skip"){
+        await logDialOutcome(id, "disqualified", "", null, null, { noCall: true });
       } else {
         await logDialOutcome(id, outcome);
       }
