@@ -733,6 +733,35 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
   return result;
 }
 
+// What's already booked in a client's GoHighLevel calendar(s) - the site visit
+// and consultation calendars the outcome buttons book into - from yesterday to
+// 6 weeks out, so the caller can see which times are taken. Read-only.
+async function bookedTimes(admin: any, clientId: string) {
+  const { data: conn } = await admin.from("client_ghl").select("location_id, token").eq("client_id", clientId).maybeSingle();
+  if (!conn) return { error: "This client isn't connected to GoHighLevel." };
+  const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", clientId).maybeSingle();
+  const loc = conn.location_id, token = conn.token;
+  const cals = (await ghl(`/calendars/?locationId=${encodeURIComponent(loc)}`, token, {}, CAL_VERSION))?.calendars || [];
+  const pick = (kind: string) => (map?.[kind + "_calendar"] && cals.find((c: any) => c.id === map[kind + "_calendar"])) || bestCalendar(cals, kind);
+  const use = [pick("site_visit"), pick("consult")].filter(Boolean).filter((c: any, i: number, a: any[]) => a.findIndex((x: any) => x.id === c.id) === i);
+  if (!use.length) return { error: "No booking calendar found in their GoHighLevel.", events: [] };
+  const from = Date.now() - 86400e3, to = Date.now() + 42 * 86400e3;
+  const events: any[] = [], errors: string[] = [];
+  for (const cal of use) {
+    try {
+      const r = await ghl(`/calendars/events?locationId=${encodeURIComponent(loc)}&calendarId=${encodeURIComponent(cal.id)}&startTime=${from}&endTime=${to}`, token, {}, CAL_VERSION);
+      for (const e of r?.events || []) {
+        const status = String(e.appointmentStatus || e.status || "").toLowerCase();
+        if (/cancel|invalid|noshow|no_show/.test(status) || e.deleted) continue;
+        if (!e.startTime) continue;
+        events.push({ start: new Date(e.startTime).toISOString(), end: e.endTime ? new Date(e.endTime).toISOString() : null, title: String(e.title || "").slice(0, 160), calendar: cal.name || "", status });
+      }
+    } catch (e) { errors.push(`${cal.name || "Calendar"}: ${String((e as any)?.message || e).slice(0, 120)}`); }
+  }
+  events.sort((a, b) => a.start.localeCompare(b.start));
+  return { events, calendars: use.map((c: any) => c.name || ""), ...(errors.length ? { error: errors.join("; ") } : {}) };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -767,6 +796,10 @@ Deno.serve(async (req: Request) => {
   }
   if (body.action === "check_outcomes"){
     try { return json(await checkOutcomes(admin, body.client_id || null)); } catch (e) { return json({ error: String((e as any)?.message || e) }); }
+  }
+  if (body.action === "booked"){
+    if (!body.client_id) return json({ error: "client_id is needed." }, 400);
+    try { return json(await bookedTimes(admin, body.client_id)); } catch (e) { return json({ error: String((e as any)?.message || e), events: [] }); }
   }
   if (body.action === "setup"){
     if (!body.client_id) return json({ error: "client_id is needed." }, 400);
