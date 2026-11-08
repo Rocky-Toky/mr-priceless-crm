@@ -12195,6 +12195,56 @@ function lqBookingFields(l, kind){
   </div>`;
 }
 
+// "Already booked" for clients whose calendar we can read (360 Civils for now):
+// the times already taken in their GoHighLevel booking calendar(s), plus any
+// booking made from the CRM, grouped by day - shown just above the outcome
+// buttons so the caller doesn't double-book. Read through sync-ghl-leads
+// action "booked"; kept 2 minutes per client.
+const LQ_BOOKED_CLIENTS = /360\s*civils/i;
+const lqCal = {};
+const lqShowBooked = (c) => !!c && LQ_BOOKED_CLIENTS.test(c.name || "");
+function lqBookedList(c){
+  const now = Date.now(), list = [];
+  const ghlEvents = lqCal[c.id]?.events || [];
+  ghlEvents.forEach(e => { if (new Date(e.end || e.start).getTime() > now) list.push({ at: e.start, what: e.title || e.calendar || "Booked" }); });
+  // Our own bookings, in case GHL hasn't got them (or in demo mode).
+  state.clientLeads.filter(l => l.client_id === c.id && LQ_BOOKED.has(l.follow_status) && l.booked_for && new Date(l.booked_for).getTime() > now)
+    .forEach(l => { if (!list.some(x => Math.abs(new Date(x.at) - new Date(l.booked_for)) < 5 * 60e3)) list.push({ at: l.booked_for, what: `${l.follow_status === "consult_call" ? "Consultation call" : "Site visit"} - ${l.name || "lead"}` }); });
+  return list.sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+function lqBookedInner(c){
+  const biz = lqBizName(c), st = lqCal[c.id];
+  const list = lqBookedList(c);
+  const loading = !st || st.loading;
+  const days = new Map();
+  list.forEach(x => { const d = nzDayStr(new Date(x.at)); if (!days.has(d)) days.set(d, []); days.get(d).push(x); });
+  const today = nzDayStr(), tmr = nzAddDays(today, 1);
+  const dayName = (d) => d === today ? "Today" : d === tmr ? "Tomorrow" : new Date(d + "T12:00:00Z").toLocaleDateString("en-NZ", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
+  const rows = [...days.entries()].map(([d, xs]) => `<div class="lq3-bk-day"><b>${escapeHtml(dayName(d))}</b><div>${xs.map(x => `<span class="lq3-bk-slot" title="${escapeHtml(x.what)}">${escapeHtml(pmTime(x.at))}</span>`).join("")}</div></div>`).join("");
+  return `<div class="lq3-bk-head">${lqIcon("call_back")}<b>Already booked for ${escapeHtml(biz)}</b>${loading ? `<small>Checking their calendar…</small>` : ""}</div>
+    ${rows ? `<div class="lq3-bk-days">${rows}</div><p class="lq3-bk-note">These times are taken - pick a different time.</p>` : loading ? "" : `<p class="lq3-bk-note">Nothing booked yet - every time is free.</p>`}
+    ${st?.error && !loading ? `<p class="lq3-bk-note">Couldn't read all of their calendar just now${list.length ? " - this may not be everything" : ""}.</p>` : ""}`;
+}
+function lqBookedHtml(c){
+  if (!lqShowBooked(c)) return "";
+  lqLoadBooked(c);
+  return `<div class="lq3-booked" data-lq-booked="${escapeHtml(c.id)}">${lqBookedInner(c)}</div>`;
+}
+async function lqLoadBooked(c, force = false){
+  const st = lqCal[c.id];
+  if (st && (st.loading || (!force && Date.now() - st.at < 120e3))) return;
+  lqCal[c.id] = { ...(st || {}), loading: true, at: Date.now() };
+  let events = st?.events || [], error = null;
+  if (IS_CONFIGURED){
+    try {
+      const { data, error: err } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "booked", client_id: c.id } });
+      if (err) error = err.message || "failed";
+      else { events = data?.events || []; error = data?.error || null; }
+    } catch (e) { error = String(e?.message || e); }
+  }
+  lqCal[c.id] = { events, error, loading: false, at: Date.now() };
+  document.querySelectorAll(`[data-lq-booked="${CSS.escape(c.id)}"]`).forEach(el => { el.innerHTML = lqBookedInner(c); });
+}
 function lqDetailHtml(l){
   const c = lqClient(l), st = l.follow_status || "new", first = (l.name || "").split(" ")[0] || "there";
   const biz = lqBizName(c) || "the client", trade = c ? (clientIndustry(c).name || "") : "";
@@ -12362,6 +12412,7 @@ function lqDetailHtml(l){
       if (!times && !canFit) return "";
       return `<div class="lq3-booktimes">${lqIcon("call_back")}<div><b>When ${escapeHtml(biz)} likes bookings</b>${times ? `<p>${escapeHtml(times)}</p>` : ""}${canFit ? `<button type="button" class="lq3-textbtn" data-lq-act="times">${times ? "Change" : `+ Add when ${escapeHtml(biz)} likes bookings`}</button>` : ""}</div></div>`;
     })()}
+    ${lqBookedHtml(c)}
     <form class="lq3-panel lq3-outcome" data-lq-form="outcome">
       <h3>${lqIcon("phone")}How did the call go?</h3>
       <div class="lq3-outs">${["site_visit", ...(lqHasConsult(l) && !lqVisitIsConsult(l) ? ["consult_call"] : []), "no_answer", "call_back"].map(bigOut).join("")}</div>
@@ -12431,6 +12482,7 @@ async function lqSendToGhl(l, outcome, when, note, job = {}){
   }
   try {
     const { data, error } = await supabase.functions.invoke("sync-ghl-leads", { body: { action: "outcome", lead_id: l.id, outcome, when, note, address: job.address || null, scope: job.scope || null } });
+    if (lqCal[l.client_id]) lqCal[l.client_id].at = 0; // a new booking - read their calendar again
     if (error) throw error;
     l.ghl_sync = data || {};
     if (data?.skipped) return;
