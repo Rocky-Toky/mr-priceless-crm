@@ -5307,3 +5307,4 @@ button.ap-row:hover{background:var(--gold-soft);}
 .lq3-bk-day > div{display:flex;gap:6px;flex-wrap:wrap;}
 .lq3-bk-slot{padding:4px 12px;border-radius:999px;background:#fdecea;border:1px solid #f3b8b1;color:#9b1c13;font-size:16px;font-weight:700;}
 .lq3-bk-note{margin:8px 0 0;font-size:15px;color:var(--lq-muted);}
+.dl-outcomes .dl-outcome.is-booked{grid-column:1 / -1;}
