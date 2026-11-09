@@ -5308,3 +5308,26 @@ button.ap-row:hover{background:var(--gold-soft);}
 .lq3-bk-slot{padding:4px 12px;border-radius:999px;background:#fdecea;border:1px solid #f3b8b1;color:#9b1c13;font-size:16px;font-weight:700;}
 .lq3-bk-note{margin:8px 0 0;font-size:15px;color:var(--lq-muted);}
 .dl-outcomes .dl-outcome.is-booked{grid-column:1 / -1;}
+
+/* ───────── Client portal tab on a client's page (renderClientPortal) ───────── */
+#cp-portal{padding-bottom:20px;}
+.cpp-p{padding:0 22px;margin-top:14px;color:var(--text2);font-size:14px;line-height:1.5;}
+.cpp-small{font-size:13px;}
+.cpp-err{color:var(--danger);}
+.cpp-h{padding:0 22px;margin-top:20px;font-family:var(--font-display);font-size:15px;font-weight:800;}
+.cpp-mode{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 22px;margin-top:10px;}
+.cpp-mode label{display:flex;flex-direction:column;gap:3px;border:1px solid var(--line);border-radius:12px;padding:12px 14px 12px 40px;position:relative;cursor:pointer;background:#fff;}
+.cpp-mode label.on{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold);background:#fffdf6;}
+.cpp-mode input{position:absolute;left:14px;top:15px;accent-color:var(--gold);width:16px;height:16px;}
+.cpp-mode span{font-size:13px;color:var(--text2);line-height:1.4;}
+.cpp-users{list-style:none;padding:0 22px;margin-top:10px;display:flex;flex-direction:column;gap:8px;}
+.cpp-users li{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
+.cpp-users li > div{flex:1;min-width:180px;display:flex;flex-direction:column;}
+.cpp-users span{font-size:13px;color:var(--text2);overflow-wrap:anywhere;}
+.cpp-x{color:var(--danger);}
+.cpp-link{margin:12px 22px 0;padding:12px 14px;border-radius:12px;background:var(--gold-soft);border:1px solid var(--gold-border);font-size:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.cpp-link b{flex:1 1 100%;}
+.cpp-link input{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;}
+.cpp-add{display:flex;gap:8px;flex-wrap:wrap;padding:0 22px;margin-top:14px;}
+.cpp-add input{flex:1;min-width:150px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;}
+@media (max-width:700px){ .cpp-mode{grid-template-columns:1fr;} }

@@ -1383,6 +1383,8 @@ async function handleSignedInNow(session, freshLogin){
   const allowed = await allowedP;
   if (!allowed){
     crmCacheClear();
+    // A client's own login (sql/112) goes to their portal, never the CRM.
+    try { const { data } = await supabase.rpc("is_portal_user"); if (data === true){ location.replace("portal/"); return; } } catch(e){}
     showUnauthorized(session.user.email);
     return;
   }
@@ -5740,6 +5742,7 @@ function renderClientDetail(c){
     }).join("");
   }
   renderClientProfileExtras(c);
+  renderClientPortal(c);
 }
 
 // The parts of the client profile that pull from other areas: their results
@@ -5831,6 +5834,103 @@ function renderClientProfileTop(c, qs){
     ${row("Fortnightly report", escapeHtml(due.label), !due.due, `${rpDayPickHtml(c, due)}<button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make report</button>`)}
   </div>`;
 }
+/* ───────── Client portal (portal/, sql/112) ─────────
+   Clients get their own small app - their leads with the form answers, one
+   tap to call, their ads and their account - and never the CRM. Here the
+   team gives them a login (the client-portal function makes the account and
+   emails a set-password link), takes it away, picks who calls their leads,
+   and can open the portal as them (read-only). */
+Object.assign(state, { portalUsers: {}, portalLink: null });
+async function loadPortalUsers(clientId){
+  if (!IS_CONFIGURED){ state.portalUsers[clientId] = state.portalUsers[clientId] || []; return; }
+  const { data, error } = await supabase.from("client_portal_users").select("id, email, name, created_at, last_seen_at, notify_new_leads").eq("client_id", clientId).order("created_at");
+  state.portalUsers[clientId] = error ? { error: /client_portal_users/.test(error.message) ? "The client portal is still being set up - try again in a few minutes." : error.message } : (data || []);
+}
+function renderClientPortal(c){
+  const el = $("#cp-portal");
+  if (!el || !c) return;
+  el.dataset.id = c.id;
+  if (!el.dataset.bound){ el.dataset.bound = "1"; el.addEventListener("click", cppClick); el.addEventListener("change", cppChange); el.addEventListener("submit", cppSubmit); }
+  const users = state.portalUsers[c.id];
+  if (users === undefined){ el.innerHTML = `<div class="cl-panel-head cp-panel-head"><h3>Client portal</h3></div><p class="cpp-p">Loading…</p>`; loadPortalUsers(c.id).then(() => { if ($("#cp-portal")?.dataset.id === c.id) renderClientPortal(c); }); return; }
+  const mine = state.portalLink?.client_id === c.id ? state.portalLink : null;
+  const seen = (u) => { if (!u.last_seen_at) return "hasn't signed in yet"; const a = lqAgo(Date.now() - new Date(u.last_seen_at)); return a === "just now" ? "last in just now" : `last in ${a} ago`; };
+  el.innerHTML = `
+    <div class="cl-panel-head cp-panel-head"><h3>Client portal</h3><a class="btn ghost sm" href="portal/?client=${escapeHtml(c.id)}" target="_blank" rel="noopener">See what they see</a></div>
+    <p class="cpp-p">Their own app: every lead with what they put on the form (best ones first), one tap to call or text, their ads and their account with us. They never see the CRM.</p>
+    <h4 class="cpp-h">Who calls their leads?</h4>
+    <div class="cpp-mode">
+      <label class="${c.lead_client_calls ? "" : "on"}"><input type="radio" name="cpp-mode" value="us"${c.lead_client_calls ? "" : " checked"}><b>Our team</b><span>Leads go in the Lead Follow Up call queue as soon as they come in.</span></label>
+      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>New leads go to their portal (and their email). Any they haven't spoken to in 24 hours come into our call queue.</span></label>
+    </div>
+    <h4 class="cpp-h">Logins</h4>
+    ${users.error ? `<p class="cpp-p cpp-err">${escapeHtml(users.error)}</p>` : users.length ? `<ul class="cpp-users">${users.map(u => `<li><div><b>${escapeHtml(u.name || u.email)}</b><span>${u.name ? escapeHtml(u.email) + " · " : ""}${escapeHtml(seen(u))}${u.notify_new_leads ? " · gets new lead emails" : ""}</span></div>
+      <button type="button" class="btn ghost sm" data-cpp="resend" data-email="${escapeHtml(u.email)}" data-name="${escapeHtml(u.name || "")}">Send a new link</button>
+      <button type="button" class="btn ghost sm cpp-x" data-cpp="remove" data-uid="${escapeHtml(u.id)}" data-email="${escapeHtml(u.email)}">Remove</button></li>`).join("")}</ul>` : `<p class="cpp-p">Nobody from ${escapeHtml(lqBizName(c) || "this client")} has a login yet.</p>`}
+    ${mine ? `<div class="cpp-link"><b>The email didn't go${mine.why ? ` (${escapeHtml(mine.why)})` : ""}.</b> Text or email them this link instead - it lets them choose a password, works once, for an hour:
+      <input type="text" readonly value="${escapeHtml(mine.link)}"><button type="button" class="btn gold sm" data-cpp="copy-link">Copy link</button></div>` : ""}
+    <form class="cpp-add" autocomplete="off">
+      <input type="text" name="name" placeholder="Their first name" aria-label="Their first name">
+      <input type="email" name="email" placeholder="Their email" aria-label="Their email" required>
+      <button type="submit" class="btn gold">Give them a login</button>
+    </form>
+    <p class="cpp-p cpp-small">They get an email to choose a password, then sign in at <b>${escapeHtml(location.origin + location.pathname.replace(/[^/]*$/, ""))}portal/</b></p>`;
+}
+const cppClient = () => state.clients.find(x => x.id === $("#cp-portal")?.dataset.id);
+async function cppInvite(c, email, name){
+  if (!IS_CONFIGURED){
+    state.portalUsers[c.id] = [...(state.portalUsers[c.id] || []).filter(u => u.email !== email), { id: uid(), email, name, created_at: new Date().toISOString(), notify_new_leads: true }];
+    rcToast(`Demo: ${email} would get an email to choose a password.`); renderClientPortal(c); return;
+  }
+  rcToast(`Setting up ${email}…`);
+  const { data, error } = await supabase.functions.invoke("client-portal", { body: { action: "invite", client_id: c.id, email, name } });
+  if (error || data?.error){
+    let msg = data?.error || error?.message || "Something went wrong";
+    try { msg = (await error?.context?.json?.())?.error || msg; } catch(e){}
+    rcToast(`Couldn't give them a login - ${msg}`); return;
+  }
+  state.portalLink = data.emailed ? null : { client_id: c.id, link: data.link, why: data.why };
+  rcToast(data.emailed ? `Done - ${email} has an email to choose their password.` : "Their login's made, but the email didn't go - copy the link below and send it to them.");
+  await loadPortalUsers(c.id); renderClientPortal(c);
+}
+async function cppClick(e){
+  const b = e.target.closest("[data-cpp]"), c = cppClient();
+  if (!b || !c) return;
+  const act = b.dataset.cpp;
+  if (act === "copy-link"){ try { await navigator.clipboard.writeText(state.portalLink?.link || ""); rcToast("Link copied."); } catch(err){ $("#cp-portal .cpp-link input")?.select(); } return; }
+  if (act === "resend") return cppInvite(c, b.dataset.email, b.dataset.name || "");
+  if (act === "remove"){
+    if (!confirm(`Take away ${b.dataset.email}'s portal login? They won't be able to sign in any more.`)) return;
+    if (IS_CONFIGURED){
+      const { data, error } = await supabase.functions.invoke("client-portal", { body: { action: "remove", id: b.dataset.uid } });
+      if (error || data?.error){ rcToast("Couldn't remove that login - try again."); return; }
+      await loadPortalUsers(c.id);
+    } else state.portalUsers[c.id] = (state.portalUsers[c.id] || []).filter(u => u.id !== b.dataset.uid);
+    rcToast("Login removed."); renderClientPortal(c);
+  }
+}
+async function cppChange(e){
+  if (e.target.name !== "cpp-mode") return;
+  const c = cppClient(); if (!c) return;
+  const on = e.target.value === "client";
+  c.lead_client_calls = on;
+  renderClientPortal(c);
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("clients").update({ lead_client_calls: on }).eq("id", c.id);
+    if (error){ c.lead_client_calls = !on; renderClientPortal(c); rcToast("Couldn't save that - " + error.message); return; }
+  }
+  rcToast(on ? `New leads now go to ${lqBizName(c)} to call. We pick up any they haven't spoken to in 24 hours.` : `Our team calls ${lqBizName(c)}'s new leads again.`);
+}
+function cppSubmit(e){
+  if (!e.target.matches(".cpp-add")) return;
+  e.preventDefault();
+  const c = cppClient(); if (!c) return;
+  const email = (e.target.email.value || "").trim().toLowerCase(), name = (e.target.name.value || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ rcToast("That isn't an email address."); return; }
+  e.target.reset();
+  cppInvite(c, email, name);
+}
+
 function setCpTab(tab){
   state.cpTab = tab;
   $$("#cp-tabs [data-cp-tab]").forEach(b => b.classList.toggle("active", b.dataset.cpTab === tab));
@@ -8601,7 +8701,7 @@ let rcScheduled = [], rcScheduledLoaded = false, rcMailStatus = null;
 async function rcLoadScheduled(){
   rcScheduledLoaded = true;
   if (!IS_CONFIGURED) return;
-  const { data, error } = await supabase.from("scheduled_emails").select("id,record_id,client_id,to_email,send_at,status,sent_at,error").order("send_at", { ascending: false }).limit(500);
+  const { data, error } = await supabase.from("scheduled_emails").select("id,record_id,client_id,to_email,send_at,status,sent_at,error").neq("kind", "portal_new_lead").order("send_at", { ascending: false }).limit(500);
   if (!error) rcScheduled = data || [];
   renderReceipts();
 }
@@ -11789,11 +11889,23 @@ const lqKeyTicks = (missing) => missing.map(k => LQ_KEY_TICKS[k]).join(", ");
 const lqClient = (l) => state.clients.find(c => c.id === l.client_id) || null;
 const lqIn = (l) => new Date(l.lead_created_at || l.created_at).getTime();
 const lqIsOpen = (l) => LQ_OPEN.has(l.follow_status || "new");
-const lqDue = (l) => lqIsOpen(l) && (!l.next_attempt_at || new Date(l.next_attempt_at).getTime() <= Date.now());
+// Clients who call their own leads (clients.lead_client_calls, sql/112): a
+// lead that came in that way is theirs (in their client portal) for 24 hours.
+// We only pick it up if they haven't spoken to them by then - unless we've
+// already rung it. portal_lead_is_ours() in sql/112 is the same rule.
+const LQ_HANDOVER_MS = 24 * 3600e3;
+function lqWithClient(l){
+  if (!l.client_calls) return false;
+  const log = Array.isArray(l.call_log) ? l.call_log : [];
+  if (log.some(x => x.by !== "client")) return false;
+  if (Date.now() - lqIn(l) < LQ_HANDOVER_MS) return true;
+  return !["new", "no_answer"].includes(l.follow_status || "new") || log.some(x => x.by === "client" && x.outcome !== "no_answer");
+}
+const lqDue = (l) => lqIsOpen(l) && !lqWithClient(l) && (!l.next_attempt_at || new Date(l.next_attempt_at).getTime() <= Date.now());
 // An older lead pulled in because it's sat in the client's "Rep to contact" or
 // "Stuck" stage - still worth a call, but after the fresh ones.
 const lqBacklog = (l) => (l.follow_status || "new") === "new" && Date.now() - lqIn(l) > LQ_FRESH_MS;
-const lqWho = (email) => { const k = personKeyFromEmail(email || ""); return ASSIGNEES[k]?.label || (email ? email.split("@")[0].split(/[._0-9]/)[0].replace(/^./, c => c.toUpperCase()) : ""); };
+const lqWho = (email) => { if (email === "client") return "The client"; const k = personKeyFromEmail(email || ""); return ASSIGNEES[k]?.label || (email ? email.split("@")[0].split(/[._0-9]/)[0].replace(/^./, c => c.toUpperCase()) : ""); };
 function lqAgo(ms){
   const m = Math.max(0, Math.round(ms / 60000));
   if (m < 1) return "just now";
@@ -11873,7 +11985,7 @@ const lqGapWords = (calls) => { const d = LQ_GAPS[calls - 1] || 1; return d === 
 // The lead's stage in the client's GoHighLevel, without GHL's "(3 Minutes)"-style notes.
 const lqStageName = (l) => l.source === "ghl" ? String(l.status || "").replace(/\s*\([^)]*\)\s*$/, "").trim() : "";
 function lqQueue(){
-  const all = state.clientLeads.filter(l => l.follow_status !== "old");
+  const all = state.clientLeads.filter(l => l.follow_status !== "old" && !lqWithClient(l));
   // Fresh enquiries nobody's called yet, then retries and call-backs that are
   // due, then older leads sitting in Rep to contact / Stuck. Within each, the
   // person who's been waiting longest goes first.
@@ -11896,7 +12008,7 @@ const LQ_ALERT_MS = 30 * 60e3;
 const lqAlertSkip = new Set();
 let lqAlertId = null, lqAlertTick = null, lqAlertNotified = new Set(), lqAlertTitle = null;
 const lqFreshUncalled = () => state.clientLeads
-  .filter(l => (l.follow_status || "new") === "new" && !l.last_attempt_at && Date.now() - lqIn(l) < LQ_ALERT_MS && l.phone)
+  .filter(l => (l.follow_status || "new") === "new" && !l.last_attempt_at && Date.now() - lqIn(l) < LQ_ALERT_MS && l.phone && !lqWithClient(l))
   .sort((a, b) => lqIn(a) - lqIn(b));
 function lqChime(){
   try {
@@ -12530,13 +12642,14 @@ function renderLeadKpis(){
   // 3 minutes: fresh enquiries only - older Rep to contact / Stuck leads were never 3-minute calls.
   // (A lead that only reached the CRM long after it came in - an old one pulled
   // in from Rep to contact or Stuck - was never a 3-minute call.)
-  const fresh = state.clientLeads.filter(l => l.follow_status !== "old" && inP(new Date(lqIn(l)).toISOString())
+  // Leads the client calls themselves (client portal) aren't ours to ring in 3 minutes.
+  const fresh = state.clientLeads.filter(l => l.follow_status !== "old" && !l.client_calls && inP(new Date(lqIn(l)).toISOString())
     && new Date(l.created_at || lqIn(l)) - lqIn(l) < 3600e3
     && (l.first_called_at ? new Date(l.first_called_at) - lqIn(l) < LQ_FRESH_MS : now - lqIn(l) < LQ_FRESH_MS));
   const due = fresh.filter(l => l.first_called_at || now - lqIn(l) > LQ_FAST_MS);
   const hit = due.filter(l => l.first_called_at && new Date(l.first_called_at) - lqIn(l) <= LQ_FAST_MS);
   const pct = due.length ? Math.round(hit.length / due.length * 100) : null;
-  const calls = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => inP(x.at)));
+  const calls = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => inP(x.at) && x.by !== "client"));
   const reachedCalls = calls.filter(x => !["no_answer", "wrong_number"].includes(x.outcome));
   const bookedCalls = calls.filter(x => LQ_BOOKED.has(x.outcome));
   const toFinish = state.clientLeads.filter(lqIsOpen).length;
@@ -13367,7 +13480,7 @@ function setupLeadCallsUi(){
 function fuItems(){
   const leadById = new Map(state.clientLeads.map(l => [l.id, l]));
   const tasks = state.leadTasks.filter(t => !t.done_at).map(t => ({ type: "task", id: t.id, kind: t.kind || "call", title: t.title, note: t.note, at: t.due_at, lead: leadById.get(t.lead_id) || null, clientId: t.client_id }));
-  const calls = state.clientLeads.filter(l => l.follow_status === "call_back" && l.next_attempt_at)
+  const calls = state.clientLeads.filter(l => l.follow_status === "call_back" && l.next_attempt_at && !lqWithClient(l))
     .map(l => ({ type: "callback", id: l.id, kind: "call", title: `Call ${l.name || "them"} back`, note: l.follow_notes || "", at: l.next_attempt_at, lead: l, clientId: l.client_id }));
   return [...tasks, ...calls].sort((a, b) => new Date(a.at) - new Date(b.at));
 }
@@ -13814,6 +13927,12 @@ function lqSeedDemo(){
       city: "Mount Maunganui, Tauranga", answers: [{ q: "What are you looking to renovate?", a: "Bathroom" }] },
     { ...base, id: uid(), client_id: c[0].id, name: "Priya Nair", phone: "021 555 0177", email: "", form_name: "Deck", lead_created_at: ago(4 * 1440), created_at: ago(4 * 1440), follow_status: "new",
       city: "Howick, Auckland", answers: [{ q: "What do you need done?", a: "Replace an old deck" }] },
+    // A client who calls their own leads (client portal): this one's still theirs...
+    { ...base, id: uid(), client_id: c[0].id, name: "Jess Moana", phone: "021 555 0122", email: "", form_name: "Deck", lead_created_at: ago(8), created_at: ago(8), follow_status: "new", client_calls: true,
+      city: "Albany, Auckland", answers: [{ q: "When", a: "ASAP" }] },
+    // ...and this one they haven't reached in 24 hours, so it's come to us.
+    { ...base, id: uid(), client_id: c[0].id, name: "Ben Carter", phone: "021 555 0109", email: "", form_name: "Deck", lead_created_at: ago(26 * 60), created_at: ago(26 * 60), follow_status: "no_answer", client_calls: true,
+      city: "Takapuna, Auckland", answers: [{ q: "When", a: "Next month" }], call_log: [{ at: ago(25 * 60), by: "client", outcome: "no_answer", note: "" }] },
   );
 }
 

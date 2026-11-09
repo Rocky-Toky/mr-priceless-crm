@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#09090a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="My Leads">
+<title>Mr Priceless - Client portal</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="portal.css?v=1">
+</head>
+<body>
+
+<!-- Sign in -->
+<section class="pp-auth" id="pp-auth" hidden>
+  <div class="pp-auth-card">
+    <img src="../assets/logo-light.png" alt="Mr Priceless" class="pp-auth-logo">
+    <h1>Your leads, in one place</h1>
+    <p class="pp-auth-sub">Sign in to see and call your leads.</p>
+    <form id="pp-signin" autocomplete="on">
+      <label>Email<input type="email" id="pp-email" autocomplete="username" required></label>
+      <label>Password<input type="password" id="pp-password" autocomplete="current-password" required></label>
+      <p class="pp-auth-msg" id="pp-auth-msg" role="alert"></p>
+      <button type="submit" class="pp-btn pp-btn-gold pp-btn-big" id="pp-signin-btn">Sign in</button>
+      <button type="button" class="pp-link" id="pp-forgot">Forgot your password?</button>
+    </form>
+    <form id="pp-setpw" hidden>
+      <h2>Choose your password</h2>
+      <label>New password<input type="password" id="pp-newpw" autocomplete="new-password" minlength="8" required></label>
+      <label>Type it again<input type="password" id="pp-newpw2" autocomplete="new-password" minlength="8" required></label>
+      <p class="pp-auth-msg" id="pp-setpw-msg" role="alert"></p>
+      <button type="submit" class="pp-btn pp-btn-gold pp-btn-big">Save and sign in</button>
+    </form>
+  </div>
+</section>
+
+<!-- Not a client login -->
+<section class="pp-auth" id="pp-noaccess" hidden>
+  <div class="pp-auth-card">
+    <img src="../assets/logo-light.png" alt="Mr Priceless" class="pp-auth-logo">
+    <h1>No portal on this login</h1>
+    <p class="pp-auth-sub">This email isn't set up for a client portal yet. Ask your Mr Priceless account manager to add you.</p>
+    <button type="button" class="pp-btn pp-btn-gold pp-btn-big" data-act="signout">Sign out</button>
+  </div>
+</section>
+
+<!-- The portal -->
+<div class="pp-app" id="pp-app" hidden>
+  <header class="pp-top">
+    <img src="../assets/logo-light.png" alt="Mr Priceless" class="pp-top-logo">
+    <div class="pp-top-biz" id="pp-biz"></div>
+    <nav class="pp-tabs" id="pp-tabs" aria-label="Portal">
+      <button type="button" data-tab="leads" class="active"><span class="pp-ico" aria-hidden="true">☎</span><span>Leads</span><b class="pp-count" id="pp-count" hidden></b></button>
+      <button type="button" data-tab="ads"><span class="pp-ico" aria-hidden="true">▣</span><span>Ads</span></button>
+      <button type="button" data-tab="account"><span class="pp-ico" aria-hidden="true">◉</span><span>Account</span></button>
+    </nav>
+  </header>
+  <div class="pp-preview" id="pp-preview" hidden></div>
+  <main class="pp-main">
+    <section id="pp-leads" data-pane="leads"></section>
+    <section id="pp-ads" data-pane="ads" hidden></section>
+    <section id="pp-account" data-pane="account" hidden></section>
+  </main>
+</div>
+
+<!-- One lead, full screen on phones -->
+<div class="pp-sheet-wrap" id="pp-sheet-wrap" hidden>
+  <div class="pp-sheet" id="pp-sheet" role="dialog" aria-modal="true" aria-label="Lead"></div>
+</div>
+<div class="pp-toast" id="pp-toast" role="status" hidden></div>
+
+<script src="../assets/vendor/supabase-js-2.117.3.js"></script>
+<script src="../js/config.js?v=1"></script>
+<script src="portal.js?v=1"></script>
+</body>
+</html>
