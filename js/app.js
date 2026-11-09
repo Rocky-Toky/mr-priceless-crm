@@ -3900,7 +3900,7 @@ function renderDialer(){
         ${p.notes ? `<div class="dl-notes"><span>Notes</span>${escapeHtml(p.notes)}</div>` : ""}
         <div class="dl-outcomes-label">How did it go?</div>
         <div class="dl-outcomes">
-          ${OUTCOME_BUTTONS.map(o => `<button type="button" class="dl-outcome ${o.key === "booked_meeting" ? "is-booked" : ""}" data-action="dial-outcome" data-outcome="${o.key}" data-id="${p.id}">${o.label}</button>`).join("")}
+          ${[...OUTCOME_BUTTONS].sort((a, b) => (b.key === "booked_meeting") - (a.key === "booked_meeting")).map(o => `<button type="button" class="dl-outcome ${o.key === "booked_meeting" ? "is-booked" : ""}" data-action="dial-outcome" data-outcome="${o.key}" data-id="${p.id}">${o.label}</button>`).join("")}
         </div>
       `;
     }
