@@ -5843,7 +5843,12 @@ function renderClientProfileTop(c, qs){
 Object.assign(state, { portalUsers: {}, portalLink: null });
 async function loadPortalUsers(clientId){
   if (!IS_CONFIGURED){ state.portalUsers[clientId] = state.portalUsers[clientId] || []; return; }
-  const { data, error } = await supabase.from("client_portal_users").select("id, email, name, created_at, last_seen_at, notify_new_leads").eq("client_id", clientId).order("created_at");
+  const { data, error } = await supabase.from("client_portal_users").select("id, email, name, phone, created_at, last_seen_at, notify_new_leads").eq("client_id", clientId).order("created_at");
+  if (!error && data?.length){
+    // How many phones / computers each login gets alerts on (sql/113).
+    const { data: subs } = await supabase.from("portal_push_subs").select("email").in("email", data.map(u => u.email.toLowerCase()));
+    data.forEach(u => { u.devices = (subs || []).filter(x => x.email === u.email.toLowerCase()).length; });
+  }
   state.portalUsers[clientId] = error ? { error: /client_portal_users/.test(error.message) ? "The client portal is still being set up - try again in a few minutes." : error.message } : (data || []);
 }
 function renderClientPortal(c){
@@ -5861,29 +5866,45 @@ function renderClientPortal(c){
     <h4 class="cpp-h">Who calls their leads?</h4>
     <div class="cpp-mode">
       <label class="${c.lead_client_calls ? "" : "on"}"><input type="radio" name="cpp-mode" value="us"${c.lead_client_calls ? "" : " checked"}><b>Our team</b><span>Leads go in the Lead Follow Up call queue as soon as they come in.</span></label>
-      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>New leads go to their portal (and their email). Any they haven't spoken to in 24 hours come into our call queue.</span></label>
+      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>New leads go to their portal with a phone alert. Not rung in 24 hours, or they couldn't reach them and say so (asked the next day, by 10pm), and it comes into our call queue.</span></label>
     </div>
+    ${cppPipelineHtml(c)}
     <h4 class="cpp-h">Logins</h4>
-    ${users.error ? `<p class="cpp-p cpp-err">${escapeHtml(users.error)}</p>` : users.length ? `<ul class="cpp-users">${users.map(u => `<li><div><b>${escapeHtml(u.name || u.email)}</b><span>${u.name ? escapeHtml(u.email) + " · " : ""}${escapeHtml(seen(u))}${u.notify_new_leads ? " · gets new lead emails" : ""}</span></div>
-      <button type="button" class="btn ghost sm" data-cpp="resend" data-email="${escapeHtml(u.email)}" data-name="${escapeHtml(u.name || "")}">Send a new link</button>
+    ${users.error ? `<p class="cpp-p cpp-err">${escapeHtml(users.error)}</p>` : users.length ? `<ul class="cpp-users">${users.map(u => `<li><div><b>${escapeHtml(u.name || u.email)}</b><span>${u.name ? escapeHtml(u.email) + " · " : ""}${escapeHtml(seen(u))}${u.phone ? ` · ${escapeHtml(u.phone)}` : ""} · ${u.devices ? `phone alerts on ${u.devices} device${u.devices === 1 ? "" : "s"}` : "no phone alerts yet"}${u.notify_new_leads ? " · new lead emails" : ""}</span></div>
+      <button type="button" class="btn ghost sm" data-cpp="resend" data-email="${escapeHtml(u.email)}" data-name="${escapeHtml(u.name || "")}" data-phone="${escapeHtml(u.phone || "")}">Send a new link</button>
       <button type="button" class="btn ghost sm cpp-x" data-cpp="remove" data-uid="${escapeHtml(u.id)}" data-email="${escapeHtml(u.email)}">Remove</button></li>`).join("")}</ul>` : `<p class="cpp-p">Nobody from ${escapeHtml(lqBizName(c) || "this client")} has a login yet.</p>`}
     ${mine ? `<div class="cpp-link"><b>The email didn't go${mine.why ? ` (${escapeHtml(mine.why)})` : ""}.</b> Text or email them this link instead - it lets them choose a password, works once, for an hour:
       <input type="text" readonly value="${escapeHtml(mine.link)}"><button type="button" class="btn gold sm" data-cpp="copy-link">Copy link</button></div>` : ""}
     <form class="cpp-add" autocomplete="off">
       <input type="text" name="name" placeholder="Their first name" aria-label="Their first name">
       <input type="email" name="email" placeholder="Their email" aria-label="Their email" required>
+      <input type="tel" name="phone" placeholder="Their mobile (for texts)" aria-label="Their mobile">
       <button type="submit" class="btn gold">Give them a login</button>
     </form>
     <p class="cpp-p cpp-small">They get an email to choose a password, then sign in at <b>${escapeHtml(location.origin + location.pathname.replace(/[^/]*$/, ""))}portal/</b></p>`;
 }
+// Their pipeline in the portal (client_leads.client_stage, sql/113), so we can see how they're getting on.
+const CPP_STAGES = [["new", "New"], ["no_answer", "Didn't answer"], ["call_scheduled", "Call scheduled"], ["site_visit", "Site visit"], ["quote_to_send", "Quote to send"], ["quote_sent", "Quote sent"], ["won", "Won"], ["lost", "Lost"], ["not_qualified", "Not qualified"]];
+const CPP_FROM_FOLLOW = { no_answer: "no_answer", unreachable: "no_answer", call_back: "call_scheduled", consult_call: "call_scheduled", site_visit: "site_visit", booked: "site_visit", disqualified: "not_qualified", wrong_number: "not_qualified", not_interested: "lost" };
+function cppPipelineHtml(c){
+  const leads = state.clientLeads.filter(l => l.client_id === c.id && l.follow_status !== "old" && Date.now() - lqIn(l) < 90 * 86400e3);
+  if (!leads.length) return "";
+  const stageOf = (l) => l.client_stage || CPP_FROM_FOLLOW[l.follow_status] || "new";
+  const n = (k) => leads.filter(l => stageOf(l) === k).length;
+  const won = leads.filter(l => stageOf(l) === "won"), wonV = won.reduce((s, l) => s + (Number(l.job_value) || 0), 0);
+  const waiting = leads.filter(l => l.checkin_at && !l.checkin_answered_at && !l.handed_over_at).length;
+  return `<h4 class="cpp-h">Their leads, last 90 days</h4>
+    <div class="cpp-pipe">${CPP_STAGES.map(([k, label]) => `<span class="${k === "won" ? "won" : ""}"><b>${n(k)}</b>${escapeHtml(label)}</span>`).join("")}</div>
+    <p class="cpp-p cpp-small">${won.length ? `${won.length} job${won.length === 1 ? "" : "s"} won${wonV ? ` (${fmtMoney(wonV)})` : ""}. ` : ""}${waiting ? `${waiting} waiting on their "Did they get back to you?" answer. ` : ""}${leads.filter(l => l.handed_over_at).length} passed to our team.</p>`;
+}
 const cppClient = () => state.clients.find(x => x.id === $("#cp-portal")?.dataset.id);
-async function cppInvite(c, email, name){
+async function cppInvite(c, email, name, phone = ""){
   if (!IS_CONFIGURED){
-    state.portalUsers[c.id] = [...(state.portalUsers[c.id] || []).filter(u => u.email !== email), { id: uid(), email, name, created_at: new Date().toISOString(), notify_new_leads: true }];
+    state.portalUsers[c.id] = [...(state.portalUsers[c.id] || []).filter(u => u.email !== email), { id: uid(), email, name, phone, created_at: new Date().toISOString(), notify_new_leads: true }];
     rcToast(`Demo: ${email} would get an email to choose a password.`); renderClientPortal(c); return;
   }
   rcToast(`Setting up ${email}…`);
-  const { data, error } = await supabase.functions.invoke("client-portal", { body: { action: "invite", client_id: c.id, email, name } });
+  const { data, error } = await supabase.functions.invoke("client-portal", { body: { action: "invite", client_id: c.id, email, name, phone } });
   if (error || data?.error){
     let msg = data?.error || error?.message || "Something went wrong";
     try { msg = (await error?.context?.json?.())?.error || msg; } catch(e){}
@@ -5898,7 +5919,7 @@ async function cppClick(e){
   if (!b || !c) return;
   const act = b.dataset.cpp;
   if (act === "copy-link"){ try { await navigator.clipboard.writeText(state.portalLink?.link || ""); rcToast("Link copied."); } catch(err){ $("#cp-portal .cpp-link input")?.select(); } return; }
-  if (act === "resend") return cppInvite(c, b.dataset.email, b.dataset.name || "");
+  if (act === "resend") return cppInvite(c, b.dataset.email, b.dataset.name || "", b.dataset.phone || "");
   if (act === "remove"){
     if (!confirm(`Take away ${b.dataset.email}'s portal login? They won't be able to sign in any more.`)) return;
     if (IS_CONFIGURED){
@@ -5925,10 +5946,10 @@ function cppSubmit(e){
   if (!e.target.matches(".cpp-add")) return;
   e.preventDefault();
   const c = cppClient(); if (!c) return;
-  const email = (e.target.email.value || "").trim().toLowerCase(), name = (e.target.name.value || "").trim();
+  const email = (e.target.email.value || "").trim().toLowerCase(), name = (e.target.name.value || "").trim(), phone = (e.target.phone?.value || "").trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ rcToast("That isn't an email address."); return; }
   e.target.reset();
-  cppInvite(c, email, name);
+  cppInvite(c, email, name, phone);
 }
 
 function setCpTab(tab){
@@ -11889,18 +11910,18 @@ const lqKeyTicks = (missing) => missing.map(k => LQ_KEY_TICKS[k]).join(", ");
 const lqClient = (l) => state.clients.find(c => c.id === l.client_id) || null;
 const lqIn = (l) => new Date(l.lead_created_at || l.created_at).getTime();
 const lqIsOpen = (l) => LQ_OPEN.has(l.follow_status || "new");
-// Clients who call their own leads (clients.lead_client_calls, sql/112): a
-// lead that came in that way is theirs (in their client portal) for 24 hours.
-// We only pick it up if they haven't spoken to them by then - unless we've
-// already rung it. portal_lead_is_ours() in sql/112 is the same rule.
-const LQ_HANDOVER_MS = 24 * 3600e3;
+// Clients who call their own leads (clients.lead_client_calls, sql/113): a
+// lead that came in that way stays with them (their client portal) until
+// the server hands it to us (client_leads.handed_over_at, set by
+// portal_tick: not rung within 24 hours, or they said "No" / didn't answer
+// the "Did they get back to you?" check by 10pm) - or we've already rung it.
+// portal_lead_is_ours() in sql/113 is the same rule.
 function lqWithClient(l){
-  if (!l.client_calls) return false;
+  if (!l.client_calls || l.handed_over_at) return false;
   const log = Array.isArray(l.call_log) ? l.call_log : [];
-  if (log.some(x => x.by !== "client")) return false;
-  if (Date.now() - lqIn(l) < LQ_HANDOVER_MS) return true;
-  return !["new", "no_answer"].includes(l.follow_status || "new") || log.some(x => x.by === "client" && x.outcome !== "no_answer");
+  return !log.some(x => x.by !== "client");
 }
+const LQ_HANDOVER_WHY = { not_called: "didn't ring them within 24 hours", client_no: "couldn't reach them and passed them to us", no_reply: "couldn't reach them and didn't answer our check-in" };
 const lqDue = (l) => lqIsOpen(l) && !lqWithClient(l) && (!l.next_attempt_at || new Date(l.next_attempt_at).getTime() <= Date.now());
 // An older lead pulled in because it's sat in the client's "Rep to contact" or
 // "Stuck" stage - still worth a call, but after the fresh ones.
@@ -12550,6 +12571,15 @@ function lqDetailHtml(l){
 // Have we rung them before? Every earlier call and its note, newest first,
 // right under their name so it's read before dialling.
 function lqBeforeHtml(l, log){
+  // A lead the client had first (client portal): say so, so Carmen opens with
+  // "Have they been in touch with you yet?".
+  if (l.handed_over_at && l.client_calls){
+    const tries = log.filter(x => x.by === "client" && x.outcome === "no_answer").length;
+    return `<section class="lq3-before lq3-handover"><b>${escapeHtml(lqBizName(lqClient(l)) || "The client")} ${escapeHtml(LQ_HANDOVER_WHY[l.handover_reason] || "passed them to us")}</b><span>${tries ? `They tried ${tries} time${tries === 1 ? "" : "s"}. ` : ""}Open with: "Just following up on your enquiry with ${escapeHtml(lqBizName(lqClient(l)) || "them")} - have they been in touch yet?"</span></section>` + lqBeforeLog(l, log);
+  }
+  return lqBeforeLog(l, log);
+}
+function lqBeforeLog(l, log){
   const noted = log.some(x => x.note);
   if (!log.length && !l.follow_notes) return `<section class="lq3-before none"><b>First call</b><span>Nobody's rung ${escapeHtml((l.name || "them").split(" ")[0])} yet.</span></section>`;
   const shown = lqShowHistory ? log : log.slice(0, 3);
@@ -13931,7 +13961,7 @@ function lqSeedDemo(){
     { ...base, id: uid(), client_id: c[0].id, name: "Jess Moana", phone: "021 555 0122", email: "", form_name: "Deck", lead_created_at: ago(8), created_at: ago(8), follow_status: "new", client_calls: true,
       city: "Albany, Auckland", answers: [{ q: "When", a: "ASAP" }] },
     // ...and this one they haven't reached in 24 hours, so it's come to us.
-    { ...base, id: uid(), client_id: c[0].id, name: "Ben Carter", phone: "021 555 0109", email: "", form_name: "Deck", lead_created_at: ago(26 * 60), created_at: ago(26 * 60), follow_status: "no_answer", client_calls: true,
+    { ...base, id: uid(), client_id: c[0].id, name: "Ben Carter", phone: "021 555 0109", email: "", form_name: "Deck", lead_created_at: ago(26 * 60), created_at: ago(26 * 60), follow_status: "no_answer", client_calls: true, handed_over_at: ago(30), handover_reason: "no_reply",
       city: "Takapuna, Auckland", answers: [{ q: "When", a: "Next month" }], call_log: [{ at: ago(25 * 60), by: "client", outcome: "no_answer", note: "" }] },
   );
 }
