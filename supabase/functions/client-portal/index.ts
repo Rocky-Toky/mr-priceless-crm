@@ -11,16 +11,26 @@
 //   { action: "remove", id }
 //       Takes that login off, and deletes the account if it was their only one.
 //
+// From pg_cron / the database (header x-cron-secret = app_secrets
+// portal_cron_secret, sql/113), { action: "deliver" }: sends the waiting
+// portal_notifications. Each goes as a phone notification to every device
+// that login turned alerts on for; if none got it and the kind allows
+// (fallback), a text (Twilio, if set up, to the login's mobile), else an
+// email. Makes the VAPID keys for phone alerts the first time (app_secrets
+// push_vapid; the public half is handed to the portal by portal_me).
+//
 // Client logins live in client_portal_users, never in the allowlist, so every
 // other function (and every table, sql/112) refuses them.
 //
-// Secrets: RESEND_API_KEY / EMAIL_FROM / EMAIL_REPLY_TO (same as the email sender).
+// Secrets: RESEND_API_KEY / EMAIL_FROM / EMAIL_REPLY_TO (same as the email
+// sender); optional TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM for texts.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { makeVapidKeys, sendPush, type VapidKeys } from "./push.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...corsHeaders } });
@@ -29,6 +39,9 @@ const PORTAL_URL = "https://rocky-toky.github.io/mr-priceless-crm/portal/";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
 const EMAIL_FROM = Deno.env.get("EMAIL_FROM") || "";
 const EMAIL_REPLY_TO = Deno.env.get("EMAIL_REPLY_TO") || "";
+const TWILIO_SID = Deno.env.get("TWILIO_ACCOUNT_SID") || "";
+const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") || "";
+const TWILIO_FROM = Deno.env.get("TWILIO_FROM") || "";
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const cleanEmail = (s: unknown) => String(s || "").trim().toLowerCase();
@@ -80,6 +93,122 @@ async function sendWelcome(to: string, name: string, business: string, link: str
   return String(out?.message || out?.error || `Resend returned ${res.status}`);
 }
 
+/* ───────── Alerts (sql/113 portal_notifications) ───────── */
+async function vapidKeys(admin: any): Promise<VapidKeys> {
+  const read = async () => {
+    const { data } = await admin.from("app_secrets").select("value").eq("name", "push_vapid").maybeSingle();
+    return data?.value ? JSON.parse(data.value) as VapidKeys : null;
+  };
+  const have = await read();
+  if (have) return have;
+  const keys = await makeVapidKeys();
+  // Two runs at once: whichever saved first wins, and both use that.
+  await admin.from("app_secrets").upsert({ name: "push_vapid", value: JSON.stringify(keys) }, { onConflict: "name", ignoreDuplicates: true });
+  return (await read()) || keys;
+}
+const vapidSubject = () => {
+  const m = (EMAIL_REPLY_TO || EMAIL_FROM).match(/[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+/);
+  return m ? `mailto:${m[0]}` : PORTAL_URL;
+};
+// 021 123 4567 -> +64211234567; AU mobiles (04...) -> +61.
+function e164(phone: string): string | null {
+  let d = String(phone || "").replace(/[^\d+]/g, "");
+  if (!d) return null;
+  if (d.startsWith("+")) return d.length >= 9 ? d : null;
+  if (d.startsWith("00")) return "+" + d.slice(2);
+  if (d.startsWith("64") || d.startsWith("61")) return "+" + d;
+  if (d.startsWith("04")) return "+61" + d.slice(1);
+  if (d.startsWith("0")) return "+64" + d.slice(1);
+  return null;
+}
+async function sendText(to: string, body: string): Promise<string | null> {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) return "Texts aren't set up";
+  const form = new URLSearchParams({ To: to, Body: body.slice(0, 600) });
+  form.set(TWILIO_FROM.startsWith("MG") ? "MessagingServiceSid" : "From", TWILIO_FROM);
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+    method: "POST",
+    headers: { Authorization: "Basic " + btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`), "Content-Type": "application/x-www-form-urlencoded" },
+    body: form,
+  });
+  if (res.ok) { await res.body?.cancel(); return null; }
+  const out = await res.json().catch(() => ({}));
+  return String(out?.message || `Twilio returned ${res.status}`);
+}
+const STALE_MS: Record<string, number> = { new_lead: 6 * 3600e3, call_due: 3600e3, visit_today: 12 * 3600e3 };
+
+async function deliver(admin: any) {
+  const keys = await vapidKeys(admin);
+  const { data: waiting } = await admin.from("portal_notifications").select("id").eq("status", "pending").order("created_at").limit(200);
+  const ids = (waiting || []).map((r: any) => r.id);
+  if (!ids.length) return { sent: 0 };
+  // Claim them, so two runs at once can't send the same alert twice.
+  const { data: rows } = await admin.from("portal_notifications").update({ status: "sending" }).in("id", ids).eq("status", "pending").select("*");
+  const tally: Record<string, number> = {};
+  const count = (k: string) => { tally[k] = (tally[k] || 0) + 1; };
+  let emailed = false;
+  for (const n of rows || []) {
+    const finish = async (status: string, channel: string | null, error: string | null = null) => {
+      await admin.from("portal_notifications").update({ status, channel, error, sent_at: new Date().toISOString() }).eq("id", n.id);
+      count(status);
+    };
+    try {
+      if (Date.now() - new Date(n.created_at).getTime() > (STALE_MS[n.kind] ?? 48 * 3600e3)) { await finish("expired", null); continue; }
+      const { data: subs } = await admin.from("portal_push_subs").select("id, endpoint, p256dh, auth, failures").ilike("email", n.email);
+      let ok = 0;
+      const message = {
+        title: n.title, body: n.body, url: n.url || PORTAL_URL, tag: `${n.kind}:${n.lead_id || n.id}`, kind: n.kind,
+        lead: n.lead_id, token: n.kind === "checkin" ? n.payload?.token || null : null,
+      };
+      for (const sub of subs || []) {
+        try {
+          const r = await sendPush(sub, message, keys, vapidSubject(), n.kind === "checkin" ? 12 * 3600 : 6 * 3600);
+          if (r.ok) { ok++; await admin.from("portal_push_subs").update({ last_ok_at: new Date().toISOString(), failures: 0 }).eq("id", sub.id); }
+          else if (r.gone || (sub.failures || 0) >= 9) await admin.from("portal_push_subs").delete().eq("id", sub.id);
+          else await admin.from("portal_push_subs").update({ failures: (sub.failures || 0) + 1 }).eq("id", sub.id);
+        } catch (_e) { /* one bad device doesn't stop the rest */ }
+      }
+      if (ok) { await finish("sent", "push"); continue; }
+      const fb = String(n.fallback || "");
+      if (fb.includes("sms") && TWILIO_SID) {
+        const { data: users } = await admin.from("client_portal_users").select("phone").ilike("email", n.email).not("phone", "is", null).limit(1);
+        const to = e164(users?.[0]?.phone || "");
+        if (to) {
+          const err = await sendText(to, n.payload?.sms || `${n.title} - ${n.body} ${n.url || ""}`);
+          if (!err) { await finish("texted", "sms"); continue; }
+          if (!fb.includes("email")) { await finish("failed", "sms", err); continue; }
+        }
+      }
+      if (fb.includes("email")) {
+        await admin.from("scheduled_emails").insert({
+          kind: "portal_alert", record_id: n.id, to_email: n.email,
+          subject: n.payload?.email_subject || n.title,
+          body: n.payload?.email_body || `${n.body}\n\n${n.url || PORTAL_URL}\n\nMr Priceless`,
+          send_at: new Date().toISOString(), created_by: "portal",
+        });
+        emailed = true;
+        await finish("emailed", "email");
+        continue;
+      }
+      await finish("no_device", null);
+    } catch (e) {
+      await finish("failed", null, String((e as any)?.message || e).slice(0, 300));
+    }
+  }
+  // Send the fallback emails now instead of on the next 5-minute run.
+  if (emailed) {
+    const { data: secret } = await admin.from("app_secrets").select("value").eq("name", "email_cron_secret").maybeSingle();
+    const url = Deno.env.get("SUPABASE_URL"), anon = Deno.env.get("SUPABASE_ANON_KEY");
+    if (secret?.value && url) {
+      await fetch(`${url}/functions/v1/send-scheduled-emails`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${anon}`, "x-cron-secret": secret.value },
+        body: "{}",
+      }).then((r) => r.body?.cancel()).catch(() => {});
+    }
+  }
+  return tally;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -87,6 +216,13 @@ Deno.serve(async (req) => {
   const ANON = Deno.env.get("SUPABASE_ANON_KEY");
   if (!SUPABASE_URL || !SERVICE || !ANON) return json({ error: "Server misconfigured." }, 500);
   const admin = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } });
+
+  const cronHeader = req.headers.get("x-cron-secret");
+  if (cronHeader) {
+    const { data: secret } = await admin.from("app_secrets").select("value").eq("name", "portal_cron_secret").maybeSingle();
+    if (!secret?.value || secret.value !== cronHeader) return json({ error: "Unauthorized." }, 401);
+    try { return json(await deliver(admin)); } catch (e) { return json({ error: String((e as any)?.message || e) }, 500); }
+  }
 
   // Team only (not Lead Follow Up only logins, never client logins).
   const authed = createClient(SUPABASE_URL, ANON, { auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
@@ -102,6 +238,7 @@ Deno.serve(async (req) => {
   try {
     if (body.action === "invite") {
       const email = cleanEmail(body.email), name = String(body.name || "").trim().slice(0, 120);
+      const phone = String(body.phone || "").replace(/[^\d+]/g, "").slice(0, 20) || null;
       if (!isEmail(email)) return json({ error: "That isn't an email address." }, 400);
       const { data: client } = await admin.from("clients").select("id, name").eq("id", body.client_id).maybeSingle();
       if (!client) return json({ error: "Couldn't find that client." }, 400);
@@ -111,10 +248,10 @@ Deno.serve(async (req) => {
 
       const { data: existing } = await admin.from("client_portal_users").select("id").eq("email", email).eq("client_id", client.id).maybeSingle();
       if (!existing) {
-        const { error } = await admin.from("client_portal_users").insert({ email, client_id: client.id, name: name || null, created_by: caller.email });
+        const { error } = await admin.from("client_portal_users").insert({ email, client_id: client.id, name: name || null, phone, created_by: caller.email });
         if (error) return json({ error: error.message }, 500);
-      } else if (name) {
-        await admin.from("client_portal_users").update({ name }).eq("id", existing.id);
+      } else if (name || phone) {
+        await admin.from("client_portal_users").update({ ...(name ? { name } : {}), ...(phone ? { phone } : {}) }).eq("id", existing.id);
       }
 
       let user = await findUser(admin, email);
@@ -145,6 +282,7 @@ Deno.serve(async (req) => {
       if (!count && !team) {
         const user = await findUser(admin, email);
         if (user) await admin.auth.admin.deleteUser(user.id);
+        await admin.from("portal_push_subs").delete().eq("email", email);
       }
       return json({ ok: true });
     }

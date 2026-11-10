@@ -5331,3 +5331,9 @@ button.ap-row:hover{background:var(--gold-soft);}
 .cpp-add{display:flex;gap:8px;flex-wrap:wrap;padding:0 22px;margin-top:14px;}
 .cpp-add input{flex:1;min-width:150px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;}
 @media (max-width:700px){ .cpp-mode{grid-template-columns:1fr;} }
+.cpp-pipe{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px;padding:0 22px;margin-top:10px;}
+.cpp-pipe span{display:flex;flex-direction:column;align-items:center;gap:1px;border:1px solid var(--line);border-radius:10px;padding:8px 4px;font-size:12px;color:var(--text2);text-align:center;}
+.cpp-pipe b{font-family:var(--font-display);font-size:20px;color:var(--text);}
+.cpp-pipe .won{background:#e8f4ec;border-color:#bfe0cb;}
+.lq3-handover{background:#e8f0fa;border-color:#b9cfe8;margin-bottom:0;}
+.lq3-handover b{display:block;color:#2f5f8f;}
