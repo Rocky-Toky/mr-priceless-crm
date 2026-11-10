@@ -281,6 +281,7 @@ function render(){
   const c = $("#pp-count"); c.hidden = !n; c.textContent = n;
   $$("#pp-tabs [data-tab]").forEach(x => x.classList.toggle("active", x.dataset.tab === S.tab));
   $$("[data-pane]").forEach(p => { p.hidden = p.dataset.pane !== S.tab; });
+  $(".pp-main")?.classList.toggle("wide", S.tab === "leads" && S.view === "board");
   renderPreview();
   if (S.tab === "leads") renderLeads();
   if (S.tab === "ads") renderAds();
@@ -395,9 +396,10 @@ function renderLeads(){
   const el = $("#pp-leads");
   const counts = Object.fromEntries(STAGES.map(s => [s.k, 0]));
   S.leads.forEach(l => { counts[stageOf(l)]++; });
-  const views = [["todo", "To do", todoCount()], ...STAGES.map(s => [s.k, s.label, counts[s.k]]), ["all", "All", S.leads.length]];
+  const views = [["todo", "To do", todoCount()], ["board", "Board", null], ...STAGES.map(s => [s.k, s.label, counts[s.k]]), ["all", "All", S.leads.length]];
   let body = "";
-  if (S.view === "todo"){
+  if (S.view === "board") body = boardHtml();
+  else if (S.view === "todo"){
     const secs = todo();
     body = secs.length ? secs.map(s => `<section class="pp-sec${s.red ? " red" : ""}">
         <h3>${esc(s.title)} <b>${s.list.length}</b></h3>${s.sub ? `<p>${esc(s.sub)}</p>` : ""}
@@ -417,10 +419,140 @@ function renderLeads(){
       <h1>${checkins ? `${checkins} lead${checkins === 1 ? "" : "s"} need${checkins === 1 ? "s" : ""} an answer` : counts.new ? `${S.leads.filter(l => stageOf(l) === "new" && !withUs(l)).length || counts.new} new lead${counts.new === 1 ? "" : "s"}` : "Your leads"}</h1>
       <p>${S.client.client_calls ? "You call your leads. Can't reach one? Tap Didn't answer - we'll check with you the next day, and our team can follow them up." : "Our team calls your new leads and books them in. Take them from there: site visit, quote, job won."}</p>
     </div></div>
-    ${summaryHtml()}
-    <nav class="pp-pipe" aria-label="Pipeline">${views.map(([k, label, n]) => `<button type="button" data-view="${k}" class="${S.view === k ? "active" : ""} ${k === "todo" ? "todo" : ""} pp-pipe-${STAGE[k]?.cls || "all"}"><span>${esc(label)}</span><b>${n}</b></button>`).join("")}</nav>
+    ${S.view === "board" ? "" : summaryHtml()}
+    <nav class="pp-pipe" aria-label="Pipeline">${views.map(([k, label, n]) => `<button type="button" data-view="${k}" class="${S.view === k ? "active" : ""} ${k === "todo" ? "todo" : ""} pp-pipe-${STAGE[k]?.cls || "all"}"><span>${esc(label)}</span>${n == null ? "" : `<b>${n}</b>`}</button>`).join("")}</nav>
     <input type="search" id="pp-search" placeholder="Search name, phone, suburb, answers" value="${esc(S.q)}" aria-label="Search leads">
     ${body}`;
+}
+
+
+/* ───────── the board: drag leads between stages ───────── */
+// Won / lost / not qualified only show the last 60 days, so the board stays short.
+const BOARD_CLOSED_MS = 60 * 86400e3;
+// Dropping on these asks a quick question first (time, amount or reason);
+// the rest move straight away.
+const ASK_ON_DROP = new Set(["call_scheduled", "site_visit", "quote_sent", "won", "lost", "not_qualified"]);
+function boardHtml(){
+  const L = S.leads.filter(matchQ);
+  const cols = STAGES.map(s => {
+    let list = L.filter(l => stageOf(l) === s.k);
+    if (CLOSED.has(s.k)) list = list.filter(l => Date.now() - t(l.stage_at || l.at) < BOARD_CLOSED_MS);
+    list.sort(EARLY.has(s.k) ? byRank : s.k === "call_scheduled" || s.k === "site_visit" ? (a, b) => t(nextAt(a)) - t(nextAt(b)) : (a, b) => t(b.stage_at || b.at) - t(a.stage_at || a.at));
+    const total = s.k === "quote_sent" ? list.reduce((n, l) => n + (Number(l.quote_amount) || 0), 0) : s.k === "won" ? list.reduce((n, l) => n + (Number(l.job_value) || 0), 0) : 0;
+    return `<section class="pp-col pp-col-${s.cls}" data-col="${s.k}">
+      <header><b>${esc(s.label)}</b><span>${list.length}${total ? ` · ${money(total)}` : ""}</span></header>
+      <ul>${list.map(boardCardHtml).join("")}</ul>
+      ${list.length ? "" : `<p class="pp-col-empty">Drag a lead here</p>`}
+      ${CLOSED.has(s.k) ? `<p class="pp-col-note">Last 60 days</p>` : ""}
+    </section>`;
+  }).join("");
+  return `<p class="pp-board-tip">${readOnly() ? "Clients drag leads between stages here." : isPhone() ? "Press and hold a lead, then drag it to another stage. Tap to open it." : "Drag a lead to another stage. Click to open it."}</p>
+    <div class="pp-board" id="pp-board">${cols}</div>`;
+}
+function boardCardHtml(l){
+  const r = rate(l), st = stageOf(l), qa = answers(l).slice(0, 2), na = nextAt(l);
+  const extra = (st === "call_scheduled" || st === "site_visit") && na ? whenWords(na)
+    : st === "quote_sent" && l.quote_amount ? money(l.quote_amount) : st === "won" && l.job_value ? money(l.job_value)
+    : st === "no_answer" && tries(l) ? `${tries(l)} ${tries(l) === 1 ? "try" : "tries"}` : CLOSED.has(st) && l.lost_reason ? l.lost_reason : "";
+  return `<li class="pp-bcard${l.checkin ? " checkin" : ""}" data-card="${esc(l.id)}">
+    <div class="pp-bcard-top">${EARLY.has(st) && !withUs(l) ? `<span class="pp-tier pp-${r.tier}">${r.label}</span>` : ""}<b>${esc(l.name || "No name")}</b><small>${esc(ago(l.at))}</small></div>
+    ${qa.length ? `<div class="pp-bcard-qa">${qa.map(x => `<span><i>${esc(shortQ(x.q))}</i> ${esc(x.a)}</span>`).join("")}</div>` : ""}
+    <div class="pp-bcard-foot">
+      ${l.checkin ? `<span class="pp-bflag">Did they get back to you?</span>` : withUs(l) ? `<span class="pp-bflag us">Mr Priceless calling</span>` : extra ? `<span class="pp-bextra">${esc(extra)}</span>` : "<span></span>"}
+      ${l.phone ? `<a class="pp-bcall" href="${esc(telHref(l.phone))}" data-dial="${esc(l.id)}" aria-label="Call ${esc(l.name || "them")}">☎</a>` : ""}
+    </div>
+  </li>`;
+}
+async function moveLead(id, k){
+  const l = S.leads.find(x => x.id === id);
+  if (!l || stageOf(l) === k) return;
+  if (readOnly()){ toast("Preview only - the client moves leads from their login."); return; }
+  // Stages that need a time, amount or reason: open the lead with that stage picked.
+  if (ASK_ON_DROP.has(k)){ openLead(id, { pick: k }); return; }
+  const was = l.stage;
+  l.stage = k; l.stage_at = new Date().toISOString();
+  render();
+  try {
+    await rpc("portal_update_lead", { p_lead: id, p_stage: k, p_note: null, p_when: null, p_amount: null, p_reason: null });
+    toast(`Moved ${firstName(l.name)} to ${STAGE[k].label}.`);
+    await refreshAfterSave(); render();
+  } catch(e){
+    l.stage = was; render();
+    toast("Couldn't move that - check your internet and try again.");
+  }
+}
+// One drag for mouse and touch (pointer events). On touch it starts after a
+// short press-and-hold, so a normal swipe still scrolls the page and board.
+const DRAG = { el: null, id: null, ghost: null, x: 0, y: 0, sx: 0, sy: 0, dx: 0, dy: 0, timer: null, on: false, over: null, type: "", ended: 0, raf: 0 };
+function dragReset(){
+  clearTimeout(DRAG.timer); cancelAnimationFrame(DRAG.raf);
+  if (DRAG.ghost) DRAG.ghost.parentNode?.removeChild(DRAG.ghost);
+  DRAG.el?.classList.toggle("dragging", false);
+  DRAG.el?.classList.toggle("pressing", false);
+  $$(".pp-col.over").forEach(c => c.classList.toggle("over", false));
+  document.body.classList.toggle("pp-dragging", false);
+  Object.assign(DRAG, { el: null, id: null, ghost: null, timer: null, on: false, over: null });
+}
+function dragStart(){
+  const r = DRAG.el.getBoundingClientRect();
+  DRAG.on = true;
+  DRAG.dx = DRAG.x - r.left; DRAG.dy = DRAG.y - r.top;
+  const g = DRAG.el.cloneNode(true);
+  g.classList.add("pp-ghost"); g.style.width = r.width + "px";
+  document.body.appendChild(g);
+  DRAG.ghost = g;
+  DRAG.el.classList.toggle("pressing", false); DRAG.el.classList.add("dragging");
+  document.body.classList.add("pp-dragging");
+  if (DRAG.type === "touch") try { navigator.vibrate?.(15); } catch(e){}
+  dragMove();
+}
+function dragMove(){
+  if (!DRAG.on) return;
+  DRAG.ghost.style.transform = `translate(${DRAG.x - DRAG.dx}px, ${DRAG.y - DRAG.dy}px) rotate(2deg)`;
+  const col = document.elementFromPoint(DRAG.x, DRAG.y)?.closest?.(".pp-col") || null;
+  if (col !== DRAG.over){ DRAG.over?.classList.toggle("over", false); col?.classList.add("over"); DRAG.over = col; }
+  // Near an edge: scroll the board sideways (and the page up or down).
+  cancelAnimationFrame(DRAG.raf);
+  const board = $("#pp-board"), edge = 48;
+  let sx = 0, sy = 0;
+  if (board){ const b = board.getBoundingClientRect(); if (DRAG.x < b.left + edge) sx = -14; else if (DRAG.x > b.right - edge) sx = 14; }
+  if (DRAG.y < 90) sy = -12; else if (DRAG.y > innerHeight - 90) sy = 12;
+  if (sx || sy) DRAG.raf = requestAnimationFrame(() => { if (sx && board) board.scrollLeft += sx; if (sy) scrollBy(0, sy); dragMove(); });
+}
+function bindBoardDrag(){
+  document.addEventListener("pointerdown", (e) => {
+    const card = e.target.closest?.(".pp-bcard");
+    if (!card || e.target.closest("a, button") || (e.pointerType === "mouse" && e.button !== 0)) return;
+    dragReset();
+    Object.assign(DRAG, { el: card, id: card.dataset.card, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, type: e.pointerType });
+    if (e.pointerType !== "mouse"){
+      card.classList.add("pressing");
+      DRAG.timer = setTimeout(() => { if (DRAG.el === card) dragStart(); }, 320);
+    }
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!DRAG.el) return;
+    DRAG.x = e.clientX; DRAG.y = e.clientY;
+    const moved = Math.hypot(e.clientX - DRAG.sx, e.clientY - DRAG.sy);
+    if (!DRAG.on){
+      if (DRAG.type === "mouse"){ if (moved > 6) dragStart(); }
+      else if (moved > 10) dragReset(); // moved before the hold: it's a scroll
+      return;
+    }
+    e.preventDefault();
+    dragMove();
+  });
+  // While dragging on a phone, stop the page from scrolling under the finger.
+  document.addEventListener("touchmove", (e) => { if (DRAG.on) e.preventDefault(); }, { passive: false });
+  document.addEventListener("contextmenu", (e) => { if (e.target.closest?.(".pp-bcard")) e.preventDefault(); });
+  const end = (e) => {
+    if (!DRAG.el) return;
+    const wasOn = DRAG.on, id = DRAG.id, to = DRAG.over?.dataset.col;
+    dragReset();
+    if (wasOn){ DRAG.ended = Date.now(); if (e.type === "pointerup" && to) moveLead(id, to); }
+  };
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", end);
 }
 
 /* ───────── one lead ───────── */
@@ -771,7 +903,12 @@ async function savePhone(input){
 
 /* ───────── events ───────── */
 function bind(){
+  bindBoardDrag();
   document.addEventListener("click", async (e) => {
+    // The click that ends a drag isn't a tap.
+    if (Date.now() - DRAG.ended < 400){ e.preventDefault(); return; }
+    const card = e.target.closest(".pp-bcard");
+    if (card && !e.target.closest("a, button")){ openLead(card.dataset.card); return; }
     const tab = e.target.closest("[data-tab]");
     if (tab){ S.tab = tab.dataset.tab; render(); window.scrollTo(0, 0); return; }
     const v = e.target.closest("[data-view]");
@@ -891,7 +1028,7 @@ async function start(){
   const params = new URLSearchParams(location.search);
   const want = params.get("client");
   S.preview = want || store.get("mpp_preview_client") || null;
-  const v = store.get("mpp_view"); if (v && (v === "todo" || v === "all" || STAGE[v])) S.view = v;
+  const v = store.get("mpp_view"); if (v && (v === "todo" || v === "all" || v === "board" || STAGE[v])) S.view = v;
   try {
     await loadAll(true);
   } catch(e){
