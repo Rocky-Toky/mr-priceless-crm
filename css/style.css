@@ -5337,3 +5337,6 @@ button.ap-row:hover{background:var(--gold-soft);}
 .cpp-pipe .won{background:#e8f4ec;border-color:#bfe0cb;}
 .lq3-handover{background:#e8f0fa;border-color:#b9cfe8;margin-bottom:0;}
 .lq3-handover b{display:block;color:#2f5f8f;}
+/* Dialler: the Aircall phone isn't signed in, so calls to the number can't ring here */
+.dl-ac-nudge{margin-left:6px;padding:7px 12px;border-radius:999px;border:1px solid rgba(179,69,46,0.35);background:rgba(179,69,46,0.08);color:var(--danger);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;}
+.dl-ac-nudge:hover{background:rgba(179,69,46,0.14);}

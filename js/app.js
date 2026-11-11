@@ -4429,7 +4429,7 @@ function acTitleSync(){
 function acFabSync(){
   const fab = $("#ac-fab");
   if (!fab) return;
-  fab.hidden = callMode() !== "aircall" || (IS_CONFIGURED && !state.user);
+  fab.hidden = IS_CONFIGURED && !state.user;
   fab.classList.toggle("on", acReady);
   // On the live-call pages it shrinks to a small round button up top, out of the way.
   fab.classList.toggle("mini", ["meeting", "sit-rate", "email-templates"].includes(state.page));
@@ -4438,6 +4438,9 @@ function acFabSync(){
   const liveCall = acCall && !acCall.ended;
   fab.querySelector(".ac-fab-label").textContent = !liveCall ? "Phone" : acCall.answered ? "On a call" : acCall.dir === "in" ? "Incoming call" : "Calling…";
   fab.title = acReady ? "Aircall phone (signed in)" : "Aircall phone - sign in to make and take calls";
+  // On the Dialler: say so when the phone isn't signed in, since then calls to the Aircall number can't ring here.
+  const nudge = $("#dl-ac-nudge");
+  if (nudge) nudge.hidden = acReady || !acWs || (IS_CONFIGURED && !state.user);
 }
 function acShow(open){
   const p = $("#ac-panel");
@@ -4452,8 +4455,11 @@ function acStartCall(dir, number){
   acStartCall.t = setTimeout(acFabSync, 91e3);
   acCardRender(); acFabSync();
 }
+// The Aircall phone loads whatever "Call using" is set to: "Call using" only
+// decides how calls go OUT, and calls coming IN to the Aircall number should
+// pop up here either way.
 function setupAircall(){
-  if (acWs || callMode() !== "aircall" || !window.AircallWorkspace) return acFabSync();
+  if (acWs || !window.AircallWorkspace) return acFabSync();
   if (!$("#ac-panel")){
     document.body.insertAdjacentHTML("beforeend", `
       <button type="button" class="ac-fab" id="ac-fab" hidden><span class="ac-fab-dot"></span><span class="ac-fab-ico">${ICONS.phone}</span><span class="ac-fab-label">Phone</span></button>
@@ -17586,7 +17592,8 @@ function setupDialerFilters(){
     const activePerson = window.getActivePerson ? window.getActivePerson() : null;
     if (activePerson) await savePlaybookUsage(activePerson, e.target.value);
   });
-  $("#dialer-call-mode")?.addEventListener("change", (e) => { setCallMode(e.target.value); setupAircall(); acFabSync(); if (e.target.value !== "aircall") acShow(false); renderDialer(); });
+  $("#dialer-call-mode")?.addEventListener("change", (e) => { setCallMode(e.target.value); setupAircall(); acFabSync(); renderDialer(); });
+  $("#dl-ac-nudge")?.addEventListener("click", () => { acShow(true); try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch(e){} });
   $("#dialer-view-playbook-btn")?.addEventListener("click", () => {
     const id = $("#dialer-playbook-select")?.value;
     if (!id){ alert("Pick a playbook first."); return; }
