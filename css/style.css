@@ -3009,6 +3009,8 @@ body.jv-open .jv-fab{display:none;}
   #page-dialer .dl-outcomes-label{margin-bottom:calc(clamp(8px,1.7vh,22px) * -0.5);}
   #page-dialer .dl-outcomes{grid-template-columns:repeat(7,minmax(0,1fr));max-width:1180px;gap:8px;}
   #page-dialer .dl-outcome{padding:clamp(8px,1.4vh,13px) 6px;font-size:13px;line-height:1.25;}
+  /* On the no-scroll desktop layout all 7 outcomes stay in one row (Booked Meeting first, gold), so none drop off the bottom. */
+  #page-dialer .dl-outcomes .dl-outcome.is-booked{grid-column:auto;}
   #page-dialer .dl-hero-foot{padding:clamp(6px,1vh,12px) 18px;}
   #page-dialer.active > .dl-recent[open] .dl-recent-list{flex:1 1 auto;min-height:0;}
 }
