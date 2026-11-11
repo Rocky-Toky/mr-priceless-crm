@@ -1929,6 +1929,7 @@ function setupNav(){
       acFabSync();
       syncPageGroup();
       mainNavRender();
+      requestAnimationFrame(dlFit);
       empNavRender(); // lights up (or clears) the person picked in the Employees menu
       $$(".nav-dropdown.open").forEach(d => d.classList.remove("open"));
     });
@@ -3890,7 +3891,21 @@ function setDialerCountry(country){
 // Avoids re-firing the same claim write on every re-render while the same
 // prospect is sitting at the top of one person's queue.
 let dialerLastAutoClaimedId = null;
+// Rocky's rule: the outcome buttons must always be on screen. After every
+// render (and on resize) the Dialler checks whether the last button fits and,
+// if not, tightens step by step: 1 smaller counters, 2 no counters, 3 a
+// tighter Up Now card (no notes or extra lines), 4 smallest.
+function dlFit(){
+  const page = $("#page-dialer");
+  if (!page || state.page !== "dialer" || !page.classList.contains("active")) return;
+  const fits = () => { const b = page.querySelectorAll(".dl-outcome"); if (!b.length) return true; const r = b[b.length - 1].getBoundingClientRect(); return r.bottom <= innerHeight - 6; };
+  page.dataset.fit = "0";
+  if (innerWidth < 821) return; // phones and narrow windows scroll instead
+  for (let lvl = 1; lvl <= 4 && !fits(); lvl++) page.dataset.fit = String(lvl);
+}
+addEventListener("resize", () => { clearTimeout(dlFit.t); dlFit.t = setTimeout(dlFit, 120); });
 function renderDialer(){
+  requestAnimationFrame(dlFit);
   renderDialerFilters();
   // Registering here (rather than only when a call is placed) means a
   // prospect calling back can actually reach whoever has the Dialer open -
@@ -4540,6 +4555,8 @@ function acFabSync(){
   fab.classList.toggle("on", acReady);
   // On the live-call pages it shrinks to a small round button up top, out of the way.
   fab.classList.toggle("mini", ["meeting", "sit-rate", "email-templates"].includes(state.page));
+  // On the Dialler it shrinks to a small round button where it is, so it never covers the outcome buttons.
+  fab.classList.toggle("corner", state.page === "dialer");
   fab.classList.toggle("ringing", !!(acCall && acCall.dir === "in" && !acCall.answered && !acCall.ended));
   if (acCall && !acCall.ended && !acCall.answered && Date.now() - (acCall.at || 0) > 90e3){ acCall.ended = true; acCardRender(); setTimeout(crmCallEnded, 0); }
   const liveCall = acCall && !acCall.ended;
