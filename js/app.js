@@ -2331,7 +2331,7 @@ function pmSeedDemo(){
   };
   state.meetings = [
     mk(today, "16:30", "Hemi", "Walker", "Walker Roofing", "max", "rocky"),
-    mk(nzAddDays(today, 1), "10:00", "Sarah", "Tane", "Tane Plumbing & Gas", "max", "rocky"),
+    mk(nzAddDays(today, 1), "10:00", "Sarah", "Tane", "Tane Plumbing & Gas", "max", "max"),
     mk(nzAddDays(today, 1), "13:15", "Josh", "Kerr", "Kerr Electrical", "max", "rocky", { ghl_status: "error", ghl_error: "GHL returned 503", calendar_status: "error", meet_link: null, google_event_id: null, calendar_error: "Google hasn't switched on calendar access for the CRM yet. It can take up to 24 hours after setting it up - try again later." }),
     mk(nzAddDays(today, 3), "11:30", "Lena", "Fisher", "Fisher Landscapes", "max", "rocky", { invite_to_prospect: true, prospect_response: "declined", calendar_flag: "declined", calendar_flag_detail: { declined: { at: booked.toISOString() } } }),
     mk(nzAddDays(today, 2), "09:30", "Tom", "Reid", "Reid Concrete", "max", "rocky", { invite_to_prospect: true, prospect_response: "accepted", confirmation_status: "confirmed", confirmations: [{ source: "calendar", at: booked.toISOString() }], reschedule_count: 2,
@@ -2398,8 +2398,14 @@ function pmDayWord(start, from){
   if (d === nzAddDays(f, 1)) return "tomorrow";
   return new Date(d + "T12:00:00Z").toLocaleDateString("en-NZ", { timeZone: "UTC", weekday: "long" });
 }
-const pmBookingText = (first, setter, closer, start, from) =>
-  `Hey ${first || "there"}, it's ${pmFirstName(setter)}. Got you in with ${pmFirstName(closer)} for ${pmDayWord(start, from)} at ${pmTime(start)}. Did the invite come through to your email ok?`;
+// The setter can also be the closer (they booked their own meeting): then the
+// texts say "me" / "our chat" instead of naming them twice.
+const pmSame = (m) => !!m && !!m.setter && m.setter === m.closer;
+const pmBookingText = (first, setter, closer, start, from) => setter && setter === closer
+  ? `Hey ${first || "there"}, it's ${pmFirstName(setter)}. Got us booked in for a chat ${pmDayWord(start, from)} at ${pmTime(start)}. Did the invite come through to your email ok?`
+  : `Hey ${first || "there"}, it's ${pmFirstName(setter)}. Got you in with ${pmFirstName(closer)} for ${pmDayWord(start, from)} at ${pmTime(start)}. Did the invite come through to your email ok?`;
+// "Closer Max · Set by Rocky", or "Max (booked and running it)" when it's one person.
+const pmWho = (m) => pmSame(m) ? `${pmPerson(m.closer)} (booked and running it)` : `closer ${pmPerson(m.closer)} · set by ${pmPerson(m.setter)}`;
 
 function pmTasks(m, now = Date.now()){
   if (!m || m.status === "cancelled") return [];
@@ -2422,7 +2428,7 @@ function pmTasks(m, now = Date.now()){
   let merged = false;
   if (bDue){
     tasks.push({ key: "B", who: "setter", kind: "text", label: "Follow-up text", onlyIf: "unconfirmed", due: bDue,
-      text: `Hey ${first}, just checking you're still good for ${pmTime(M)} ${nzDayStr(new Date(bDue)) === dayM ? "today" : "tomorrow"} with ${closer}?` });
+      text: `Hey ${first}, just checking you're still good for ${pmSame(m) ? "our chat at " : ""}${pmTime(M)} ${nzDayStr(new Date(bDue)) === dayM ? "today" : "tomorrow"}${pmSame(m) ? "" : ` with ${closer}`}?` });
     const cDue = pmClamp(bDue + 3600e3, from, M);
     if (cDue && dDue && (Math.abs(cDue - dDue) <= 30 * 60e3 || cDue >= dDue)) merged = true;
     else if (cDue && cDue < M) tasks.push({ key: "C", who: "setter", kind: "call", label: "Follow-up call", onlyIf: "unconfirmed", due: cDue });
@@ -2607,7 +2613,7 @@ function renderTimeline(){
   const box = $("#pm-tl-body"), m = state.meetings.find(x => x.id === pmTl.id);
   if (!box || !m) return;
   $("#pm-tl-title").textContent = pmName(m) + (m.business_name ? ` · ${m.business_name}` : "");
-  $("#pm-tl-sub").textContent = `${m.status === "cancelled" ? "Cancelled" : m.outcome ? (m.outcome === "showed" ? "Showed" : "No-show") : pmWhenLong(m.starts_at)} · closer ${pmPerson(m.closer)} · set by ${pmPerson(m.setter)}${m.phone ? ` · ${m.phone}` : ""}`;
+  $("#pm-tl-sub").textContent = `${m.status === "cancelled" ? "Cancelled" : m.outcome ? (m.outcome === "showed" ? "Showed" : "No-show") : pmWhenLong(m.starts_at)} · ${pmWho(m)}${m.phone ? ` · ${m.phone}` : ""}`;
   const now = Date.now();
   const coming = [
     ...pmTasks(m).filter(t => t.state === "upcoming" || t.state === "due" || t.state === "late").map(t => ({ at: t.due, text: `${t.label} (${t.who === "setter" ? pmPerson(m.setter) : pmPerson(m.closer)})`, cls: t.state === "upcoming" ? "" : "due" })),
@@ -2789,7 +2795,7 @@ function renderMeetingsPage(){
     return `<div class="pm-row${m.calendar_status === "error" ? " err" : ""}${m.calendar_flag && live ? " flag" : ""}${m.status === "cancelled" ? " gone" : ""}">
       <div class="pm-when"><b>${pmTime(m.starts_at)}</b><small>to ${pmTime(Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3)}</small></div>
       <div class="pm-who"><b>${escapeHtml(pmName(m))}</b><small>${escapeHtml([m.business_name, m.phone].filter(Boolean).join(" · "))}</small></div>
-      <div class="pm-people"><span>Closer <b>${escapeHtml(pmPerson(m.closer))}</b></span><span>Set by <b>${escapeHtml(pmPerson(m.setter))}</b></span></div>
+      <div class="pm-people">${pmSame(m) ? `<span>Booked and run by <b>${escapeHtml(pmPerson(m.closer))}</b></span>` : `<span>Closer <b>${escapeHtml(pmPerson(m.closer))}</b></span><span>Set by <b>${escapeHtml(pmPerson(m.setter))}</b></span>`}</div>
       <div class="pm-tags">${confPill(m)}${calPill(m)}${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${m.reschedule_count ? `<span class="pm-pill${m.reschedule_count >= 2 ? " gold" : ""}">Moved ${m.reschedule_count}x</span>` : ""}${ghlPill(m)}${pmUnread(m).length ? `<span class="pm-pill red">${pmUnread(m).length} unread repl${pmUnread(m).length === 1 ? "y" : "ies"}</span>` : ""}${pmFailed(m).length ? `<span class="pm-pill red" title="${escapeHtml(pmFailed(m).map(x => x.error || x.status).join(", "))}">${pmFailed(m)[0].channel === "email" ? "Email" : "Text"} didn't send</span>` : ""}${(() => { const n = pmNextTouch(m); return n ? `<span class="pm-pill" title="Next automated message from GHL">Next: ${escapeHtml(n.label)} ${escapeHtml(pmWhenShort(n.at))}</span>` : ""; })()}</div>
       <div class="pm-actions">
         ${needConfirm ? `<button type="button" class="btn gold" data-pm-act="confirm" data-id="${m.id}" title="They confirmed by text or on a call">${pmIsToday(m) ? "Mark confirmed today" : "Mark confirmed"}</button>` : ""}

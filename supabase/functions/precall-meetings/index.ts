@@ -243,6 +243,10 @@ const GHL_FIELDS: [string, string][] = [
   ["appointment_time", "DATE"], ["appointment_time_display", "TEXT"], ["appointment_day_display", "TEXT"],
   ["meet_link", "TEXT"], ["closer_name", "TEXT"], ["setter_name", "TEXT"], ["setter_mobile", "TEXT"],
   ["booking_window", "TEXT"], ["meeting_before_11am", "TEXT"], ["confirmation_status", "TEXT"], ["reschedule_count", "NUMERICAL"],
+  // The setter booked their own meeting: setter_is_closer "true", and
+  // closer_ref is "me" (else the closer's name), so a text can say
+  // "your chat with {{contact.closer_ref}}" either way.
+  ["setter_is_closer", "TEXT"], ["closer_ref", "TEXT"],
 ];
 class GhlError extends Error { constructor(msg: string, public status = 0) { super(msg); } }
 // Retries what's worth retrying (rate limits, GHL hiccups) with backoff: 1s, 3s.
@@ -318,6 +322,7 @@ async function syncGhl(admin: SupabaseClient, m: any, by = "") {
     const f = await ghlFields();
     const start = new Date(m.starts_at);
     const { data: setter } = m.setter ? await admin.from("employees").select("phone").eq("person_key", m.setter).maybeSingle() : { data: null };
+    const same = !!m.setter && m.setter === m.closer;
     const values: Record<string, unknown> = {
       appointment_time: nzIso(start),
       appointment_time_display: `${nzParts(start).weekday} ${nzClock(start)}`,
@@ -330,6 +335,8 @@ async function syncGhl(admin: SupabaseClient, m: any, by = "") {
       meeting_before_11am: +nzParts(start).hour % 24 < 11 ? "true" : "false",
       confirmation_status: m.confirmation_status || "unconfirmed",
       reschedule_count: m.reschedule_count || 0,
+      setter_is_closer: same ? "true" : "false",
+      closer_ref: same ? "me" : personName(m.closer, m.closer_email),
     };
     const upsert = (vals: Record<string, unknown>) => ghl("/contacts/upsert", {
       method: "POST",
