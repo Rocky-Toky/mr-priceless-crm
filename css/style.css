@@ -5418,3 +5418,36 @@ body.main-nav #page-dialer .dl-header{margin-bottom:10px;}
 .ac-fab.corner .ac-fab-label{display:none;}
 .ac-fab.corner .ac-fab-dot{left:29px;top:3px;}
 .ac-fab.corner.ringing .ac-fab-label{display:inline;padding:0 10px 0 8px;}
+
+/* ───────── Plastering leads (sql/114) ───────── */
+#pl-root{max-width:1100px;}
+.pl-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:18px;}
+.pl-head h2{font-family:var(--font-display);font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.1;}
+.pl-head p{margin-top:4px;font-size:16px;color:var(--text2);}
+.pl-pills{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;}
+.pl-pill{min-height:42px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--white);font:inherit;font-size:15px;font-weight:700;color:var(--text);cursor:pointer;}
+.pl-pill span{margin-left:6px;padding:1px 8px;border-radius:999px;background:#eee9de;color:var(--text2);font-size:13px;}
+.pl-pill.active{background:var(--black);border-color:var(--black);color:var(--gold-bright);}
+.pl-pill.active span{background:rgba(232,196,104,.2);color:var(--gold-bright);}
+.pl-list{display:flex;flex-direction:column;gap:12px;}
+.pl-empty{padding:16px 18px;border-radius:14px;border:1px dashed var(--line);color:var(--text2);font-size:16px;}
+.pl-card{display:grid;grid-template-columns:1fr 300px;gap:20px;padding:18px 20px;border-radius:16px;background:var(--white);border:1px solid var(--line);border-left:6px solid #d9d2c1;box-shadow:var(--shadow);}
+.pl-card.is-new{border-left-color:var(--gold);}
+.pl-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;}
+.pl-top h3{font-size:20px;font-weight:800;}
+.pl-when{font-size:14px;color:var(--text2);}
+.pl-facts{margin-top:4px;font-size:16px;font-weight:600;}
+.pl-msg{margin-top:8px;font-size:15px;line-height:1.5;color:var(--text);white-space:pre-wrap;}
+.pl-contact{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-top:12px;}
+.pl-call{display:inline-flex;align-items:center;min-height:46px;padding:0 20px;border-radius:12px;background:var(--success);color:#fff;font-size:16px;font-weight:800;text-decoration:none;}
+.pl-email{color:var(--text);font-size:15px;}
+.pl-source{margin-top:10px;font-size:13px;color:var(--text2);}
+.pl-side{display:flex;flex-direction:column;gap:10px;}
+.pl-side label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:700;color:var(--text2);}
+.pl-side select,.pl-side textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--white);font:inherit;font-size:15px;color:var(--text);}
+.pl-side select{min-height:44px;}
+.pl-side textarea{resize:vertical;}
+@media (max-width:760px){
+  .pl-card{grid-template-columns:1fr;}
+  .pl-head h2{font-size:28px;}
+}
