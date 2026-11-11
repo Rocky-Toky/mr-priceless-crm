@@ -385,7 +385,10 @@ async function syncMessages(admin: SupabaseClient, m: any) {
   if (!convId) {
     const found = await ghl(`/conversations/search?locationId=${GHL_LOCATION}&contactId=${m.ghl_contact_id}&limit=1`, {}, "2021-04-15");
     convId = found?.conversations?.[0]?.id;
-    if (!convId) { await admin.from("meetings").update({ messages_synced_at: nowIso() }).eq("id", m.id); return { added: 0 }; }
+    if (!convId) {
+      if (!m.messages_synced_at || Date.now() - Date.parse(m.messages_synced_at) > 6 * 3600e3) await admin.from("meetings").update({ messages_synced_at: nowIso() }).eq("id", m.id);
+      return { added: 0 };
+    }
   }
   const body = await ghl(`/conversations/${convId}/messages?limit=50`, {}, "2021-04-15");
   const list: any[] = body?.messages?.messages || body?.messages || [];
@@ -400,15 +403,21 @@ async function syncMessages(admin: SupabaseClient, m: any) {
     status: x.status || null, error: x.error ? String(x.error).slice(0, 300) : null,
     at: new Date(x.dateAdded).toISOString(),
   }));
-  const { data: have } = rows.length ? await admin.from("precall_messages").select("ghl_message_id").in("ghl_message_id", rows.map((r) => r.ghl_message_id)) : { data: [] };
-  const known = new Set((have || []).map((r: any) => r.ghl_message_id));
+  const { data: have } = rows.length ? await admin.from("precall_messages").select("ghl_message_id, status, error").in("ghl_message_id", rows.map((r) => r.ghl_message_id)) : { data: [] };
+  const known = new Map((have || []).map((r: any) => [r.ghl_message_id, r]));
   const fresh = rows.filter((r) => !known.has(r.ghl_message_id));
   if (fresh.length) await admin.from("precall_messages").insert(fresh);
-  // Delivery status changes (sent -> delivered / failed) on ones already in.
-  for (const r of rows.filter((r) => known.has(r.ghl_message_id))) {
-    await admin.from("precall_messages").update({ status: r.status, error: r.error }).eq("ghl_message_id", r.ghl_message_id);
+  // Delivery status changes (sent -> delivered / failed) on ones already in -
+  // only the ones that changed, since every write reloads each open CRM.
+  for (const r of rows) {
+    const k: any = known.get(r.ghl_message_id);
+    if (k && ((k.status || null) !== (r.status || null) || (k.error || null) !== (r.error || null))) {
+      await admin.from("precall_messages").update({ status: r.status, error: r.error }).eq("ghl_message_id", r.ghl_message_id);
+    }
   }
-  await admin.from("meetings").update({ ghl_conversation_id: convId, messages_synced_at: nowIso() }).eq("id", m.id);
+  if (convId !== m.ghl_conversation_id || fresh.length || !m.messages_synced_at || Date.now() - Date.parse(m.messages_synced_at) > 6 * 3600e3) {
+    await admin.from("meetings").update({ ghl_conversation_id: convId, messages_synced_at: nowIso() }).eq("id", m.id);
+  }
   return { added: fresh.length };
 }
 // Every meeting coming up, or in the last two days, with a GHL contact.
@@ -651,6 +660,12 @@ async function poll(admin: SupabaseClient) {
     }
     patch.calendar_flag_detail = flags;
     patch.calendar_flag = topFlag(flags);
+    // Only write when something actually changed: every write makes each open
+    // CRM reload all its data, and that every 5 minutes can upset calls.
+    const same = patch.calendar_flag === m.calendar_flag && JSON.stringify(flags) === JSON.stringify(m.calendar_flag_detail || {})
+      && !patch.prospect_response && !("confirmation_status" in patch)
+      && m.calendar_checked_at && Date.now() - Date.parse(m.calendar_checked_at) < 6 * 3600e3;
+    if (same) continue;
     if (patch.calendar_flag !== m.calendar_flag || patch.prospect_response) changed++;
     const { data: saved } = await admin.from("meetings").update(patch).eq("id", m.id).select().single();
     if (saved && saved.confirmation_status !== before) await syncGhl(admin, saved, "google");
