@@ -1760,6 +1760,8 @@ const MAIN_NAV = [
     pages: [["ad-production", "Ad production"], ["ads-month", "Ads this month"], ["creative", "Creative library"]] },
   { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
     pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results"], ["lead-schedule", "Schedule"], ["lead-results", "Setup"]] },
+  { key: "plastering", label: "Plastering leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
+    pages: [["plastering-leads", "Plastering leads"]] },
   { key: "library", label: "Library", icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
     pages: [["meeting", "Meeting structure"], ["sit-rate", "Sit rate process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks"], ["rules", "Rules"]] },
   { key: "team", label: "Team", icon: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
@@ -1861,6 +1863,7 @@ function mainNavRender(){
       if (key === "clients") return canAccessDelivery() ? inboxWaiting().filter(e => e.client_id).length : 0;
       if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length;
       if (key === "ads") return Number($("#nav-ads-count")?.textContent) || 0;
+      if (key === "plastering") return plNewCount();
     } catch(e){}
     return 0;
   };
@@ -14785,6 +14788,123 @@ function apSeedDemo(){
   state.apBrands = [{ client_id: reviewJob.client_id, voice: "Friendly and straight-talking, a bit of Kiwi humour", colours: "Navy and orange", logo_url: null, reference_image_urls: [], do_not_say: "Cheapest; 24/7" }];
 }
 
+/* ───────── Plastering leads (Priceless Plastering & Painting website) ───────── */
+// Quote requests from the Priceless Plastering & Painting website land in
+// plastering_leads (sql/114, added by the site through
+// submit_plastering_lead). The page loads its own rows and keeps them live
+// with its own listener, so it never touches DataLayer's positional load.
+const PL_STATUSES = [["new", "New"], ["contacted", "Contacted"], ["quoted", "Quoted"], ["won", "Won"], ["lost", "Lost"]];
+const PL_OPEN = new Set(["new", "contacted", "quoted"]);
+const PL_FILTERS = [["open", "To do"], ...PL_STATUSES, ["all", "All"]];
+let plLeads = null, plLoading = false, plLoadErr = "", plLive = false, plFilter = "open", plBound = false;
+function plDemoLeads(){
+  const ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
+  return [
+    { id: "pl-demo-1", created_at: ago(12), name: "Sarah Mitchell", phone: "021 555 0142", email: "sarah@example.com", suburb: "Henderson", service: "Plaster Repairs & Skim Coating", timing: "As soon as possible", message: "Two cracked walls in the lounge and a hole behind the door.", source: "Homepage hero", status: "new" },
+    { id: "pl-demo-2", created_at: ago(60 * 26), name: "Tom Wiremu", phone: "027 555 0199", suburb: "Takanini", service: "GIB Stopping & Plastering", timing: "Within a month", message: "", source: "Service: GIB Stopping & Plastering", status: "contacted", notes: "Site visit Thursday 10am" },
+    { id: "pl-demo-3", created_at: ago(60 * 24 * 4), name: "Priya Shah", phone: "022 555 0123", suburb: "Botany Downs", service: "Exterior Plastering & Rendering", timing: "1 to 3 months", source: "Contact page", status: "quoted", notes: "Quoted $4,800" },
+  ];
+}
+async function plLoad(){
+  if (!IS_CONFIGURED){ if (!plLeads) plLeads = plDemoLeads(); return; }
+  if (plLoading) return;
+  plLoading = true;
+  try {
+    const { data, error } = await supabase.from("plastering_leads").select("*").order("created_at", { ascending: false }).limit(1000);
+    if (error) plLoadErr = "Couldn't load the plastering leads. Refresh to try again.";
+    else { plLeads = data || []; plLoadErr = ""; }
+  } finally { plLoading = false; }
+  if (!plLive){
+    plLive = true;
+    supabase.channel("pl-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "plastering_leads" }, () => {
+        plLoad().then(() => { if (state.page === "plastering-leads") renderPlasteringLeads(); mainNavRender(); });
+      })
+      .subscribe();
+  }
+}
+// New leads waiting, for the menu badge. Loads once in the background.
+function plNewCount(){
+  if (plLeads === null){
+    if (!plLoading) plLoad().then(() => mainNavRender());
+    return 0;
+  }
+  return plLeads.filter(l => l.status === "new").length;
+}
+function plCardHtml(l){
+  const facts = [l.service, l.suburb, l.timing].filter(Boolean).map(escapeHtml).join(" · ");
+  const tel = String(l.phone || "").replace(/[^\d+]/g, "");
+  return `<article class="pl-card${l.status === "new" ? " is-new" : ""}" data-pl-id="${escapeHtml(l.id)}">
+    <div class="pl-main">
+      <div class="pl-top">
+        <h3>${escapeHtml(l.name)}</h3>
+        <span class="pl-when">${escapeHtml(lqTime(l.created_at))}</span>
+      </div>
+      ${facts ? `<p class="pl-facts">${facts}</p>` : ""}
+      ${l.message ? `<p class="pl-msg">${escapeHtml(l.message)}</p>` : ""}
+      <p class="pl-contact">
+        ${tel ? `<a class="pl-call" href="tel:${escapeHtml(tel)}">Call ${escapeHtml(l.phone)}</a>` : ""}
+        ${l.email ? `<a class="pl-email" href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>` : ""}
+      </p>
+      ${l.source ? `<p class="pl-source">From the website: ${escapeHtml(l.source)}</p>` : ""}
+    </div>
+    <div class="pl-side">
+      <label>Where it's at
+        <select data-pl-status>${PL_STATUSES.map(([k, t]) => `<option value="${k}"${k === l.status ? " selected" : ""}>${t}</option>`).join("")}</select>
+      </label>
+      <label>Notes
+        <textarea data-pl-notes rows="3" placeholder="Site visit time, quote amount, anything else">${escapeHtml(l.notes || "")}</textarea>
+      </label>
+    </div>
+  </article>`;
+}
+function renderPlasteringLeads(){
+  const root = $("#pl-root");
+  if (!root) return;
+  plBind(root);
+  if (plLeads === null){
+    root.innerHTML = `<div class="pl-head"><h2>Plastering leads</h2></div><p class="pl-empty">${plLoadErr ? escapeHtml(plLoadErr) : "Loading the leads…"}</p>`;
+    if (!plLoading && !plLoadErr) plLoad().then(renderPlasteringLeads);
+    return;
+  }
+  const count = (f) => plLeads.filter(l => f === "all" || (f === "open" ? PL_OPEN.has(l.status) : l.status === f)).length;
+  const list = plLeads.filter(l => plFilter === "all" || (plFilter === "open" ? PL_OPEN.has(l.status) : l.status === plFilter));
+  root.innerHTML = `
+    <div class="pl-head">
+      <div>
+        <h2>Plastering leads</h2>
+        <p>Quote requests from the Priceless Plastering &amp; Painting website. New ones show here straight away.</p>
+      </div>
+    </div>
+    <div class="pl-pills" role="tablist">${PL_FILTERS.map(([k, t]) => `<button type="button" class="pl-pill${k === plFilter ? " active" : ""}" data-pl-filter="${k}">${t} <span>${count(k)}</span></button>`).join("")}</div>
+    <div class="pl-list">${list.length ? list.map(plCardHtml).join("") : `<p class="pl-empty">${plLeads.length ? "Nothing here." : "No plastering leads yet. They'll show here as soon as someone fills in the quote form."}</p>`}</div>`;
+}
+async function plSave(id, patch){
+  const l = (plLeads || []).find(x => x.id === id);
+  if (!l) return;
+  Object.assign(l, patch, { updated_at: new Date().toISOString(), updated_by: state.user?.email || null });
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("plastering_leads")
+      .update({ ...patch, updated_at: l.updated_at, updated_by: l.updated_by }).eq("id", id);
+    if (error) alert("Couldn't save that. Check your connection and try again.");
+  }
+  mainNavRender();
+}
+function plBind(root){
+  if (plBound) return;
+  plBound = true;
+  root.addEventListener("click", (e) => {
+    const f = e.target.closest("[data-pl-filter]");
+    if (f){ plFilter = f.dataset.plFilter; renderPlasteringLeads(); }
+  });
+  root.addEventListener("change", (e) => {
+    const card = e.target.closest("[data-pl-id]");
+    if (!card) return;
+    if (e.target.matches("[data-pl-status]")) plSave(card.dataset.plId, { status: e.target.value }).then(renderPlasteringLeads);
+    if (e.target.matches("[data-pl-notes]")) plSave(card.dataset.plId, { notes: e.target.value.trim() || null });
+  });
+}
+
 const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
@@ -14799,6 +14919,7 @@ const RENDERERS = [
   [renderLeadQueue, ["lead-queue"]], [renderLeadCalls, ["lead-calls"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [renderLeadSchedule, ["lead-schedule"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]], [lqAlertCheck, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
   [renderAdProduction, ["ad-production"]], [apNavCount, ["*"]],
+  [renderPlasteringLeads, ["plastering-leads"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
