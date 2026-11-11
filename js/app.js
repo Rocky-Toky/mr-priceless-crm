@@ -1303,6 +1303,7 @@ async function initAuth(){
     pmSeedDemo();
     showApp();
     setupClientInbox();
+    setupToday();
     setupEmployees();
     setupFollowUps();
     setupLeadCalls();
@@ -1410,6 +1411,7 @@ async function handleSignedInNow(session, freshLogin){
   if (shown) renderAll(); else showApp();
   subscribeRealtime();
   setupClientInbox();
+  setupToday();
   setupEmployees();
   setupFollowUps();
   setupLeadCalls();
@@ -1689,15 +1691,17 @@ function applyWorkspace(){
   if (dashSubEl) dashSubEl.textContent = copy.dashboardSub;
   // If the page we're on isn't part of this workspace, fall back to Dashboard.
   // Each workspace opens on its main page: Meetings Booked, Clients, Employees, or the call queue.
-  const landing = ws === "delivery" ? "clients" : ws === "employees" ? "employees" : ws === "leads" ? "lead-queue" : "cold-calls";
+  const landing = mainMode() ? "today" : ws === "delivery" ? "clients" : ws === "employees" ? "employees" : ws === "leads" ? "lead-queue" : "cold-calls";
   const pageBtns = $$(`.nav-item[data-page="${state.page}"]`);
-  if (!workspaceLanded || (pageBtns.length && !pageBtns.some(b => (b.dataset.workspace === "all" && ws !== "leads") || (b.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || b.dataset.workspace === ws))){
+  if (mainNoLanding){ /* the one menu is opening a page in this workspace */ }
+  else if (!workspaceLanded || (isLeadsOnly() && !LEADS_ONLY_PAGES.includes(state.page)) || (pageBtns.length && !pageBtns.some(b => (b.dataset.workspace === "main" && mainMode()) || (b.dataset.workspace === "all" && ws !== "leads") || (b.dataset.workspace === "both" && !SOLO_WORKSPACES.has(ws)) || b.dataset.workspace === ws))){
     workspaceLanded = true;
     $(`.nav-item[data-page="${landing}"]`)?.click();
   }
   if (state.page === "lead-engine" && !canAccessLeadEngine()) goPage(landing);
   wsMenuSync();
   renderInboxAlert();
+  mainNavRender();
 }
 // The workspace picker: our own dark menu in place of the browser's white
 // dropdown list. The real <select> stays (hidden) and still drives everything.
@@ -1739,16 +1743,41 @@ function setupWsMenu(){
   select.addEventListener("change", wsMenuSync);
   wsMenuSync();
 }
-// Pages that live together under one menu item, switched with tabs at the top.
-const PAGE_GROUPS = {
-  deals: [["deals", "Pipeline"]],
-  prospects: [["lead-engine", "Add prospects"], ["contacts", "Contacts"]],
-  stats: [["rates", "Rates"]],
-  tasks: [["todo", "This week"], ["tasks", "All tasks"]],
-  library: [["meeting", "Meeting structure"], ["sit-rate", "Meeting Sit Rate Process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks"], ["rules", "Rules"]],
-  finance: [["receipts", "Receipts"], ["expenses", "Expenses"]],
-  ads: [["ad-production", "Ad production"], ["ads-month", "Ads this month"]],
-};
+// ───────── One menu (Rocky's overhaul, Nov 2026) ─────────
+// Everyone except Lead Follow Up only logins gets ONE short menu instead of
+// four workspaces. Each item is a section with simple tabs at the top of its
+// pages. The workspaces still exist underneath (pages, the Library's emails,
+// the new-lead pop-up and the inbox bar all lean on them); opening a page
+// quietly switches to the workspace it belongs to (mainEnsureWs).
+const MAIN_NAV = [
+  { key: "today", label: "Today", icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    pages: [["today", "Today"], ["todo", "This week"], ["tasks", "All tasks"]] },
+  { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
+    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["deals", "Pipeline"], ["lead-engine", "Add prospects"], ["contacts", "Contacts"], ["rates", "Stats"]] },
+  { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
+    pages: [["client-inbox", "Inbox"], ["onboarding", "Onboarding"], ["clients", "Clients"], ["reporting", "Reports"], ["workshops", "Workshops"]] },
+  { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
+    pages: [["ad-production", "Ad production"], ["ads-month", "Ads this month"], ["creative", "Creative library"]] },
+  { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
+    pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results"], ["lead-schedule", "Schedule"], ["lead-results", "Setup"]] },
+  { key: "library", label: "Library", icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
+    pages: [["meeting", "Meeting structure"], ["sit-rate", "Sit rate process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks"], ["rules", "Rules"]] },
+  { key: "team", label: "Team", icon: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
+    pages: [["employees", "Team"], ["receipts", "Receipts"], ["expenses", "Expenses"]] },
+];
+const PAGE_GROUPS = Object.fromEntries(MAIN_NAV.filter(s => s.pages.length > 1).map(s => [s.key, s.pages]));
+const mainMode = () => !isLeadsOnly();
+const DELIVERY_ONLY_PAGES = new Set(["receipts", "expenses"]);
+// Can this person open this page from the one menu?
+function mainPageOk(page){
+  if (page === "lead-engine") return canAccessLeadEngine();
+  if (page === "lead-results") return !IS_CONFIGURED || isRocky() || isMax();
+  if (DELIVERY_ONLY_PAGES.has(page)) return canAccessDelivery();
+  const sec = MAIN_NAV.find(x => x.pages.some(([p]) => p === page));
+  if (sec?.delivery) return canAccessDelivery();
+  return true;
+}
+const mainSectionOf = (page) => MAIN_NAV.find(x => x.pages.some(([p]) => p === page)) || null;
 const groupOfPage = (page) => Object.keys(PAGE_GROUPS).find(g => PAGE_GROUPS[g].some(([p]) => p === page)) || null;
 function goPage(page){ $(`.nav-item[data-page="${page}"]`)?.click(); }
 // Tabs someone can actually open (Add prospects is Rocky and Max only).
@@ -1756,9 +1785,11 @@ function goPage(page){ $(`.nav-item[data-page="${page}"]`)?.click(); }
 // rate, playbooks, sales emails) and the delivery side (service and
 // onboarding emails, rules). Email templates show in both, filtered.
 const LIBRARY_WS = { meeting: "sales", "sit-rate": "sales", playbooks: "sales", rules: "delivery" };
-const tabInWorkspace = (p) => !LIBRARY_WS[p] || LIBRARY_WS[p] === (getWorkspace() === "sales" ? "sales" : "delivery");
-const groupPages = (group) => PAGE_GROUPS[group].filter(([p]) => (p !== "lead-engine" || canAccessLeadEngine()) && tabInWorkspace(p));
+// With the one menu, the Library shows everything (each page switches to its own workspace).
+const tabInWorkspace = (p) => mainMode() || !LIBRARY_WS[p] || LIBRARY_WS[p] === (getWorkspace() === "sales" ? "sales" : "delivery");
+const groupPages = (group) => (PAGE_GROUPS[group] || []).filter(([p]) => (p !== "lead-engine" || canAccessLeadEngine()) && tabInWorkspace(p) && (!mainMode() || mainPageOk(p)));
 function lastTabOf(group){
+  if (!PAGE_GROUPS[group]) return null;
   let p = null; try { p = localStorage.getItem("mp_tab_" + group); } catch(e){}
   const pages = groupPages(group);
   return pages.some(([x]) => x === p) ? p : (pages[0] || PAGE_GROUPS[group][0])[0];
@@ -1772,7 +1803,7 @@ function syncPageGroup(){
   $$(".page-tabs").forEach(t => {
     t.querySelectorAll("button").forEach(b => {
       b.classList.toggle("active", b.dataset.goto === state.page);
-      b.hidden = (b.dataset.goto === "lead-engine" && !canAccessLeadEngine()) || !tabInWorkspace(b.dataset.goto);
+      b.hidden = (b.dataset.goto === "lead-engine" && !canAccessLeadEngine()) || !tabInWorkspace(b.dataset.goto) || (mainMode() && !mainPageOk(b.dataset.goto));
     });
     t.hidden = [...t.querySelectorAll("button")].filter(b => !b.hidden).length < 2;
   });
@@ -1787,8 +1818,60 @@ function setupPageGroups(){
     tabs.addEventListener("click", (e) => { const b = e.target.closest("[data-goto]"); if (b) goPage(b.dataset.goto); });
     if (head) head.parentNode.insertBefore(tabs, head); else sec.insertBefore(tabs, sec.firstChild);
   }));
-  $$(".nav-group-item").forEach(b => b.addEventListener("click", () => goPage(lastTabOf(b.dataset.group))));
+  $$(".nav-group-item").forEach(b => b.addEventListener("click", () => { const p = lastTabOf(b.dataset.group); if (p) goPage(p); }));
 }
+// Opening a page from the one menu: switch to the workspace it belongs to
+// first, without the workspace's own "go to my landing page" jump.
+let mainNoLanding = false;
+function mainEnsureWs(page){
+  if (!mainMode() || !page) return;
+  const btn = $(`.nav-item[data-page="${page}"]`), w = btn?.dataset.workspace, cur = getWorkspace();
+  let target = null;
+  if (["sales", "delivery", "leads", "employees"].includes(w)) target = w;
+  else if (w === "both" && SOLO_WORKSPACES.has(cur)) target = "sales";
+  else if (w === "all" && cur === "leads") target = "delivery";
+  if (!target || target === cur || (target === "delivery" && !canAccessDelivery())) return;
+  try { localStorage.setItem(WORKSPACE_KEY, target); } catch(e){}
+  mainNoLanding = true;
+  try { applyWorkspace(); } finally { mainNoLanding = false; }
+}
+// The one menu itself: built once into the sidebar, kept in step on every page change.
+function mainNavRender(){
+  const nav = $(".sidebar .nav");
+  document.body.classList.toggle("main-nav", mainMode());
+  if (!nav || !mainMode()) return;
+  let box = nav.querySelector(".nav-main");
+  if (!box){
+    box = document.createElement("div");
+    box.className = "nav-main";
+    nav.prepend(box);
+    box.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-main]");
+      if (!b) return;
+      const sec = MAIN_NAV.find(x => x.key === b.dataset.main);
+      let p = null; try { p = localStorage.getItem("mp_main_" + sec.key); } catch(err){}
+      const ok = sec.pages.map(([x]) => x).filter(mainPageOk);
+      goPage(ok.includes(p) ? p : ok[0]);
+    });
+  }
+  const cur = mainSectionOf(state.page)?.key;
+  const count = (key) => {
+    try {
+      if (key === "today") return todayItems().filter(x => x.tone !== "ok").length;
+      if (key === "clients") return canAccessDelivery() ? inboxWaiting().filter(e => e.client_id).length : 0;
+      if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length;
+      if (key === "ads") return Number($("#nav-ads-count")?.textContent) || 0;
+    } catch(e){}
+    return 0;
+  };
+  box.innerHTML = MAIN_NAV.filter(sec => sec.pages.some(([p]) => mainPageOk(p))).map(sec => {
+    const n = count(sec.key);
+    return `<button type="button" class="nav-item nav-main-item${sec.key === cur ? " active" : ""}" data-main="${sec.key}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${sec.icon}</svg><span>${escapeHtml(sec.label)}</span>${n ? `<span class="nav-count${sec.key === "today" ? " hot" : ""}">${n}</span>` : ""}</button>`;
+  }).join("");
+  if (cur){ try { localStorage.setItem("mp_main_" + cur, state.page); } catch(e){} }
+}
+
 // Pages that fit the screen on desktop: the header stays put and only the
 // main list / board / table scrolls inside itself. Each entry is the chain
 // from the page down to the thing that should scroll.
@@ -1837,6 +1920,7 @@ function setupNav(){
   $$(".nav-item[data-page]").forEach(btn => {
     btn.addEventListener("click", () => {
       if (isLeadsOnly() && !LEADS_ONLY_PAGES.includes(btn.dataset.page)){ if (btn.dataset.page !== "lead-queue") $('.nav-item[data-page="lead-queue"]')?.click(); return; }
+      mainEnsureWs(btn.dataset.page);
       flushRenders();
       state.page = btn.dataset.page;
       $$(".nav-item[data-page]").forEach(b => b.classList.toggle("active", b === btn));
@@ -1844,6 +1928,7 @@ function setupNav(){
       showJarvisFab();
       acFabSync();
       syncPageGroup();
+      mainNavRender();
       empNavRender(); // lights up (or clears) the person picked in the Employees menu
       $$(".nav-dropdown.open").forEach(d => d.classList.remove("open"));
     });
@@ -10942,7 +11027,7 @@ async function loadClientInbox(){
   state.inboxMissing = Boolean(em.error);
   state.inboxLoaded = true;
 }
-function refreshInboxViews(){ renderInboxAlert(); if (state.page === "client-inbox") renderClientInbox(); }
+function refreshInboxViews(){ renderInboxAlert(); if (state.page === "client-inbox") renderClientInbox(); if (state.page === "today") renderToday(); mainNavRender(); }
 // A new client email: a desktop notification (if they're turned on) and a toast.
 function notifyClientEmail(row){
   if (!row || row.status !== "new" || !inboxHere()) return;
@@ -11149,7 +11234,8 @@ function renderInboxAlert(){
   document.title = waiting.length ? `(${waiting.length}) ${INBOX_BASE_TITLE}` : INBOX_BASE_TITLE;
   const bar = $("#inbox-alert");
   if (!bar) return;
-  const show = waiting.length && state.page !== "client-inbox";
+  // Not on the inbox itself, nor on Today (which lists every waiting email).
+  const show = waiting.length && state.page !== "client-inbox" && state.page !== "today";
   document.body.classList.toggle("has-inbox-alert", Boolean(show));
   if (!show){ bar.hidden = true; return; }
   const oldest = waiting[0], urgent = Date.now() - new Date(oldest.received_at) > INBOX_URGENT_MS;
@@ -11293,6 +11379,165 @@ function setupClientInboxUi(){
       renderClientInbox();
     }
   });
+}
+
+/* ───────── Today: every deliverable due, in one list ─────────
+   Rocky's overhaul (Nov 2026): the CRM opens here, so nothing gets missed.
+   Each row is one thing to do, most urgent first, with the button to do it
+   (or to open the page it lives on). Worked out from what's already loaded:
+   client emails / Friday check-ins / fortnightly reports (Client inbox),
+   meeting tasks, workshops and ads due this month, onboarding clients that
+   are behind, payments due, overdue to-dos, and leads waiting for a call.
+   tone: "bad" = overdue, "warn" = due today, "ok" = coming up later today. */
+let todayWho = "all";
+try { todayWho = localStorage.getItem("mp_today_who") || "all"; } catch(e){}
+const TODAY_AREAS = { clients: "Clients", sales: "Sales", ads: "Ads", leads: "Lead calls", money: "Payments", tasks: "To-do" };
+function todayItems(){
+  const items = [], now = Date.now(), today = localDayStr();
+  const btn = (label, attrs, cls = "ghost") => `<button type="button" class="td-btn ${cls}" ${attrs}>${escapeHtml(label)}</button>`;
+  const go = (label, page, cls) => btn(label, `data-td-go="${page}"`, cls);
+  const openClient = (id, label = "Open") => btn(label, `data-td-client="${id}"`);
+  const delivery = canAccessDelivery();
+  const safe = (fn) => { try { fn(); } catch(e){ console.warn("today:", e); } };
+
+  // Client inbox: emails waiting on a reply, Friday check-in calls, fortnightly reports.
+  if (delivery) safe(() => inboxWaiting().filter(e => e.client_id).forEach(e => {
+    const c = state.clients.find(x => x.id === e.client_id), name = inboxShortName(c?.name || e.client_name) || "a client";
+    const hrs = (now - new Date(e.received_at).getTime()) / 3600e3, owner = personKeyFromEmail(e.inbox_email);
+    if (inboxIsCheckin(e)){
+      items.push({ area: "clients", owner, tone: hrs > 2 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
+        title: `Call ${name} - ${e.subject || "check-in call"}`, sub: "A friendly check-in: how the first weeks are going and anything they need.",
+        actions: (c?.phone ? btn(`Call ${name}`, `data-action="call-number" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name || "")}"`, "gold") : "") + btn("Called them ✓", `data-td-done="${e.id}"`) });
+    } else if (inboxIsReport(e)){
+      items.push({ area: "clients", owner, tone: hrs > 24 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
+        title: `Send ${name}'s fortnightly report`, sub: `Due ${inboxAge(e.received_at)} ago.`,
+        actions: go("Make the report", "reporting", "gold") + btn("Sent it ✓", `data-td-done="${e.id}"`) });
+    } else {
+      items.push({ area: "clients", owner, tone: hrs > 2 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
+        title: `Reply to ${e.from_name || e.from_email || "them"} at ${name}`, sub: `${e.subject || "(no subject)"} · waiting ${inboxAge(e.received_at)}`,
+        actions: `<a class="td-btn gold" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail</a>` + btn("No reply needed", `data-td-done="${e.id}"`) });
+    }
+  }));
+
+  // Meeting tasks that are due now (booking texts, reminder calls, outcomes...).
+  safe(() => pmMyTasks(true).forEach(t => {
+    const m = t.meeting, who = [m.first_name, m.last_name].filter(Boolean).join(" ") || m.company || "the prospect";
+    items.push({ area: "sales", owner: t.owner, tone: t.state === "late" ? "bad" : "warn", at: t.due,
+      title: `${t.label} - ${who}`, sub: `Meeting ${nzDayStr(new Date(m.starts_at)) === nzDayStr(new Date()) ? "today" : "on " + new Date(m.starts_at).toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })} at ${pmTime(m.starts_at)}`,
+      actions: (m.phone && (t.kind === "call" || t.kind === "text") ? `<a class="td-btn gold" href="${t.kind === "text" ? "sms" : "tel"}:${escapeHtml(m.phone)}">${t.kind === "text" ? "Text" : "Call"} ${escapeHtml(m.first_name || "them")}</a>` : "") + go("Open", "meetings") });
+  }));
+  // Meetings still to happen today.
+  safe(() => state.meetings.filter(m => m.status === "scheduled" && nzDayStr(new Date(m.starts_at)) === nzDayStr(new Date()) && Date.parse(m.starts_at) > now).forEach(m => {
+    items.push({ area: "sales", owner: m.closer, tone: "ok", at: Date.parse(m.starts_at),
+      title: `Meeting with ${[m.first_name, m.last_name].filter(Boolean).join(" ") || "a prospect"} at ${pmTime(m.starts_at)}`, sub: m.company || "",
+      actions: (m.meet_link ? `<a class="td-btn" href="${escapeHtml(m.meet_link)}" target="_blank" rel="noopener">Join</a>` : "") + go("Open", "meetings") });
+  }));
+
+  if (delivery) safe(() => {
+    const live = state.clients.filter(c => !inOnboardingSection(c) && ["quote_guarantee", "live", "at_risk"].includes(normalizeClientStage(c.stage)));
+    // Ads due this month.
+    live.forEach(c => {
+      const am = amClientProgress(c);
+      if (am.live >= am.target) return;
+      const owner = (c.onboarding_progress || {}).owner || null;
+      items.push({ area: "ads", owner, tone: am.overdue ? "bad" : "warn", at: now,
+        title: `${inboxShortName(c.name)}: ${am.live} of ${am.target} ads live this month`, sub: am.overdue ? "Behind - some are past their due date." : "Still to go live this month.",
+        actions: go("Ads this month", "ads-month", am.overdue ? "gold" : "ghost") });
+    });
+    // Workshops still to do this month.
+    live.filter(isWorkshopClient).filter(c => !doneThisMonth(c)).forEach(c => {
+      const day = new Date().getDate();
+      items.push({ area: "clients", owner: (c.onboarding_progress || {}).owner || null, tone: day >= 20 ? "bad" : "warn", at: now,
+        title: `Workshop with ${inboxShortName(c.name)} this month`, sub: day >= 20 ? "Month's nearly over - book it in." : "Not done yet this month.",
+        actions: btn("Log workshop", `data-td-ws="${c.id}"`, day >= 20 ? "gold" : "ghost") + openClient(c.id) });
+    });
+    // Onboarding clients that are behind or waiting on the client.
+    state.clients.filter(inOnboardingSection).forEach(c => {
+      const ls = launchState(c);
+      if (!["late", "stalled", "client", "ready"].includes(ls.status.key)) return;
+      items.push({ area: "clients", owner: ls.owner, tone: ["late", "stalled"].includes(ls.status.key) ? "bad" : "warn", at: now,
+        title: `${inboxShortName(c.name)}: ${ls.status.key === "ready" ? "ready to finish onboarding" : ls.status.label.toLowerCase()}`,
+        sub: ls.nextTask ? `Next: ${ls.nextTask.label}` : `Onboarding step ${ls.current + 1} of ${LAUNCH_MILESTONES.length}`,
+        actions: openClient(c.id, ls.status.key === "ready" ? "Finish onboarding" : "Open") });
+    });
+    // Payments due.
+    state.clients.filter(c => { try { return rcActive(c); } catch(e){ return false; } }).forEach(c => {
+      const next = rcNextDue(c);
+      if (!next || next.date > today) return;
+      items.push({ area: "money", owner: null, tone: next.date < today ? "bad" : "warn", at: now,
+        title: `Payment due from ${inboxShortName(c.name)}`, sub: next.date < today ? `Was due ${new Date(next.date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : "Due today",
+        actions: go("Receipts", "receipts") });
+    });
+  });
+
+  // To-dos due today or overdue.
+  safe(() => state.tasks.filter(t => t.status === "open" && t.due_date && t.due_date <= today).forEach(t => {
+    items.push({ area: "tasks", owner: t.assignee || null, tone: t.due_date < today ? "bad" : "warn", at: now,
+      title: t.title || "To-do", sub: t.due_date < today ? `Was due ${new Date(t.due_date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : "Due today",
+      actions: btn("Done ✓", `data-td-task="${t.id}"`) + go("Open", "tasks") });
+  }));
+
+  // Leads waiting for a call (one row, not one per lead).
+  safe(() => {
+    const due = state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l));
+    if (!due.length) return;
+    const fresh = due.filter(l => (l.follow_status || "new") === "new" && now - lqIn(l) < 24 * 3600e3);
+    const late = fresh.some(l => now - lqIn(l) > LQ_FAST_MS);
+    items.push({ area: "leads", owner: null, tone: late ? "bad" : "warn", at: now,
+      title: `${due.length} lead${due.length === 1 ? "" : "s"} waiting for a call`, sub: fresh.length ? `${fresh.length} new enquir${fresh.length === 1 ? "y" : "ies"}${late ? " - past the 3 minutes" : ""}` : "Retries and call-backs that are due",
+      actions: go("Open the call queue", "lead-queue", late ? "gold" : "ghost") });
+  });
+
+  const rank = { bad: 0, warn: 1, ok: 2 };
+  return items.sort((a, b) => rank[a.tone] - rank[b.tone] || a.at - b.at);
+}
+function renderToday(){
+  const root = $("#today-root");
+  if (!root) return;
+  const me = pmMe();
+  const all = todayItems();
+  const list = todayWho === "mine" ? all.filter(x => !x.owner || x.owner === me) : all;
+  const urgent = list.filter(x => x.tone !== "ok").length;
+  const first = (ASSIGNEES[me]?.label || "").split(" ")[0];
+  const hour = nzParts(new Date()).h, hello = hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening";
+  const dateLine = new Date().toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long" });
+  const row = (x) => `<article class="td-row ${x.tone}">
+      <span class="td-dot" aria-hidden="true"></span>
+      <div class="td-main"><b>${escapeHtml(x.title)}</b>${x.sub ? `<small>${escapeHtml(x.sub)}</small>` : ""}</div>
+      <span class="td-area">${escapeHtml(TODAY_AREAS[x.area] || "")}</span>
+      <div class="td-acts">${x.actions || ""}</div>
+    </article>`;
+  const groups = [["bad", "Overdue"], ["warn", "Due today"], ["ok", "Later today"]].map(([t, label]) => {
+    const g = list.filter(x => x.tone === t);
+    return g.length ? `<section class="td-group"><h3>${label}<span>${g.length}</span></h3>${g.map(row).join("")}</section>` : "";
+  }).join("");
+  root.innerHTML = `
+    <header class="td-head">
+      <div><p class="td-date">${escapeHtml(dateLine)}</p><h2>${escapeHtml(hello)}${first ? `, ${escapeHtml(first)}` : ""}</h2>
+        <p class="td-sum">${urgent ? `<b>${urgent}</b> thing${urgent === 1 ? "" : "s"} to do` : "You're all caught up."}</p></div>
+      <div class="td-who" role="tablist">
+        <button type="button" class="${todayWho === "all" ? "on" : ""}" data-td-who="all">Everything</button>
+        <button type="button" class="${todayWho === "mine" ? "on" : ""}" data-td-who="mine">Just mine</button>
+      </div>
+    </header>
+    ${groups || `<div class="td-clear"><b>All clear</b><span>Nothing's due right now. New things land here the moment they're due.</span></div>`}`;
+}
+function setupToday(){
+  const root = $("#today-root");
+  if (!root || root.dataset.wired) return;
+  root.dataset.wired = "1";
+  root.addEventListener("click", async (e) => {
+    const t = e.target.closest("[data-td-go],[data-td-client],[data-td-done],[data-td-who],[data-td-ws],[data-td-task]");
+    if (!t) return;
+    if (t.dataset.tdWho){ todayWho = t.dataset.tdWho; try { localStorage.setItem("mp_today_who", todayWho); } catch(err){} return renderToday(); }
+    if (t.dataset.tdGo) return goPage(t.dataset.tdGo);
+    if (t.dataset.tdClient){ state.selectedClientId = t.dataset.tdClient; state.clientBackTo = null; goPage("clients"); return renderClients(); }
+    if (t.dataset.tdWs) return openWorkshopModal(t.dataset.tdWs);
+    if (t.dataset.tdDone){ t.disabled = true; await setClientEmailStatus(t.dataset.tdDone, "done"); renderToday(); mainNavRender(); return; }
+    if (t.dataset.tdTask){ t.disabled = true; await DataLayer.update("tasks", t.dataset.tdTask, { status: "done", updated_at: new Date().toISOString() }); if (IS_CONFIGURED){ await DataLayer.fetchAll(); } renderAll(); }
+  });
+  // Times move on: refresh the list every minute while it's open.
+  setInterval(() => { if (state.page === "today" && !document.hidden) renderToday(); }, 60e3);
 }
 
 /* ───────── Employees ─────────
@@ -11553,6 +11798,7 @@ function renderEmployees(){
   const sel = state.employees.find(e => e.id === empSel);
   root.innerHTML = `
     ${state.empMissing ? `<div class="inbox-setup"><b>Employees is still being set up.</b> It switches on once the latest database update has run.</div>` : ""}
+    ${mainMode() && current.length > 1 ? `<nav class="tp-people" aria-label="Team">${current.map(e => `<button type="button" class="${e.id === empSel ? "on" : ""}" data-emp-sel="${escapeHtml(e.id)}"><i>${escapeHtml(empInitials(e.name))}</i>${escapeHtml(e.name.split(" ")[0])}</button>`).join("")}</nav>` : ""}
     <section class="emp-detail emp-solo">${sel ? empDetailHtml(sel) : `<div class="emp-empty">No one on the team yet.${mgr ? " Click + Add someone." : ""}</div>`}</section>
     ${past.length || mgr ? `<div class="emp-page-foot">
       <span>${past.length ? `Past team members: ${past.map(e => `<button type="button" class="emp-link" data-emp-sel="${escapeHtml(e.id)}">${escapeHtml(e.name)}</button>`).join(" · ")}` : ""}</span>
@@ -14532,7 +14778,7 @@ const RENDERERS = [
   [renderWorkshops, ["workshops"]], [renderWeeklyReport, ["reporting"]], [renderLeadCenterImport, ["reporting"]], [renderTeam, ["team"]],
   [renderCalendarGrid, ["calendar"]], [renderPlaybooks, ["playbooks"]], [renderRules, ["rules"]], [renderEmailTemplates, ["email-templates"]],
   [renderExpenses, ["expenses"]], [renderStatistics, ["statistics"]], [renderMeetingStructure, ["meeting"]], [renderSitRate, ["sit-rate"]], [renderRates, ["rates"]], [fillContactDropdowns, ["*"]],
-  [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
+  [renderInboxAlert, ["*"]], [renderClientInbox, ["client-inbox"]], [renderToday, ["today"]], [mainNavRender, ["*"]], [renderEmployees, ["employees"]], [empNavCount, ["*"]],
   [renderLeadQueue, ["lead-queue"]], [renderLeadCalls, ["lead-calls"]], [renderLeadResults, ["lead-results"]], [renderLeadKpis, ["lead-kpis"]], [renderFollowUps, ["lead-followups"]], [fuNavCount, ["*"]], [acFabSync, ["*"]], [renderLeadPlan, ["lead-plan"]], [renderLeadSchedule, ["lead-schedule"]], [lpNavCount, ["*"]], [lqNavCount, ["*"]], [lqAlertCheck, ["*"]],
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
   [renderAdProduction, ["ad-production"]], [apNavCount, ["*"]],
