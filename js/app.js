@@ -1243,6 +1243,19 @@ function stateArray(table){
 }
 
 /* ───────── Realtime ───────── */
+// On a live phone call (Aircall in the CRM, or the Twilio dialler)? Background
+// reloads wait until it's over, so they don't eat into the call's connection.
+let crmReloadAfterCall = false;
+function crmOnCall(){
+  // A call that's somehow still "live" after 2 hours (a missed hang-up) stops holding things up.
+  const ac = typeof acCall !== "undefined" && acCall && !acCall.ended && (acCall.answered || acCall.dir === "out") && Date.now() - (acCall.at || 0) < 2 * 3600e3;
+  return !!(ac || (typeof activeCall !== "undefined" && activeCall));
+}
+async function crmCallEnded(){
+  if (!crmReloadAfterCall || crmOnCall()) return;
+  crmReloadAfterCall = false;
+  await DataLayer.fetchAll(); renderAll();
+}
 let realtimeSubscribed = false;
 function subscribeRealtime(){
   if (!IS_CONFIGURED || realtimeSubscribed) return;
@@ -1257,6 +1270,9 @@ function subscribeRealtime(){
     liveTimer = setTimeout(async () => {
       liveTimer = null;
       if (fetchStartedAt > liveSince) return;
+      // A reload pulls down every table; held back during a call (it can
+      // make the call cut out on a weaker connection) and done when it ends.
+      if (crmOnCall()){ crmReloadAfterCall = true; return; }
       await DataLayer.fetchAll(); renderAll();
     }, 350);
   };
@@ -4434,7 +4450,7 @@ function acFabSync(){
   // On the live-call pages it shrinks to a small round button up top, out of the way.
   fab.classList.toggle("mini", ["meeting", "sit-rate", "email-templates"].includes(state.page));
   fab.classList.toggle("ringing", !!(acCall && acCall.dir === "in" && !acCall.answered && !acCall.ended));
-  if (acCall && !acCall.ended && !acCall.answered && Date.now() - (acCall.at || 0) > 90e3){ acCall.ended = true; acCardRender(); }
+  if (acCall && !acCall.ended && !acCall.answered && Date.now() - (acCall.at || 0) > 90e3){ acCall.ended = true; acCardRender(); setTimeout(crmCallEnded, 0); }
   const liveCall = acCall && !acCall.ended;
   fab.querySelector(".ac-fab-label").textContent = !liveCall ? "Phone" : acCall.answered ? "On a call" : acCall.dir === "in" ? "Incoming call" : "Calling…";
   fab.title = acReady ? "Aircall phone (signed in)" : "Aircall phone - sign in to make and take calls";
@@ -4501,13 +4517,13 @@ function setupAircall(){
   acWs.on("call_end_ringtone", (c) => {
     if (!acCall) return;
     if (c.answer_status === "answered") acCall.answered = true;
-    else { acCall.ended = true; acCall.missed = true; }
+    else { acCall.ended = true; acCall.missed = true; setTimeout(crmCallEnded, 1500); }
     acCardRender(); acFabSync();
   });
   acWs.on("outgoing_call", (c) => acStartCall("out", c.to));
   acWs.on("external_dial", (c) => acStartCall("out", c.phone_number));
   acWs.on("outgoing_answered", () => { if (acCall){ acCall.answered = true; acCardRender(); acFabSync(); } });
-  acWs.on("call_ended", () => { if (acCall){ acCall.ended = true; acCardRender(); acFabSync(); } });
+  acWs.on("call_ended", () => { if (acCall){ acCall.ended = true; acCardRender(); acFabSync(); } setTimeout(crmCallEnded, 1500); });
   // Every tel: link in the CRM rings out through Aircall instead.
   document.addEventListener("click", (e) => {
     const a = e.target.closest?.('a[href^="tel:"]');
@@ -4586,6 +4602,7 @@ async function startCall(prospectId){
 function endCall(){
   if (activeCall){ try { activeCall.disconnect(); } catch {} }
   activeCall = null;
+  setTimeout(crmCallEnded, 1500);
   activeCallProspectId = null;
   setCallWidget(false);
   const muteBtn = $("#call-widget-mute");
@@ -13935,7 +13952,10 @@ async function lqPollLeads(){
     if (error || !data) return;
     const known = new Map(state.clientLeads.map(l => [l.id, l]));
     const changed = data.some(r => { const l = known.get(r.id); return !l || l.updated_at !== r.updated_at || l.follow_status !== r.follow_status || l.status !== r.status; });
-    if (changed){ await DataLayer.fetchAll(); renderAll(); }
+    if (changed){
+      if (crmOnCall()) crmReloadAfterCall = true;
+      else { await DataLayer.fetchAll(); renderAll(); }
+    }
   } catch(e){ console.warn(e); }
   finally { lqPolling = false; }
 }

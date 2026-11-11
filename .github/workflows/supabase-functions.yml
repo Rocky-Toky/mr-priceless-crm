@@ -114,6 +114,10 @@ on:
         description: "Type yes to create the pre-call custom fields in our GHL sub-account (if missing) and list what's there"
         required: false
         default: ""
+      check_db_size:
+        description: "Type yes to print how big each table is (row counts and sizes only, no data)"
+        required: false
+        default: ""
       check_meetings:
         description: "Type yes to print how booked meetings are doing: live updates, the 5-minute calendar check, alert emails (counts and statuses only, no names)"
         required: false
@@ -498,3 +502,11 @@ jobs:
           echo "Seen by a Lead Follow Up only login:"
           q "begin; select set_config('request.jwt.claims', json_build_object('sub', (select u.id from auth.users u join public.allowlist a on lower(a.email) = lower(u.email) where a.access = 'leads' limit 1), 'role', 'authenticated')::text, true); set local role authenticated; select public.is_lead_caller() as lead_caller, (select count(*) from public.aircall_calls) as calls, (select count(*) from public.aircall_sync_status) as status_rows, (select count(*) from public.client_leads) as leads; commit;" | jq -c '.' || echo "(that check couldn't run)"
           q "select count(*) as leads_logins, count(u.email_confirmed_at) as confirmed from public.allowlist a left join auth.users u on lower(u.email) = lower(a.email) where a.access = 'leads'" | jq -c '.[0]'
+      # Run by hand with check_db_size=yes: row counts and sizes only.
+      - name: Check table sizes
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_db_size == 'yes'
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          q "select relname as table, n_live_tup as rows, pg_size_pretty(pg_total_relation_size(relid)) as size from pg_stat_user_tables where schemaname = 'public' order by pg_total_relation_size(relid) desc limit 20" | jq -c '.[]'
+          echo "Rows changed in the last hour (what triggers the CRM to reload):"
+          q "select 'meetings' as t, count(*) from meetings where updated_at > now() - interval '1 hour' union all select 'client_leads', count(*) from client_leads where updated_at > now() - interval '1 hour' union all select 'dial_prospects', count(*) from dial_prospects where updated_at > now() - interval '1 hour'" | jq -c '.[]' || true
