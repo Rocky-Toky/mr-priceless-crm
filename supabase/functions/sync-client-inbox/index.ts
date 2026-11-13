@@ -109,6 +109,13 @@ const TRADE_WORDS = new Set(("and the of co company group nz new zealand au aust
   "contracting contractors painting painters decorators fencing decks decking kitchens bathrooms joinery carpentry flooring tiling " +
   "glass glazing windows doors maintenance trades industries enterprises holdings trust partners studio design designs interiors civil " +
   "earthworks drainage excavation scaffolding cladding insulation heating ventilation cleaning gardens pools spas steel welding engineering").split(" "));
+// Calendar notices: someone accepting / declining / moving a meeting invite.
+// Rocky doesn't want these in the Client inbox (sql/115 cleared the old ones).
+const CALENDAR_SUBJECT = /^\s*(?:(?:re|fw|fwd)\s*:\s*)*(?:accepted|declined|tentatively accepted|tentative|invitation|updated invitation[^:]*|canceled event[^:]*|cancelled event[^:]*|event cancell?ed|new event|proposed new time|meeting (?:accepted|declined|tentatively accepted))\s*:/i;
+const CALENDAR_TEXT = /invitation from google calendar|has (?:accepted|declined|tentatively accepted) this invitation|has proposed a new time/i;
+function isCalendarNotice(m: any) {
+  return CALENDAR_SUBJECT.test(String(m.subject || "")) || CALENDAR_TEXT.test(String(m.snippet || ""));
+}
 function fromAPerson(from: { email: string }, m: any) {
   const [local, domain] = [from.email.split("@")[0] || "", domainOf(from.email)];
   if (!domain || OWN_DOMAINS.has(domain)) return false;
@@ -186,6 +193,7 @@ async function push(admin: any, userId: string, body: any) {
     for (const m of messages) {
       const gmailId = clip(m.gmail_id, 100);
       if (!gmailId || known.has(gmailId)) continue;
+      if (isCalendarNotice(m)) continue; // "Accepted: ..." and other invite replies aren't client emails
       const from = parseFrom(clip(m.from, 300));
       const client = match.byEmail.get(from.email) || match.byDomain.get(domainOf(from.email)) || ownDomainClient(from.email, match) || aboutAClient(from, m, match);
       if (!client) continue;
