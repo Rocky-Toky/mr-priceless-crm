@@ -1431,6 +1431,7 @@ async function isAllowlisted(email){
 }
 
 function showAuth(){
+  window.mpBoot?.("auth");
   // Say why, after an idle sign-out (the page reloads on sign-out).
   try {
     if (sessionStorage.getItem("mp_idle_out")){
@@ -1445,6 +1446,7 @@ function showAuth(){
   $("#app").classList.remove("visible");
 }
 function showUnauthorized(email){
+  window.mpBoot?.("auth");
   $("#auth-screen").style.display = "none";
   $("#unauthorized-screen").style.display = "flex";
   $("#reset-password-screen").style.display = "none";
@@ -1452,12 +1454,14 @@ function showUnauthorized(email){
   $("#unauthorized-email").textContent = email;
 }
 function showResetPassword(){
+  window.mpBoot?.("auth");
   $("#auth-screen").style.display = "none";
   $("#unauthorized-screen").style.display = "none";
   $("#reset-password-screen").style.display = "flex";
   $("#app").classList.remove("visible");
 }
 function showApp(){
+  window.mpBoot?.("app");
   $("#auth-screen").style.display = "none";
   $("#unauthorized-screen").style.display = "none";
   $("#app").classList.add("visible");
@@ -1837,6 +1841,15 @@ function mainEnsureWs(page){
   mainNoLanding = true;
   try { applyWorkspace(); } finally { mainNoLanding = false; }
 }
+// Keyboard: 1-7 open the menu's sections, like a console's quick switch.
+document.addEventListener("keydown", (e) => {
+  if (!mainMode() || e.ctrlKey || e.metaKey || e.altKey || !/^[1-9]$/.test(e.key)) return;
+  const tag = (document.activeElement?.tagName || "").toLowerCase();
+  if (["input", "textarea", "select"].includes(tag) || document.activeElement?.isContentEditable) return;
+  if (document.querySelector(".overlay.visible, .modal.open, .lq-alert")) return;
+  const b = $$(".nav-main-item")[Number(e.key) - 1];
+  if (b){ e.preventDefault(); b.click(); }
+});
 // The one menu itself: built once into the sidebar, kept in step on every page change.
 function mainNavRender(){
   const nav = $(".sidebar .nav");
@@ -1869,7 +1882,7 @@ function mainNavRender(){
   };
   box.innerHTML = MAIN_NAV.filter(sec => sec.pages.some(([p]) => mainPageOk(p))).map(sec => {
     const n = count(sec.key);
-    return `<button type="button" class="nav-item nav-main-item${sec.key === cur ? " active" : ""}" data-main="${sec.key}">
+    return `<button type="button" class="nav-item nav-main-item${sec.key === cur ? " active" : ""}" data-main="${sec.key}" title="${escapeHtml(sec.label)} (press ${MAIN_NAV.filter(x => x.pages.some(([p]) => mainPageOk(p))).indexOf(sec) + 1})">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${sec.icon}</svg><span>${escapeHtml(sec.label)}</span>${n ? `<span class="nav-count${sec.key === "today" ? " hot" : ""}">${n}</span>` : ""}</button>`;
   }).join("");
   if (cur){ try { localStorage.setItem("mp_main_" + cur, state.page); } catch(e){} }
@@ -11511,6 +11524,11 @@ function todayItems(){
   const rank = { bad: 0, warn: 1, ok: 2 };
   return items.sort((a, b) => rank[a.tone] - rank[b.tone] || a.at - b.at);
 }
+// How many things were ticked off today (on this computer), for the progress ring.
+const tdDoneKey = () => "mp_today_done_" + localDayStr();
+const tdDoneCount = () => { try { return Number(localStorage.getItem(tdDoneKey())) || 0; } catch(e){ return 0; } };
+function tdDoneBump(){ try { localStorage.setItem(tdDoneKey(), String(tdDoneCount() + 1)); } catch(e){} }
+let tdWaves = null;
 function renderToday(){
   const root = $("#today-root");
   if (!root) return;
@@ -11521,6 +11539,25 @@ function renderToday(){
   const first = (ASSIGNEES[me]?.label || "").split(" ")[0];
   const hour = nzParts(new Date()).h, hello = hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening";
   const dateLine = new Date().toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long" });
+  const done = tdDoneCount(), total = done + urgent, pct = total ? done / total : 1;
+  // The header (waves, greeting, ring) is built once so the waves keep flowing; the list redraws.
+  if (!root.querySelector(".td-hero")){
+    root.innerHTML = `<section class="td-hero"><canvas class="td-waves" aria-hidden="true"></canvas>
+      <div class="td-hero-in"><div class="td-hero-text"><p class="td-date"></p><h2></h2><p class="td-sum"></p>
+        <div class="td-who" role="tablist"><button type="button" data-td-who="all">Everything</button><button type="button" data-td-who="mine">Just mine</button></div></div>
+        <div class="td-ring" aria-hidden="true"><svg viewBox="0 0 120 120"><circle class="td-ring-bg" cx="60" cy="60" r="52"/><circle class="td-ring-fg" cx="60" cy="60" r="52"/></svg><div class="td-ring-num"><b></b><span></span></div></div></div>
+    </section><div class="td-body"></div>`;
+    if (window.mpWaves) tdWaves = window.mpWaves(root.querySelector(".td-waves"), { dim: true });
+  }
+  root.querySelector(".td-date").textContent = dateLine;
+  root.querySelector(".td-hero h2").textContent = `${hello}${first ? `, ${first}` : ""}`;
+  root.querySelector(".td-sum").innerHTML = urgent ? `<b>${urgent}</b> thing${urgent === 1 ? "" : "s"} to do${done ? ` · <b>${done}</b> done` : ""}` : (done ? `All done - <b>${done}</b> ticked off today` : "You're all caught up.");
+  root.querySelectorAll("[data-td-who]").forEach(b => b.classList.toggle("on", b.dataset.tdWho === todayWho));
+  const C = 2 * Math.PI * 52, ring = root.querySelector(".td-ring");
+  ring.querySelector(".td-ring-fg").style.strokeDasharray = `${C * pct} ${C}`;
+  ring.classList.toggle("full", !urgent);
+  ring.querySelector(".td-ring-num b").textContent = urgent ? `${done}/${total}` : "✓";
+  ring.querySelector(".td-ring-num span").textContent = urgent ? "done today" : "all clear";
   const row = (x) => `<article class="td-row ${x.tone}">
       <span class="td-dot" aria-hidden="true"></span>
       <div class="td-main"><b>${escapeHtml(x.title)}</b>${x.sub ? `<small>${escapeHtml(x.sub)}</small>` : ""}</div>
@@ -11529,18 +11566,26 @@ function renderToday(){
     </article>`;
   const groups = [["bad", "Overdue"], ["warn", "Due today"], ["ok", "Later today"]].map(([t, label]) => {
     const g = list.filter(x => x.tone === t);
-    return g.length ? `<section class="td-group"><h3>${label}<span>${g.length}</span></h3>${g.map(row).join("")}</section>` : "";
+    return g.length ? `<section class="td-group ${t}"><h3>${label}<span>${g.length}</span></h3>${g.map(row).join("")}</section>` : "";
   }).join("");
-  root.innerHTML = `
-    <header class="td-head">
-      <div><p class="td-date">${escapeHtml(dateLine)}</p><h2>${escapeHtml(hello)}${first ? `, ${escapeHtml(first)}` : ""}</h2>
-        <p class="td-sum">${urgent ? `<b>${urgent}</b> thing${urgent === 1 ? "" : "s"} to do` : "You're all caught up."}</p></div>
-      <div class="td-who" role="tablist">
-        <button type="button" class="${todayWho === "all" ? "on" : ""}" data-td-who="all">Everything</button>
-        <button type="button" class="${todayWho === "mine" ? "on" : ""}" data-td-who="mine">Just mine</button>
-      </div>
-    </header>
-    ${groups || `<div class="td-clear"><b>All clear</b><span>Nothing's due right now. New things land here the moment they're due.</span></div>`}`;
+  root.querySelector(".td-body").innerHTML = groups || `<div class="td-clear"><div class="td-trophy" aria-hidden="true">★</div><b>All clear</b><span>Nothing's due right now. New things land here the moment they're due.</span></div>`;
+}
+// Ticking something off: the row flashes green, slides away, the ring fills.
+async function tdComplete(btn, work){
+  const rowEl = btn.closest(".td-row");
+  btn.disabled = true;
+  if (rowEl){ rowEl.classList.add("done"); tdSpark(btn); }
+  try { await work(); } catch(e){ console.warn(e); if (rowEl) rowEl.classList.remove("done"); btn.disabled = false; return; }
+  tdDoneBump();
+  setTimeout(() => { renderToday(); mainNavRender(); }, rowEl ? 420 : 0);
+}
+function tdSpark(btn){
+  const r = btn.getBoundingClientRect(), box = document.createElement("div");
+  box.className = "td-spark";
+  box.style.left = `${r.left + r.width / 2}px`; box.style.top = `${r.top + r.height / 2}px`;
+  box.innerHTML = Array.from({ length: 10 }, (_, i) => `<i style="--a:${i * 36}deg"></i>`).join("");
+  document.body.appendChild(box);
+  setTimeout(() => box.remove(), 700);
 }
 function setupToday(){
   const root = $("#today-root");
@@ -11553,11 +11598,12 @@ function setupToday(){
     if (t.dataset.tdGo) return goPage(t.dataset.tdGo);
     if (t.dataset.tdClient){ state.selectedClientId = t.dataset.tdClient; state.clientBackTo = null; goPage("clients"); return renderClients(); }
     if (t.dataset.tdWs) return openWorkshopModal(t.dataset.tdWs);
-    if (t.dataset.tdDone){ t.disabled = true; await setClientEmailStatus(t.dataset.tdDone, "done"); renderToday(); mainNavRender(); return; }
-    if (t.dataset.tdTask){ t.disabled = true; await DataLayer.update("tasks", t.dataset.tdTask, { status: "done", updated_at: new Date().toISOString() }); if (IS_CONFIGURED){ await DataLayer.fetchAll(); } renderAll(); }
+    if (t.dataset.tdDone) return tdComplete(t, () => setClientEmailStatus(t.dataset.tdDone, "done"));
+    if (t.dataset.tdTask) return tdComplete(t, async () => { await DataLayer.update("tasks", t.dataset.tdTask, { status: "done", updated_at: new Date().toISOString() }); if (IS_CONFIGURED){ await DataLayer.fetchAll(); } renderAll(); });
   });
-  // Times move on: refresh the list every minute while it's open.
+  // Times move on: refresh the list every minute while it's open; the waves only flow while Today is showing.
   setInterval(() => { if (state.page === "today" && !document.hidden) renderToday(); }, 60e3);
+  setInterval(() => { if (!tdWaves) return; if (state.page === "today") tdWaves.start(); else tdWaves.stop(); }, 1000);
 }
 
 /* ───────── Employees ─────────
