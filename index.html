@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=399">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=399">
+<link rel="stylesheet" href="css/style.css?v=400">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=400">
 </head>
 <body>
 <!-- Boot screen: flowing gold waves while the CRM loads (js/waves.js) -->
@@ -203,6 +203,10 @@
       <button class="nav-item nav-inbox" data-page="client-inbox" data-workspace="all">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
         <span>Client inbox</span><span class="nav-count nav-inbox-count" hidden title="Client emails waiting on a reply"></span>
+      </button>
+      <button class="nav-item nav-hidden" data-page="how" data-workspace="both">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+        <span>How we work</span>
       </button>
       <button class="nav-item nav-hidden" data-page="sales-followups" data-workspace="sales">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/></svg>
@@ -902,6 +906,10 @@
 
     <!-- Team (employees): the team, how they're tracking, onboarding, 1:1s, leave -->
     <!-- Today: every deliverable due, in one list (the one-menu start page) -->
+    <!-- Library → How we work: every process as step cards (playbooks + rules) -->
+    <section class="page" id="page-how">
+      <div id="hw-root"></div>
+    </section>
     <!-- Sales → Follow-ups: Dialler call backs and no-shows to chase -->
     <section class="page" id="page-sales-followups">
       <div id="sf-root"></div>
@@ -2956,17 +2964,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=399"></script>
-<script src="js/supabaseClient.js?v=399"></script>
-<script src="js/report-pdf.js?v=399"></script>
-<script src="js/plan-pdf.js?v=399"></script>
-<script src="js/workshop-pdf.js?v=399"></script>
-<script src="js/receipt-pdf.js?v=399"></script>
-<script src="js/welcome-pdf.js?v=399"></script>
-<script src="js/builtin-playbooks.js?v=399"></script>
-<script src="js/builtin-email-templates.js?v=399"></script>
-<script src="js/app.js?v=399"></script>
-<script src="js/meetings-tracker.js?v=399"></script>
-<script src="js/todo.js?v=399"></script>
+<script src="js/config.js?v=400"></script>
+<script src="js/supabaseClient.js?v=400"></script>
+<script src="js/report-pdf.js?v=400"></script>
+<script src="js/plan-pdf.js?v=400"></script>
+<script src="js/workshop-pdf.js?v=400"></script>
+<script src="js/receipt-pdf.js?v=400"></script>
+<script src="js/welcome-pdf.js?v=400"></script>
+<script src="js/builtin-playbooks.js?v=400"></script>
+<script src="js/builtin-email-templates.js?v=400"></script>
+<script src="js/app.js?v=400"></script>
+<script src="js/meetings-tracker.js?v=400"></script>
+<script src="js/todo.js?v=400"></script>
 </body>
 </html>
