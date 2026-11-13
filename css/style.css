@@ -5662,3 +5662,61 @@ body.main-nav #page-email-templates .page-header{background:none;box-shadow:none
 }
 .hw-step-body.playbook-content,.hw-intro.playbook-content{padding:0;margin:0;max-width:none;border:0;box-shadow:none;background:none;min-height:0;}
 .hw-intro.playbook-content{padding:18px 22px;background:var(--gold-soft);}
+
+/* ───────── Spacing + feel pass (13 Nov 2026) ───────── */
+/* Every page the same width, centred, with the same gaps. */
+body.main-nav .main{max-width:1320px;margin-inline:auto;padding:30px 40px 48px;}
+body.main-nav .page-tabs{margin-bottom:18px;}
+body.main-nav .page .page-header{margin-bottom:22px;}
+body.main-nav .page .page-header + *{margin-top:0;}
+body.main-nav .stat-grid.as-line{margin:0 0 20px;row-gap:8px;}
+@media (max-width:640px){ body.main-nav .main{padding:18px 16px 40px;} }
+/* Quieter notices */
+.demo-banner{padding:6px 14px !important;font-size:12px !important;border-radius:10px !important;margin-bottom:14px !important;}
+/* Meetings booked: no week strip or "Tracking as" (it's whoever is signed in); the big number never gets clipped */
+body.main-nav #page-cold-calls .mb-week,body.main-nav #page-cold-calls .mtr-person-select{display:none !important;}
+body #page-cold-calls .mb-hero{justify-content:safe center;}
+#page-cold-calls .page-header{padding:16px 26px;}
+/* Pipeline: no win-percent chips */
+.win-chip{display:none !important;}
+/* Upcoming meetings: test mode behind a small button */
+.pm-head-acts{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.pm-test[hidden]{display:none !important;}
+.pm-test-btn.on{border-color:rgba(232,196,104,.6) !important;color:var(--gold-bright) !important;}
+/* Button press feel */
+.btn,.td-btn,.hw-card,.page-tabs button,.nav-main-item,.pm-chip,.dl-outcome{transition:transform .12s ease,box-shadow .18s ease,background-color .18s ease,border-color .18s ease,filter .18s ease;}
+.btn:active,.td-btn:active,.page-tabs button:active,.nav-main-item:active,.dl-outcome:active{transform:scale(.96);}
+.btn.gold:hover,.td-btn.gold:hover{box-shadow:0 6px 20px rgba(232,196,104,.45);filter:brightness(1.04);}
+.btn.ghost:hover,.td-btn:hover{box-shadow:0 4px 14px rgba(20,15,5,.08);}
+/* Rows slide in once when a page opens */
+@keyframes mpRowIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+body.page-entering .page.active :is(.td-row,.pm-row,.hw-card,.cl-row,.obx-row,.ob-row,.rp-row,.pl-card,.ap-row,.am-row,.lc-row,.fu-row,.card,.mb-counter){animation:mpRowIn .38s cubic-bezier(.2,.8,.2,1) both;}
+body.page-entering .page.active :is(.td-row,.pm-row,.hw-card,.cl-row,.obx-row,.ob-row,.rp-row,.pl-card,.lc-row,.fu-row,.card,.mb-counter):nth-child(2){animation-delay:.04s;}
+body.page-entering .page.active :is(.td-row,.pm-row,.hw-card,.cl-row,.obx-row,.ob-row,.rp-row,.pl-card,.lc-row,.fu-row,.card,.mb-counter):nth-child(3){animation-delay:.08s;}
+body.page-entering .page.active :is(.td-row,.pm-row,.hw-card,.cl-row,.obx-row,.ob-row,.rp-row,.pl-card,.lc-row,.fu-row,.card,.mb-counter):nth-child(4){animation-delay:.12s;}
+body.page-entering .page.active :is(.td-row,.pm-row,.hw-card,.cl-row,.obx-row,.ob-row,.rp-row,.pl-card,.lc-row,.fu-row,.card,.mb-counter):nth-child(n+5){animation-delay:.16s;}
+@media (prefers-reduced-motion:reduce){body.page-entering .page.active *{animation:none !important;}}
+/* Loading shimmer */
+.mp-skel{display:flex;flex-direction:column;gap:12px;padding:6px 0;}
+.mp-skel-row{display:flex;align-items:center;gap:14px;padding:18px 20px;border-radius:18px;background:var(--white);border:1px solid var(--line);}
+.mp-skel-row i{flex:none;width:40px;height:40px;border-radius:12px;}
+.mp-skel-row span{flex:1;display:flex;flex-direction:column;gap:8px;}
+.mp-skel-row b{display:block;height:12px;border-radius:6px;width:60%;}
+.mp-skel-row b + b{width:35%;}
+.mp-skel-row i,.mp-skel-row b{background:linear-gradient(90deg,#efe9dc 0%,#f8f4ea 40%,#efe9dc 80%);background-size:200% 100%;animation:mpShimmer 1.3s linear infinite;}
+@keyframes mpShimmer{from{background-position:200% 0;}to{background-position:-200% 0;}}
+/* Big-win celebration */
+.mp-cele{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;pointer-events:none;}
+.mp-cele-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:26px 40px;border-radius:24px;background:var(--hero-bg);color:#fff6e0;box-shadow:0 30px 80px rgba(20,15,5,.35);animation:mpCeleIn .5s cubic-bezier(.34,1.6,.64,1) both;}
+.mp-cele-card b{font-family:var(--font-display);font-size:30px;font-weight:800;letter-spacing:-.01em;}
+.mp-cele-card small{font-size:14.5px;color:rgba(255,240,210,.8);}
+.mp-cele-star{font-size:34px;color:var(--gold-bright);text-shadow:0 0 24px rgba(232,196,104,.8);animation:mpStar 1s ease-in-out infinite alternate;}
+.mp-cele-burst{position:absolute;width:0;height:0;}
+.mp-cele-burst i{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--gold-bright);box-shadow:0 0 10px rgba(232,196,104,.9);animation:mpBurst .9s cubic-bezier(.2,.8,.2,1) .1s both;}
+.mp-cele.out{opacity:0;transition:opacity .45s ease;}
+@keyframes mpCeleIn{from{opacity:0;transform:scale(.7);}to{opacity:1;transform:none;}}
+@keyframes mpStar{from{transform:scale(1) rotate(0);}to{transform:scale(1.15) rotate(12deg);}}
+@keyframes mpBurst{from{opacity:1;transform:rotate(var(--a)) translateX(0);}to{opacity:0;transform:rotate(var(--a)) translateX(var(--d));}}
+/* Small arrow / icon buttons inside the dark headers (e.g. Pipeline's month picker) */
+body.main-nav .page .page-header button:not(.btn):not(.ws-tab):not([role="tab"]):not(.country-toggle button){background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);color:#fff6e0;}
+body.main-nav .page .page-header button:not(.btn):disabled{opacity:.35;}
