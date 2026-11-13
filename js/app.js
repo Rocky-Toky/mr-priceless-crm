@@ -1757,7 +1757,7 @@ const MAIN_NAV = [
   { key: "today", label: "Today", icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     pages: [["today", "Today"], ["todo", "This week"], ["tasks", "All tasks"]] },
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
-    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["deals", "Pipeline"], ["lead-engine", "Add prospects"], ["contacts", "Contacts"], ["rates", "Stats"]] },
+    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["sales-followups", "Follow-ups"], ["deals", "Pipeline"], ["lead-engine", "Add prospects"], ["contacts", "Contacts"], ["rates", "Stats"]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
     pages: [["client-inbox", "Inbox"], ["onboarding", "Onboarding"], ["clients", "Clients"], ["reporting", "Reports"], ["workshops", "Workshops"]] },
   { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
@@ -1877,6 +1877,7 @@ function mainNavRender(){
       if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length;
       if (key === "ads") return Number($("#nav-ads-count")?.textContent) || 0;
       if (key === "plastering") return plNewCount();
+      if (key === "sales") return sfDue().length;
     } catch(e){}
     return 0;
   };
@@ -7651,16 +7652,76 @@ async function maybeCreateNoShowFollowup(deal){
   await DataLayer.fetchAll(); renderAll();
 }
 
+/* ───────── Sales → Follow-ups ─────────
+   The follow-ups the sales side leaves behind: Dialler Call Backs ("Follow up
+   with ..."), decision-maker call backs, and no-show deals ("Reach out again
+   - ..."). Rocky wants these in Sales, not on Today or in All tasks. */
+function isSalesFollowup(t){
+  if (!t) return false;
+  if (t.prospect_id) return true;
+  return /^(follow up with |reach out again|call .+ - decision maker available)/i.test(t.title || "");
+}
+function sfDue(){
+  const today = todayDateStr();
+  return state.tasks.filter(t => t.status === "open" && isSalesFollowup(t) && (!t.due_date || t.due_date <= today));
+}
+function sfWho(t){
+  const p = t.prospect_id ? state.prospects.find(x => x.id === t.prospect_id) : null;
+  const d = t.deal_id ? state.deals.find(x => x.id === t.deal_id) : null;
+  const c = state.contacts.find(x => x.id === (t.contact_id || d?.contact_id));
+  const name = p?.name || p?.company || d?.contact_name || c?.name || d?.title || "";
+  const company = p?.company && p.company !== name ? p.company : (d?.title && d.title !== name ? d.title : "");
+  return { name, company, phone: p?.phone || c?.phone || d?.phone || "" };
+}
+function renderSalesFollowups(){
+  const root = $("#sf-root");
+  if (!root) return;
+  const today = todayDateStr();
+  const open = state.tasks.filter(t => t.status === "open" && isSalesFollowup(t))
+    .sort((a, b) => (a.due_date || "0") < (b.due_date || "0") ? -1 : (a.due_date || "0") > (b.due_date || "0") ? 1 : 0);
+  const day = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" });
+  const row = (t, tone) => {
+    const w = sfWho(t);
+    return `<article class="td-row ${tone}">
+      <span class="td-dot" aria-hidden="true"></span>
+      <div class="td-main"><b>${escapeHtml(t.title || "Follow up")}</b><small>${escapeHtml([w.company, t.due_date ? (t.due_date < today ? `Was due ${day(t.due_date)}` : t.due_date === today ? "Due today" : day(t.due_date)) : "", t.notes].filter(Boolean).join(" · "))}</small></div>
+      <span class="td-area">${escapeHtml(ASSIGNEES[t.assignee]?.label?.split(" ")[0] || "")}</span>
+      <div class="td-acts">${w.phone ? `<button type="button" class="td-btn gold" data-action="call-number" data-phone="${escapeHtml(w.phone)}" data-name="${escapeHtml(w.name)}">Call ${escapeHtml((w.name || "them").split(" ")[0])}</button>` : ""}<button type="button" class="td-btn" data-sf-done="${t.id}">Done ✓</button><button type="button" class="td-btn ghost" data-action="edit-task" data-id="${t.id}">Open</button></div>
+    </article>`;
+  };
+  const groups = [
+    ["bad", "Overdue", open.filter(t => t.due_date && t.due_date < today)],
+    ["warn", "Due today", open.filter(t => !t.due_date || t.due_date === today)],
+    ["ok", "Coming up", open.filter(t => t.due_date && t.due_date > today)],
+  ].map(([tone, label, g]) => g.length ? `<section class="td-group ${tone}"><h3>${label}<span>${g.length}</span></h3>${g.map(t => row(t, tone)).join("")}</section>` : "").join("");
+  root.innerHTML = `<div class="page-header"><div><h2>Follow-ups</h2><p>Call backs from the Dialler and no-shows to get back on the calendar.</p></div></div>
+    <div class="td-body sf-body">${groups || `<div class="td-clear"><div class="td-trophy" aria-hidden="true">★</div><b>All clear</b><span>No sales follow-ups right now. Call backs from the Dialler land here.</span></div>`}</div>`;
+  if (!root.dataset.wired){
+    root.dataset.wired = "1";
+    root.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-sf-done]");
+      if (!b) return;
+      b.disabled = true;
+      b.closest(".td-row")?.classList.add("done");
+      if (typeof tdSpark === "function") tdSpark(b);
+      await DataLayer.update("tasks", b.dataset.sfDone, { status: "done", updated_at: new Date().toISOString() });
+      if (IS_CONFIGURED) await DataLayer.fetchAll();
+      setTimeout(renderAll, 380);
+    });
+  }
+}
+
 /* ───────── Render: Tasks ───────── */
 function dealTitle(id){ return state.deals.find(d => d.id === id)?.title || ""; }
 function todayDateStr(){ return new Date().toISOString().slice(0,10); }
 function renderTasks(){
   const f = state.taskFilter;
   const todayStr = todayDateStr();
-  const open = state.tasks.filter(t => t.status === "open");
+  const mine = state.tasks.filter(t => !isSalesFollowup(t)); // sales follow-ups live in Sales → Follow-ups
+  const open = mine.filter(t => t.status === "open");
   const overdue = open.filter(t => t.due_date && t.due_date < todayStr);
   const dueToday = open.filter(t => t.due_date === todayStr);
-  const done = state.tasks.filter(t => t.status === "done");
+  const done = mine.filter(t => t.status === "done");
   $("#tasks-stat-open").textContent = open.length;
   $("#tasks-stat-overdue").textContent = overdue.length;
   $("#tasks-stat-today").textContent = dueToday.length;
@@ -7669,7 +7730,7 @@ function renderTasks(){
   const assigneeFilterEl = $("#task-assignee-filter");
   if (assigneeFilterEl) assigneeFilterEl.value = f.assignee;
 
-  let list = state.tasks.filter(t => {
+  let list = mine.filter(t => {
     if (f.status !== "all" && t.status !== f.status) return false;
     if (f.priority && t.priority !== f.priority) return false;
     if (f.assignee && t.assignee !== f.assignee) return false;
@@ -7759,7 +7820,7 @@ function checkOverdueTasksPopup(){
   if ($("#qualify-modal")?.classList.contains("visible")) return;
   overdueTasksPopupShown = true;
   const todayStr = todayDateStr();
-  const overdue = state.tasks.filter(t => t.status === "open" && t.due_date && t.due_date < todayStr);
+  const overdue = state.tasks.filter(t => t.status === "open" && t.due_date && t.due_date < todayStr && !isSalesFollowup(t));
   if (!overdue.length) return;
   const list = $("#overdue-tasks-list");
   if (!list) return;
@@ -11014,6 +11075,12 @@ const INBOX_LATE_MS = 3600e3, INBOX_URGENT_MS = 4 * 3600e3;
 const INBOX_BASE_TITLE = document.title;
 Object.assign(state, { clientEmails: [], inboxConnections: [], inboxLoaded: false, inboxMissing: false });
 let inboxShowHandled = false, inboxSubscribed = false, inboxTicker = null;
+// Calendar notices (someone accepting / declining / moving a meeting invite)
+// aren't client emails - Rocky doesn't want them in the inbox or on Today.
+// The server skips them too (sync-client-inbox) and sql/115 cleared the old ones.
+const INBOX_CALENDAR_SUBJECT = /^\s*(?:(?:re|fw|fwd)\s*:\s*)*(?:accepted|declined|tentatively accepted|tentative|invitation|updated invitation[^:]*|canceled event[^:]*|cancelled event[^:]*|event cancell?ed|new event|proposed new time|meeting (?:accepted|declined|tentatively accepted))\s*:/i;
+const INBOX_CALENDAR_TEXT = /invitation from google calendar|has (?:accepted|declined|tentatively accepted) this invitation|has proposed a new time/i;
+const inboxIsCalendar = (e) => INBOX_CALENDAR_SUBJECT.test(e.subject || "") || INBOX_CALENDAR_TEXT.test(e.snippet || "");
 const inboxWaiting = () => state.clientEmails.filter(e => e.status === "new").sort((a, b) => new Date(a.received_at) - new Date(b.received_at));
 const inboxAge = (ts) => inboxDur(Date.now() - new Date(ts));
 function inboxDur(ms){
@@ -11055,7 +11122,7 @@ async function loadClientInbox(){
     supabase.from("client_emails").select("*").not("client_id", "is", null).or(`status.eq.new,received_at.gte.${since}`).order("received_at", { ascending: false }).limit(300),
     supabase.from("inbox_connections").select("*"),
   ]);
-  state.clientEmails = em.data || [];
+  state.clientEmails = (em.data || []).filter(e => !inboxIsCalendar(e));
   state.inboxConnections = ic.data || [];
   state.inboxMissing = Boolean(em.error);
   state.inboxLoaded = true;
@@ -11477,13 +11544,6 @@ function todayItems(){
         title: `${inboxShortName(c.name)}: ${am.live} of ${am.target} ads live this month`, sub: am.overdue ? "Behind - some are past their due date." : "Still to go live this month.",
         actions: go("Ads this month", "ads-month", am.overdue ? "gold" : "ghost") });
     });
-    // Workshops still to do this month.
-    live.filter(isWorkshopClient).filter(c => !doneThisMonth(c)).forEach(c => {
-      const day = new Date().getDate();
-      items.push({ area: "clients", owner: (c.onboarding_progress || {}).owner || null, tone: day >= 20 ? "bad" : "warn", at: now,
-        title: `Workshop with ${inboxShortName(c.name)} this month`, sub: day >= 20 ? "Month's nearly over - book it in." : "Not done yet this month.",
-        actions: btn("Log workshop", `data-td-ws="${c.id}"`, day >= 20 ? "gold" : "ghost") + openClient(c.id) });
-    });
     // Onboarding clients that are behind or waiting on the client.
     state.clients.filter(inOnboardingSection).forEach(c => {
       const ls = launchState(c);
@@ -11504,7 +11564,7 @@ function todayItems(){
   });
 
   // To-dos due today or overdue.
-  safe(() => state.tasks.filter(t => t.status === "open" && t.due_date && t.due_date <= today).forEach(t => {
+  safe(() => state.tasks.filter(t => t.status === "open" && t.due_date && t.due_date <= today && !isSalesFollowup(t)).forEach(t => {
     items.push({ area: "tasks", owner: t.assignee || null, tone: t.due_date < today ? "bad" : "warn", at: now,
       title: t.title || "To-do", sub: t.due_date < today ? `Was due ${new Date(t.due_date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : "Due today",
       actions: btn("Done ✓", `data-td-task="${t.id}"`) + go("Open", "tasks") });
@@ -14966,6 +15026,7 @@ const RENDERERS = [
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
   [renderAdProduction, ["ad-production"]], [apNavCount, ["*"]],
   [renderPlasteringLeads, ["plastering-leads"]],
+  [renderSalesFollowups, ["sales-followups"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
