@@ -1761,11 +1761,11 @@ const MAIN_NAV = [
   { key: "today", label: "Today", icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     pages: [["today", "Today"]] }, // just the list for today (Rocky, 13 Nov 2026)
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
-    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["sales-followups", "Follow-ups"], ["meetings", "Upcoming meetings"], ["deals", "Pipeline"]] },
+    pages: [["dialer", "Dialler"], ["inbound-leads", "Inbound leads"], ["cold-calls", "Meetings booked"], ["deals", "Pipeline"], ["sales-followups", "Follow-ups", 1], ["meetings", "Upcoming meetings", 1]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
     pages: [["clients", "Clients"], ["onboarding", "Onboarding"], ["reporting", "Reports"]] },
   { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
-    pages: [["ad-production", "Ad production"], ["ads-month", "Ads this month"]] },
+    pages: [["ads-month", "Ads this month"], ["ad-production", "Ad production"]] },
   { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
     pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["plastering-leads", "Plastering"], ["lead-kpis", "Results", 1], ["lead-schedule", "Schedule", 1], ["lead-results", "Setup", 1]] },
   { key: "money", label: "Money", delivery: true, icon: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
@@ -1898,7 +1898,7 @@ function mainNavRender(){
       if (key === "today") return todayMine().filter(x => x.tone !== "ok").length;
       if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length + (plNewCount() || 0);
       if (key === "ads") return Number($("#nav-ads-count")?.textContent) || 0;
-      if (key === "sales") return sfDue().length;
+      if (key === "sales") return sfDue().length + (inbNewCount() || 0);
     } catch(e){}
     return 0;
   };
@@ -11846,6 +11846,16 @@ function todayItems(){
       actions: go("Open the call queue", "lead-queue", late ? "gold" : "ghost") });
   });
 
+  // New Mr Priceless enquiries from the Meta lead forms (one row).
+  safe(() => {
+    const fresh = (inbLeads || []).filter(l => l.status === "new");
+    if (!fresh.length) return;
+    const oldest = Math.min(...fresh.map(l => Date.parse(l.created_at) || now));
+    items.push({ area: "sales", owner: null, tone: now - oldest > 3600e3 ? "bad" : "warn", at: oldest,
+      title: `${fresh.length} new inbound lead${fresh.length === 1 ? "" : "s"} to call`, sub: "From the Mr Priceless Facebook / Instagram lead forms",
+      actions: go("Open inbound leads", "inbound-leads", "gold") });
+  });
+
   const rank = { bad: 0, warn: 1, ok: 2 };
   return items.sort((a, b) => rank[a.tone] - rank[b.tone] || a.at - b.at);
 }
@@ -15156,6 +15166,180 @@ function apSeedDemo(){
   state.apBrands = [{ client_id: reviewJob.client_id, voice: "Friendly and straight-talking, a bit of Kiwi humour", colours: "Navy and orange", logo_url: null, reference_image_urls: [], do_not_say: "Cheapest; 24/7" }];
 }
 
+/* ───────── Inbound leads (Mr Priceless's own Meta lead forms) ───────── */
+// Enquiries from Mr Priceless's Facebook / Instagram lead forms (Meta's Leads
+// Center), copied into inbound_leads every 5 minutes by sync-meta-leads
+// (sql/116) from the page(s) picked here. Loads its own rows and stays live
+// with its own listener, like Plastering leads. Delete removes a lead for good.
+const INB_STATUSES = [["new", "New"], ["contacted", "Contacted"], ["booked", "Meeting booked"], ["not_a_fit", "Not a fit"], ["lost", "Lost"]];
+const INB_OPEN = new Set(["new", "contacted"]);
+const INB_FILTERS = [["open", "To do"], ...INB_STATUSES, ["all", "All"]];
+let inbLeads = null, inbSettings = null, inbLoading = false, inbLoadErr = "", inbLive = false, inbFilter = "open", inbBound = false, inbBusy = "", inbPages = null, inbSetupOpen = false;
+function inbDemo(){
+  const ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
+  inbSettings = { page_ids: ["111"], pages: [{ id: "111", name: "Mr Priceless" }], last_ok_at: ago(3), last_error: null };
+  return [
+    { id: "inb-1", created_at: ago(8), name: "Dean Harris", phone: "+64 21 555 0187", email: "dean@harrisbuilt.co.nz", business: "Harris Built", ad_name: "Builders - more quotes video", form_name: "Free growth call", answers: [{ q: "What trade are you in?", a: "Builder" }, { q: "How many jobs do you want a month?", a: "4-6" }, { q: "Monthly revenue", a: "$50k - $100k" }], status: "new" },
+    { id: "inb-2", created_at: ago(60 * 5), name: "Kim Tuhoe", phone: "+64 27 555 0110", email: "kim@tuhoeconcrete.nz", business: "Tuhoe Concrete", ad_name: "Concreters - 10 quote guarantee", form_name: "Free growth call", answers: [{ q: "What trade are you in?", a: "Concreting" }, { q: "How many jobs do you want a month?", a: "10+" }], status: "contacted", notes: "Call back Monday 10am" },
+    { id: "inb-3", created_at: ago(60 * 30), name: "Sam Lee", phone: "+61 412 555 019", email: "", business: "", ad_name: "AU - Painters", form_name: "Free growth call", answers: [{ q: "What trade are you in?", a: "Painter" }], status: "booked" },
+  ];
+}
+async function inbLoad(){
+  if (!IS_CONFIGURED){ if (!inbLeads) inbLeads = inbDemo(); return; }
+  if (inbLoading) return;
+  inbLoading = true;
+  try {
+    const [l, s] = await Promise.all([
+      supabase.from("inbound_leads").select("*").order("created_at", { ascending: false }).limit(1000),
+      supabase.from("inbound_settings").select("*").eq("id", 1).maybeSingle(),
+    ]);
+    if (l.error) inbLoadErr = /relation|does not exist/i.test(l.error.message || "") ? "Inbound leads are still being set up. Refresh in a few minutes." : "Couldn't load the inbound leads. Refresh to try again.";
+    else { inbLeads = l.data || []; inbLoadErr = ""; }
+    inbSettings = s.data || { page_ids: [], pages: [] };
+  } finally { inbLoading = false; }
+  if (!inbLive && !inbLoadErr){
+    inbLive = true;
+    supabase.channel("inb-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "inbound_leads" }, () => {
+        inbLoad().then(() => { if (state.page === "inbound-leads") renderInboundLeads(); mainNavRender(); });
+      })
+      .subscribe();
+  }
+}
+function inbNewCount(){
+  if (inbLeads === null){ if (!inbLoading && !inbLoadErr) inbLoad().then(() => mainNavRender()); return 0; }
+  return inbLeads.filter(l => l.status === "new").length;
+}
+async function inbCall(body){
+  if (!IS_CONFIGURED) return body.action === "pages" ? { pages: [{ id: "111", name: "Mr Priceless" }, { id: "222", name: "Mr Priceless AU" }] } : { saved: 0 };
+  const { data, error } = await supabase.functions.invoke("sync-meta-leads", { body });
+  return error ? { error: error.message || "Couldn't reach the CRM server." } : (data || {});
+}
+function inbCardHtml(l){
+  const tel = String(l.phone || "").replace(/[^\d+]/g, "");
+  const facts = [l.business, ...(l.answers || []).filter(x => /trade|industry|what do you do/i.test(x.q)).map(x => x.a)].filter(Boolean);
+  const rest = (l.answers || []).filter(x => !/trade|industry|what do you do/i.test(x.q) && x.a).slice(0, 6);
+  return `<article class="pl-card inb-card${l.status === "new" ? " is-new" : ""}" data-inb-id="${escapeHtml(l.id)}">
+    <div class="pl-main">
+      <div class="pl-top"><h3>${escapeHtml(l.name || "No name given")}</h3><span class="pl-when">${escapeHtml(lqTime(l.created_at))}</span></div>
+      ${facts.length ? `<p class="pl-facts">${facts.map(escapeHtml).join(" · ")}</p>` : ""}
+      ${rest.length ? `<dl class="inb-answers">${rest.map(x => `<div><dt>${escapeHtml(x.q)}</dt><dd>${escapeHtml(x.a)}</dd></div>`).join("")}</dl>` : ""}
+      <p class="pl-contact">
+        ${tel ? `<a class="pl-call" href="tel:${escapeHtml(tel)}">Call ${escapeHtml(l.phone)}</a>` : ""}
+        <button type="button" class="btn gold inb-book" data-inb-book>Book a meeting</button>
+        ${l.email ? `<a class="pl-email" href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>` : ""}
+      </p>
+      ${l.ad_name || l.form_name ? `<p class="pl-source">From ${l.ad_name ? `the ad "${escapeHtml(l.ad_name)}"` : "a lead form"}${l.form_name ? ` · form "${escapeHtml(l.form_name)}"` : ""}</p>` : ""}
+    </div>
+    <div class="pl-side">
+      <label>Where it's at
+        <select data-inb-status>${INB_STATUSES.map(([k, t]) => `<option value="${k}"${k === l.status ? " selected" : ""}>${t}</option>`).join("")}</select>
+      </label>
+      <label>Notes
+        <textarea data-inb-notes rows="3" placeholder="Call back time, what they said, anything else">${escapeHtml(l.notes || "")}</textarea>
+      </label>
+      <button type="button" class="pl-delete" data-inb-delete>Delete this lead</button>
+    </div>
+  </article>`;
+}
+// Connecting Meta: pick the Facebook page the leads come from.
+function inbSetupHtml(){
+  const st = inbSettings || {}, picked = st.page_ids || [];
+  const connected = picked.length && !st.last_error;
+  if (connected && !inbSetupOpen){
+    return `<div class="inb-status ok"><span><i></i>Connected to ${escapeHtml((st.pages || []).filter(p => picked.includes(p.id)).map(p => p.name).join(", ") || "your Facebook page")} · checks every 5 minutes${st.last_ok_at ? ` · last checked ${escapeHtml(lqTime(st.last_ok_at))}` : ""}</span><span class="inb-status-acts"><button type="button" class="btn ghost" data-inb-sync>${inbBusy === "sync" ? "Checking…" : "Check now"}</button><button type="button" class="btn ghost" data-inb-setup>Change page</button></span></div>`;
+  }
+  const pages = inbPages || st.pages || [];
+  return `<section class="inb-setup">
+    <h3>${!picked.length ? "Connect your Facebook lead forms" : st.last_error ? "Fix the Meta connection" : "Change the Facebook page"}</h3>
+    ${st.last_error ? `<p class="inb-err">${escapeHtml(st.last_error)}</p>` : `<p>Pick the Facebook page your Mr Priceless ads run from. Every lead from its lead forms then lands here within 5 minutes, plus the last 90 days.</p>`}
+    ${pages.length ? `<div class="inb-pages">${pages.map(p => `<label class="inb-page"><input type="checkbox" value="${escapeHtml(p.id)}" ${picked.includes(p.id) ? "checked" : ""}> ${escapeHtml(p.name)}</label>`).join("")}</div>
+      <div class="inb-setup-acts"><button type="button" class="btn gold" data-inb-pick>${inbBusy === "pick" ? "Connecting…" : "Use these pages"}</button><button type="button" class="btn ghost" data-inb-pages>${inbBusy === "pages" ? "Looking…" : "Refresh the list"}</button>${picked.length ? `<button type="button" class="btn ghost" data-inb-setup-close>Cancel</button>` : ""}</div>`
+      : `<div class="inb-setup-acts"><button type="button" class="btn gold" data-inb-pages>${inbBusy === "pages" ? "Looking…" : "Find my Facebook pages"}</button></div>
+         <p class="inb-hint">If no pages show up, the Meta token needs lead access first - Rocky has the setup steps.</p>`}
+  </section>`;
+}
+function renderInboundLeads(){
+  const root = $("#inb-root");
+  if (!root) return;
+  inbBind(root);
+  if (root.contains(document.activeElement) && document.activeElement.matches("textarea")) return;
+  const head = `<div class="page-header"><div><h2>Inbound leads</h2><p>Enquiries from the Mr Priceless Facebook and Instagram lead forms. Call new ones fast.</p></div></div>`;
+  if (inbLeads === null){
+    root.innerHTML = head + (inbLoadErr ? `<p class="pl-empty">${escapeHtml(inbLoadErr)}</p>` : mpSkel(3));
+    if (!inbLoading && !inbLoadErr) inbLoad().then(renderInboundLeads);
+    return;
+  }
+  const count = (f) => inbLeads.filter(l => f === "all" || (f === "open" ? INB_OPEN.has(l.status) : l.status === f)).length;
+  const list = inbLeads.filter(l => inbFilter === "all" || (inbFilter === "open" ? INB_OPEN.has(l.status) : l.status === inbFilter));
+  root.innerHTML = head + inbSetupHtml() + `
+    <div class="pl-pills" role="tablist">${INB_FILTERS.map(([k, t]) => `<button type="button" class="pl-pill${k === inbFilter ? " active" : ""}" data-inb-filter="${k}">${t} <span>${count(k)}</span></button>`).join("")}</div>
+    <div class="pl-list">${list.length ? list.map(inbCardHtml).join("") : `<p class="pl-empty">${inbLeads.length ? "Nothing here." : "No inbound leads yet. Once the Facebook page is connected they'll show here."}</p>`}</div>`;
+}
+async function inbSave(id, patch){
+  const l = (inbLeads || []).find(x => x.id === id);
+  if (!l) return;
+  Object.assign(l, patch, { updated_at: new Date().toISOString(), updated_by: state.user?.email || null });
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("inbound_leads").update({ ...patch, updated_at: l.updated_at, updated_by: l.updated_by }).eq("id", id);
+    if (error) alert("Couldn't save that. Check your connection and try again.");
+  }
+  mainNavRender();
+}
+async function inbDelete(id){
+  const l = (inbLeads || []).find(x => x.id === id);
+  if (!l || !confirm(`Delete ${l.name || "this lead"}? This can't be undone.`)) return;
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("inbound_leads").delete().eq("id", id);
+    if (error) return alert("Couldn't delete that. Check your connection and try again.");
+  }
+  inbLeads = inbLeads.filter(x => x.id !== id);
+  renderInboundLeads(); mainNavRender();
+}
+function inbBind(root){
+  if (inbBound) return;
+  inbBound = true;
+  root.addEventListener("click", async (e) => {
+    const t = e.target.closest("[data-inb-filter],[data-inb-delete],[data-inb-book],[data-inb-pages],[data-inb-pick],[data-inb-sync],[data-inb-setup],[data-inb-setup-close]");
+    if (!t || inbBusy) return;
+    const d = t.dataset, card = t.closest("[data-inb-id]"), lead = card && (inbLeads || []).find(x => x.id === card.dataset.inbId);
+    if (d.inbFilter){ inbFilter = d.inbFilter; return renderInboundLeads(); }
+    if ("inbDelete" in d && lead) return inbDelete(lead.id);
+    if ("inbBook" in d && lead){
+      openBookMeetingModalFromProspect({ name: lead.name || "", phone: lead.phone || "", company: lead.business || "", email: lead.email || "", source: "Inbound lead" });
+      return;
+    }
+    if ("inbSetup" in d){ inbSetupOpen = true; return renderInboundLeads(); }
+    if ("inbSetupClose" in d){ inbSetupOpen = false; return renderInboundLeads(); }
+    const run = async (busy, body) => { inbBusy = busy; renderInboundLeads(); try { return await inbCall(body); } finally { inbBusy = ""; } };
+    if ("inbPages" in d){
+      const r = await run("pages", { action: "pages" });
+      if (r.error) inbSettings = { ...(inbSettings || {}), last_error: r.error };
+      else { inbPages = r.pages || []; inbSettings = { ...(inbSettings || {}), pages: inbPages, last_error: inbPages.length ? null : "The Meta token can't see any Facebook pages yet." }; }
+      return renderInboundLeads();
+    }
+    if ("inbPick" in d){
+      const ids = [...root.querySelectorAll(".inb-page input:checked")].map(x => x.value);
+      if (!ids.length) return alert("Tick the page your Mr Priceless ads run from.");
+      const r = await run("pick", { action: "pick", page_ids: ids });
+      inbSettings = { ...(inbSettings || {}), page_ids: ids, last_error: r.error || null, last_ok_at: r.error ? inbSettings?.last_ok_at : new Date().toISOString() };
+      if (!r.error) inbSetupOpen = false;
+      await inbLoad(); return renderInboundLeads();
+    }
+    if ("inbSync" in d){
+      const r = await run("sync", { action: "sync" });
+      if (r.error) inbSettings = { ...(inbSettings || {}), last_error: r.error };
+      await inbLoad(); return renderInboundLeads();
+    }
+  });
+  root.addEventListener("change", (e) => {
+    const card = e.target.closest("[data-inb-id]");
+    if (!card) return;
+    if (e.target.matches("[data-inb-status]")) inbSave(card.dataset.inbId, { status: e.target.value }).then(renderInboundLeads);
+    if (e.target.matches("[data-inb-notes]")) inbSave(card.dataset.inbId, { notes: e.target.value.trim() || null });
+  });
+}
+
 /* ───────── Plastering leads (Priceless Plastering & Painting website) ───────── */
 // Quote requests from the Priceless Plastering & Painting website land in
 // plastering_leads (sql/114, added by the site through
@@ -15223,6 +15407,7 @@ function plCardHtml(l){
       <label>Notes
         <textarea data-pl-notes rows="3" placeholder="Site visit time, quote amount, anything else">${escapeHtml(l.notes || "")}</textarea>
       </label>
+      <button type="button" class="pl-delete" data-pl-delete>Delete this lead</button>
     </div>
   </article>`;
 }
@@ -15258,12 +15443,24 @@ async function plSave(id, patch){
   }
   mainNavRender();
 }
+async function plDelete(id){
+  const l = (plLeads || []).find(x => x.id === id);
+  if (!l || !confirm(`Delete ${l.name || "this lead"}? This can't be undone.`)) return;
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("plastering_leads").delete().eq("id", id);
+    if (error) return alert("Couldn't delete that. Check your connection and try again.");
+  }
+  plLeads = plLeads.filter(x => x.id !== id);
+  renderPlasteringLeads(); mainNavRender();
+}
 function plBind(root){
   if (plBound) return;
   plBound = true;
   root.addEventListener("click", (e) => {
     const f = e.target.closest("[data-pl-filter]");
     if (f){ plFilter = f.dataset.plFilter; renderPlasteringLeads(); }
+    const del = e.target.closest("[data-pl-delete]"), card = del?.closest("[data-pl-id]");
+    if (card) plDelete(card.dataset.plId);
   });
   root.addEventListener("change", (e) => {
     const card = e.target.closest("[data-pl-id]");
@@ -15288,6 +15485,7 @@ const RENDERERS = [
   [renderMeetingsPage, ["meetings"]], [pmNavCount, ["*"]],
   [renderAdProduction, ["ad-production"]], [apNavCount, ["*"]],
   [renderPlasteringLeads, ["plastering-leads"]],
+  [renderInboundLeads, ["inbound-leads"]],
   [renderSalesFollowups, ["sales-followups"]],
   [renderHowWeWork, ["how"]],
 ];

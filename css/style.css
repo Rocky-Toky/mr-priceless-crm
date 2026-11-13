@@ -5720,3 +5720,25 @@ body.page-entering .page.active :is(.td-row,.pm-row,.hw-card,.cl-row,.obx-row,.o
 /* Small arrow / icon buttons inside the dark headers (e.g. Pipeline's month picker) */
 body.main-nav .page .page-header button:not(.btn):not(.ws-tab):not([role="tab"]):not(.country-toggle button){background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);color:#fff6e0;}
 body.main-nav .page .page-header button:not(.btn):disabled{opacity:.35;}
+
+/* Reports: the "Ad performance and lead imports" fold-out is gone (Rocky, 13 Nov 2026) */
+.rp-tools{display:none !important;}
+/* Delete on lead cards (plastering + inbound) */
+.pl-delete{align-self:flex-start;margin-top:2px;font:inherit;font-size:13.5px;font-weight:700;color:var(--danger);background:none;border:0;padding:4px 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
+/* Inbound leads */
+.inb-answers{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px 18px;margin-top:10px;}
+.inb-answers dt{font-size:12.5px;font-weight:700;color:var(--text2);}
+.inb-answers dd{font-size:15px;font-weight:600;color:var(--text);}
+.inb-book{min-height:46px;}
+.inb-status{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px 10px 18px;margin-bottom:16px;border-radius:14px;background:var(--white);border:1px solid var(--line);font-size:14px;font-weight:600;color:#3f3b33;}
+.inb-status i{display:inline-block;width:9px;height:9px;margin-right:9px;border-radius:50%;background:var(--success);box-shadow:0 0 0 4px rgba(63,125,85,.15);}
+.inb-status-acts{display:flex;gap:8px;}
+.inb-setup{padding:20px 22px;margin-bottom:18px;border-radius:18px;background:var(--white);border:1px solid var(--gold-border);box-shadow:var(--shadow);}
+.inb-setup h3{font-family:var(--font-display);font-size:20px;font-weight:800;margin-bottom:6px;}
+.inb-setup p{font-size:15px;color:#3f3b33;}
+.inb-err{padding:10px 14px;border-radius:12px;background:#fbeeea;color:#8a2f1d !important;font-weight:600;}
+.inb-pages{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0;}
+.inb-page{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);font-size:15px;font-weight:600;cursor:pointer;}
+.inb-setup-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.inb-hint{margin-top:10px;font-size:13.5px !important;color:var(--text2) !important;}
+@media (max-width:820px){.pl-card{grid-template-columns:1fr;}}
