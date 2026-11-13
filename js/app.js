@@ -1755,7 +1755,7 @@ function setupWsMenu(){
 // quietly switches to the workspace it belongs to (mainEnsureWs).
 const MAIN_NAV = [
   { key: "today", label: "Today", icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-    pages: [["today", "Today"], ["todo", "This week"], ["tasks", "All tasks"]] },
+    pages: [["today", "Today"]] }, // just the list for today (Rocky, 13 Nov 2026)
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
     pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["sales-followups", "Follow-ups"], ["deals", "Pipeline"], ["lead-engine", "Add prospects"], ["contacts", "Contacts"], ["rates", "Stats"]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
@@ -11567,7 +11567,7 @@ function todayItems(){
   safe(() => state.tasks.filter(t => t.status === "open" && t.due_date && t.due_date <= today && !isSalesFollowup(t)).forEach(t => {
     items.push({ area: "tasks", owner: t.assignee || null, tone: t.due_date < today ? "bad" : "warn", at: now,
       title: t.title || "To-do", sub: t.due_date < today ? `Was due ${new Date(t.due_date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : "Due today",
-      actions: btn("Done ✓", `data-td-task="${t.id}"`) + go("Open", "tasks") });
+      actions: btn("Done ✓", `data-td-task="${t.id}"`) + btn("Open", `data-action="edit-task" data-id="${t.id}"`) });
   }));
 
   // Leads waiting for a call (one row, not one per lead).
