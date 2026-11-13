@@ -1304,6 +1304,7 @@ async function initAuth(){
     showApp();
     setupClientInbox();
     setupToday();
+  setupHowWeWork();
     setupEmployees();
     setupFollowUps();
     setupLeadCalls();
@@ -1412,6 +1413,7 @@ async function handleSignedInNow(session, freshLogin){
   subscribeRealtime();
   setupClientInbox();
   setupToday();
+  setupHowWeWork();
   setupEmployees();
   setupFollowUps();
   setupLeadCalls();
@@ -1757,17 +1759,17 @@ const MAIN_NAV = [
   { key: "today", label: "Today", icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     pages: [["today", "Today"]] }, // just the list for today (Rocky, 13 Nov 2026)
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
-    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["sales-followups", "Follow-ups"], ["deals", "Pipeline"], ["lead-engine", "Add prospects", 1], ["contacts", "Contacts", 1], ["rates", "Stats", 1]] },
+    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["sales-followups", "Follow-ups"], ["deals", "Pipeline"]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
-    pages: [["client-inbox", "Inbox"], ["onboarding", "Onboarding"], ["clients", "Clients"], ["reporting", "Reports"], ["workshops", "Workshops", 1]] },
+    pages: [["onboarding", "Onboarding"], ["clients", "Clients"], ["reporting", "Reports"]] },
   { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
-    pages: [["ad-production", "Ad production"], ["ads-month", "Ads this month"], ["creative", "Creative library"]] },
+    pages: [["ad-production", "Ad production"], ["ads-month", "Ads this month"]] },
   { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
     pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results", 1], ["lead-schedule", "Schedule", 1], ["lead-results", "Setup", 1]] },
   { key: "plastering", label: "Plastering leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
     pages: [["plastering-leads", "Plastering leads"]] },
   { key: "library", label: "Library", icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
-    pages: [["meeting", "Meeting structure"], ["sit-rate", "Sit rate process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks", 1], ["rules", "Rules", 1]] },
+    pages: [["meeting", "Meeting structure"], ["sit-rate", "Sit rate process"], ["email-templates", "Email templates"], ["how", "How we work"]] },
   { key: "team", label: "Team", icon: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
     pages: [["employees", "Team"], ["receipts", "Receipts"], ["expenses", "Expenses"]] },
 ];
@@ -1892,7 +1894,6 @@ function mainNavRender(){
   const count = (key) => {
     try {
       if (key === "today") return todayMine().filter(x => x.tone !== "ok").length;
-      if (key === "clients") return canAccessDelivery() ? inboxWaiting().filter(e => e.client_id).length : 0;
       if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length;
       if (key === "ads") return Number($("#nav-ads-count")?.textContent) || 0;
       if (key === "plastering") return plNewCount();
@@ -7730,6 +7731,176 @@ function renderSalesFollowups(){
   }
 }
 
+/* ───────── How we work (Library) ─────────
+   Rocky's rebuild of Playbooks + Rules (13 Nov 2026): one hub of guides, each
+   a set of numbered step cards. Guides are the existing `playbooks` and
+   `rules` rows (nothing moved or lost): the text is split into steps at its
+   "## " headings. A guide's topic is a "[topic: sales]" line at the top of its
+   text (else guessed from the title). Only Rocky and Max add or change guides. */
+const HW_TOPICS = [
+  { key: "sales", label: "Sales", re: /sales|cold|call|dial|script|prospect|meeting|clos|pitch|objection|offer|discovery/i },
+  { key: "clients", label: "Clients", re: /client|onboard|report|workshop|deliver|retention|check.?in/i },
+  { key: "ads", label: "Ads", re: /\bads?\b|meta|google|facebook|landing|seo|creative|campaign|page/i },
+  { key: "leads", label: "Lead calls", re: /lead|follow.?up|enquir/i },
+  { key: "team", label: "Team", re: /.^/ },
+];
+const HW_TOPIC_RE = /^\s*\[topic:\s*([a-z]+)\s*\]\s*\n?/i;
+let hwOpen = null, hwTopic = "all", hwSearch = "", hwEdit = null;
+const hwCanEdit = () => !IS_CONFIGURED || isRocky() || isMax();
+function hwGuides(){
+  const pb = state.playbooks.filter(p => !PB_PINNED_RE.test(p.title || "") && !SR_TITLE_RE.test(p.title || "")).map(r => ({ table: "playbooks", row: r }));
+  const ru = state.rules.filter(r => !isWorkshopRule(r)).map(r => ({ table: "rules", row: r }));
+  return [...pb, ...ru].map(g => Object.assign(g, hwParse(g.row))).sort((a, b) => (a.row.sort_order || 0) - (b.row.sort_order || 0) || String(a.row.title).localeCompare(String(b.row.title)));
+}
+function hwParse(row){
+  let text = String(row.content || "");
+  let topic = null;
+  const m = text.match(HW_TOPIC_RE);
+  if (m){ topic = m[1].toLowerCase(); text = text.slice(m[0].length); }
+  if (!HW_TOPICS.some(t => t.key === topic)) topic = (HW_TOPICS.find(t => t.re.test(row.title || "")) || HW_TOPICS[HW_TOPICS.length - 1]).key;
+  const steps = [];
+  let intro = [], cur = null;
+  for (const line of text.split("\n")){
+    const h = line.trim().match(/^#{1,2}\s+(.*)$/);
+    if (h){ cur = { title: h[1].trim(), lines: [] }; steps.push(cur); }
+    else (cur ? cur.lines : intro).push(line);
+  }
+  steps.forEach(s => { s.body = s.lines.join("\n").trim(); delete s.lines; });
+  intro = intro.join("\n").trim();
+  if (!steps.length && intro){ steps.push({ title: "", body: intro }); intro = ""; }
+  return { topic, intro, steps };
+}
+function hwContent(topic, intro, steps){
+  return `[topic: ${topic}]\n` + (intro ? intro.trim() + "\n\n" : "") + steps.filter(s => s.title.trim() || s.body.trim()).map((s, i) => `## ${s.title.trim() || "Step " + (i + 1)}\n\n${s.body.trim()}`).join("\n\n");
+}
+const hwLead = (g) => String(g.intro || g.steps[0]?.body || "").split("\n").map(s => s.replace(/^\s*(>|[-*•]|\d+[.)])\s*/, "").replace(/\*\*/g, "").trim()).filter(Boolean)[0] || "";
+function renderHowWeWork(){
+  const root = $("#hw-root");
+  if (!root) return;
+  if (typeof ensureBuiltinPlaybooks === "function") ensureBuiltinPlaybooks();
+  if (root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select") && hwEdit) return;
+  const guides = hwGuides();
+  if (hwEdit) return void (root.innerHTML = hwEditorHtml());
+  const g = hwOpen && guides.find(x => x.row.id === hwOpen);
+  if (hwOpen && !g) hwOpen = null;
+  const focused = document.activeElement?.id === "hw-search";
+  root.innerHTML = g ? hwGuideHtml(g) : hwHomeHtml(guides);
+  if (focused){ const s = $("#hw-search"); if (s){ s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+}
+function hwHomeHtml(guides){
+  const q = hwSearch.trim().toLowerCase();
+  const counts = Object.fromEntries(HW_TOPICS.map(t => [t.key, guides.filter(x => x.topic === t.key).length]));
+  const shown = guides.filter(x => (hwTopic === "all" || x.topic === hwTopic) && (!q || (x.row.title + " " + x.row.content).toLowerCase().includes(q)));
+  const card = (x) => `<button type="button" class="hw-card" data-hw-open="${x.row.id}">
+      <span class="hw-card-topic">${escapeHtml(HW_TOPICS.find(t => t.key === x.topic)?.label || "")}</span>
+      <b>${escapeHtml(x.row.title || "Untitled")}</b>
+      <span class="hw-card-lead">${escapeHtml(hwLead(x) || "Open to read it.")}</span>
+      <span class="hw-card-foot"><span>${x.steps.length ? `${x.steps.length} step${x.steps.length === 1 ? "" : "s"}` : "Not written yet"}</span><span class="hw-go">Open →</span></span>
+    </button>`;
+  return `<div class="page-header"><div><h2>How we work</h2><p>Every process, step by step. Pick a guide and follow the cards.</p></div>${hwCanEdit() ? `<button type="button" class="btn gold" data-hw-new>+ New guide</button>` : ""}</div>
+    <div class="hw-bar">
+      <div class="hw-topics" role="tablist">${[["all", "All", guides.length], ...HW_TOPICS.filter(t => counts[t.key]).map(t => [t.key, t.label, counts[t.key]])].map(([k, l, n]) => `<button type="button" class="${hwTopic === k ? "on" : ""}" data-hw-topic="${k}">${escapeHtml(l)} <span>${n}</span></button>`).join("")}</div>
+      <label class="hw-search">${ICONS.search}<input id="hw-search" type="search" placeholder="Search every guide…" value="${escapeHtml(hwSearch)}" autocomplete="off"></label>
+    </div>
+    ${shown.length ? `<div class="hw-grid">${shown.map(card).join("")}</div>` : `<div class="hw-empty"><b>${guides.length ? "Nothing matches that." : "No guides yet."}</b><span>${guides.length ? "Try another word or topic." : hwCanEdit() ? "Press + New guide to write the first one." : "Rocky or Max will add them here."}</span></div>`}`;
+}
+function hwGuideHtml(g){
+  const topic = HW_TOPICS.find(t => t.key === g.topic)?.label || "";
+  const step = (s, i) => `<article class="hw-step" id="hw-step-${i}">
+      <div class="hw-step-num">${i + 1}</div>
+      <div class="hw-step-main">${s.title ? `<h3>${escapeHtml(s.title)}</h3>` : ""}<div class="hw-step-body playbook-content">${s.body ? renderPlaybookMarkdown(s.body, {}).html : `<p class="hw-muted">Nothing written for this step yet.</p>`}</div></div>
+    </article>`;
+  return `<div class="hw-top"><button type="button" class="hw-back" data-hw-back>← All guides</button>${hwCanEdit() ? `<div class="hw-top-acts"><button type="button" class="btn ghost" data-hw-edit="${g.row.id}">Edit</button></div>` : ""}</div>
+    <div class="page-header"><div><h2>${escapeHtml(g.row.title || "Untitled")}</h2><p>${escapeHtml(topic)} · ${g.steps.length} step${g.steps.length === 1 ? "" : "s"}</p></div></div>
+    <div class="hw-read">
+      ${g.steps.length > 1 ? `<nav class="hw-rail" aria-label="Steps">${g.steps.map((s, i) => `<button type="button" data-hw-jump="${i}"><span>${i + 1}</span>${escapeHtml(s.title || "Step " + (i + 1))}</button>`).join("")}</nav>` : ""}
+      <div class="hw-steps">
+        ${g.intro ? `<div class="hw-intro playbook-content">${renderPlaybookMarkdown(g.intro, {}).html}</div>` : ""}
+        ${g.steps.length ? g.steps.map(step).join("") : `<div class="hw-empty"><b>No steps yet.</b>${hwCanEdit() ? `<span>Press Edit to add them.</span>` : ""}</div>`}
+      </div>
+    </div>`;
+}
+function hwEditorHtml(){
+  const e = hwEdit;
+  const stepRow = (s, i) => `<div class="hw-ed-step" data-i="${i}">
+      <div class="hw-ed-step-head"><span class="hw-step-num sm">${i + 1}</span>
+        <input class="hw-ed-title" data-f="title" data-i="${i}" placeholder="What this step is (e.g. Open the call)" value="${escapeHtml(s.title)}">
+        <span class="hw-ed-tools"><button type="button" title="Move up" data-hw-move="${i}:-1" ${i ? "" : "disabled"}>↑</button><button type="button" title="Move down" data-hw-move="${i}:1" ${i < e.steps.length - 1 ? "" : "disabled"}>↓</button><button type="button" title="Remove step" data-hw-del-step="${i}">✕</button></span></div>
+      <textarea data-f="body" data-i="${i}" rows="5" placeholder="What to do. One point per line starting with - . A line starting with > is something to say out loud.">${escapeHtml(s.body)}</textarea>
+    </div>`;
+  return `<div class="hw-top"><button type="button" class="hw-back" data-hw-cancel>← Back without saving</button></div>
+    <div class="page-header"><div><h2>${e.id ? "Edit guide" : "New guide"}</h2><p>Give it a name, pick a topic, then write it as steps.</p></div><button type="button" class="btn gold" data-hw-save>Save guide</button></div>
+    <div class="hw-ed">
+      <div class="hw-ed-row"><label>Name<input id="hw-ed-name" value="${escapeHtml(e.title)}" placeholder="e.g. Onboarding a new client"></label>
+        <label>Topic<select id="hw-ed-topic">${HW_TOPICS.map(t => `<option value="${t.key}" ${t.key === e.topic ? "selected" : ""}>${escapeHtml(t.label)}</option>`).join("")}</select></label></div>
+      <label class="hw-ed-intro">Short intro (optional)<textarea id="hw-ed-intro" rows="2" placeholder="One or two lines on what this guide is for.">${escapeHtml(e.intro)}</textarea></label>
+      <div class="hw-ed-steps">${e.steps.map(stepRow).join("")}</div>
+      <button type="button" class="btn ghost hw-ed-add" data-hw-add-step>+ Add a step</button>
+      ${e.id ? `<button type="button" class="hw-ed-delete" data-hw-delete>Delete this guide</button>` : ""}
+    </div>`;
+}
+function hwStartEdit(id){
+  const g = id && hwGuides().find(x => x.row.id === id);
+  hwEdit = g ? { id, table: g.table, title: g.row.title || "", topic: g.topic, intro: g.intro, steps: g.steps.map(s => ({ title: s.title, body: s.body })) }
+    : { id: null, table: "playbooks", title: "", topic: hwTopic !== "all" ? hwTopic : "sales", intro: "", steps: [{ title: "", body: "" }] };
+  if (!hwEdit.steps.length) hwEdit.steps.push({ title: "", body: "" });
+  renderHowWeWork();
+  $("#hw-ed-name")?.focus();
+}
+function hwReadForm(){
+  if (!hwEdit) return;
+  hwEdit.title = $("#hw-ed-name")?.value ?? hwEdit.title;
+  hwEdit.topic = $("#hw-ed-topic")?.value ?? hwEdit.topic;
+  hwEdit.intro = $("#hw-ed-intro")?.value ?? hwEdit.intro;
+  $$("#hw-root [data-f]").forEach(el => { const s = hwEdit.steps[+el.dataset.i]; if (s) s[el.dataset.f] = el.value; });
+}
+async function hwSave(btn){
+  hwReadForm();
+  const e = hwEdit;
+  if (!e.title.trim()){ alert("Give the guide a name first."); return $("#hw-ed-name")?.focus(); }
+  btn.disabled = true;
+  const row = { title: e.title.trim(), content: hwContent(e.topic, e.intro, e.steps), updated_at: new Date().toISOString() };
+  try {
+    let id = e.id;
+    if (id) await DataLayer.update(e.table, id, row);
+    else { const made = await DataLayer.insert("playbooks", Object.assign(row, { sort_order: state.playbooks.length })); id = made?.id; }
+    if (IS_CONFIGURED) await DataLayer.fetchAll();
+    hwEdit = null; hwOpen = id || null;
+    renderAll();
+  } catch(err){ console.warn(err); alert("That didn't save. Check your internet and try again."); btn.disabled = false; }
+}
+function setupHowWeWork(){
+  const root = $("#hw-root");
+  if (!root || root.dataset.wired) return;
+  root.dataset.wired = "1";
+  root.addEventListener("input", (e) => {
+    if (e.target.id === "hw-search"){ hwSearch = e.target.value; renderHowWeWork(); }
+  });
+  root.addEventListener("click", async (e) => {
+    const t = e.target.closest("[data-hw-open],[data-hw-back],[data-hw-topic],[data-hw-jump],[data-hw-new],[data-hw-edit],[data-hw-cancel],[data-hw-save],[data-hw-add-step],[data-hw-del-step],[data-hw-move],[data-hw-delete]");
+    if (!t) return;
+    const d = t.dataset;
+    if (d.hwOpen){ hwOpen = d.hwOpen; renderHowWeWork(); return scrollTo({ top: 0 }); }
+    if ("hwBack" in d){ hwOpen = null; return renderHowWeWork(); }
+    if (d.hwTopic){ hwTopic = d.hwTopic; return renderHowWeWork(); }
+    if (d.hwJump){ return $("#hw-step-" + d.hwJump)?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    if ("hwNew" in d) return hwStartEdit(null);
+    if (d.hwEdit) return hwStartEdit(d.hwEdit);
+    if ("hwCancel" in d){ hwEdit = null; return renderHowWeWork(); }
+    if ("hwSave" in d) return hwSave(t);
+    hwReadForm();
+    if ("hwAddStep" in d){ hwEdit.steps.push({ title: "", body: "" }); renderHowWeWork(); return $$("#hw-root .hw-ed-title").pop()?.focus(); }
+    if (d.hwDelStep){ hwEdit.steps.splice(+d.hwDelStep, 1); if (!hwEdit.steps.length) hwEdit.steps.push({ title: "", body: "" }); return renderHowWeWork(); }
+    if (d.hwMove){ const [i, dir] = d.hwMove.split(":").map(Number), j = i + dir, s = hwEdit.steps; if (s[j]){ [s[i], s[j]] = [s[j], s[i]]; } return renderHowWeWork(); }
+    if ("hwDelete" in d){
+      if (!confirm(`Delete "${hwEdit.title || "this guide"}"? This can't be undone.`)) return;
+      await DataLayer.remove(hwEdit.table, hwEdit.id);
+      if (IS_CONFIGURED) await DataLayer.fetchAll();
+      hwEdit = null; hwOpen = null; renderAll();
+    }
+  });
+}
+
 /* ───────── Render: Tasks ───────── */
 function dealTitle(id){ return state.deals.find(d => d.id === id)?.title || ""; }
 function todayDateStr(){ return new Date().toISOString().slice(0,10); }
@@ -11354,7 +11525,7 @@ function renderInboxAlert(){
   const bar = $("#inbox-alert");
   if (!bar) return;
   // Not on the inbox itself, nor on Today (which lists every waiting email).
-  const show = waiting.length && state.page !== "client-inbox" && state.page !== "today";
+  const show = waiting.length && !mainMode() && state.page !== "client-inbox" && state.page !== "today";
   document.body.classList.toggle("has-inbox-alert", Boolean(show));
   if (!show){ bar.hidden = true; return; }
   const oldest = waiting[0], urgent = Date.now() - new Date(oldest.received_at) > INBOX_URGENT_MS;
@@ -11537,6 +11708,16 @@ function todayItems(){
         actions: `<a class="td-btn gold" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail</a>` + btn("No reply needed", `data-td-done="${e.id}"`) });
     }
   }));
+
+  // Your Gmail feeds the client emails above: if it isn't connected or has stopped checking in, say so.
+  if (delivery && state.inboxLoaded && !state.inboxMissing) safe(() => {
+    const mine = state.inboxConnections.find(c => c.user_id === (state.user?.id || "demo"));
+    const stale = mine?.last_sync_at && now - new Date(mine.last_sync_at) > INBOX_STALE_MS * 3;
+    if (mine && mine.status === "ok" && !stale) return;
+    items.push({ area: "clients", owner: null, tone: "warn", at: now,
+      title: mine ? "Your Gmail has stopped checking in" : "Connect your Gmail", sub: "So client emails land on Today. Takes 2 minutes.",
+      actions: go(mine ? "Fix it" : "Set it up", "client-inbox", "gold") });
+  });
 
   // Meeting tasks that are due now (booking texts, reminder calls, outcomes...).
   safe(() => pmMyTasks(true).forEach(t => {
@@ -15043,6 +15224,7 @@ const RENDERERS = [
   [renderAdProduction, ["ad-production"]], [apNavCount, ["*"]],
   [renderPlasteringLeads, ["plastering-leads"]],
   [renderSalesFollowups, ["sales-followups"]],
+  [renderHowWeWork, ["how"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
