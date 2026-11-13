@@ -1872,7 +1872,7 @@ function mainNavRender(){
   const cur = mainSectionOf(state.page)?.key;
   const count = (key) => {
     try {
-      if (key === "today") return todayItems().filter(x => x.tone !== "ok").length;
+      if (key === "today") return todayMine().filter(x => x.tone !== "ok").length;
       if (key === "clients") return canAccessDelivery() ? inboxWaiting().filter(e => e.client_id).length : 0;
       if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length;
       if (key === "ads") return Number($("#nav-ads-count")?.textContent) || 0;
@@ -11489,8 +11489,8 @@ function setupClientInboxUi(){
    meeting tasks, workshops and ads due this month, onboarding clients that
    are behind, payments due, overdue to-dos, and leads waiting for a call.
    tone: "bad" = overdue, "warn" = due today, "ok" = coming up later today. */
-let todayWho = "all";
-try { todayWho = localStorage.getItem("mp_today_who") || "all"; } catch(e){}
+// Today only ever shows your own list (plus things nobody owns) - Rocky, 13 Nov 2026.
+const todayMine = () => { const me = pmMe(); return todayItems().filter(x => !x.owner || !me || x.owner === me); };
 const TODAY_AREAS = { clients: "Clients", sales: "Sales", ads: "Ads", leads: "Lead calls", money: "Payments", tasks: "To-do" };
 function todayItems(){
   const items = [], now = Date.now(), today = localDayStr();
@@ -11594,7 +11594,7 @@ function renderToday(){
   if (!root) return;
   const me = pmMe();
   const all = todayItems();
-  const list = todayWho === "mine" ? all.filter(x => !x.owner || x.owner === me) : all;
+  const list = all.filter(x => !x.owner || !me || x.owner === me);
   const urgent = list.filter(x => x.tone !== "ok").length;
   const first = (ASSIGNEES[me]?.label || "").split(" ")[0];
   const hour = nzParts(new Date()).h, hello = hour < 12 ? "Morning" : hour < 17 ? "Afternoon" : "Evening";
@@ -11603,8 +11603,7 @@ function renderToday(){
   // The header (waves, greeting, ring) is built once so the waves keep flowing; the list redraws.
   if (!root.querySelector(".td-hero")){
     root.innerHTML = `<section class="td-hero"><canvas class="td-waves" aria-hidden="true"></canvas>
-      <div class="td-hero-in"><div class="td-hero-text"><p class="td-date"></p><h2></h2><p class="td-sum"></p>
-        <div class="td-who" role="tablist"><button type="button" data-td-who="all">Everything</button><button type="button" data-td-who="mine">Just mine</button></div></div>
+      <div class="td-hero-in"><div class="td-hero-text"><p class="td-date"></p><h2></h2><p class="td-sum"></p></div>
         <div class="td-ring" aria-hidden="true"><svg viewBox="0 0 120 120"><circle class="td-ring-bg" cx="60" cy="60" r="52"/><circle class="td-ring-fg" cx="60" cy="60" r="52"/></svg><div class="td-ring-num"><b></b><span></span></div></div></div>
     </section><div class="td-body"></div>`;
     if (window.mpWaves) tdWaves = window.mpWaves(root.querySelector(".td-waves"), { dim: true });
@@ -11612,7 +11611,6 @@ function renderToday(){
   root.querySelector(".td-date").textContent = dateLine;
   root.querySelector(".td-hero h2").textContent = `${hello}${first ? `, ${first}` : ""}`;
   root.querySelector(".td-sum").innerHTML = urgent ? `<b>${urgent}</b> thing${urgent === 1 ? "" : "s"} to do${done ? ` · <b>${done}</b> done` : ""}` : (done ? `All done - <b>${done}</b> ticked off today` : "You're all caught up.");
-  root.querySelectorAll("[data-td-who]").forEach(b => b.classList.toggle("on", b.dataset.tdWho === todayWho));
   const C = 2 * Math.PI * 52, ring = root.querySelector(".td-ring");
   ring.querySelector(".td-ring-fg").style.strokeDasharray = `${C * pct} ${C}`;
   ring.classList.toggle("full", !urgent);
@@ -11652,9 +11650,8 @@ function setupToday(){
   if (!root || root.dataset.wired) return;
   root.dataset.wired = "1";
   root.addEventListener("click", async (e) => {
-    const t = e.target.closest("[data-td-go],[data-td-client],[data-td-done],[data-td-who],[data-td-ws],[data-td-task]");
+    const t = e.target.closest("[data-td-go],[data-td-client],[data-td-done],[data-td-ws],[data-td-task]");
     if (!t) return;
-    if (t.dataset.tdWho){ todayWho = t.dataset.tdWho; try { localStorage.setItem("mp_today_who", todayWho); } catch(err){} return renderToday(); }
     if (t.dataset.tdGo) return goPage(t.dataset.tdGo);
     if (t.dataset.tdClient){ state.selectedClientId = t.dataset.tdClient; state.clientBackTo = null; goPage("clients"); return renderClients(); }
     if (t.dataset.tdWs) return openWorkshopModal(t.dataset.tdWs);
