@@ -1757,17 +1757,17 @@ const MAIN_NAV = [
   { key: "today", label: "Today", icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     pages: [["today", "Today"]] }, // just the list for today (Rocky, 13 Nov 2026)
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
-    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["sales-followups", "Follow-ups"], ["deals", "Pipeline"], ["lead-engine", "Add prospects"], ["contacts", "Contacts"], ["rates", "Stats"]] },
+    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["sales-followups", "Follow-ups"], ["deals", "Pipeline"], ["lead-engine", "Add prospects", 1], ["contacts", "Contacts", 1], ["rates", "Stats", 1]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
-    pages: [["client-inbox", "Inbox"], ["onboarding", "Onboarding"], ["clients", "Clients"], ["reporting", "Reports"], ["workshops", "Workshops"]] },
+    pages: [["client-inbox", "Inbox"], ["onboarding", "Onboarding"], ["clients", "Clients"], ["reporting", "Reports"], ["workshops", "Workshops", 1]] },
   { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
     pages: [["ad-production", "Ad production"], ["ads-month", "Ads this month"], ["creative", "Creative library"]] },
   { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
-    pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results"], ["lead-schedule", "Schedule"], ["lead-results", "Setup"]] },
+    pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results", 1], ["lead-schedule", "Schedule", 1], ["lead-results", "Setup", 1]] },
   { key: "plastering", label: "Plastering leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
     pages: [["plastering-leads", "Plastering leads"]] },
   { key: "library", label: "Library", icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
-    pages: [["meeting", "Meeting structure"], ["sit-rate", "Sit rate process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks"], ["rules", "Rules"]] },
+    pages: [["meeting", "Meeting structure"], ["sit-rate", "Sit rate process"], ["email-templates", "Email templates"], ["playbooks", "Playbooks", 1], ["rules", "Rules", 1]] },
   { key: "team", label: "Team", icon: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
     pages: [["employees", "Team"], ["receipts", "Receipts"], ["expenses", "Expenses"]] },
 ];
@@ -1807,21 +1807,40 @@ function syncPageGroup(){
   if (!g) return;
   try { localStorage.setItem("mp_tab_" + g, state.page); } catch(e){}
   $$(".page-tabs").forEach(t => {
-    t.querySelectorAll("button").forEach(b => {
+    t.querySelectorAll("button[data-goto]").forEach(b => {
       b.classList.toggle("active", b.dataset.goto === state.page);
       b.hidden = (b.dataset.goto === "lead-engine" && !canAccessLeadEngine()) || !tabInWorkspace(b.dataset.goto) || (mainMode() && !mainPageOk(b.dataset.goto));
     });
-    t.hidden = [...t.querySelectorAll("button")].filter(b => !b.hidden).length < 2;
+    // "More" shows the page you're on when it's one of its own, and hides when it has nothing to offer.
+    const more = t.querySelector(".pt-more");
+    if (more){
+      const items = [...more.querySelectorAll("[data-goto]")].filter(b => !b.hidden), cur = items.find(b => b.dataset.goto === state.page);
+      more.hidden = !items.length;
+      const mb = more.querySelector(".pt-more-btn");
+      mb.textContent = cur ? cur.textContent : "More";
+      mb.classList.toggle("active", !!cur);
+      more.classList.remove("open");
+    }
+    t.hidden = [...t.querySelectorAll("button[data-goto]")].filter(b => !b.hidden).length < 2;
   });
 }
+document.addEventListener("click", (e) => { if (!e.target.closest(".pt-more")) $$(".pt-more.open").forEach(x => x.classList.remove("open")); });
 function setupPageGroups(){
   Object.entries(PAGE_GROUPS).forEach(([g, pages]) => pages.forEach(([page]) => {
     const sec = $("#page-" + page), head = sec?.querySelector(".page-header");
     if (!sec || sec.querySelector(".page-tabs") || pages.length < 2) return;
     const tabs = document.createElement("div");
     tabs.className = "page-tabs country-toggle";
-    tabs.innerHTML = pages.map(([p, label]) => `<button type="button" data-goto="${p}">${escapeHtml(label)}</button>`).join("");
-    tabs.addEventListener("click", (e) => { const b = e.target.closest("[data-goto]"); if (b) goPage(b.dataset.goto); });
+    // Less-used tabs fold under "More" so each section only shows what's used every day.
+    const tab = ([p, label]) => `<button type="button" data-goto="${p}">${escapeHtml(label)}</button>`;
+    const extra = pages.filter(x => x[2]);
+    tabs.innerHTML = pages.filter(x => !x[2]).map(tab).join("") + (extra.length ? `<div class="pt-more"><button type="button" class="pt-more-btn" aria-haspopup="true">More</button><div class="pt-more-menu">${extra.map(tab).join("")}</div></div>` : "");
+    tabs.addEventListener("click", (e) => {
+      const m = e.target.closest(".pt-more-btn");
+      if (m){ const box = m.parentNode, open = !box.classList.contains("open"); $$(".pt-more.open").forEach(x => x.classList.remove("open")); box.classList.toggle("open", open); return; }
+      const b = e.target.closest("[data-goto]");
+      if (b){ $$(".pt-more.open").forEach(x => x.classList.remove("open")); goPage(b.dataset.goto); }
+    });
     if (head) head.parentNode.insertBefore(tabs, head); else sec.insertBefore(tabs, sec.firstChild);
   }));
   $$(".nav-group-item").forEach(b => b.addEventListener("click", () => { const p = lastTabOf(b.dataset.group); if (p) goPage(p); }));
