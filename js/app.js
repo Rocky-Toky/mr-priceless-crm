@@ -1756,22 +1756,24 @@ function setupWsMenu(){
 // the new-lead pop-up and the inbox bar all lean on them); opening a page
 // quietly switches to the workspace it belongs to (mainEnsureWs).
 const MAIN_NAV = [
+  // Order (Rocky, 13 Nov 2026): the day, then the work in the order it happens - win them (Sales), look after
+  // them (Clients, Ads), call their leads (Lead calls, with Plastering as a tab), then money, how-tos and the team.
   { key: "today", label: "Today", icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     pages: [["today", "Today"]] }, // just the list for today (Rocky, 13 Nov 2026)
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
-    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["meetings", "Upcoming meetings"], ["sales-followups", "Follow-ups"], ["deals", "Pipeline"]] },
+    pages: [["dialer", "Dialler"], ["cold-calls", "Meetings booked"], ["sales-followups", "Follow-ups"], ["meetings", "Upcoming meetings"], ["deals", "Pipeline"]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
-    pages: [["onboarding", "Onboarding"], ["clients", "Clients"], ["reporting", "Reports"]] },
+    pages: [["clients", "Clients"], ["onboarding", "Onboarding"], ["reporting", "Reports"]] },
   { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
     pages: [["ad-production", "Ad production"], ["ads-month", "Ads this month"]] },
   { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
-    pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results", 1], ["lead-schedule", "Schedule", 1], ["lead-results", "Setup", 1]] },
-  { key: "plastering", label: "Plastering leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
-    pages: [["plastering-leads", "Plastering leads"]] },
+    pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["plastering-leads", "Plastering"], ["lead-kpis", "Results", 1], ["lead-schedule", "Schedule", 1], ["lead-results", "Setup", 1]] },
+  { key: "money", label: "Money", delivery: true, icon: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
+    pages: [["receipts", "Payments"], ["expenses", "Expenses"]] },
   { key: "library", label: "Library", icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
     pages: [["meeting", "Meeting structure"], ["sit-rate", "Sit rate process"], ["email-templates", "Email templates"], ["how", "How we work"]] },
   { key: "team", label: "Team", icon: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
-    pages: [["employees", "Team"], ["receipts", "Receipts"], ["expenses", "Expenses"]] },
+    pages: [["employees", "Team"]] },
 ];
 const PAGE_GROUPS = Object.fromEntries(MAIN_NAV.filter(s => s.pages.length > 1).map(s => [s.key, s.pages]));
 const mainMode = () => !isLeadsOnly();
@@ -1894,9 +1896,8 @@ function mainNavRender(){
   const count = (key) => {
     try {
       if (key === "today") return todayMine().filter(x => x.tone !== "ok").length;
-      if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length;
+      if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length + (plNewCount() || 0);
       if (key === "ads") return Number($("#nav-ads-count")?.textContent) || 0;
-      if (key === "plastering") return plNewCount();
       if (key === "sales") return sfDue().length;
     } catch(e){}
     return 0;
