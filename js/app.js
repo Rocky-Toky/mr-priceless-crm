@@ -2386,6 +2386,7 @@ async function createPrecallMeeting(p){
       google_event_id: "demo", buffer_event_id: "demo-b", meet_link: "https://meet.google.com/abc-defg-hij", calendar_status: "ok",
       invite_to_prospect: invite, test_mode: pmTestMode(), confirmation_status: "unconfirmed", reschedule_count: 0, created_at: bookedAt.toISOString() };
     state.meetings.push(row);
+    mpCelebrate("Meeting booked!", p.first_name ? `${p.first_name} is in the calendar` : "");
     return row;
   }
   const { data, error } = await supabase.functions.invoke("precall-meetings", { body: { action: "book", ...p } });
@@ -2394,6 +2395,7 @@ async function createPrecallMeeting(p){
     return null;
   }
   await DataLayer.fetchAll();
+  mpCelebrate("Meeting booked!", p.first_name ? `${p.first_name} is in the calendar` : "");
   return data.meeting;
 }
 async function submitBookMeeting(e){
@@ -2618,13 +2620,18 @@ function pmTodoHtml(){
   </div>`;
 }
 // The strip of tasks under each meeting: what's done, due and coming up.
+let pmTestOpen = false;
 function pmTaskStrip(m){
   const tasks = pmTasks(m);
   if (!tasks.length) return "";
   const icon = { done: "✓", dismissed: "–", skipped: "–", missed: "!", due: "●", late: "!", upcoming: "○" };
   const say = (t) => t.state === "done" ? (t.done?.result ? { answered_ok: "still good", answered_reschedule: "wants to move", no_answer: "no answer", confirmed: "confirmed", showed: "showed", noshow: "no-show" }[t.done.result] || "done" : "done")
     : t.state === "dismissed" ? "skipped" : t.state === "skipped" ? t.why : t.state === "missed" ? "missed" : t.state === "late" ? "overdue" : t.state === "due" ? "due now" : pmWhenLong(new Date(t.due).toISOString());
-  return `<div class="pm-strip">${tasks.map(t => `<span class="pm-chip ${t.state}" title="${escapeHtml(t.label)} (${t.who})${t.done?.note ? ": " + escapeHtml(t.done.note) : ""}">${icon[t.state]} ${escapeHtml(t.label)} <small>${escapeHtml(say(t))}</small></span>`).join("")}</div>`;
+  // Just the one next thing to do (Rocky: the full row of chips was clutter). Hover for the rest.
+  const next = tasks.find(t => t.state === "late" || t.state === "due") || tasks.find(t => t.state === "upcoming");
+  if (!next) return "";
+  const all = tasks.map(t => `${icon[t.state]} ${t.label}: ${say(t)}`).join("\n");
+  return `<div class="pm-strip"><span class="pm-chip ${next.state}" title="${escapeHtml(all)}">Next: ${escapeHtml(next.label)} <small>${escapeHtml(say(next))}</small></span></div>`;
 }
 async function pmDoTask(m, task, status, result, note){
   if (!IS_CONFIGURED){
@@ -2906,6 +2913,8 @@ function renderMeetingsPage(){
     if (m.ghl_status === "ok") return `<span class="pm-pill" title="Tag in GHL: ${escapeHtml(m.ghl_tag || "")}">In GHL</span>`;
     return "";
   };
+  // Only tags that need you: things that went wrong, or a cancelled meeting.
+  const problemPills = (html) => /pm-pill (red|gray)"?[^>]*>(Invite didn't send|Declined invite|GHL sync failed|Cancelled)/.test(html) || /pm-pill red/.test(html) ? html : "";
   const confPill = (m) => {
     if (m.status !== "scheduled") return "";
     const src = (m.confirmations || []).map(c => `${c.source === "calendar" ? "Accepted the invite" : c.source === "email_reply" ? "Replied to an email" : "Setter"} ${new Date(c.at).toLocaleString("en-NZ", { timeZone: NZ_TZ, dateStyle: "medium", timeStyle: "short" })}`).join("\n");
@@ -2919,7 +2928,7 @@ function renderMeetingsPage(){
       <div class="pm-when"><b>${pmTime(m.starts_at)}</b><small>to ${pmTime(Date.parse(m.starts_at) + (m.duration_min || 15) * 60e3)}</small></div>
       <div class="pm-who"><b>${escapeHtml(pmName(m))}</b><small>${escapeHtml([m.business_name, m.phone].filter(Boolean).join(" · "))}</small></div>
       <div class="pm-people">${pmSame(m) ? `<span>Booked and run by <b>${escapeHtml(pmPerson(m.closer))}</b></span>` : `<span>Closer <b>${escapeHtml(pmPerson(m.closer))}</b></span><span>Set by <b>${escapeHtml(pmPerson(m.setter))}</b></span>`}</div>
-      <div class="pm-tags">${confPill(m)}${calPill(m)}${m.booking_window ? `<span class="pm-pill">${escapeHtml(PM_WINDOW_LABEL[m.booking_window] || m.booking_window)}</span>` : ""}${m.reschedule_count ? `<span class="pm-pill${m.reschedule_count >= 2 ? " gold" : ""}">Moved ${m.reschedule_count}x</span>` : ""}${ghlPill(m)}${pmUnread(m).length ? `<span class="pm-pill red">${pmUnread(m).length} unread repl${pmUnread(m).length === 1 ? "y" : "ies"}</span>` : ""}${pmFailed(m).length ? `<span class="pm-pill red" title="${escapeHtml(pmFailed(m).map(x => x.error || x.status).join(", "))}">${pmFailed(m)[0].channel === "email" ? "Email" : "Text"} didn't send</span>` : ""}${(() => { const n = pmNextTouch(m); return n ? `<span class="pm-pill" title="Next automated message from GHL">Next: ${escapeHtml(n.label)} ${escapeHtml(pmWhenShort(n.at))}</span>` : ""; })()}</div>
+      <div class="pm-tags">${problemPills(calPill(m))}${m.reschedule_count >= 2 ? `<span class="pm-pill gold">Moved ${m.reschedule_count}x</span>` : ""}${problemPills(ghlPill(m))}${pmUnread(m).length ? `<span class="pm-pill red">${pmUnread(m).length} unread repl${pmUnread(m).length === 1 ? "y" : "ies"}</span>` : ""}${pmFailed(m).length ? `<span class="pm-pill red" title="${escapeHtml(pmFailed(m).map(x => x.error || x.status).join(", "))}">${pmFailed(m)[0].channel === "email" ? "Email" : "Text"} didn't send</span>` : ""}</div>
       <div class="pm-actions">
         ${needConfirm ? `<button type="button" class="btn gold" data-pm-act="confirm" data-id="${m.id}" title="They confirmed by text or on a call">${pmIsToday(m) ? "Mark confirmed today" : "Mark confirmed"}</button>` : ""}
         ${live ? `<button type="button" class="btn ghost" data-pm-act="resched" data-id="${m.id}">Reschedule</button><button type="button" class="btn ghost" data-pm-act="cancel" data-id="${m.id}">Cancel</button>` : ""}
@@ -2939,9 +2948,9 @@ function renderMeetingsPage(){
   root.innerHTML = `
     <div class="page-header">
       <div><h2>Upcoming Meetings</h2><p>Book here and the Google Meet invite goes on the closer's calendar, with a 30-minute buffer after. All times NZ.</p></div>
-      <button type="button" class="btn gold" data-pm-act="book">+ Book Meeting</button>
+      <div class="pm-head-acts"><button type="button" class="btn ghost pm-test-btn${test ? " on" : ""}" data-pm-act="test-open" title="Test mode settings">${test ? "Test mode on" : "Live"} ⚙</button><button type="button" class="btn gold" data-pm-act="book">+ Book Meeting</button></div>
     </div>
-    <div class="pm-test${test ? " on" : ""}">
+    <div class="pm-test${test ? " on" : ""}" ${pmTestOpen ? "" : "hidden"}>
       <div><b>Test mode is ${test ? "on" : "off"}.</b> ${test ? "Invites only go to @mrpriceless.com emails and the test list below, so no real prospect gets anything yet." : "Prospects get real calendar invites."}</div>
       ${test ? `<label class="pm-test-list">Test list <input type="text" id="pm-test-list" placeholder="other emails to allow, comma separated" value="${escapeHtml(state.precallSettings?.test_allowlist || "")}"></label>` : ""}
       <button type="button" class="btn ${test ? "ghost" : "gold"}" data-pm-act="test">${test ? "Go live" : "Turn test mode back on"}</button>
@@ -3126,6 +3135,7 @@ document.addEventListener("click", async (e) => {
     const done = await pmCall("retry_ghl", { meeting_id: m.id });
     if (done) rcToast(done.ghl_status === "ok" ? "Sent to GHL." : "GHL still isn't taking it: " + (done.ghl_error || "unknown error"));
   }
+  else if (act === "test-open"){ pmTestOpen = !pmTestOpen; renderMeetingsPage(); return; }
   else if (act === "to-followup" && m){ closeModal("pm-resched-modal"); openCancel(m, `Moved to follow-up after ${m.reschedule_count} reschedules`); }
   else if (act === "confirm" && m){
     b.disabled = true;
@@ -6025,7 +6035,7 @@ function renderClientPortal(c){
   el.dataset.id = c.id;
   if (!el.dataset.bound){ el.dataset.bound = "1"; el.addEventListener("click", cppClick); el.addEventListener("change", cppChange); el.addEventListener("submit", cppSubmit); }
   const users = state.portalUsers[c.id];
-  if (users === undefined){ el.innerHTML = `<div class="cl-panel-head cp-panel-head"><h3>Client portal</h3></div><p class="cpp-p">Loading…</p>`; loadPortalUsers(c.id).then(() => { if ($("#cp-portal")?.dataset.id === c.id) renderClientPortal(c); }); return; }
+  if (users === undefined){ el.innerHTML = `<div class="cl-panel-head cp-panel-head"><h3>Client portal</h3></div>${mpSkel(2)}`; loadPortalUsers(c.id).then(() => { if ($("#cp-portal")?.dataset.id === c.id) renderClientPortal(c); }); return; }
   const mine = state.portalLink?.client_id === c.id ? state.portalLink : null;
   const seen = (u) => { if (!u.last_seen_at) return "hasn't signed in yet"; const a = lqAgo(Date.now() - new Date(u.last_seen_at)); return a === "just now" ? "last in just now" : `last in ${a} ago`; };
   el.innerHTML = `
@@ -7900,6 +7910,60 @@ function setupHowWeWork(){
     }
   });
 }
+
+/* ───────── Feel (13 Nov 2026, Rocky's picks) ─────────
+   mpSkel: shimmering placeholder rows while something loads.
+   mpCountUp: big numbers roll up from 0 when a page opens (scoreboard feel).
+   mpCelebrate: a gold burst + message for the big wins (a meeting booked).
+   Page entrance: rows slide in once when a page opens (body.page-entering). */
+const mpSkel = (n = 3) => `<div class="mp-skel" aria-label="Loading">${Array.from({ length: n }, () => `<div class="mp-skel-row"><i></i><span><b></b><b></b></span></div>`).join("")}</div>`;
+const MP_COUNT_SEL = ".stat-value,.mb-counter-num,.mb-count-num,.pm-kpi b,.ib-stat b,.ob-summary b,.cl-stats b,.rc-hero-amount,.rc-big,.td-ring-num b";
+const mpReduced = () => window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+function mpCountUp(root){
+  if (!root || mpReduced()) return;
+  root.querySelectorAll(MP_COUNT_SEL).forEach(el => {
+    if (el.children.length) return;
+    const txt = el.textContent.trim(), m = txt.match(/^([^\d-]{0,3})(-?[\d,]+(?:\.\d+)?)(.{0,12})$/);
+    if (!m) return;
+    const target = parseFloat(m[2].replace(/,/g, "")), dec = (m[2].split(".")[1] || "").length;
+    if (!isFinite(target) || Math.abs(target) < 2) return;
+    const fmt = (v) => m[1] + (dec ? v.toFixed(dec) : Math.round(v)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, m[2].includes(",") ? "," : "") + m[3];
+    const t0 = performance.now(), dur = 650;
+    let last = fmt(0);
+    el.textContent = last;
+    const step = (now) => {
+      if (el.textContent !== last) return; // something re-rendered it: leave the new value alone
+      const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      last = k < 1 ? fmt(target * e) : txt;
+      el.textContent = last;
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+function mpCelebrate(title, sub){
+  if (mpReduced()) return;
+  const box = document.createElement("div");
+  box.className = "mp-cele";
+  box.innerHTML = `<div class="mp-cele-burst">${Array.from({ length: 18 }, (_, i) => `<i style="--a:${i * 20}deg;--d:${110 + (i % 3) * 30}px"></i>`).join("")}</div><div class="mp-cele-card"><span class="mp-cele-star">★</span><b>${escapeHtml(title)}</b>${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</div>`;
+  document.body.appendChild(box);
+  setTimeout(() => box.classList.add("out"), 1500);
+  setTimeout(() => box.remove(), 2000);
+}
+(function mpPageEntrance(){
+  let lastPage = null, timer = null;
+  const obs = new MutationObserver(() => {
+    const act = document.querySelector(".page.active");
+    if (!act || act.id === lastPage) return;
+    lastPage = act.id;
+    document.body.classList.add("page-entering");
+    clearTimeout(timer);
+    timer = setTimeout(() => document.body.classList.remove("page-entering"), 700);
+    setTimeout(() => mpCountUp(act), 60);
+  });
+  const start = () => document.querySelectorAll(".page").forEach(pg => obs.observe(pg, { attributes: true, attributeFilter: ["class"] }));
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+})();
 
 /* ───────── Render: Tasks ───────── */
 function dealTitle(id){ return state.deals.find(d => d.id === id)?.title || ""; }
@@ -12113,7 +12177,7 @@ function renderEmployees(){
   const root = $("#emp-root");
   empNavRender();
   if (!root) return;
-  if (!state.empLoaded){ root.innerHTML = `<div class="emp-empty">Loading the team…</div>`; return; }
+  if (!state.empLoaded){ root.innerHTML = mpSkel(3); return; }
   const mgr = empIsManager();
   const current = empOrdered(state.employees.filter(empCurrent)), past = state.employees.filter(e => !empCurrent(e));
   if (empSel && !state.employees.some(e => e.id === empSel)) empSel = null;
@@ -13568,7 +13632,7 @@ function renderLeadPlan(){
   const root = $("#lp-root");
   if (!root) return;
   if (root.contains(document.activeElement) && document.activeElement.matches("input,select")) return;
-  if (!state.empLoaded){ root.innerHTML = `<div class="emp-empty">Loading…</div>`; return; }
+  if (!state.empLoaded){ root.innerHTML = mpSkel(3); return; }
   const e = lpPerson();
   if (!e){ root.innerHTML = `<div class="lp-empty"><h3>No one to show yet</h3><p>Add the team on the Employees page first.</p></div>`; return; }
   const plan = lpPlanOf(e), mgr = empIsManager(), first = String(e.name || "").split(" ")[0];
@@ -13691,7 +13755,7 @@ function renderLeadSchedule(){
   const root = $("#ls-root");
   if (!root) return;
   if (root.contains(document.activeElement) && document.activeElement.matches("input,textarea,select:not(.lp-person)")) return;
-  if (!state.empLoaded){ root.innerHTML = `<div class="emp-empty">Loading…</div>`; return; }
+  if (!state.empLoaded){ root.innerHTML = mpSkel(3); return; }
   const e = lpPerson();
   if (!e){ root.innerHTML = `<div class="lp-empty"><h3>No one to show yet</h3><p>Add the team on the Team page first.</p></div>`; return; }
   const today = lsToday();
@@ -13978,7 +14042,7 @@ function renderLeadCalls(){
   // Still loading: say so, rather than flashing the setup steps.
   if (!state.lcLoaded && !calls.length){
     root.innerHTML = `<header class="lc-head"><div><h2>Recorded calls</h2><p>Every Aircall call, recorded, so you can listen back.</p></div></header>
-      <div class="lc-empty lc-loading-box"><span class="lc-spin" aria-hidden="true"></span><p>Loading your calls…</p></div>`;
+      ${mpSkel(6)}`;
     return;
   }
   if (state.lcMissing && !calls.length){
@@ -15166,7 +15230,7 @@ function renderPlasteringLeads(){
   if (!root) return;
   plBind(root);
   if (plLeads === null){
-    root.innerHTML = `<div class="pl-head"><h2>Plastering leads</h2></div><p class="pl-empty">${plLoadErr ? escapeHtml(plLoadErr) : "Loading the leads…"}</p>`;
+    root.innerHTML = `<div class="pl-head"><h2>Plastering leads</h2></div>${plLoadErr ? `<p class="pl-empty">${escapeHtml(plLoadErr)}</p>` : mpSkel(3)}`;
     if (!plLoading && !plLoadErr) plLoad().then(renderPlasteringLeads);
     return;
   }
