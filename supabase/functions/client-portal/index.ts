@@ -15,7 +15,7 @@
 //   { action: "calendar_status" }               -> which buttons to offer, what's connected
 //   { action: "calendar_connect", provider }    -> { url } to send them to Google / Microsoft
 //   { action: "calendar_disconnect" }
-//   { action: "calendar_day", from, to }        -> { events } in their calendar
+//   { action: "calendar_day", from, to }        -> { events } in their calendar (up to 8 days)
 //   { action: "calendar_add", lead_id }         -> puts the lead's site visit / call in their calendar
 // GET /client-portal/oauth/{google|microsoft}: where the sign-in comes back to.
 //
@@ -277,7 +277,7 @@ async function calendarAction(admin: any, email: string, body: any) {
   const token = await accessToken(conn, saver(admin, email));
   if (body.action === "calendar_day") {
     const from = new Date(body.from), to = new Date(body.to);
-    if (isNaN(+from) || isNaN(+to) || +to <= +from || +to - +from > 3 * 86400e3) return { error: "Pick a day." };
+    if (isNaN(+from) || isNaN(+to) || +to <= +from || +to - +from > 8 * 86400e3) return { error: "Pick a day or a week." };
     return { events: await dayEvents(conn, token, from.toISOString(), to.toISOString()) };
   }
   if (body.action === "calendar_add") {

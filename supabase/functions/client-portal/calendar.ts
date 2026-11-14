@@ -110,7 +110,7 @@ export async function accessToken(conn: Conn, save: (patch: Record<string, unkno
 // Their events between two times (their own calendar, so titles are fine to show).
 export async function dayEvents(conn: Conn, token: string, from: string, to: string, f: Fetch = fetch): Promise<CalEvent[]> {
   if (conn.provider === "google") {
-    const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", orderBy: "startTime", maxResults: "50" });
+    const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", orderBy: "startTime", maxResults: "250" });
     const r = await f(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!r.ok) throw new Error(`Google Calendar said ${r.status}`);
     const out = await r.json();
@@ -121,7 +121,7 @@ export async function dayEvents(conn: Conn, token: string, from: string, to: str
       allDay: !e.start?.dateTime,
     }));
   }
-  const q = new URLSearchParams({ startDateTime: from, endDateTime: to, $top: "50", $orderby: "start/dateTime", $select: "subject,start,end,isAllDay,showAs,isCancelled" });
+  const q = new URLSearchParams({ startDateTime: from, endDateTime: to, $top: "250", $orderby: "start/dateTime", $select: "subject,start,end,isAllDay,showAs,isCancelled" });
   const r = await f(`https://graph.microsoft.com/v1.0/me/calendarView?${q}`, { headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="UTC"' } });
   if (!r.ok) throw new Error(`Outlook said ${r.status}`);
   const out = await r.json();

@@ -407,3 +407,31 @@ body.pp-dragging,body.pp-dragging *{cursor:grabbing !important;user-select:none;
 .pp-free button{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #bfe0cb;background:var(--green-soft);color:var(--green);font-weight:700;font-size:14px;}
 .pp-free button.on{background:var(--green);color:#fff;border-color:var(--green);}
 @media (max-width:700px){ .pp-calday li span{min-width:96px;} }
+
+/* Week view of their calendar while picking a visit / call time. */
+.pp-cal{display:flex;flex-direction:column;gap:10px;}
+.pp-week{border:1px solid var(--line);border-radius:var(--r-sm);background:#fff;padding:10px;}
+.pp-week.loading{background:#fbfaf6;}
+.pp-wk-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.pp-wk-head b{font-size:15px;}
+.pp-wk-head small{color:var(--text2);font-size:12.5px;flex:1;}
+.pp-wk-head b:only-of-type{flex:none;}
+.pp-wk-nav{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:22px;line-height:1;font-weight:700;color:var(--text);flex:none;}
+.pp-wk-nav:first-child{order:0;}
+.pp-wk-head .pp-wk-nav[data-wk="1"]{margin-left:auto;}
+.pp-wk-nav:disabled{opacity:.3;}
+.pp-wk-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;}
+.pp-wk-col{display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:4px 2px;border-radius:9px;border:1px solid transparent;background:#faf8f2;text-align:center;min-width:0;}
+.pp-wk-col:hover:not(:disabled){border-color:#d8cfb8;}
+.pp-wk-col.sel{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold);background:#fffaf0;}
+.pp-wk-col.past{opacity:.4;}
+.pp-wk-d{display:flex;flex-direction:column;font-size:13px;font-weight:700;line-height:1.15;}
+.pp-wk-d b{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.03em;}
+.pp-wk-col.today .pp-wk-d{color:var(--gold);}
+.pp-wk-all{height:4px;border-radius:2px;background:#9db7d8;margin:0 3px;}
+.pp-wk-body{position:relative;height:132px;border-radius:6px;background:repeating-linear-gradient(to bottom,#fff 0,#fff calc(100%/6 - 1px),#efe9db calc(100%/6 - 1px),#efe9db calc(100%/6));overflow:hidden;}
+.pp-wk-body i{position:absolute;left:2px;right:2px;border-radius:4px;background:#c9bfa7;}
+.pp-wk-body em{position:absolute;left:0;right:0;border-radius:4px;background:var(--green);box-shadow:0 0 0 2px #fff;}
+.pp-wk-n{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pp-wk-hint{font-size:12.5px;color:var(--text2);margin-top:8px;}
+@media (max-width:420px){ .pp-wk-body{height:112px;} .pp-wk-n{display:none;} }

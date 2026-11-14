@@ -851,8 +851,24 @@ function calSettingsHtml(){
     : `<p class="pp-muted pp-small">Connect your calendar to see your free times when you book a site visit or a call. Bookings go straight into it.</p><div class="pp-calbtns">${btns}</div>`}
   </section>`;
 }
-// While a time is being picked: that day's calendar, any clash, and free times.
-const CAL_DAYS = {};
+// While a time is being picked: a week view of their calendar (arrows to go
+// further ahead; tap a day or a spot in it to pick the time), then the chosen
+// day in detail with any clash and its free times.
+const CAL_WEEKS = {};         // monday key -> events for that week (or a promise)
+const CAL_H0 = 7, CAL_H1 = 19; // the hours the week view shows
+const dKey = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+function mondayOf(dt){ const x = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function weekEvents(mon){
+  const k = dKey(mon);
+  if (!CAL_WEEKS[k]){
+    const to = new Date(mon); to.setDate(to.getDate() + 7);
+    CAL_WEEKS[k] = calFn("calendar_day", { from: mon.toISOString(), to: to.toISOString() })
+      .then(r => (CAL_WEEKS[k] = r.events || []))
+      .catch(e => { delete CAL_WEEKS[k]; throw e; });
+  }
+  return Promise.resolve(CAL_WEEKS[k]);
+}
+const onDay = (evs, day) => { const a = +day, b = a + 86400e3; return evs.filter(e => t(e.start) < b && t(e.end) > a); };
 async function calRefresh(){
   const box = $("#pp-cal"), input = $("#pp-when");
   if (!box || !input) return;
@@ -863,34 +879,92 @@ async function calRefresh(){
     return;
   }
   const v = input.value;
-  if (!v){ box.innerHTML = ""; return; }
-  const chosen = new Date(v), dayKey = v.slice(0, 10);
-  const [y, m, d] = dayKey.split("-").map(Number);
-  const from = new Date(y, m - 1, d, 0, 0), to = new Date(y, m - 1, d + 1, 0, 0);
-  const dayName = from.toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "short" });
-  if (!CAL_DAYS[dayKey]){
-    box.innerHTML = `<p class="pp-muted pp-small">Checking your calendar for ${esc(dayName)}…</p>`;
-    try { CAL_DAYS[dayKey] = (await calFn("calendar_day", { from: from.toISOString(), to: to.toISOString() })).events || []; }
-    catch(e){ box.innerHTML = `<p class="pp-muted pp-small">Couldn't read your calendar just now.</p>`; await loadCal(); return; }
-    if ($("#pp-when")?.value.slice(0, 10) !== dayKey) return; // they've moved on to another day
-  }
-  const evs = CAL_DAYS[dayKey], mins = o?.k === "site_visit" ? 60 : 15;
-  const timed = evs.filter(e => !e.allDay);
-  const clash = timed.filter(e => t(e.start) < +chosen + mins * 60e3 && t(e.end) > +chosen);
-  const free = [];
-  for (let h = 7; h <= 18 && free.length < 10; h += 0.5){
-    const s = new Date(y, m - 1, d, Math.floor(h), h % 1 ? 30 : 0), e = +s + mins * 60e3;
-    if (+s < Date.now() + 15 * 60e3) continue;
-    if (timed.some(x => t(x.start) < e && t(x.end) > +s)) continue;
-    free.push(s);
-  }
+  const chosen = v ? new Date(v) : null;
+  const chosenDay = chosen ? new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate()) : null;
+  const thisMon = mondayOf(new Date());
+  if (!S.calWeek || (chosen && S.calWeekFor !== v)){ S.calWeek = mondayOf(chosen || new Date()); S.calWeekFor = v; }
+  if (+S.calWeek < +thisMon) S.calWeek = thisMon;
+  const mon = S.calWeek, sun = new Date(mon); sun.setDate(sun.getDate() + 6);
+  const wkLabel = `${mon.toLocaleDateString("en-NZ", { day: "numeric", month: "short" })} - ${sun.toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}`;
+  let wk, dayEvs = [];
+  if (!Array.isArray(CAL_WEEKS[dKey(mon)])) box.innerHTML = `<div class="pp-week loading"><p class="pp-muted pp-small">Checking your calendar for ${esc(wkLabel)}…</p></div>`;
+  try {
+    wk = await weekEvents(mon);
+    if (chosenDay) dayEvs = onDay(await weekEvents(mondayOf(chosenDay)), chosenDay);
+  } catch(e){ box.innerHTML = `<p class="pp-muted pp-small">Couldn't read your calendar just now.</p>`; await loadCal(); return; }
+  if (!$("#pp-cal") || $("#pp-when")?.value !== v || S.calWeek !== mon) return; // moved on while it loaded
+  const mins = o?.k === "site_visit" ? 60 : 15, span = (CAL_H1 - CAL_H0) * 3600e3;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const pos = (ms, day) => Math.max(0, Math.min(100, (ms - +day - CAL_H0 * 3600e3) / span * 100));
   const hm = (iso) => new Date(iso).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" });
-  box.innerHTML = `<div class="pp-calday">
-    <b>Your calendar · ${esc(dayName)}</b>
-    ${evs.length ? `<ul>${evs.map(e => `<li class="${clash.includes(e) ? "clash" : ""}"><span>${e.allDay ? "All day" : `${esc(hm(e.start))} - ${esc(hm(e.end))}`}</span>${esc(e.title)}</li>`).join("")}</ul>` : `<p class="pp-muted pp-small">Nothing in your calendar that day.</p>`}
-    ${clash.length ? `<p class="pp-clash">That clashes with ${esc(clash[0].title)}.</p>` : ""}
-    ${free.length ? `<div class="pp-free"><span>Free times:</span>${free.map(s => `<button type="button" data-free="${localInput(s.toISOString())}" class="${Math.abs(+s - +chosen) < 60e3 ? "on" : ""}">${esc(s.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" }))}</button>`).join("")}</div>` : `<p class="pp-muted pp-small">No free ${mins === 60 ? "hour" : "slot"} left between 7am and 7pm that day.</p>`}
-  </div>`;
+  const cols = [...Array(7)].map((_, i) => {
+    const day = new Date(mon); day.setDate(day.getDate() + i);
+    const evs = onDay(wk, day), past = +day < +today, sel = chosenDay && +day === +chosenDay;
+    const blocks = evs.filter(e => !e.allDay).map(e => {
+      const top = pos(t(e.start), day), bot = pos(t(e.end), day);
+      return bot > top ? `<i style="top:${top}%;height:${Math.max(3, bot - top)}%" title="${esc(hm(e.start))} ${esc(e.title)}"></i>` : "";
+    }).join("");
+    const pick = sel && chosen ? `<em style="top:${pos(+chosen, day)}%;height:${Math.max(2, mins * 60e3 / span * 100)}%"></em>` : "";
+    return `<button type="button" class="pp-wk-col${past ? " past" : ""}${sel ? " sel" : ""}${+day === +today ? " today" : ""}" data-wkday="${dKey(day)}"${past ? " disabled" : ""}>
+      <span class="pp-wk-d"><b>${day.toLocaleDateString("en-NZ", { weekday: "short" })}</b>${day.getDate()}</span>
+      ${evs.some(e => e.allDay) ? `<span class="pp-wk-all"></span>` : ""}
+      <span class="pp-wk-body">${blocks}${pick}</span>
+      <span class="pp-wk-n">${evs.length ? `${evs.length} on` : "free"}</span>
+    </button>`;
+  }).join("");
+  let detail = "";
+  if (chosenDay){
+    const timed = dayEvs.filter(e => !e.allDay);
+    const clash = timed.filter(e => t(e.start) < +chosen + mins * 60e3 && t(e.end) > +chosen);
+    const free = [], step = mins === 60 ? 1 : 0.5;
+    for (let h = CAL_H0; h + mins / 60 <= CAL_H1 && free.length < 12; h += step){
+      const s = new Date(chosenDay); s.setHours(Math.floor(h), h % 1 ? 30 : 0, 0, 0);
+      const e = +s + mins * 60e3;
+      if (+s < Date.now() + 15 * 60e3) continue;
+      if (timed.some(x => t(x.start) < e && t(x.end) > +s)) continue;
+      free.push(s);
+    }
+    const dayName = chosenDay.toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "short" });
+    detail = `<div class="pp-calday">
+      <b>${esc(dayName)}</b>
+      ${dayEvs.length ? `<ul>${dayEvs.map(e => `<li class="${clash.includes(e) ? "clash" : ""}"><span>${e.allDay ? "All day" : `${esc(hm(e.start))} - ${esc(hm(e.end))}`}</span>${esc(e.title)}</li>`).join("")}</ul>` : `<p class="pp-muted pp-small">Nothing in your calendar that day.</p>`}
+      ${clash.length ? `<p class="pp-clash">That clashes with ${esc(clash[0].title)}.</p>` : ""}
+      ${free.length ? `<div class="pp-free"><span>Free times:</span>${free.map(s => `<button type="button" data-free="${localInput(s.toISOString())}" class="${Math.abs(+s - +chosen) < 60e3 ? "on" : ""}">${esc(s.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" }))}</button>`).join("")}</div>` : `<p class="pp-muted pp-small">No free ${mins === 60 ? "hour" : "slot"} between 7am and 7pm that day.</p>`}
+    </div>`;
+  }
+  box.innerHTML = `<div class="pp-week">
+      <div class="pp-wk-head">
+        <button type="button" class="pp-wk-nav" data-wk="-1"${+mon <= +thisMon ? " disabled" : ""} aria-label="Week before">‹</button>
+        <b>${+mon === +thisMon ? "This week" : esc(wkLabel)}</b><small>${+mon === +thisMon ? esc(wkLabel) : ""}</small>
+        <button type="button" class="pp-wk-nav" data-wk="1" aria-label="Next week">›</button>
+      </div>
+      <div class="pp-wk-grid">${cols}</div>
+      <p class="pp-wk-hint">7am - 7pm. Tap a day, or a spot in it, to pick that time.</p>
+    </div>${detail}`;
+  // Fetch next week quietly so the arrow is instant.
+  const next = new Date(mon); next.setDate(next.getDate() + 7); weekEvents(next).catch(() => {});
+}
+// Tapping the week view: a day (keeps the time) or a spot in a day (that time).
+function calWeekClick(e){
+  const nav = e.target.closest("[data-wk]");
+  if (nav){ const m = new Date(S.calWeek); m.setDate(m.getDate() + Number(nav.dataset.wk) * 7); S.calWeek = m; calRefresh(); return true; }
+  const col = e.target.closest("[data-wkday]");
+  if (!col || col.disabled) return false;
+  const input = $("#pp-when"); if (!input) return true;
+  const body = col.querySelector(".pp-wk-body"), r = body.getBoundingClientRect();
+  let hh, mm;
+  if (e.clientY >= r.top && e.clientY <= r.bottom){
+    const h = CAL_H0 + (e.clientY - r.top) / r.height * (CAL_H1 - CAL_H0);
+    const half = Math.round(h * 2) / 2;
+    hh = Math.min(CAL_H1 - 1, Math.floor(half)); mm = half % 1 ? 30 : 0;
+  } else {
+    const cur = input.value ? input.value.slice(11, 16) : "09:00";
+    [hh, mm] = cur.split(":").map(Number);
+  }
+  input.value = `${col.dataset.wkday}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  S.calWeekFor = input.value;
+  calRefresh();
+  return true;
 }
 // After saving a visit / call: put it in their calendar.
 async function calAdd(l){
@@ -905,12 +979,16 @@ async function demoCal(action, extra){
   if (action === "calendar_connect"){ demoCalConn = { provider: extra.provider, name: extra.provider === "google" ? "Google Calendar" : "Outlook", account: "client@example.com", error: null }; return { demo: true }; }
   if (action === "calendar_disconnect"){ demoCalConn = null; return { ok: true }; }
   if (action === "calendar_day"){
-    const d = new Date(extra.from), at = (h, mi) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).toISOString();
-    return { events: [
-      { title: "Pour - Smith driveway", start: at(7, 0), end: at(11, 30), allDay: false },
-      { title: "Lunch with supplier", start: at(12, 30), end: at(13, 0), allDay: false },
-      { title: "Quote - Rata St", start: at(15, 0), end: at(16, 30), allDay: false },
-    ] };
+    const events = [], from = new Date(extra.from), to = new Date(extra.to);
+    for (let d = new Date(from); d < to; d.setDate(d.getDate() + 1)){
+      const at = (h, mi) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).toISOString(), n = d.getDate() % 3, dow = d.getDay();
+      if (dow === 0) continue;
+      if (dow === 6){ events.push({ title: "Kids' footy", start: at(8, 0), end: at(10, 0), allDay: false }); continue; }
+      events.push({ title: n ? "Pour - Smith driveway" : "Boxing - Rata St", start: at(7, 0), end: at(n ? 11 : 9, 30), allDay: false });
+      if (n !== 1) events.push({ title: "Lunch with supplier", start: at(12, 30), end: at(13, 0), allDay: false });
+      events.push({ title: "Quote - " + ["Kauri Rd", "Bay View", "Main St"][n], start: at(14 + n, 0), end: at(15 + n, 30), allDay: false });
+    }
+    return { events };
   }
   if (action === "calendar_add") return { ok: true, name: demoCalConn?.name };
   return {};
@@ -1055,6 +1133,7 @@ function bind(){
     }
     const cc = e.target.closest("[data-cal-connect]");
     if (cc){ calConnect(cc.dataset.calConnect); return; }
+    if (e.target.closest(".pp-week") && calWeekClick(e)) return;
     const fr = e.target.closest("[data-free]");
     if (fr){ const w = $("#pp-when"); if (w){ w.value = fr.dataset.free; calRefresh(); } return; }
     const copy = e.target.closest("[data-copy]");
@@ -1093,7 +1172,7 @@ function bind(){
       await loadAll(true).catch(showError);
     }
     if (e.target.id === "pp-period"){ S.period = e.target.value; render(); }
-    if (e.target.id === "pp-when") calRefresh();
+    if (e.target.id === "pp-when"){ S.calWeekFor = null; calRefresh(); }
     if (e.target.id === "pp-notify"){
       const on = e.target.checked;
       try { await rpc("portal_set_settings", { p_notify: on, p_phone: null }); S.me.notify_new_leads = on; toast(on ? "We'll email you each new lead too." : "New lead emails are off."); }
