@@ -157,6 +157,9 @@ begin
       'area', c.lead_area,
       'client_calls', c.lead_client_calls,
       'manager', case when owner = 'max' then 'max' else 'rocky' end,
+      -- Their account manager's name and email, from the Team page (employees).
+      'manager_name', (select e.name from employees e where e.person_key = case when owner = 'max' then 'max' else 'rocky' end limit 1),
+      'manager_email', (select e.email from employees e where e.person_key = case when owner = 'max' then 'max' else 'rocky' end limit 1),
       'report_anchor', c.report_anchor,
       'last_report_at', coalesce(lastrep, c.last_report_sent_at)
     )

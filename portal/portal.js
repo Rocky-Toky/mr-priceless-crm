@@ -16,10 +16,6 @@ const sb = IS_CONFIGURED && window.supabase?.createClient ? window.supabase.crea
 const NZ_TZ = "Pacific/Auckland";
 const HANDOVER_MS = 24 * 3600e3;
 const POLL_MS = 30e3;
-const MANAGERS = {
-  max: { name: "Max Smith", email: "maximus.smith@mrpriceless.com" },
-  rocky: { name: "Rocky O'Neill", email: "rocky.oneill@mrpriceless.com" },
-};
 // The client's pipeline, in order (client_leads.client_stage, sql/113).
 const STAGES = [
   { k: "new", label: "New", hint: "Not called yet", cls: "gold" },
@@ -41,7 +37,7 @@ const CALL_LABELS = { no_answer: "No answer", call_back: "Call back booked", sit
   not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", qualified: "Interested", unreachable: "Couldn't reach them" };
 
 const S = {
-  me: null, client: null, leads: [], ads: [], tab: "leads", view: "todo", q: "", period: "month",
+  me: null, client: null, leads: [], ads: [], tab: "leads", view: "call", q: "", period: "month",
   preview: null, openId: null, sheet: null, askFor: null, dialledAt: 0, known: null, loaded: false,
   saving: false, pick: null, drafts: {}, swReg: null, installEvt: null, alerts: "unknown",
 };
@@ -181,34 +177,49 @@ function matchQ(l){
   return !q || [l.name, l.phone, l.email, l.city, l.address, l.form, ...answers(l).map(x => x.a)].join(" ").toLowerCase().includes(q);
 }
 const byRank = (a, b) => rate(b).score - rate(a).score || t(b.at) - t(a.at);
-// The To do list: what to do next, most urgent first.
-function todo(){
+// The Call now screen: who to ring, then who didn't answer (each with a live
+// clock to when Mr Priceless steps in). Everything else lives in the Pipeline.
+function callNow(){
   const L = S.leads.filter(matchQ), now = Date.now(), mine = (l) => !withUs(l);
   const st = (k) => L.filter(l => stageOf(l) === k);
+  const due = st("call_scheduled").filter(l => mine(l) && nextAt(l) && t(nextAt(l)) <= now + 3600e3).sort((a, b) => t(nextAt(a)) - t(nextAt(b)));
   return [
-    { k: "checkin", title: "Did they get back to you?", sub: "You couldn't reach these. Tell us where they're at, or pass them to our team.", red: true,
-      list: L.filter(l => l.checkin).sort((a, b) => t(a.checkin_deadline) - t(b.checkin_deadline)) },
-    { k: "call", title: "Call these first", sub: "New leads, best ones at the top. Ring within 5 minutes and you're far more likely to win the job.",
-      list: st("new").filter(l => mine(l) && !l.checkin).sort(byRank) },
-    { k: "due", title: "Calls due", sub: "You said you'd ring these.",
-      list: st("call_scheduled").filter(l => mine(l) && nextAt(l) && t(nextAt(l)) <= now + 2 * 3600e3).sort((a, b) => t(nextAt(a)) - t(nextAt(b))) },
-    { k: "retry", title: "Try again", sub: "Rang them, no answer yet.",
-      list: st("no_answer").filter(l => mine(l) && !l.checkin).sort((a, b) => byRank(a, b)) },
-    { k: "visits", title: "Site visits coming up", sub: "",
-      list: st("site_visit").filter(l => nextAt(l) && t(nextAt(l)) > now - 2 * 3600e3 && t(nextAt(l)) < now + 3 * 86400e3).sort((a, b) => t(nextAt(a)) - t(nextAt(b))) },
-    { k: "visited", title: "Been out to see them? Quote them", sub: "Site visits that have happened.",
-      list: st("site_visit").filter(l => !nextAt(l) || t(nextAt(l)) <= now - 2 * 3600e3).sort((a, b) => t(nextAt(a)) - t(nextAt(b))) },
-    { k: "quote", title: "Quotes to send", sub: "", list: st("quote_to_send").sort((a, b) => t(a.stage_at) - t(b.stage_at)) },
-    { k: "chase", title: "Chase these quotes", sub: "Sent 3+ days ago. A quick call wins a lot more jobs.",
-      list: st("quote_sent").filter(l => now - t(lastTouch(l)) > 3 * 86400e3).sort((a, b) => t(lastTouch(a)) - t(lastTouch(b))) },
-  ].filter(s => s.list.length);
+    { k: "call", title: "Call now", sub: S.client.client_calls ? "Best ones at the top. Ring within 5 minutes and you're far more likely to win the job. Anyone not rung within 24 hours, Mr Priceless calls for you." : "Best ones at the top. Ring within 5 minutes and you're far more likely to win the job.",
+      list: [...st("new").filter(l => mine(l) && !l.checkin).sort(byRank), ...due] },
+    { k: "noanswer", title: "Didn't answer", sub: "Try them again. When the 24 hours is up we'll ask if they got back to you - if they didn't, Mr Priceless calls them for you.",
+      list: st("no_answer").filter(mine).sort((a, b) => (b.checkin ? 1 : 0) - (a.checkin ? 1 : 0) || (timerFor(a)?.until ?? Infinity) - (timerFor(b)?.until ?? Infinity)) },
+  ];
 }
-// When the client last did anything with the lead.
-function lastTouch(l){
-  const notes = (l.notes || []).map(x => x.at).filter(Boolean).sort();
-  return notes[notes.length - 1] || l.quote_sent_at || l.stage_at || l.at;
+const callCount = () => callNow().reduce((n, x) => n + x.list.length, 0);
+// When does a lead go to Mr Priceless (or get the 24-hour check-in)?
+function timerFor(l){
+  if (!l.client_calls || withUs(l)) return null;
+  if (l.checkin && l.checkin_deadline) return { until: t(l.checkin_deadline), label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" };
+  if (stageOf(l) === "no_answer" && l.first_na_at) return { until: t(l.first_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
+  const ho = handoverAt(l);
+  if (ho) return { until: ho, label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" };
+  return null;
 }
-const todoCount = () => todo().reduce((n, s) => n + (s.k === "visits" ? 0 : s.list.length), 0);
+function timerHtml(l, big){
+  const x = timerFor(l);
+  if (!x) return "";
+  return `<span class="pp-timer${big ? " big" : ""}" data-until="${x.until}" data-label="${esc(x.label)}" data-done="${esc(x.done)}">${esc(timerText(x.until, x.label, x.done))}</span>`;
+}
+function timerText(until, label, done){
+  const ms = until - Date.now();
+  if (ms <= 0) return done;
+  const h = Math.floor(ms / 3600e3), m = Math.floor(ms % 3600e3 / 60000), sec = Math.floor(ms % 60000 / 1000);
+  return `${label} ${h}h ${String(m).padStart(2, "0")}m ${String(sec).padStart(2, "0")}s`;
+}
+// Every second: move the clocks on without redrawing the page.
+function tickTimers(){
+  $$(".pp-timer").forEach(el => {
+    const until = Number(el.dataset.until), left = until - Date.now();
+    el.textContent = timerText(until, el.dataset.label, el.dataset.done);
+    el.classList.toggle("soon", left < 4 * 3600e3);
+    el.classList.toggle("over", left <= 0);
+  });
+}
 
 /* ───────── data ───────── */
 async function rpc(fn, args){
@@ -312,7 +323,6 @@ function stageChip(l){
 }
 function leadCardHtml(l, section){
   const r = rate(l), qa = answers(l), st = stageOf(l), early = EARLY.has(st);
-  const ho = handoverAt(l), left = ho ? ho - Date.now() : null;
   const where = l.city || l.address || "";
   const quick = section === "visited" ? ["quote_to_send", "Quote to send →"] : section === "quote" ? ["quote_sent", "Quote sent →"] : section === "chase" ? ["won", "Won it →"] : null;
   return `<li class="pp-lead${l.checkin ? " checkin" : ""}${CLOSED.has(st) ? " done" : ""}${!l.seen_at && st === "new" ? " unseen" : ""}">
@@ -333,7 +343,7 @@ function leadCardHtml(l, section){
         <span class="pp-lead-tags">${section === "pipeline" || !early ? stageChip(l) : st !== "new" ? stageChip(l) : ""}
           ${early && !withUs(l) && r.why.length ? r.why.slice(0, 2).map(w => `<span class="pp-why">${esc(w)}</span>`).join("") : ""}
           ${withUs(l) ? `<span class="pp-ours">Mr Priceless is calling them</span>` : ""}
-          ${left != null && left > 0 ? `<span class="pp-clock${left < 4 * 3600e3 ? " soon" : ""}">Call within ${esc(hoursLeft(left))}</span>` : ""}
+          ${timerHtml(l)}
         </span>
       </button>
       ${l.phone ? `<a class="pp-call-round" href="${esc(telHref(l.phone))}" data-dial="${esc(l.id)}" aria-label="Call ${esc(l.name || "them")}">☎</a>` : ""}
@@ -394,37 +404,29 @@ function alertsBannerHtml(){
 
 function renderLeads(){
   const el = $("#pp-leads");
-  const counts = Object.fromEntries(STAGES.map(s => [s.k, 0]));
-  S.leads.forEach(l => { counts[stageOf(l)]++; });
-  const views = [["todo", "To do", todoCount()], ["board", "Board", null], ...STAGES.map(s => [s.k, s.label, counts[s.k]]), ["all", "All", S.leads.length]];
-  let body = "";
+  if (S.view !== "board") S.view = "call";
+  const secs = callNow(), n = secs[0].list.length, na = secs[1].list.length;
+  const views = [["call", "Call now", n + na], ["board", "Pipeline", null]];
+  let body;
   if (S.view === "board") body = boardHtml();
-  else if (S.view === "todo"){
-    const secs = todo();
-    body = secs.length ? secs.map(s => `<section class="pp-sec${s.red ? " red" : ""}">
-        <h3>${esc(s.title)} <b>${s.list.length}</b></h3>${s.sub ? `<p>${esc(s.sub)}</p>` : ""}
-        <ul class="pp-list">${s.list.map(l => leadCardHtml(l, s.k)).join("")}</ul>
-      </section>`).join("")
-      : `<div class="pp-empty">${S.leads.length ? "All caught up. New leads show up here the moment they come in." : "No leads yet. They'll show up here the moment they come in."}</div>`;
-  } else {
-    const list = S.leads.filter(l => matchQ(l) && (S.view === "all" || stageOf(l) === S.view));
-    list.sort(EARLY.has(S.view) ? byRank : S.view === "call_scheduled" || S.view === "site_visit" ? (a, b) => t(nextAt(a)) - t(nextAt(b)) : (a, b) => t(b.stage_at || b.at) - t(a.stage_at || a.at));
-    body = list.length ? `<ul class="pp-list">${list.map(l => leadCardHtml(l, "pipeline")).join("")}</ul>`
-      : `<div class="pp-empty">${S.q ? "No leads match that." : `Nothing in ${esc(STAGE[S.view]?.label || "here")} right now.`}</div>`;
+  else {
+    body = secs.map(x => `<section class="pp-sec pp-sec-${x.k}">
+        <h3>${esc(x.title)} <b>${x.list.length}</b></h3>${x.sub ? `<p>${esc(x.sub)}</p>` : ""}
+        ${x.list.length ? `<ul class="pp-list">${x.list.map(l => leadCardHtml(l, x.k)).join("")}</ul>`
+          : `<div class="pp-empty">${x.k === "call" ? (S.leads.length ? "Nobody to call right now. New leads show up here the moment they come in." : "No leads yet. They'll show up here the moment they come in.") : "Nobody waiting on a call back."}</div>`}
+      </section>`).join("") + summaryHtml();
   }
   const checkins = S.leads.filter(l => l.checkin).length;
   el.innerHTML = `
     ${alertsBannerHtml()}
     <div class="pp-hero"><div>
-      <h1>${checkins ? `${checkins} lead${checkins === 1 ? "" : "s"} need${checkins === 1 ? "s" : ""} an answer` : counts.new ? `${S.leads.filter(l => stageOf(l) === "new" && !withUs(l)).length || counts.new} new lead${counts.new === 1 ? "" : "s"}` : "Your leads"}</h1>
-      <p>${S.client.client_calls ? "You call your leads. Can't reach one? Tap Didn't answer - we'll check with you the next day, and our team can follow them up." : "Our team calls your new leads and books them in. Take them from there: site visit, quote, job won."}</p>
+      <h1>${S.view === "board" ? "Your pipeline" : checkins ? `${checkins} lead${checkins === 1 ? "" : "s"} need${checkins === 1 ? "s" : ""} an answer` : n ? `${n} lead${n === 1 ? "" : "s"} to call` : "Your leads"}</h1>
+      <p>${S.view === "board" ? "Every lead, from new to job won." : S.client.client_calls ? "You call your leads. Can't reach one? Tap Didn't answer - we'll check with you after 24 hours, and Mr Priceless can follow them up." : "Our team calls your new leads and books them in. Take them from there in your Pipeline: site visit, quote, job won."}</p>
     </div></div>
-    ${S.view === "board" ? "" : summaryHtml()}
-    <nav class="pp-pipe" aria-label="Pipeline">${views.map(([k, label, n]) => `<button type="button" data-view="${k}" class="${S.view === k ? "active" : ""} ${k === "todo" ? "todo" : ""} pp-pipe-${STAGE[k]?.cls || "all"}"><span>${esc(label)}</span>${n == null ? "" : `<b>${n}</b>`}</button>`).join("")}</nav>
+    <nav class="pp-pipe pp-views" aria-label="Leads">${views.map(([k, label, c]) => `<button type="button" data-view="${k}" class="${S.view === k ? "active" : ""}"><span>${esc(label)}</span>${c ? `<b>${c}</b>` : ""}</button>`).join("")}</nav>
     <input type="search" id="pp-search" placeholder="Search name, phone, suburb, answers" value="${esc(S.q)}" aria-label="Search leads">
     ${body}`;
 }
-
 
 /* ───────── the board: drag leads between stages ───────── */
 // Won / lost / not qualified only show the last 60 days, so the board stays short.
@@ -592,7 +594,6 @@ function renderSheet(){
   const l = S.leads.find(x => x.id === S.openId);
   if (!l){ shutSheet(); return; }
   const r = rate(l), qa = answers(l), st = stageOf(l), first = firstName(l.name);
-  const ho = handoverAt(l);
   const na = nextAt(l);
   $("#pp-sheet").innerHTML = `
     <div class="pp-sheet-head">
@@ -606,7 +607,7 @@ function renderSheet(){
       <span>You couldn't reach them${l.first_na_at ? ` on ${esc(when(l.first_na_at))}` : ""}. ${l.checkin_deadline ? `If we don't hear by ${esc(whenWords(l.checkin_deadline))}, our team will call them.` : ""}</span>
       <div><button type="button" class="pp-btn pp-btn-dark" data-act="ask-yes">Yes - pick where they're at</button><button type="button" class="pp-btn pp-btn-light" data-ask-no="${esc(l.id)}">No - pass to Mr Priceless</button></div>
     </div>` : ""}
-    ${ho && ho > Date.now() ? `<p class="pp-note-line${ho - Date.now() < 4 * 3600e3 ? " soon" : ""}">Call within ${esc(hoursLeft(ho - Date.now()))}, or our team will follow ${esc(first)} up for you.</p>` : ""}
+    ${timerFor(l) ? `<p class="pp-note-line">${timerHtml(l, true)}</p>` : ""}
     ${withUs(l) ? `<p class="pp-note-line us">The Mr Priceless team is calling ${esc(first)}${l.handover_reason === "client_no" ? " - you passed them to us" : ""}. If they get in touch with you, just update them here.</p>` : ""}
 
     ${l.phone ? `<div class="pp-actions">
@@ -857,7 +858,8 @@ function nextReport(c){
 }
 function renderAccount(){
   const el = $("#pp-account"), c = S.client;
-  const m = MANAGERS[c.manager] || MANAGERS.rocky;
+  // Their account manager, from our Team page (portal_me looks them up).
+  const m = { name: c.manager_name || "Your account manager", email: c.manager_email || "" };
   const stage = { onboarding: "Getting set up", quote_guarantee: "Quote guarantee", live: "Ads live", finished: "Finished" }[c.stage] || "Ads live";
   const next = nextReport(c);
   const qg = c.stage === "quote_guarantee" && c.quote_target;
@@ -876,7 +878,7 @@ function renderAccount(){
     </div>
     <section class="pp-block pp-manager">
       <h3>Your account manager</h3>
-      <div><b>${esc(m.name)}</b><a class="pp-btn pp-btn-light" href="mailto:${esc(m.email)}?subject=${encodeURIComponent(c.name)}">Email ${esc(m.name.split(" ")[0])}</a></div>
+      <div><b>${esc(m.name)}</b>${m.email ? `<a class="pp-btn pp-btn-light" href="mailto:${esc(m.email)}?subject=${encodeURIComponent(c.name)}">Email ${esc(c.manager_name ? m.name.split(" ")[0] : "them")}</a>` : ""}</div>
     </section>
     <section class="pp-block">
       <h3>How your leads work</h3>
@@ -998,6 +1000,7 @@ function bind(){
   // A tapped phone alert while the app is open: go to that lead.
   navigator.serviceWorker?.addEventListener?.("message", (e) => { if (e.data?.lead && S.loaded) refreshAfterSave().then(() => openLead(e.data.lead, { ask: e.data.kind === "checkin" })); });
   setInterval(refreshLeads, POLL_MS);
+  setInterval(tickTimers, 1000);
   // Countdown clocks move on even when nothing new arrives.
   setInterval(() => { if (S.loaded && !S.sheet && S.tab === "leads" && !document.hidden && document.activeElement?.id !== "pp-search") render(); }, 60e3);
 }
@@ -1028,7 +1031,7 @@ async function start(){
   const params = new URLSearchParams(location.search);
   const want = params.get("client");
   S.preview = want || store.get("mpp_preview_client") || null;
-  const v = store.get("mpp_view"); if (v && (v === "todo" || v === "all" || v === "board" || STAGE[v])) S.view = v;
+  S.view = store.get("mpp_view") === "board" ? "board" : "call";
   try {
     await loadAll(true);
   } catch(e){
@@ -1126,10 +1129,10 @@ function demoData(){
   const access = store.get("mpp_demo_viewer") || "client";
   const L = (o) => ({ email: "", answers: [], log: [], notes: [], client_calls: true, ours: false, status: "new", stage: "new", ...o });
   demo = {
-    me: { viewer: access, email: access === "team" ? "demo@mrpriceless.co.nz" : "brett@bbbuild.co.nz", name: "Brett", notify_new_leads: true, phone: null, push_key: null,
+    me: { viewer: access, email: access === "team" ? "team@example.com" : "client@example.com", name: "Brett", notify_new_leads: true, phone: null, push_key: null,
       clients: access === "team" ? [{ id: "c1", name: "BB Build Ltd" }, { id: "c2", name: "A and B Concrete" }] : [{ id: "c1", name: "BB Build Ltd" }] },
     client: { id: "c1", name: "BB Build Ltd", stage: "quote_guarantee", quote_target: 10, quotes_sent: 4, since: ago(60 * 24 * 75), ads_since: ago(60 * 24 * 60).slice(0, 10),
-      monthly_ad_spend: 1500, services: "Facebook and Instagram ads, lead follow-up and fortnightly reports.", client_calls: true, manager: "max", report_anchor: null, last_report_at: ago(60 * 24 * 6) },
+      monthly_ad_spend: 1500, services: "Facebook and Instagram ads, lead follow-up and fortnightly reports.", client_calls: true, manager: "max", manager_name: "Max Smith", manager_email: "accounts@example.com", report_anchor: null, last_report_at: ago(60 * 24 * 6) },
     leads: [
       L({ id: "l1", name: "Hemi Walker", phone: "021 555 0148", email: "hemi.w@example.co.nz", at: ago(3), form: "Driveway quote", city: "Albany, Auckland", address: "12 Kauri Road, Albany",
         answers: [{ q: "What do you need done?", a: "Whole driveway replaced, about 60m2" }, { q: "what_are_you_looking_to_invest", a: "$15,000 - $20,000" }, { q: "when_are_you_hoping_to_get_it_done", a: "asap" }, { q: "Do you own the property?", a: "Yes" }],
@@ -1141,6 +1144,8 @@ function demoData(){
         log: [{ at: ago(60 * 26), by: "you", outcome: "no_answer", note: "Left a voicemail" }], notes: [{ at: ago(60 * 26), stage: "no_answer", from: "new", note: "Left a voicemail" }] }),
       L({ id: "l4", name: "Aroha Pene", phone: "021 555 0111", at: ago(60 * 50), form: "Driveway quote", city: "Howick", status: "no_answer", stage: "no_answer", ours: true, handed_over_at: ago(60 * 2), handover_reason: "client_no",
         answers: [{ q: "When", a: "Next month" }], log: [{ at: ago(60 * 47), by: "you", outcome: "no_answer" }, { at: ago(60), by: "Mr Priceless", outcome: "no_answer", note: "" }] }),
+      L({ id: "l11", name: "Jade Kerr", phone: "021 555 0122", at: ago(60 * 7), form: "Driveway quote", city: "Birkenhead", status: "no_answer", stage: "no_answer", first_na_at: ago(60 * 6),
+        answers: [{ q: "When", a: "ASAP" }, { q: "Budget", a: "$15k" }], log: [{ at: ago(60 * 6), by: "you", outcome: "no_answer" }], notes: [{ at: ago(60 * 6), stage: "no_answer", from: "new" }] }),
       L({ id: "l5", name: "Mike Doyle", phone: "021 555 0133", at: ago(60 * 50), form: "Driveway quote", city: "Albany", address: "4 Rata St, Albany", status: "site_visit", stage: "site_visit", next_at: ahead(60 * 20),
         answers: [{ q: "Budget", a: "$12k" }, { q: "Size", a: "40m2" }], notes: [{ at: ago(60 * 49), stage: "site_visit", from: "new", when: ahead(60 * 20), note: "Wants exposed aggregate" }] }),
       L({ id: "l6", name: "Kate Moore", phone: "021 555 0144", at: ago(60 * 24 * 6), form: "Driveway quote", city: "Glenfield", status: "booked", stage: "quote_to_send", stage_at: ago(60 * 24 * 2),
