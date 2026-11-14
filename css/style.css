@@ -6002,3 +6002,18 @@ body.main-nav #clients-list-view > .stat-grid,body.main-nav #clients-list-view >
 .pf-pay.bad{background:#c2452d;}
 @media (max-width:1000px){.st-hero{grid-template-columns:minmax(0,1fr);}.st-cols{grid-template-columns:minmax(0,1fr);}}
 @media (max-width:600px){.st-hero{padding:22px 18px;}.st-big{font-size:44px;}.st-hero-stats{grid-template-columns:repeat(2,minmax(0,1fr));}.st-hero-stats b{font-size:19px;}}
+
+/* Client board: where we run their ads (14 Nov 2026) */
+.pf-name h3{display:flex;align-items:center;gap:8px;}
+.pf-plat{display:inline-flex;gap:3px;flex:none;}
+.pf-plat-b{display:grid;place-items:center;width:24px;height:24px;padding:0;border-radius:7px;border:1px solid var(--line);background:var(--white);cursor:pointer;opacity:.28;filter:grayscale(1);transition:opacity .15s,filter .15s,transform .1s;}
+.pf-plat-b svg{width:15px;height:15px;}
+.pf-plat-b.meta{color:#0866FF;}
+.pf-plat-b.on{opacity:1;filter:none;border-color:transparent;background:#f1f4fb;}
+.pf-plat-b.google.on{background:#f5f6f7;}
+.pf-card:not(:hover) .pf-plat-b:not(.on){display:none;}
+.pf-plat-b:hover{opacity:.8;filter:none;}
+.pf-plat-b:active{transform:scale(.9);}
+@media (hover:none){.pf-card .pf-plat-b:not(.on){display:grid;}}
+.pf-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pf-nums dt{white-space:nowrap;letter-spacing:.03em;}

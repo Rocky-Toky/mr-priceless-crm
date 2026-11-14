@@ -1776,8 +1776,7 @@ const MAIN_NAV = [
     pages: [["receipts", "Payments"], ["expenses", "Expenses"]] },
   { key: "library", label: "Library", icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
     pages: [["meeting", "Meeting structure"], ["sit-rate", "Sit rate process"], ["email-templates", "Email templates"], ["how", "How we work"]] },
-  { key: "team", label: "Team", icon: '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
-    pages: [["employees", "Team"]] },
+  // Team is off the menu (Rocky, 14 Nov 2026); the page is still there through the search bar.
 ];
 const PAGE_GROUPS = Object.fromEntries(MAIN_NAV.filter(s => s.pages.length > 1).map(s => [s.key, s.pages]));
 const mainMode = () => !isLeadsOnly();
@@ -5294,6 +5293,24 @@ function pfHealth(c, avgCpl){
   score = Math.max(0, Math.min(100, Math.round(score)));
   return { score, band: score >= 75 ? "good" : score >= 50 ? "watch" : "bad", label: score >= 75 ? "Healthy" : score >= 50 ? "Keep an eye" : "Needs you", why, weeks };
 }
+// Cost per quote: what's been spent on their ads (synced Meta ads) over the quotes they've sent
+// (the bigger of the quote guarantee count and the leads at Quote sent / Job won).
+function pfQuotes(c){
+  const fromLeads = state.clientLeads.filter(l => l.client_id === c.id && (["quote_sent", "won"].includes(l.client_stage) || Number(l.quote_amount) > 0)).length;
+  return Math.max(Number(c.quotes_sent) || 0, fromLeads);
+}
+function pfSpend(c){ return state.adCreatives.filter(a => a.client_id === c.id && a.spend != null).reduce((t, a) => t + (Number(a.spend) || 0), 0); }
+function pfCostPerQuote(c){ const q = pfQuotes(c), sp = pfSpend(c); return q && sp ? sp / q : null; }
+// Which platforms we run their ads on: picked on the card; unset = Meta when they have a Meta ad account.
+function pfPlatforms(c){ return Array.isArray(c.ad_platforms) ? c.ad_platforms : (c.meta_ad_account_id ? ["meta"] : []); }
+const PF_PLAT = {
+  meta: ["Meta", `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M3.2 15.2c0-4.3 2.2-7.7 4.6-7.7 2.6 0 4.5 4.1 6.4 7.2 1.3 2.1 2.4 2.9 3.6 2.9 1.9 0 3-1.6 3-4.4 0-3.6-1.9-6.2-4.2-6.2-2.1 0-3.7 2.2-5.6 5.5-1.9 3.3-3 5.1-5 5.1-1.7 0-2.8-1.1-2.8-2.4z"/></svg>`],
+  google: ["Google", `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z"/><path fill="#34A853" d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1V16A10 10 0 0 0 12 22z"/><path fill="#FBBC05" d="M6.4 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.4H3.1a10 10 0 0 0 0 9.1L6.4 14z"/><path fill="#EA4335" d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A10 10 0 0 0 3.1 7.4L6.4 10C7.2 7.7 9.4 6 12 6z"/></svg>`],
+};
+function pfPlatHtml(c){
+  const on = pfPlatforms(c);
+  return `<span class="pf-plat" title="Where we run their ads - tap to change">${Object.entries(PF_PLAT).map(([k, [label, svg]]) => `<button type="button" class="pf-plat-b ${k}${on.includes(k) ? " on" : ""}" data-pf-plat="${k}" data-id="${c.id}" aria-pressed="${on.includes(k)}" title="${label} ads${on.includes(k) ? " (on)" : " - tap to add"}">${svg}</button>`).join("")}</span>`;
+}
 function pfCardHtml(c, h){
   const stage = normalizeClientStage(c.stage);
   const retainer = stClientMonthly(c) ?? clientRetainer(c);
@@ -5310,14 +5327,14 @@ function pfCardHtml(c, h){
   return `<article class="pf-card ${h.band}" data-pf-open="${c.id}" tabindex="0" aria-label="Open ${escapeHtml(c.name)}">
     <header class="pf-top">
       <div class="pf-ring" title="${escapeHtml(h.label)}${h.why.length ? ": " + escapeHtml(h.why.join(", ")) : ""}"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" class="pf-ring-bg"/><circle cx="20" cy="20" r="17" class="pf-ring-fg" style="stroke-dasharray:${(C * h.score / 100).toFixed(1)} ${C.toFixed(1)}"/></svg><b>${h.score}</b></div>
-      <div class="pf-name"><h3>${escapeHtml(inboxShortName(c.name))}</h3><span><em class="pf-tag ${stage}">${escapeHtml(tag)}</em>${ownerName ? ` · ${escapeHtml(ownerName)}` : ""}</span></div>
+      <div class="pf-name"><h3><span class="pf-nm">${escapeHtml(inboxShortName(c.name))}</span>${pfPlatHtml(c)}</h3><span><em class="pf-tag ${stage}">${escapeHtml(tag)}</em>${ownerName ? ` · ${escapeHtml(ownerName)}` : ""}</span></div>
     </header>
     <div class="pf-leads">
       <div><b>${leads30}</b><span>leads · 30 days</span></div>
       ${pfSpark(h.weeks)}
     </div>
     <dl class="pf-nums">
-      <div><dt>Cost / lead</dt><dd>${c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "-"}</dd></div>
+      <div><dt>Cost / quote</dt><dd title="${pfQuotes(c)} quote${pfQuotes(c) === 1 ? "" : "s"} · ${fmtMoney(pfSpend(c))} spent">${pfCostPerQuote(c) != null ? fmtMoney(pfCostPerQuote(c)) : "-"}</dd></div>
       <div><dt>Retainer</dt><dd>${retainer != null ? fmtMoney(retainer) : "-"}${stState ? ` <i class="pf-pay ${stState.state === "bad" ? "bad" : "ok"}" title="${stState.state === "bad" ? "Stripe payment failed / overdue" : "Paid up in Stripe"}"></i>` : ""}</dd></div>
       <div><dt>This month</dt><dd class="pf-month">${am ? `<span class="pf-dots">${am.slots.map(s => `<i class="${s.status === "live" ? "on" : s.late ? "late" : ""}" title="${escapeHtml(s.label)}"></i>`).join("")}</span>` : ""}${due ? `<span class="pf-rep ${due.due ? "due" : ""}" title="Fortnightly report: ${escapeHtml(due.label)}">R</span>` : ""}</dd></div>
     </dl>
@@ -5331,7 +5348,7 @@ function renderClientPortfolio(){
   const list = $("#clients-gallery");
   if (!list) return;
   const avg = clientAvgCPL();
-  const clients = state.clients.filter(c => !inOnboardingSection(c) && c.stage !== "churned");
+  const clients = state.clients.filter(c => !c.is_test && !inOnboardingSection(c) && c.stage !== "churned");
   const q = (state.clientsGallerySearch || "").trim().toLowerCase();
   const rows = clients.filter(c => !q || [c.name, c.email, c.website, c.phone].some(v => String(v || "").toLowerCase().includes(q))).map(c => ({ c, h: pfHealth(c, avg) }));
   const leadsOf = (c) => state.clientLeads.filter(l => l.client_id === c.id && Date.now() - (Date.parse(l.created_at) || 0) < 30 * 86400e3).length;
@@ -5347,12 +5364,12 @@ function renderClientPortfolio(){
   const needYou = all.filter(h => h.band === "bad").length, watch = all.filter(h => h.band === "watch").length;
   const mrr = clients.map(c => stClientMonthly(c) ?? clientRetainer(c)).filter(v => v != null).reduce((a, b) => a + b, 0);
   const leads30 = state.clientLeads.filter(l => Date.now() - (Date.parse(l.created_at) || 0) < 30 * 86400e3 && clients.some(c => c.id === l.client_id)).length;
-  const onb = state.clients.filter(inOnboardingSection).length;
+  const onb = state.clients.filter(c => !c.is_test && inOnboardingSection(c)).length;
   const kpis = `<div class="pf-kpis">
       <div class="pf-kpi"><b>${clients.length}</b><span>clients${onb ? ` · ${onb} onboarding` : ""}</span></div>
       <div class="pf-kpi"><b>${mrr ? fmtMoney(mrr) : "-"}</b><span>retainers / month</span></div>
       <div class="pf-kpi"><b>${leads30}</b><span>leads in 30 days</span></div>
-      <div class="pf-kpi"><b>${avg != null ? fmtMoney(avg) : "-"}</b><span>average cost / lead</span></div>
+      <div class="pf-kpi"><b>${(() => { const both = clients.filter(c => pfCostPerQuote(c) != null), q = both.reduce((t, c) => t + pfQuotes(c), 0), sp = both.reduce((t, c) => t + pfSpend(c), 0); return q && sp ? fmtMoney(sp / q) : "-"; })()}</b><span>average cost / quote</span></div>
       <div class="pf-kpi ${needYou ? "bad" : watch ? "watch" : "good"}"><b>${needYou || watch || "✓"}</b><span>${needYou ? "need you now" : watch ? "to keep an eye on" : "all healthy"}</span></div>
     </div>`;
   const bar = `<div class="pf-bar"><span class="pf-bar-label">${rows.length} client${rows.length === 1 ? "" : "s"}</span>
@@ -5365,6 +5382,17 @@ function renderClientPortfolio(){
     list.dataset.pfWired = "1";
     list.addEventListener("input", (e) => { if (e.target.id === "pf-search"){ state.clientsGallerySearch = e.target.value; renderClientPortfolio(); } });
     list.addEventListener("click", (e) => {
+      const pl = e.target.closest("[data-pf-plat]");
+      if (pl){
+        const c = state.clients.find(x => x.id === pl.dataset.id);
+        if (!c) return;
+        const cur = pfPlatforms(c), k = pl.dataset.pfPlat;
+        const next = cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k].sort((a, b) => a === "meta" ? -1 : b === "meta" ? 1 : 0);
+        c.ad_platforms = next;
+        renderClientPortfolio();
+        DataLayer.update("clients", c.id, { ad_platforms: next }).catch(err => console.warn("Couldn't save ad platforms:", err?.message));
+        return;
+      }
       const s = e.target.closest("[data-pf-sort]");
       if (s){ pfSort = s.dataset.pfSort; try { localStorage.setItem("mp_pf_sort", pfSort); } catch(err){} return renderClientPortfolio(); }
       if (e.target.closest("[data-action]")) return;
