@@ -629,7 +629,7 @@ function renderSheet(){
 
     <section class="pp-block pp-grid2">
       ${l.address || l.city ? `<div><h3>Where</h3><p>${esc(l.address || l.city)}</p><a class="pp-link" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(l.address || l.city)}">Open in Maps</a></div>` : ""}
-      ${(st === "site_visit" || st === "call_scheduled") && na ? `<div><h3>${st === "site_visit" ? "Site visit" : "Call them"}</h3><p>${esc(when(na))}</p><a class="pp-link" target="_blank" rel="noopener" href="${esc(gcalHref(l, st, na))}">Add to my calendar</a></div>` : ""}
+      ${(st === "site_visit" || st === "call_scheduled") && na ? `<div><h3>${st === "site_visit" ? "Site visit" : "Call them"}</h3><p>${esc(when(na))}</p>${calOn() ? `<small class="pp-muted">In your ${esc(S.cal.connected.name)}</small>` : `<a class="pp-link" target="_blank" rel="noopener" href="${esc(gcalHref(l, st, na))}">Add to my calendar</a>`}</div>` : ""}
       ${l.quote_amount ? `<div><h3>Quote</h3><p>${esc(money(l.quote_amount))}${l.quote_sent_at ? ` · sent ${esc(day(l.quote_sent_at))}` : ""}</p></div>` : ""}
       ${l.job_value ? `<div><h3>Job value</h3><p>${esc(money(l.job_value))}</p></div>` : ""}
       ${l.lost_reason && CLOSED.has(st) ? `<div><h3>Why</h3><p>${esc(l.lost_reason)}</p></div>` : ""}
@@ -642,6 +642,7 @@ function renderSheet(){
       ${readOnly() ? "" : `<div class="pp-addnote"><textarea id="pp-newnote" rows="2" placeholder="Add a note - e.g. wants it done before Christmas">${esc(S.drafts["note:" + l.id] || "")}</textarea><button type="button" class="pp-btn pp-btn-light" data-act="save-note">Save note</button></div>`}
       ${historyHtml(l)}
     </section>`;
+  calRefresh();
 }
 function moveHtml(l){
   const st = stageOf(l), first = firstName(l.name), o = S.pick ? STAGE[S.pick] : null;
@@ -652,7 +653,7 @@ function moveHtml(l){
     <p class="pp-muted pp-small">${asking ? "Tap what happened." : "Tap to move them along. You can change it any time."}</p>
     <div class="pp-stages">${STAGES.map(s => `<button type="button" class="pp-stage pp-stage-${s.cls}${s.k === st ? " now" : ""}${S.pick === s.k ? " picked" : ""}" data-pick="${s.k}"><b>${esc(s.label)}</b><small>${s.k === st ? "Now" : esc(s.hint)}</small></button>`).join("")}</div>
     ${o ? `<div class="pp-out-form">
-      ${o.when ? `<label>${esc(o.when)}${o.whenNeeded ? "" : " <small>(optional)</small>"}<input type="datetime-local" id="pp-when" value="${esc(def)}"></label>` : ""}
+      ${o.when ? `<label>${esc(o.when)}${o.whenNeeded ? "" : " <small>(optional)</small>"}<input type="datetime-local" id="pp-when" value="${esc(def)}"></label><div class="pp-cal" id="pp-cal"></div>` : ""}
       ${o.amount ? `<label>${esc(o.amount)} <small>(optional)</small><span class="pp-money"><i>$</i><input type="number" inputmode="decimal" min="0" step="1" id="pp-amount" value="${esc(o.k === "won" ? (l.job_value || l.quote_amount || "") : (l.quote_amount || ""))}" placeholder="0"></span></label>` : ""}
       ${o.reasons ? `<label>Why? <small>(optional)</small><select id="pp-reason"><option value="">Pick one</option>${o.reasons.map(x => `<option${l.lost_reason === x ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></label>` : ""}
       <label>Note <small>(optional)</small><textarea id="pp-note" rows="2" placeholder="${o.k === "no_answer" ? "e.g. Left a voicemail" : "Anything worth remembering"}">${esc(S.drafts[l.id] || "")}</textarea></label>
@@ -694,12 +695,13 @@ async function saveStage(){
   S.saving = true; renderSheet();
   try {
     await rpc("portal_update_lead", { p_lead: l.id, p_stage: o.k, p_note: note || null, p_when: at, p_amount: amount, p_reason: reason });
+    const inCal = at && (o.k === "site_visit" || o.k === "call_scheduled") ? await calAdd(l) : null;
     const wasAsked = l.checkin;
     delete S.drafts[l.id];
     S.saving = false;
     await refreshAfterSave();
     toast(o.k === "no_answer" ? (wasAsked ? `Thanks - our team will follow ${firstName(l.name)} up for you.` : `Saved. Try ${firstName(l.name)} again later - we'll check in with you tomorrow if you can't reach them.`)
-      : o.k === "won" ? "Nice one! Job won." : `Saved: ${o.label}.`);
+      : o.k === "won" ? "Nice one! Job won." : `Saved: ${o.label}.${inCal ? ` Added to your ${inCal}.` : ""}`);
     closeSheet();
   } catch(e){
     S.saving = false; renderSheet();
@@ -805,6 +807,115 @@ function renderAlertsSheet(){
       <div class="pp-addnote"><input type="tel" id="pp-phone2" placeholder="Your mobile, e.g. 021 123 4567" autocomplete="tel"><button type="button" class="pp-btn pp-btn-light" data-act="save-phone2">Save</button></div></section>`}`;
 }
 
+
+/* ───────── their calendar (Google / Outlook, one click) ───────── */
+// The client-portal function does the signing in and talks to Google /
+// Microsoft (calendar.ts); here: the Account buttons, the day's calendar and
+// free times while picking a visit / call time, and adding bookings to it.
+async function calFn(action, extra = {}){
+  if (!sb) return demoCal(action, extra);
+  const { data, error } = await sb.functions.invoke("client-portal", { body: { action, ...extra } });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+async function loadCal(){
+  if (readOnly()){ S.cal = null; return; }
+  try { S.cal = await calFn("calendar_status"); } catch(e){ S.cal = null; }
+}
+const calOn = () => !!(S.cal?.connected && !S.cal.connected.error);
+async function calConnect(provider){
+  try {
+    const r = await calFn("calendar_connect", { provider });
+    if (r?.url){ location.href = r.url; return; }
+    await loadCal(); render(); toast("Calendar connected.");
+  } catch(e){ toast(e.message || "Couldn't start that - try again."); }
+}
+async function calDisconnect(){
+  if (!confirm("Disconnect your calendar? The app will stop showing it and stop adding bookings to it.")) return;
+  try { await calFn("calendar_disconnect"); await loadCal(); render(); toast("Calendar disconnected."); }
+  catch(e){ toast("Couldn't do that - try again."); }
+}
+function calSettingsHtml(){
+  const c = S.cal;
+  if (!c || (!c.offer?.google && !c.offer?.microsoft && !c.connected)) return "";
+  const btns = `${c.offer?.google ? `<button type="button" class="pp-btn pp-btn-light pp-calbtn" data-cal-connect="google"><b class="g">G</b> Connect Google Calendar</button>` : ""}
+    ${c.offer?.microsoft ? `<button type="button" class="pp-btn pp-btn-light pp-calbtn" data-cal-connect="microsoft"><b class="o">O</b> Connect Outlook</button>` : ""}`;
+  return `<section class="pp-block pp-calset">
+    <h3>Your calendar</h3>
+    ${c.connected ? (c.connected.error
+      ? `<p class="pp-warn">Your ${esc(c.connected.name)} connection stopped working. Connect it again to keep seeing your free times.</p><div class="pp-calbtns">${btns}</div>`
+      : `<p><b class="pp-ok">✓ Connected:</b> ${esc(c.connected.name)}${c.connected.account ? ` · ${esc(c.connected.account)}` : ""}</p>
+         <p class="pp-muted pp-small">When you book a site visit or a call, you'll see that day's calendar and your free times, and the booking goes straight into your calendar.</p>
+         <button type="button" class="pp-link" data-act="cal-disconnect">Disconnect</button>`)
+    : `<p class="pp-muted pp-small">Connect your calendar to see your free times when you book a site visit or a call. Bookings go straight into it.</p><div class="pp-calbtns">${btns}</div>`}
+  </section>`;
+}
+// While a time is being picked: that day's calendar, any clash, and free times.
+const CAL_DAYS = {};
+async function calRefresh(){
+  const box = $("#pp-cal"), input = $("#pp-when");
+  if (!box || !input) return;
+  const o = S.pick ? STAGE[S.pick] : null;
+  if (!calOn()){
+    box.innerHTML = S.cal && (S.cal.offer?.google || S.cal.offer?.microsoft) && !readOnly()
+      ? `<button type="button" class="pp-link" data-act="cal-go">Connect your calendar</button> <span class="pp-muted pp-small">to see your free times here.</span>` : "";
+    return;
+  }
+  const v = input.value;
+  if (!v){ box.innerHTML = ""; return; }
+  const chosen = new Date(v), dayKey = v.slice(0, 10);
+  const [y, m, d] = dayKey.split("-").map(Number);
+  const from = new Date(y, m - 1, d, 0, 0), to = new Date(y, m - 1, d + 1, 0, 0);
+  const dayName = from.toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "short" });
+  if (!CAL_DAYS[dayKey]){
+    box.innerHTML = `<p class="pp-muted pp-small">Checking your calendar for ${esc(dayName)}…</p>`;
+    try { CAL_DAYS[dayKey] = (await calFn("calendar_day", { from: from.toISOString(), to: to.toISOString() })).events || []; }
+    catch(e){ box.innerHTML = `<p class="pp-muted pp-small">Couldn't read your calendar just now.</p>`; await loadCal(); return; }
+    if ($("#pp-when")?.value.slice(0, 10) !== dayKey) return; // they've moved on to another day
+  }
+  const evs = CAL_DAYS[dayKey], mins = o?.k === "site_visit" ? 60 : 15;
+  const timed = evs.filter(e => !e.allDay);
+  const clash = timed.filter(e => t(e.start) < +chosen + mins * 60e3 && t(e.end) > +chosen);
+  const free = [];
+  for (let h = 7; h <= 18 && free.length < 10; h += 0.5){
+    const s = new Date(y, m - 1, d, Math.floor(h), h % 1 ? 30 : 0), e = +s + mins * 60e3;
+    if (+s < Date.now() + 15 * 60e3) continue;
+    if (timed.some(x => t(x.start) < e && t(x.end) > +s)) continue;
+    free.push(s);
+  }
+  const hm = (iso) => new Date(iso).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" });
+  box.innerHTML = `<div class="pp-calday">
+    <b>Your calendar · ${esc(dayName)}</b>
+    ${evs.length ? `<ul>${evs.map(e => `<li class="${clash.includes(e) ? "clash" : ""}"><span>${e.allDay ? "All day" : `${esc(hm(e.start))} - ${esc(hm(e.end))}`}</span>${esc(e.title)}</li>`).join("")}</ul>` : `<p class="pp-muted pp-small">Nothing in your calendar that day.</p>`}
+    ${clash.length ? `<p class="pp-clash">That clashes with ${esc(clash[0].title)}.</p>` : ""}
+    ${free.length ? `<div class="pp-free"><span>Free times:</span>${free.map(s => `<button type="button" data-free="${localInput(s.toISOString())}" class="${Math.abs(+s - +chosen) < 60e3 ? "on" : ""}">${esc(s.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" }))}</button>`).join("")}</div>` : `<p class="pp-muted pp-small">No free ${mins === 60 ? "hour" : "slot"} left between 7am and 7pm that day.</p>`}
+  </div>`;
+}
+// After saving a visit / call: put it in their calendar.
+async function calAdd(l){
+  if (!calOn() || readOnly()) return null;
+  try { const r = await calFn("calendar_add", { lead_id: l.id }); return r?.ok ? (r.name || S.cal.connected.name) : null; }
+  catch(e){ console.warn(e); await loadCal(); return null; }
+}
+// Demo mode: a pretend Google Calendar.
+let demoCalConn = null;
+async function demoCal(action, extra){
+  if (action === "calendar_status") return { offer: { google: true, microsoft: true }, connected: demoCalConn };
+  if (action === "calendar_connect"){ demoCalConn = { provider: extra.provider, name: extra.provider === "google" ? "Google Calendar" : "Outlook", account: "client@example.com", error: null }; return { demo: true }; }
+  if (action === "calendar_disconnect"){ demoCalConn = null; return { ok: true }; }
+  if (action === "calendar_day"){
+    const d = new Date(extra.from), at = (h, mi) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, mi).toISOString();
+    return { events: [
+      { title: "Pour - Smith driveway", start: at(7, 0), end: at(11, 30), allDay: false },
+      { title: "Lunch with supplier", start: at(12, 30), end: at(13, 0), allDay: false },
+      { title: "Quote - Rata St", start: at(15, 0), end: at(16, 30), allDay: false },
+    ] };
+  }
+  if (action === "calendar_add") return { ok: true, name: demoCalConn?.name };
+  return {};
+}
+
 /* ───────── ads ───────── */
 // delivery_status from the ad sync: active / learning / learning_limited are all running.
 const adOn = (a) => /^(active|learning|learning_limited)$/i.test(String(a.status || "").trim());
@@ -885,6 +996,7 @@ function renderAccount(){
       ${c.client_calls ? `<ol class="pp-steps"><li>A lead fills in the form on your ad. It shows up here straight away, and your phone gets an alert.</li><li>Call them - the best ones are at the top of To do, with everything they told us.</li><li>Move each lead along as it goes: call scheduled, site visit, quote sent, job won.</li><li>Can't reach someone? Tap Didn't answer. The next day we'll ask if they got back to you - if not, our team follows them up.</li><li>Haven't rung a lead within 24 hours? Our team calls them for you.</li></ol>`
         : `<ol class="pp-steps"><li>A lead fills in the form on your ad.</li><li>Our team rings them fast and books them in with you.</li><li>You take it from there here: site visit, quote sent, job won.</li></ol>`}
     </section>
+    ${calSettingsHtml()}
     <section class="pp-block pp-settings">
       <h3>Settings</h3>
       ${readOnly() ? `<p class="pp-muted">Settings are the client's own - not shown in the team preview.</p>` : `
@@ -941,6 +1053,10 @@ function bind(){
       setTimeout(() => $("#pp-out-form, .pp-out-form")?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 30);
       return;
     }
+    const cc = e.target.closest("[data-cal-connect]");
+    if (cc){ calConnect(cc.dataset.calConnect); return; }
+    const fr = e.target.closest("[data-free]");
+    if (fr){ const w = $("#pp-when"); if (w){ w.value = fr.dataset.free; calRefresh(); } return; }
     const copy = e.target.closest("[data-copy]");
     if (copy){ try { await navigator.clipboard.writeText(copy.dataset.copy); toast("Number copied."); } catch(err){ toast(copy.dataset.copy); } return; }
     const act = e.target.closest("[data-act]")?.dataset.act;
@@ -954,6 +1070,8 @@ function bind(){
     else if (act === "alerts-on") turnOnAlerts();
     else if (act === "install"){ try { S.installEvt?.prompt(); await S.installEvt?.userChoice; } catch(err){} S.installEvt = null; renderSheet(); }
     else if (act === "save-phone") savePhone($("#pp-phone"));
+    else if (act === "cal-disconnect") calDisconnect();
+    else if (act === "cal-go"){ shutSheet(); S.tab = "account"; render(); window.scrollTo(0, document.body.scrollHeight); }
     else if (act === "save-phone2") savePhone($("#pp-phone2"));
     else if (act === "signout") signOut();
     else if (act === "change-pw") showSetPassword(true);
@@ -975,6 +1093,7 @@ function bind(){
       await loadAll(true).catch(showError);
     }
     if (e.target.id === "pp-period"){ S.period = e.target.value; render(); }
+    if (e.target.id === "pp-when") calRefresh();
     if (e.target.id === "pp-notify"){
       const on = e.target.checked;
       try { await rpc("portal_set_settings", { p_notify: on, p_phone: null }); S.me.notify_new_leads = on; toast(on ? "We'll email you each new lead too." : "New lead emails are off."); }
@@ -1040,7 +1159,13 @@ async function start(){
     else return showError(e);
   }
   if (S.me.viewer !== "team" && (S.me.clients || []).length < 2) S.preview = null;
-  await checkAlerts(); render();
+  await checkAlerts(); await loadCal(); render();
+  const calBack = params.get("calendar");
+  if (calBack){
+    history.replaceState(null, "", location.pathname);
+    S.tab = "account"; render();
+    toast({ connected: "Your calendar is connected.", cancelled: "Calendar not connected - you can try again any time.", expired: "That took too long - tap Connect again." }[calBack] || "Couldn't connect your calendar - try again.");
+  }
   const lead = params.get("lead");
   if (lead){ history.replaceState(null, "", location.pathname); openLead(lead, { ask: S.leads.find(l => l.id === lead)?.checkin }); }
 }

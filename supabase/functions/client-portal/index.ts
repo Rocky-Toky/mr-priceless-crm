@@ -11,6 +11,14 @@
 //   { action: "remove", id }
 //       Takes that login off, and deletes the account if it was their only one.
 //
+// From a client login (calendar.ts, sql/117):
+//   { action: "calendar_status" }               -> which buttons to offer, what's connected
+//   { action: "calendar_connect", provider }    -> { url } to send them to Google / Microsoft
+//   { action: "calendar_disconnect" }
+//   { action: "calendar_day", from, to }        -> { events } in their calendar
+//   { action: "calendar_add", lead_id }         -> puts the lead's site visit / call in their calendar
+// GET /client-portal/oauth/{google|microsoft}: where the sign-in comes back to.
+//
 // From pg_cron / the database (header x-cron-secret = app_secrets
 // portal_cron_secret, sql/113), { action: "deliver" }: sends the waiting
 // portal_notifications. Each goes as a phone notification to every device
@@ -27,6 +35,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { makeVapidKeys, sendPush, type VapidKeys } from "./push.ts";
+import { accessToken, authUrl, creds, dayEvents, exchangeCode, putEvent, type Conn, type Provider } from "./calendar.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -209,6 +218,90 @@ async function deliver(admin: any) {
   return tally;
 }
 
+/* ───────── Client calendars (calendar.ts, sql/117) ───────── */
+const PROVIDER_NAME: Record<Provider, string> = { google: "Google Calendar", microsoft: "Outlook" };
+async function connFor(admin: any, email: string): Promise<Conn | null> {
+  const { data } = await admin.from("portal_calendars").select("*").eq("email", email).maybeSingle();
+  return data || null;
+}
+const saver = (admin: any, email: string) => (patch: Record<string, unknown>) => admin.from("portal_calendars").update(patch).eq("email", email);
+
+// The sign-in came back from Google / Microsoft.
+async function oauthReturn(admin: any, url: URL): Promise<Response> {
+  const back = (q: string) => new Response(null, { status: 302, headers: { Location: `${PORTAL_URL}?${q}` } });
+  const provider = (url.pathname.endsWith("/google") ? "google" : url.pathname.endsWith("/microsoft") ? "microsoft" : "") as Provider | "";
+  const state = url.searchParams.get("state") || "", code = url.searchParams.get("code") || "";
+  if (!provider || !state) return back("calendar=error");
+  const { data: st } = await admin.from("portal_calendar_states").select("*").eq("state", state).maybeSingle();
+  await admin.from("portal_calendar_states").delete().eq("state", state);
+  if (!st || st.provider !== provider || Date.now() - new Date(st.created_at).getTime() > 15 * 60e3) return back("calendar=expired");
+  if (!code) return back("calendar=cancelled");
+  try {
+    const t = await exchangeCode(provider, code);
+    const old = await connFor(admin, st.email);
+    await admin.from("portal_calendars").upsert({
+      email: st.email, provider, account_email: t.account_email || null,
+      // Google only sends a refresh token the first time; keep the old one if it's the same account.
+      refresh_token: t.refresh_token || (old?.provider === provider ? old.refresh_token : null),
+      access_token: t.access_token, expires_at: t.expires_at, error: null,
+      connected_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }, { onConflict: "email" });
+    return back(`calendar=connected&provider=${provider}`);
+  } catch (e) {
+    console.warn("calendar connect failed", String((e as any)?.message || e).slice(0, 200));
+    return back("calendar=error");
+  }
+}
+
+async function calendarAction(admin: any, email: string, body: any) {
+  const conn = await connFor(admin, email);
+  if (body.action === "calendar_status") {
+    return {
+      offer: { google: !!creds("google"), microsoft: !!creds("microsoft") },
+      connected: conn ? { provider: conn.provider, name: PROVIDER_NAME[conn.provider], account: conn.account_email || null, error: (conn as any).error || null } : null,
+    };
+  }
+  if (body.action === "calendar_connect") {
+    const provider = body.provider as Provider;
+    const c = provider === "google" || provider === "microsoft" ? creds(provider) : null;
+    if (!c) return { error: "That calendar can't be connected yet." };
+    const state = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+    await admin.from("portal_calendar_states").insert({ state, email, provider });
+    return { url: authUrl(provider, c.id, state, email) };
+  }
+  if (body.action === "calendar_disconnect") {
+    await admin.from("portal_calendars").delete().eq("email", email);
+    return { ok: true };
+  }
+  if (!conn) return { connected: false };
+  const token = await accessToken(conn, saver(admin, email));
+  if (body.action === "calendar_day") {
+    const from = new Date(body.from), to = new Date(body.to);
+    if (isNaN(+from) || isNaN(+to) || +to <= +from || +to - +from > 3 * 86400e3) return { error: "Pick a day." };
+    return { events: await dayEvents(conn, token, from.toISOString(), to.toISOString()) };
+  }
+  if (body.action === "calendar_add") {
+    // Only a lead of one of their own clients.
+    const { data: l } = await admin.from("client_leads").select("id, client_id, name, phone, email, address, city, form_name, answers, client_stage, client_next_at, booked_for, calendar_event").eq("id", body.lead_id).maybeSingle();
+    if (!l) return { error: "Couldn't find that lead." };
+    const { data: mine } = await admin.from("client_portal_users").select("id").eq("email", email).eq("client_id", l.client_id).maybeSingle();
+    if (!mine) return { error: "Not allowed." };
+    const visit = l.client_stage === "site_visit", at = l.client_next_at || (visit ? l.booked_for : null);
+    if (!at || !["site_visit", "call_scheduled"].includes(l.client_stage)) return { skipped: true };
+    const start = new Date(at), end = new Date(+start + (visit ? 60 : 15) * 60e3);
+    const qa = (Array.isArray(l.answers) ? l.answers : []).map((x: any) => `${String(x.q || "").replace(/_/g, " ")}: ${String(x.a || "").replace(/_/g, " ")}`).filter((x: string) => x.length > 2);
+    const details = [l.phone ? `Phone: ${l.phone}` : "", l.email ? `Email: ${l.email}` : "", l.form_name ? `Enquiry: ${l.form_name}` : "", ...qa, "", `Open the lead: ${PORTAL_URL}?lead=${l.id}`].filter((x, i, a) => x || (i > 0 && a[i - 1])).join("\n");
+    const id = await putEvent(conn, token, {
+      id: l.calendar_event?.provider === conn.provider ? l.calendar_event?.id : null,
+      title: `${visit ? "Site visit" : "Call"} - ${l.name || "lead"}`,
+      start: start.toISOString(), end: end.toISOString(), location: l.address || l.city || "", details,
+    });
+    await admin.from("client_leads").update({ calendar_event: { provider: conn.provider, id, at: start.toISOString() } }).eq("id", l.id);
+    return { ok: true, name: PROVIDER_NAME[conn.provider] };
+  }
+  return { error: "Unknown action." };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -217,6 +310,10 @@ Deno.serve(async (req) => {
   if (!SUPABASE_URL || !SERVICE || !ANON) return json({ error: "Server misconfigured." }, 500);
   const admin = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false } });
 
+  // Coming back from "Connect Google Calendar / Outlook".
+  const url = new URL(req.url);
+  if (req.method === "GET" && /\/oauth\/(google|microsoft)$/.test(url.pathname)) return oauthReturn(admin, url);
+
   const cronHeader = req.headers.get("x-cron-secret");
   if (cronHeader) {
     const { data: secret } = await admin.from("app_secrets").select("value").eq("name", "portal_cron_secret").maybeSingle();
@@ -224,16 +321,26 @@ Deno.serve(async (req) => {
     try { return json(await deliver(admin)); } catch (e) { return json({ error: String((e as any)?.message || e) }, 500); }
   }
 
-  // Team only (not Lead Follow Up only logins, never client logins).
   const authed = createClient(SUPABASE_URL, ANON, { auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
   const { data: userData } = await authed.auth.getUser();
   const caller = userData?.user;
   if (!caller?.email || !caller.email_confirmed_at) return json({ error: "Unauthorized." }, 401);
-  const { data: allowed } = await admin.from("allowlist").select("email, access").ilike("email", caller.email).maybeSingle();
-  if (!allowed || (allowed.access || "full") !== "full") return json({ error: "Unauthorized." }, 401);
-
   let body: any = {};
   try { body = (await req.json()) ?? {}; } catch { body = {}; }
+
+  // Calendar actions: client portal logins only, each for their own calendar.
+  if (String(body.action || "").startsWith("calendar_")) {
+    const me = cleanEmail(caller.email);
+    const { data: login } = await admin.from("client_portal_users").select("id").eq("email", me).limit(1).maybeSingle();
+    const { data: team } = await admin.from("allowlist").select("email").ilike("email", me).maybeSingle();
+    if (!login || team) return json({ error: "Unauthorized." }, 401);
+    try { return json(await calendarAction(admin, me, body)); }
+    catch (e) { return json({ error: String((e as any)?.message || e).slice(0, 200) }); }
+  }
+
+  // Everything else: team only (not Lead Follow Up only logins, never client logins).
+  const { data: allowed } = await admin.from("allowlist").select("email, access").ilike("email", caller.email).maybeSingle();
+  if (!allowed || (allowed.access || "full") !== "full") return json({ error: "Unauthorized." }, 401);
 
   try {
     if (body.action === "invite") {
