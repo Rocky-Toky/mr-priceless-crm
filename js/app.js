@@ -5282,6 +5282,7 @@ function pfHealth(c, avgCpl){
   if (stage === "at_risk"){ score -= 25; why.push("Marked at risk"); }
   if (c.churn_risk === "high"){ score -= 30; why.push("High churn risk"); }
   else if (c.churn_risk === "medium"){ score -= 12; why.push("Medium churn risk"); }
+  try { const st = stClientState(c); if (st?.state === "bad"){ score -= 20; why.unshift(st.problem.failed ? "Stripe payment failed" : "Payment overdue"); } } catch(e){}
   getClientAlerts(c).filter(a => a.text !== "Marked At Risk").forEach(a => { score -= a.type === "danger" ? 18 : 8; why.push(a.text.replace(" - overdue to move on", "")); });
   try { const am = amClientProgress(c); if (am.overdue){ score -= 15; why.push(`Ads ${am.live}/${am.target} live - behind`); } else if (am.live < am.target){ score -= 4; } } catch(e){}
   try { const due = reportDueInfo(c); if (due.due){ score -= 10; why.push("Report due"); } } catch(e){}
@@ -5295,7 +5296,8 @@ function pfHealth(c, avgCpl){
 }
 function pfCardHtml(c, h){
   const stage = normalizeClientStage(c.stage);
-  const retainer = clientRetainer(c);
+  const retainer = stClientMonthly(c) ?? clientRetainer(c);
+  const stState = stClientState(c);
   const leads30 = state.clientLeads.filter(l => l.client_id === c.id && Date.now() - (Date.parse(l.created_at) || 0) < 30 * 86400e3).length;
   const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
   const owner = (c.onboarding_progress || {}).owner || deal?.assignee || null;
@@ -5316,7 +5318,7 @@ function pfCardHtml(c, h){
     </div>
     <dl class="pf-nums">
       <div><dt>Cost / lead</dt><dd>${c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "-"}</dd></div>
-      <div><dt>Retainer</dt><dd>${retainer != null ? fmtMoney(retainer) : "-"}</dd></div>
+      <div><dt>Retainer</dt><dd>${retainer != null ? fmtMoney(retainer) : "-"}${stState ? ` <i class="pf-pay ${stState.state === "bad" ? "bad" : "ok"}" title="${stState.state === "bad" ? "Stripe payment failed / overdue" : "Paid up in Stripe"}"></i>` : ""}</dd></div>
       <div><dt>This month</dt><dd class="pf-month">${am ? `<span class="pf-dots">${am.slots.map(s => `<i class="${s.status === "live" ? "on" : s.late ? "late" : ""}" title="${escapeHtml(s.label)}"></i>`).join("")}</span>` : ""}${due ? `<span class="pf-rep ${due.due ? "due" : ""}" title="Fortnightly report: ${escapeHtml(due.label)}">R</span>` : ""}</dd></div>
     </dl>
     <footer class="pf-foot">
@@ -5336,14 +5338,14 @@ function renderClientPortfolio(){
   const sorters = {
     health: (a, b) => a.h.score - b.h.score || (a.c.name || "").localeCompare(b.c.name || ""),
     leads: (a, b) => leadsOf(b.c) - leadsOf(a.c),
-    retainer: (a, b) => (clientRetainer(b.c) || 0) - (clientRetainer(a.c) || 0),
+    retainer: (a, b) => ((stClientMonthly(b.c) ?? clientRetainer(b.c)) || 0) - ((stClientMonthly(a.c) ?? clientRetainer(a.c)) || 0),
     name: (a, b) => (a.c.name || "").localeCompare(b.c.name || ""),
     newest: (a, b) => (Date.parse(b.c.created_at) || 0) - (Date.parse(a.c.created_at) || 0),
   };
   rows.sort(sorters[pfSort] || sorters.health);
   const all = clients.map(c => pfHealth(c, avg));
   const needYou = all.filter(h => h.band === "bad").length, watch = all.filter(h => h.band === "watch").length;
-  const mrr = clients.map(clientRetainer).filter(v => v != null).reduce((a, b) => a + b, 0);
+  const mrr = clients.map(c => stClientMonthly(c) ?? clientRetainer(c)).filter(v => v != null).reduce((a, b) => a + b, 0);
   const leads30 = state.clientLeads.filter(l => Date.now() - (Date.parse(l.created_at) || 0) < 30 * 86400e3 && clients.some(c => c.id === l.client_id)).length;
   const onb = state.clients.filter(inOnboardingSection).length;
   const kpis = `<div class="pf-kpis">
@@ -6177,6 +6179,16 @@ function renderClientProfileTop(c, qs){
     ${row(`Ads for ${escapeHtml(mName)}`, `${am.live} of 3 live`, am.live >= 3, `<span class="cp-tile-ads">${am.slots.map(s => { const look = AM_LOOK[s.status] || AM_LOOK[""]; return `<button type="button" class="am-box am-${look.cls}${s.late ? " is-late" : ""}" data-action="am-tap" data-id="${c.id}" data-slot="${s.key}" title="${escapeHtml(s.label)} - tap to change">${escapeHtml(s.kind === "video" ? "Video" : s.label.replace("Static ad ", "Static "))}</button>`; }).join("")}</span>`)}
     ${isWorkshopClient(c) ? row("Workshop", wsDone ? `Done ${escapeHtml(fmtShortDate(wsDone.date))}` : "Due this month", !!wsDone, `<button type="button" class="btn ${wsDone ? "ghost" : "gold"} sm" data-action="ws-open" data-id="${c.id}">${wsDone ? "Open" : "Log workshop"}</button>`) : ""}
     ${row("Fortnightly report", escapeHtml(due.label), !due.due, `${rpDayPickHtml(c, due)}<button type="button" class="btn ${due.due ? "gold" : "ghost"} sm" data-action="make-report" data-id="${c.id}">Make report</button>`)}
+    ${(() => {
+      // Their Stripe payment, straight from Stripe.
+      let st = null; try { stEnsure(); st = stClientState(c); } catch(e){}
+      if (!st) return "";
+      const day = (iso) => iso ? new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "";
+      const link = st.problem?.pay ? stDash(st.problem.pay) : st.customerId ? `https://dashboard.stripe.com/customers/${encodeURIComponent(st.customerId)}` : "https://dashboard.stripe.com/";
+      const words = st.state === "bad" ? stProblemWords(st) : st.state === "ending" ? `Monthly payment cancels ${day(st.sub.current_period_end)}`
+        : `${st.sub ? `${stMoney(st.sub.amount, st.sub.currency)}/${st.sub.interval || "month"} · ` : ""}last paid ${day(st.lastPaid?.paid_at || st.lastPaid?.created_at) || "-"}${st.sub?.current_period_end && st.state === "ok" ? ` · next ${day(st.sub.current_period_end)}` : ""}`;
+      return row("Payment", escapeHtml(words), st.state !== "bad" && st.state !== "ending", `<a class="btn ${st.state === "bad" ? "gold" : "ghost"} sm" href="${escapeHtml(link)}" target="_blank" rel="noopener">Open in Stripe</a>`);
+    })()}
   </div>`;
 }
 /* ───────── Client portal (portal/, sql/112) ─────────
@@ -9234,6 +9246,7 @@ function renderReceipts(){
   const navCount = $("#nav-rc-count");
   if (navCount){ navCount.hidden = !dueNow; navCount.textContent = dueNow; }
 
+  stRenderPanel();
   const biz = rcBusiness(), setup = $("#rc-setup");
   if (setup){
     setup.hidden = !!(biz.name && biz.gst);
@@ -12046,6 +12059,271 @@ function setupClientInboxUi(){
 // Today only ever shows your own list (plus things nobody owns) - Rocky, 13 Nov 2026.
 const todayMine = () => { const me = pmMe(); return todayItems().filter(x => !x.owner || !me || x.owner === me); };
 const TODAY_AREAS = { clients: "Clients", sales: "Sales", ads: "Ads", leads: "Lead calls", money: "Payments", tasks: "To-do" };
+/* ───────── Stripe: who's paid, who's overdue (Rocky, 14 Nov 2026) ─────────
+   sync-stripe (sql/117) copies Stripe customers, subscriptions, invoices and
+   one-off payments in every 15 minutes. Each Stripe customer is matched to a
+   client by email (client email, report email, any email in key contacts),
+   else by business name, unless someone linked it by hand on the Payments page
+   (stripe_customers.client_id). A failed or overdue payment is a red row on
+   Today; the Payments page shows every client's Stripe status. */
+let stData = null, stLoading = false, stErr = "";
+function stDemo(){
+  const day = 86400e3, now = Date.now(), c = state.clients.filter(x => !inOnboardingSection(x)).slice(0, 4);
+  const iso = (ms) => new Date(ms).toISOString();
+  const cust = c.map((x, i) => ({ id: "cus_demo" + i, email: x.email || null, name: x.name, client_id: null }));
+  cust.push({ id: "cus_demox", email: "accounts@someoneelse.co.nz", name: "Hutt Valley Fencing", client_id: null });
+  const subs = cust.map((k, i) => ({ id: "sub_demo" + i, customer_id: k.id, status: i === 1 ? "past_due" : "active", amount: [1500, 2000, 1800, 1500, 1200][i], currency: "nzd", interval: "month", current_period_end: iso(now + (12 - i * 3) * day), cancel_at_period_end: false }));
+  const pays = [];
+  cust.forEach((k, i) => {
+    pays.push({ id: "in_demo_p" + i, kind: "invoice", customer_id: k.id, subscription_id: "sub_demo" + i, status: "paid", amount: subs[i].amount, currency: "nzd", created_at: iso(now - (18 + i * 3) * day), paid_at: iso(now - (18 + i * 3) * day), url: null });
+  });
+  pays.push({ id: "in_demo_f1", kind: "invoice", customer_id: "cus_demo1", subscription_id: "sub_demo1", status: "failed", amount: 2000, currency: "nzd", created_at: iso(now - 3 * day), due_at: iso(now - 3 * day), attempt_count: 2, next_attempt_at: iso(now + 2 * day), failure: "Your card has insufficient funds.", url: "https://invoice.stripe.com/demo" });
+  pays.push({ id: "pi_demo_o", kind: "one_off", customer_id: null, customer_email: "jo@example.co.nz", customer_name: "Jo Marsh", status: "paid", amount: 500, currency: "nzd", created_at: iso(now - 6 * day), paid_at: iso(now - 6 * day) });
+  pays.forEach(p => { if (p.status === "paid"){ p.fee = Math.round(p.amount * 0.027 * 100 + 30) / 100; p.net = p.amount - p.fee; p.refunded = 0; p.method = "Visa 4242"; } });
+  const payouts = [{ id: "po_demo1", amount: 3200, currency: "nzd", status: "paid", arrival_at: iso(now - 2 * day) }, { id: "po_demo2", amount: 1460, currency: "nzd", status: "in_transit", arrival_at: iso(now + day) }];
+  return { customers: cust, subs, pays, payouts, status: { connected: true, last_ok_at: iso(now - 7 * 60e3), last_error: null } };
+}
+async function stLoad(){
+  if (!IS_CONFIGURED){ if (!stData) stData = stDemo(); return; }
+  if (stLoading) return;
+  stLoading = true;
+  try {
+    const since = new Date(Date.now() - 400 * 86400e3).toISOString();
+    const [c, s, p, st, po] = await Promise.all([
+      supabase.from("stripe_customers").select("id,email,name,client_id").limit(5000),
+      supabase.from("stripe_subscriptions").select("*").limit(5000),
+      supabase.from("stripe_payments").select("id,kind,customer_id,customer_email,customer_name,subscription_id,status,amount,currency,description,created_at,due_at,paid_at,attempt_count,next_attempt_at,failure,url,fee,net,refunded,method").gte("created_at", since).order("created_at", { ascending: false }).limit(5000),
+      supabase.from("stripe_sync_status").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("stripe_payouts").select("*").order("created_at", { ascending: false }).limit(200),
+    ]);
+    const err = c.error || s.error || p.error;
+    if (err){ stErr = /relation|does not exist/i.test(err.message || "") ? "Stripe is still being set up. Refresh in a few minutes." : "Couldn't load Stripe payments. Refresh to try again."; stData = stData || null; }
+    else { stErr = ""; stData = { customers: c.data || [], subs: s.data || [], pays: p.data || [], payouts: po.data || [], status: st.data || { connected: false } }; }
+  } finally { stLoading = false; }
+}
+function stEnsure(){
+  // Demo: the sample payments are built from the sample clients, which may not be there on the first call.
+  if (!IS_CONFIGURED && stData && stData.customers.length < 2 && state.clients.length > 1) stData = stDemo();
+  if (stData || stLoading || stErr) return;
+  stLoad().then(() => {
+    if (state.page === "today") renderToday();
+    if (state.page === "receipts") renderReceipts();
+  });
+}
+const stNorm = (s) => String(s || "").toLowerCase().replace(/&/g, "and").replace(/\b(ltd|limited|nz|au|pty|the|co)\b/g, "").replace(/[^a-z0-9]/g, "");
+function stClientEmails(c){
+  const out = new Set();
+  [c.email, c.report_email, typeof c.key_contacts === "string" ? c.key_contacts : JSON.stringify(c.key_contacts || "")].forEach(v => {
+    (String(v || "").match(/[^\s@,;<>()"']+@[^\s@,;<>()"']+\.[a-z]{2,}/gi) || []).forEach(e => out.add(e.toLowerCase()));
+  });
+  return out;
+}
+function stClientFor(email, name, linkedId){
+  if (linkedId) return state.clients.find(c => c.id === linkedId) || null;
+  const e = String(email || "").toLowerCase();
+  if (e){ const hit = state.clients.find(c => stClientEmails(c).has(e)); if (hit) return hit; }
+  const n = stNorm(name);
+  if (n.length >= 4){
+    const hit = state.clients.find(c => stNorm(c.name) === n) || state.clients.find(c => { const cn = stNorm(c.name); return cn.length >= 5 && (cn.includes(n) || n.includes(cn)); });
+    if (hit) return hit;
+  }
+  return null;
+}
+const stMoney = (n, cur) => "$" + Number(n || 0).toLocaleString("en-NZ", { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 }) + (cur && !["nzd", "aud", "usd"].includes(String(cur).toLowerCase()) ? " " + String(cur).toUpperCase() : "");
+const stDash = (p) => p.url || (p.kind === "invoice" ? `https://dashboard.stripe.com/invoices/${encodeURIComponent(p.id)}` : `https://dashboard.stripe.com/payments/${encodeURIComponent(p.id)}`);
+// One row per Stripe payer (a customer, or the email on a one-off payment): their client, subscription, last payment and any problem.
+let stPayersMemo = null;
+function stPayers(){
+  if (!stData) return [];
+  if (stPayersMemo && stPayersMemo.data === stData && stPayersMemo.clients === state.clients && Date.now() - stPayersMemo.at < 2000) return stPayersMemo.rows;
+  const rows = stPayersBuild();
+  stPayersMemo = { data: stData, clients: state.clients, at: Date.now(), rows };
+  return rows;
+}
+function stPayersBuild(){
+  const byId = new Map(stData.customers.map(c => [c.id, c]));
+  const payers = new Map();
+  const keyOf = (cid, email) => cid ? cid : email ? "email:" + String(email).toLowerCase() : null;
+  const get = (key, cid, email, name) => {
+    if (!payers.has(key)){
+      const cust = cid ? byId.get(cid) : null;
+      const em = cust?.email || email || "", nm = cust?.name || name || "";
+      payers.set(key, { key, customerId: cid || null, email: em, name: nm, client: stClientFor(em, nm, cust?.client_id), subs: [], pays: [] });
+    }
+    return payers.get(key);
+  };
+  stData.subs.forEach(s => { if (s.customer_id) get(s.customer_id, s.customer_id).subs.push(s); });
+  stData.pays.forEach(p => { const k = keyOf(p.customer_id, p.customer_email); if (k) get(k, p.customer_id, p.customer_email, p.customer_name).pays.push(p); });
+  const now = Date.now();
+  payers.forEach(x => {
+    x.pays.sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0));
+    x.sub = x.subs.find(s => ["past_due", "unpaid"].includes(s.status)) || x.subs.find(s => ["active", "trialing"].includes(s.status)) || x.subs.sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0))[0] || null;
+    x.lastPaid = x.pays.find(p => p.status === "paid") || null;
+    const paidAfter = (p) => x.pays.some(q => q.status === "paid" && (Date.parse(q.created_at) || 0) > (Date.parse(p.created_at) || 0) && (!p.subscription_id || q.subscription_id === p.subscription_id || !q.subscription_id));
+    // What's wrong, if anything: a failed or overdue invoice / payment nobody has paid since.
+    const bad = x.pays.find(p => {
+      const age = now - (Date.parse(p.created_at) || 0);
+      if (p.status === "failed") return age < 60 * 86400e3 && !paidAfter(p);
+      if (p.kind === "invoice" && p.status === "open") return Date.parse(p.due_at || p.created_at) < now - 86400e3 && age < 90 * 86400e3 && !paidAfter(p);
+      if (p.kind === "invoice" && p.status === "uncollectible") return age < 90 * 86400e3 && !paidAfter(p);
+      return false;
+    });
+    if (bad) x.problem = { pay: bad, failed: bad.status === "failed" || Number(bad.attempt_count) > 0, since: Date.parse(bad.due_at || bad.created_at) || now };
+    else if (x.sub && ["past_due", "unpaid"].includes(x.sub.status)) x.problem = { pay: null, failed: true, since: Date.parse(x.sub.current_period_end) || now };
+    x.state = x.problem ? "bad" : x.sub && ["active", "trialing"].includes(x.sub.status) ? (x.sub.cancel_at_period_end ? "ending" : "ok") : x.sub && x.sub.status === "canceled" ? "cancelled" : x.lastPaid ? "paid" : "none";
+  });
+  return [...payers.values()];
+}
+// Clients whose monthly payment Stripe takes care of (the hand-kept due dates don't nag for them).
+function stCoversClient(c){
+  return !!stData && stPayers().some(x => x.client?.id === c.id && x.sub && ["active", "trialing", "past_due", "unpaid"].includes(x.sub.status));
+}
+function stProblemWords(x){
+  const p = x.problem, days = Math.max(0, Math.floor((Date.now() - p.since) / 86400e3));
+  const amount = p.pay ? p.pay.amount : x.sub?.amount;
+  return [amount != null ? stMoney(amount, (p.pay || x.sub)?.currency) : "", days ? `${days} day${days === 1 ? "" : "s"} overdue` : "today",
+    p.pay?.failure || "", p.pay?.next_attempt_at && Date.parse(p.pay.next_attempt_at) > Date.now() ? `Stripe tries again ${new Date(p.pay.next_attempt_at).toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })}` : ""].filter(Boolean).join(" · ");
+}
+function stTodayItems(){
+  stEnsure();
+  return stPayers().filter(x => x.problem).map(x => {
+    const who = x.client ? inboxShortName(x.client.name) : (x.name || x.email || "a Stripe customer");
+    const link = x.problem.pay ? stDash(x.problem.pay) : x.customerId ? `https://dashboard.stripe.com/customers/${encodeURIComponent(x.customerId)}` : "https://dashboard.stripe.com/";
+    return { area: "money", owner: null, tone: "bad", at: x.problem.since,
+      title: `${x.problem.failed ? "Payment failed" : "Payment overdue"}: ${who}`, sub: stProblemWords(x),
+      actions: (x.client?.phone ? `<a class="td-btn gold" href="tel:${escapeHtml(x.client.phone)}">Call ${escapeHtml(who)}</a>` : "")
+        + `<a class="td-btn" href="${escapeHtml(link)}" target="_blank" rel="noopener">Open in Stripe</a>` };
+  });
+}
+function stAgo(iso){
+  const m = Math.round((Date.now() - (Date.parse(iso) || 0)) / 60e3);
+  return !iso ? "not yet" : m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} hr ago` : `${Math.round(m / 1440)} days ago`;
+}
+// A subscription's amount per month.
+const stMonthly = (sub) => !sub ? 0 : sub.interval === "year" ? (Number(sub.amount) || 0) / 12 : sub.interval === "week" ? (Number(sub.amount) || 0) * 52 / 12 : Number(sub.amount) || 0;
+// What a client pays each month through Stripe (null when they don't have a live subscription).
+function stClientMonthly(c){
+  if (!stData) return null;
+  const subs = stPayers().filter(x => x.client?.id === c.id && x.sub && ["active", "trialing", "past_due", "unpaid"].includes(x.sub.status));
+  return subs.length ? subs.reduce((t, x) => t + stMonthly(x.sub), 0) : null;
+}
+function stClientState(c){
+  if (!stData) return null;
+  const mine = stPayers().filter(x => x.client?.id === c.id && x.state !== "none");
+  return mine.find(x => x.state === "bad") || mine.find(x => x.state === "ok" || x.state === "ending") || mine[0] || null;
+}
+// The money for a month: gross in, Stripe fees, refunds, and what's left.
+function stMonthMoney(ym){
+  const paid = stData.pays.filter(p => ["paid", "refunded"].includes(p.status) && String(p.paid_at || p.created_at).slice(0, 7) === ym);
+  const gross = paid.reduce((t, p) => t + (Number(p.amount) || 0), 0);
+  const fees = paid.reduce((t, p) => t + (Number(p.fee) || 0), 0);
+  const refunds = paid.reduce((t, p) => t + (Number(p.refunded) || 0), 0);
+  return { paid, gross, fees, refunds, net: gross - fees - refunds };
+}
+function stPanelHtml(){
+  if (stErr) return `<div class="st-card"><div class="st-head"><b>Stripe</b></div><p class="st-note">${escapeHtml(stErr)}</p></div>`;
+  if (!stData) return `<div class="st-card"><div class="st-head"><b>Stripe</b><span>Loading…</span></div></div>`;
+  const s = stData.status || {};
+  if (!s.connected) return `<div class="st-card"><div class="st-head"><b>Stripe</b><span class="st-chip">Not connected yet</span></div><p class="st-note">Once the Stripe key is added, every payment shows here by itself - who's paid, who's overdue and whose card failed - and anything wrong goes on Today.</p></div>`;
+  const payers = stPayers();
+  const order = { bad: 0, ending: 1, ok: 2, paid: 3, cancelled: 4, none: 5 };
+  const nameOf = (x) => x.client ? inboxShortName(x.client.name) : x.name || x.email || "";
+  const rows = payers.filter(x => x.state !== "none").sort((a, b) => order[a.state] - order[b.state] || nameOf(a).localeCompare(nameOf(b)));
+  const now = new Date(), ym = now.toISOString().slice(0, 7);
+  const lastYm = (() => { const d = new Date(now.getFullYear(), now.getMonth() - 1, 15); return d.toISOString().slice(0, 7); })();
+  const month = stMonthMoney(ym), last = stMonthMoney(lastYm);
+  const subsOn = payers.filter(x => x.sub && ["active", "trialing", "past_due", "unpaid"].includes(x.sub.status));
+  const mrr = subsOn.reduce((t, x) => t + stMonthly(x.sub), 0);
+  const bad = payers.filter(x => x.problem);
+  const badAmt = bad.reduce((t, x) => t + (Number(x.problem.pay ? x.problem.pay.amount : x.sub?.amount) || 0), 0);
+  const unmatched = payers.filter(x => !x.client && x.customerId && x.state !== "none");
+  const payouts = (stData.payouts || []);
+  const outMonth = payouts.filter(p => p.status === "paid" && String(p.arrival_at || "").slice(0, 7) === ym).reduce((t, p) => t + (Number(p.amount) || 0), 0);
+  const nextOut = payouts.filter(p => ["pending", "in_transit"].includes(p.status)).sort((a, b) => String(a.arrival_at).localeCompare(String(b.arrival_at)))[0];
+  const renewSoon = subsOn.filter(x => ["active", "trialing"].includes(x.sub.status) && !x.sub.cancel_at_period_end && x.sub.current_period_end && Date.parse(x.sub.current_period_end) - Date.now() < 7 * 86400e3 && Date.parse(x.sub.current_period_end) > Date.now());
+  const day = (iso) => iso ? new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) : "-";
+  const monthName = now.toLocaleDateString("en-NZ", { month: "long" }), lastName = new Date(lastYm + "-15").toLocaleDateString("en-NZ", { month: "long" });
+  const chip = (x) => x.state === "bad" ? `<span class="st-chip bad">${x.problem.failed ? "Failed" : "Overdue"}</span>`
+    : x.state === "ending" ? `<span class="st-chip warn">Cancels ${day(x.sub.current_period_end)}</span>`
+    : x.state === "ok" ? `<span class="st-chip ok">Paid up</span>` : x.state === "cancelled" ? `<span class="st-chip">Cancelled</span>` : `<span class="st-chip ok">Paid</span>`;
+  const clientOpts = state.clients.filter(c => c.stage !== "churned").sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+  const recent = stData.pays.filter(p => ["paid", "refunded"].includes(p.status)).slice(0, 12);
+  const payerName = (p) => { const x = payers.find(y => y.pays.includes(p)); return x ? (x.client ? x.client.name : x.name || x.email || "Stripe customer") : (p.customer_name || p.customer_email || "Stripe customer"); };
+  return `<div class="st-hero">
+      <div class="st-hero-main">
+        <div class="st-eyebrow">Stripe · synced ${escapeHtml(stAgo(s.last_ok_at))}${s.last_error ? ` · <em class="st-err">${escapeHtml(s.last_error)}</em>` : ""}</div>
+        <h2>Collected in ${escapeHtml(monthName)}</h2>
+        <div class="st-big" data-count>${stMoney(Math.round(month.net))}</div>
+        <div class="st-sub">${stMoney(Math.round(month.gross))} in${month.fees ? ` · ${stMoney(Math.round(month.fees))} Stripe fees` : ""}${month.refunds ? ` · ${stMoney(Math.round(month.refunds))} refunded` : ""} · ${month.paid.length} payment${month.paid.length === 1 ? "" : "s"} · ${stMoney(Math.round(last.net))} in ${escapeHtml(lastName)}</div>
+        <div class="st-hero-actions"><button type="button" class="btn gold sm" data-st-sync>Check Stripe now</button><button type="button" class="btn sm rc-ghost" data-st-manual>${document.getElementById("page-receipts")?.classList.contains("st-manual") ? "Hide manual receipts" : "Manual receipts &amp; billing"}</button></div>
+      </div>
+      <div class="st-hero-stats">
+        <div><span>Monthly recurring</span><b>${stMoney(Math.round(mrr))}</b><small>${subsOn.length} client${subsOn.length === 1 ? "" : "s"} on a monthly payment</small></div>
+        <div class="${bad.length ? "bad" : ""}"><span>Failed or overdue</span><b>${bad.length ? stMoney(Math.round(badAmt)) : "None"}</b><small>${bad.length ? `${bad.length} client${bad.length === 1 ? "" : "s"} - on Today` : "everyone's paid up"}</small></div>
+        <div><span>Paid out to the bank</span><b>${stMoney(Math.round(outMonth))}</b><small>${nextOut ? `next ${stMoney(nextOut.amount)} arrives ${day(nextOut.arrival_at)}` : `this ${escapeHtml(monthName)}`}</small></div>
+        <div><span>Renewing this week</span><b>${stMoney(Math.round(renewSoon.reduce((t, x) => t + (Number(x.sub.amount) || 0), 0)))}</b><small>${renewSoon.length ? renewSoon.map(nameOf).slice(0, 3).map(escapeHtml).join(", ") + (renewSoon.length > 3 ? "…" : "") : "nothing this week"}</small></div>
+      </div>
+    </div>
+    <div class="st-cols">
+      <div class="st-card">
+        <div class="st-head"><b>Every client</b><span>${rows.length} paying through Stripe</span></div>
+        ${rows.length ? `<div class="st-list">${rows.map(x => `<div class="st-row ${x.state}">
+          <div class="st-who"><b>${escapeHtml(x.client ? x.client.name : (x.name || x.email || "Stripe customer"))}</b><span>${x.client ? escapeHtml(x.name && stNorm(x.name) !== stNorm(x.client.name) ? x.name : x.email || "") : `<em>Not linked to a client</em>${x.email ? " · " + escapeHtml(x.email) : ""}`}</span></div>
+          <div class="st-amt">${x.sub ? `${stMoney(x.sub.amount, x.sub.currency)}<small>/${escapeHtml(x.sub.interval || "month")}</small>` : x.lastPaid ? `${stMoney(x.lastPaid.amount, x.lastPaid.currency)}<small> one-off</small>` : "-"}</div>
+          <div class="st-when">${x.problem ? escapeHtml(stProblemWords(x)) : `Last paid ${day(x.lastPaid?.paid_at || x.lastPaid?.created_at)}${x.sub && ["active", "trialing"].includes(x.sub.status) && !x.sub.cancel_at_period_end && x.sub.current_period_end ? ` · next ${day(x.sub.current_period_end)}` : ""}`}</div>
+          ${chip(x)}
+        </div>`).join("")}</div>` : `<p class="st-note">No payments in Stripe yet.</p>`}
+        ${unmatched.length ? `<details class="st-link"><summary>${unmatched.length} Stripe customer${unmatched.length === 1 ? "" : "s"} not linked to a client</summary>
+          ${unmatched.map(x => `<label class="st-link-row"><span>${escapeHtml(x.name || x.email || x.customerId)}${x.email && x.name ? ` · ${escapeHtml(x.email)}` : ""}</span><select data-st-link="${escapeHtml(x.customerId)}"><option value="">Link to a client…</option>${clientOpts}</select></label>`).join("")}
+        </details>` : ""}
+      </div>
+      <div class="st-card">
+        <div class="st-head"><b>Latest payments</b></div>
+        ${recent.length ? `<div class="st-feed">${recent.map(p => `<a class="st-pay ${p.status}" href="${escapeHtml(stDash(p))}" target="_blank" rel="noopener">
+          <div><b>${escapeHtml(payerName(p))}</b><span>${day(p.paid_at || p.created_at)}${p.method ? ` · ${escapeHtml(p.method)}` : ""}${p.kind === "one_off" ? " · one-off" : ""}</span></div>
+          <div class="st-pay-amt"><b>${stMoney(p.amount, p.currency)}</b><span>${p.status === "refunded" ? "Refunded" : p.refunded ? `${stMoney(p.refunded)} refunded` : p.net != null ? `${stMoney(p.net)} after fees` : ""}</span></div>
+        </a>`).join("")}</div>` : `<p class="st-note">No payments yet.</p>`}
+      </div>
+    </div>`;
+}
+function stRenderPanel(){
+  const el = $("#rc-stripe");
+  if (!el) return;
+  stEnsure();
+  el.innerHTML = stPanelHtml();
+  // Stripe-first: once it's connected, the Stripe summary is the page and manual receipts fold away.
+  document.getElementById("page-receipts")?.classList.toggle("st-on", !!stData?.status?.connected && !stErr);
+  if (el.dataset.stWired) return;
+  el.dataset.stWired = "1";
+  el.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-st-manual]")){ document.getElementById("page-receipts")?.classList.toggle("st-manual"); return stRenderPanel(); }
+    const b = e.target.closest("[data-st-sync]");
+    if (!b) return;
+    b.disabled = true; b.textContent = "Checking…";
+    try {
+      if (IS_CONFIGURED){
+        const { data, error } = await supabase.functions.invoke("sync-stripe", { body: { action: "sync" } });
+        if (error || data?.error) rcToast(data?.error || "Couldn't reach Stripe just now.");
+      }
+      await stLoad();
+    } finally { stRenderPanel(); }
+  });
+  el.addEventListener("change", async (e) => {
+    const sel = e.target.closest("[data-st-link]");
+    if (!sel || !sel.value) return;
+    const id = sel.dataset.stLink, clientId = sel.value;
+    const cust = stData?.customers.find(c => c.id === id);
+    if (IS_CONFIGURED){
+      const { error } = await supabase.from("stripe_customers").update({ client_id: clientId }).eq("id", id);
+      if (error){ rcToast("Couldn't link that customer. Try again."); return; }
+    }
+    if (cust) cust.client_id = clientId;
+    stPayersMemo = null;
+    rcToast("Linked");
+    stRenderPanel();
+  });
+}
+
 function todayItems(){
   const items = [], now = Date.now(), today = localDayStr();
   const btn = (label, attrs, cls = "ghost") => `<button type="button" class="td-btn ${cls}" ${attrs}>${escapeHtml(label)}</button>`;
@@ -12117,8 +12395,10 @@ function todayItems(){
         sub: ls.nextTask ? `Next: ${ls.nextTask.label}` : `Onboarding step ${ls.current + 1} of ${LAUNCH_MILESTONES.length}`,
         actions: openClient(c.id, ls.status.key === "ready" ? "Finish onboarding" : "Open") });
     });
-    // Payments due.
-    state.clients.filter(c => { try { return !c.is_test && rcActive(c); } catch(e){ return false; } }).forEach(c => {
+    // Stripe: failed / overdue payments (one red row each).
+    stTodayItems().forEach(x => items.push(x));
+    // Payments due (hand-kept due dates; skipped for clients Stripe charges every month).
+    state.clients.filter(c => { try { return !c.is_test && rcActive(c) && !stCoversClient(c); } catch(e){ return false; } }).forEach(c => {
       const next = rcNextDue(c);
       if (!next || next.date > today) return;
       items.push({ area: "money", owner: null, tone: next.date < today ? "bad" : "warn", at: now,

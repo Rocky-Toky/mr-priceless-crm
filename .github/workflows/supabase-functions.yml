@@ -30,6 +30,7 @@ on:
       - "supabase/functions/creative-agent/**"
       - "supabase/functions/client-portal/**"
       - "supabase/functions/sync-meta-leads/**"
+      - "supabase/functions/sync-stripe/**"
       - "supabase/functions/_shared/**"
       - "sql/056_ghl_connections.sql"
       - "sql/057_nurture_and_jarvis.sql"
@@ -92,6 +93,7 @@ on:
       - "sql/114_plastering_leads.sql"
       - "sql/115_inbox_no_calendar_notices.sql"
       - "sql/116_inbound_leads.sql"
+      - "sql/118_stripe.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
     inputs:
@@ -139,6 +141,10 @@ on:
         description: "Type yes to sync Mr Priceless's own Meta lead-form leads now and print how it's going (counts and statuses only, no names)"
         required: false
         default: ""
+      check_stripe:
+        description: "Type yes to sync Stripe payments now and print how it's going (counts and statuses only, no names or amounts)"
+        required: false
+        default: ""
       check_outcomes:
         description: "Check what every call outcome does in each client's GoHighLevel (read-only). Type yes for counts only, or paste a base64 public key to get the full per-client report encrypted"
         required: false
@@ -159,6 +165,7 @@ jobs:
       GHL_PRECALL_LOCATION_ID: ${{ secrets.GHL_PRECALL_LOCATION_ID }}
       AIRCALL_API_ID: ${{ secrets.AIRCALL_API_ID }}
       AIRCALL_API_TOKEN: ${{ secrets.AIRCALL_API_TOKEN }}
+      STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
       TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
       GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
       GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -202,7 +209,7 @@ jobs:
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql sql/086_precall_tasks.sql sql/087_precall_messages.sql sql/088_lead_tasks.sql sql/089_employee_plan.sql sql/090_team_details.sql sql/091_client_lead_fit.sql sql/092_aircall_calls.sql sql/093_lead_callback_stage.sql sql/094_client_lead_area.sql sql/095_lead_job_scope.sql sql/096_employee_schedule.sql sql/097_client_lead_region.sql sql/098_lead_key_access.sql sql/099_client_visit_is_consult.sql sql/101_creative_jobs.sql sql/102_meeting_expectations_wording.sql sql/103_meeting_demo_wording.sql sql/104_clear_email_templates.sql sql/105_schedule_nz_hours.sql sql/106_client_booking_times.sql sql/107_client_checkin_calls.sql sql/108_client_report_reminders.sql sql/109_client_site_visits_only.sql sql/110_lead_live_updates.sql sql/111_client_lead_contact.sql sql/100_lead_follow_up_only_access.sql sql/112_client_portal.sql sql/113_client_pipeline.sql sql/117_portal_calendars.sql sql/114_plastering_leads.sql sql/115_inbox_no_calendar_notices.sql sql/116_inbound_leads.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql sql/086_precall_tasks.sql sql/087_precall_messages.sql sql/088_lead_tasks.sql sql/089_employee_plan.sql sql/090_team_details.sql sql/091_client_lead_fit.sql sql/092_aircall_calls.sql sql/093_lead_callback_stage.sql sql/094_client_lead_area.sql sql/095_lead_job_scope.sql sql/096_employee_schedule.sql sql/097_client_lead_region.sql sql/098_lead_key_access.sql sql/099_client_visit_is_consult.sql sql/101_creative_jobs.sql sql/102_meeting_expectations_wording.sql sql/103_meeting_demo_wording.sql sql/104_clear_email_templates.sql sql/105_schedule_nz_hours.sql sql/106_client_booking_times.sql sql/107_client_checkin_calls.sql sql/108_client_report_reminders.sql sql/109_client_site_visits_only.sql sql/110_lead_live_updates.sql sql/111_client_lead_contact.sql sql/100_lead_follow_up_only_access.sql sql/112_client_portal.sql sql/113_client_pipeline.sql sql/117_portal_calendars.sql sql/114_plastering_leads.sql sql/115_inbox_no_calendar_notices.sql sql/116_inbound_leads.sql sql/118_stripe.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
@@ -281,6 +288,11 @@ jobs:
       - name: Pass the call sync its Aircall key
         if: steps.token.outputs.ok == 'true' && env.AIRCALL_API_ID != '' && env.AIRCALL_API_TOKEN != ''
         run: supabase secrets set AIRCALL_API_ID="$AIRCALL_API_ID" AIRCALL_API_TOKEN="$AIRCALL_API_TOKEN" --project-ref "$PROJECT_REF" --yes > /dev/null
+      # Stripe payments (sql/117): a read-only restricted key in the repo secret
+      # STRIPE_API_KEY. Until it's added the Stripe sync does nothing.
+      - name: Pass the Stripe sync its key
+        if: steps.token.outputs.ok == 'true' && env.STRIPE_API_KEY != ''
+        run: supabase secrets set STRIPE_API_KEY="$STRIPE_API_KEY" --project-ref "$PROJECT_REF" --yes > /dev/null
       # Client portal texts (sql/113): when a "Did they get back to you?" alert
       # can't reach the client's phone app, it's texted to their mobile. Add the
       # repo secrets TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM (the
@@ -316,7 +328,7 @@ jobs:
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
-          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings sync-aircall-calls creative-agent client-portal sync-meta-leads; do
+          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings sync-aircall-calls creative-agent client-portal sync-meta-leads sync-stripe; do
             supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --yes --no-verify-jwt
           done
       # Run by hand with seed_test_client=yes: makes (or resets) the client
@@ -542,6 +554,21 @@ jobs:
             -H "x-cron-secret: $secret" --data '{}' | jq -c '{saved, forms, picked, connected, error}'
           echo "Leads saved:"
           q "select count(*) as leads, count(*) filter (where created_at > now() - interval '7 days') as last_7_days, count(*) filter (where status='new') as new from inbound_leads" | jq -c '.[0]'
+      # Run by hand with check_stripe=yes: copy Stripe payments in now and say how
+      # it's going. Counts and statuses only - these logs are public.
+      - name: Check the Stripe sync
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_stripe == 'yes'
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          if [ -z "$STRIPE_API_KEY" ]; then echo "::warning::STRIPE_API_KEY isn't set as a repo secret yet."; fi
+          secret=$(q "select value from app_secrets where name = 'stripe_cron_secret'" | jq -r '.[0].value')
+          echo "::add-mask::$secret"
+          echo "Running the sync now:"
+          curl -sS -m 160 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/sync-stripe" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data '{}' | jq -c '{connected, customers, subscriptions, invoices, one_off, payouts, complete, error}'
+          echo "Saved:"
+          q "select (select count(*) from stripe_customers) as customers, (select count(*) from stripe_customers where client_id is not null) as linked_by_hand, (select count(*) from stripe_subscriptions where status in ('active','trialing')) as active_subs, (select count(*) from stripe_subscriptions where status in ('past_due','unpaid')) as overdue_subs, (select count(*) from stripe_payments where status='paid') as paid, (select count(*) from stripe_payments where status in ('failed','open')) as failed_or_open, (select count(*) from stripe_payments where fee is not null) as with_fees, (select count(*) from stripe_payouts) as payouts, (select left(coalesce(last_error,''),200) from stripe_sync_status) as last_error" | jq -c '.[0]'
       # Run by hand with check_aircall=yes: sync Aircall calls now and say how
       # it's going. Counts and statuses only - these logs are public.
       - name: Check the Aircall call sync
