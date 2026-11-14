@@ -1899,6 +1899,8 @@ function mainNavRender(){
   const cur = mainSectionOf(state.page)?.key;
   const count = (key) => {
     try {
+      // Only Today and Plastering leads show a number (Rocky, 14 Nov 2026).
+      if (key !== "today" && key !== "plastering") return 0;
       if (key === "today") return todayMine().filter(x => x.tone !== "ok").length;
       if (key === "leads") return state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l)).length;
       if (key === "plastering") return plNewCount();
@@ -5250,7 +5252,130 @@ function renderClients(){
     renderClientDetail(selected);
   }
 }
+/* ───────── Client portfolio (Rocky, 14 Nov 2026) ─────────
+   Every client on one board - no stage tabs. Each card shows how healthy the
+   client is (a score built from churn risk, warnings, this month's ads and
+   report, and whether leads are still flowing), a sparkline of their leads
+   over the last 8 weeks, three key numbers and the one thing to do next.
+   The ones that need you sort to the top. */
+let pfSort = (() => { try { return localStorage.getItem("mp_pf_sort") || "health"; } catch(e){ return "health"; } })();
+const PF_SORTS = [["health", "Needs you first"], ["leads", "Most leads"], ["retainer", "Biggest retainer"], ["name", "Name"], ["newest", "Newest"]];
+function pfLeadWeeks(c){
+  const weeks = Array(8).fill(0), now = Date.now();
+  state.clientLeads.forEach(l => {
+    if (l.client_id !== c.id) return;
+    const ago = Math.floor((now - (Date.parse(l.created_at) || 0)) / (7 * 86400e3));
+    if (ago >= 0 && ago < 8) weeks[7 - ago]++;
+  });
+  return weeks;
+}
+function pfSpark(weeks){
+  const max = Math.max(1, ...weeks), w = 120, h = 32, step = w / (weeks.length - 1);
+  const pts = weeks.map((v, i) => `${(i * step).toFixed(1)},${(h - 3 - (v / max) * (h - 6)).toFixed(1)}`);
+  return `<svg class="pf-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,${h} ${pts.join(" ")} ${w},${h}" class="pf-spark-fill"/><polyline points="${pts.join(" ")}" class="pf-spark-line"/></svg>`;
+}
+// 0-100: what a quick look at this client says.
+function pfHealth(c, avgCpl){
+  let score = 100;
+  const why = [];
+  const stage = normalizeClientStage(c.stage);
+  if (stage === "at_risk"){ score -= 25; why.push("Marked at risk"); }
+  if (c.churn_risk === "high"){ score -= 30; why.push("High churn risk"); }
+  else if (c.churn_risk === "medium"){ score -= 12; why.push("Medium churn risk"); }
+  getClientAlerts(c).filter(a => a.text !== "Marked At Risk").forEach(a => { score -= a.type === "danger" ? 18 : 8; why.push(a.text.replace(" - overdue to move on", "")); });
+  try { const am = amClientProgress(c); if (am.overdue){ score -= 15; why.push(`Ads ${am.live}/${am.target} live - behind`); } else if (am.live < am.target){ score -= 4; } } catch(e){}
+  try { const due = reportDueInfo(c); if (due.due){ score -= 10; why.push("Report due"); } } catch(e){}
+  const weeks = pfLeadWeeks(c), last2 = weeks[6] + weeks[7], prev = weeks.slice(0, 6).reduce((a, b) => a + b, 0);
+  if (prev > 0 && last2 === 0){ score -= 18; why.push("No leads in 2 weeks"); }
+  else if (prev >= 6 && last2 * 3 < prev / 2){ score -= 8; why.push("Leads dropping"); }
+  const cpl = c.cost_per_lead;
+  if (avgCpl && cpl != null && cpl > avgCpl * 1.6){ score -= 8; why.push("Cost per lead high"); }
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  return { score, band: score >= 75 ? "good" : score >= 50 ? "watch" : "bad", label: score >= 75 ? "Healthy" : score >= 50 ? "Keep an eye" : "Needs you", why, weeks };
+}
+function pfCardHtml(c, h){
+  const stage = normalizeClientStage(c.stage);
+  const retainer = clientRetainer(c);
+  const leads30 = state.clientLeads.filter(l => l.client_id === c.id && Date.now() - (Date.parse(l.created_at) || 0) < 30 * 86400e3).length;
+  const deal = c.source_deal_id ? state.deals.find(d => d.id === c.source_deal_id) : null;
+  const owner = (c.onboarding_progress || {}).owner || deal?.assignee || null;
+  const ownerName = ASSIGNEES[owner]?.label?.split(" ")[0] || "";
+  const tag = stage === "quote_guarantee" && c.quote_target ? `Guarantee ${Number(c.quotes_sent || 0)}/${c.quote_target}`
+    : stage === "at_risk" ? "At risk" : clientMonthNumber(c) ? `Month ${clientMonthNumber(c)}` : (CLIENT_STAGE_MAP[stage]?.label || "Live");
+  let am = null; try { am = amClientProgress(c); } catch(e){}
+  let due = null; try { due = reportDueInfo(c); } catch(e){}
+  const C = 2 * Math.PI * 17;
+  return `<article class="pf-card ${h.band}" data-pf-open="${c.id}" tabindex="0" aria-label="Open ${escapeHtml(c.name)}">
+    <header class="pf-top">
+      <div class="pf-ring" title="${escapeHtml(h.label)}${h.why.length ? ": " + escapeHtml(h.why.join(", ")) : ""}"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" class="pf-ring-bg"/><circle cx="20" cy="20" r="17" class="pf-ring-fg" style="stroke-dasharray:${(C * h.score / 100).toFixed(1)} ${C.toFixed(1)}"/></svg><b>${h.score}</b></div>
+      <div class="pf-name"><h3>${escapeHtml(inboxShortName(c.name))}</h3><span><em class="pf-tag ${stage}">${escapeHtml(tag)}</em>${ownerName ? ` · ${escapeHtml(ownerName)}` : ""}</span></div>
+    </header>
+    <div class="pf-leads">
+      <div><b>${leads30}</b><span>leads · 30 days</span></div>
+      ${pfSpark(h.weeks)}
+    </div>
+    <dl class="pf-nums">
+      <div><dt>Cost / lead</dt><dd>${c.cost_per_lead != null ? fmtMoney(c.cost_per_lead) : "-"}</dd></div>
+      <div><dt>Retainer</dt><dd>${retainer != null ? fmtMoney(retainer) : "-"}</dd></div>
+      <div><dt>This month</dt><dd class="pf-month">${am ? `<span class="pf-dots">${am.slots.map(s => `<i class="${s.status === "live" ? "on" : s.late ? "late" : ""}" title="${escapeHtml(s.label)}"></i>`).join("")}</span>` : ""}${due ? `<span class="pf-rep ${due.due ? "due" : ""}" title="Fortnightly report: ${escapeHtml(due.label)}">R</span>` : ""}</dd></div>
+    </dl>
+    <footer class="pf-foot">
+      <span class="pf-why ${h.why.length ? (h.band === "good" ? "watch" : h.band) : "good"}">${escapeHtml(h.why[0] || "All good")}</span>
+      ${c.phone ? `<button type="button" class="pf-call" data-action="call-number" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name)}" title="Call ${escapeHtml(c.name)}">Call</button>` : ""}
+    </footer>
+  </article>`;
+}
+function renderClientPortfolio(){
+  const list = $("#clients-gallery");
+  if (!list) return;
+  const avg = clientAvgCPL();
+  const clients = state.clients.filter(c => !inOnboardingSection(c) && c.stage !== "churned");
+  const q = (state.clientsGallerySearch || "").trim().toLowerCase();
+  const rows = clients.filter(c => !q || [c.name, c.email, c.website, c.phone].some(v => String(v || "").toLowerCase().includes(q))).map(c => ({ c, h: pfHealth(c, avg) }));
+  const leadsOf = (c) => state.clientLeads.filter(l => l.client_id === c.id && Date.now() - (Date.parse(l.created_at) || 0) < 30 * 86400e3).length;
+  const sorters = {
+    health: (a, b) => a.h.score - b.h.score || (a.c.name || "").localeCompare(b.c.name || ""),
+    leads: (a, b) => leadsOf(b.c) - leadsOf(a.c),
+    retainer: (a, b) => (clientRetainer(b.c) || 0) - (clientRetainer(a.c) || 0),
+    name: (a, b) => (a.c.name || "").localeCompare(b.c.name || ""),
+    newest: (a, b) => (Date.parse(b.c.created_at) || 0) - (Date.parse(a.c.created_at) || 0),
+  };
+  rows.sort(sorters[pfSort] || sorters.health);
+  const all = clients.map(c => pfHealth(c, avg));
+  const needYou = all.filter(h => h.band === "bad").length, watch = all.filter(h => h.band === "watch").length;
+  const mrr = clients.map(clientRetainer).filter(v => v != null).reduce((a, b) => a + b, 0);
+  const leads30 = state.clientLeads.filter(l => Date.now() - (Date.parse(l.created_at) || 0) < 30 * 86400e3 && clients.some(c => c.id === l.client_id)).length;
+  const onb = state.clients.filter(inOnboardingSection).length;
+  const kpis = `<div class="pf-kpis">
+      <div class="pf-kpi"><b>${clients.length}</b><span>clients${onb ? ` · ${onb} onboarding` : ""}</span></div>
+      <div class="pf-kpi"><b>${mrr ? fmtMoney(mrr) : "-"}</b><span>retainers / month</span></div>
+      <div class="pf-kpi"><b>${leads30}</b><span>leads in 30 days</span></div>
+      <div class="pf-kpi"><b>${avg != null ? fmtMoney(avg) : "-"}</b><span>average cost / lead</span></div>
+      <div class="pf-kpi ${needYou ? "bad" : watch ? "watch" : "good"}"><b>${needYou || watch || "✓"}</b><span>${needYou ? "need you now" : watch ? "to keep an eye on" : "all healthy"}</span></div>
+    </div>`;
+  const bar = `<div class="pf-bar"><span class="pf-bar-label">${rows.length} client${rows.length === 1 ? "" : "s"}</span>
+      <div class="pf-sort" role="tablist">${PF_SORTS.map(([k, t]) => `<button type="button" class="${k === pfSort ? "on" : ""}" data-pf-sort="${k}">${t}</button>`).join("")}</div></div>`;
+  const focused = document.activeElement?.id === "pf-search";
+  list.innerHTML = kpis + bar + (rows.length ? `<div class="pf-grid">${rows.map(r => pfCardHtml(r.c, r.h)).join("")}</div>`
+    : `<div class="cl-empty">${q ? `No clients match "${escapeHtml(state.clientsGallerySearch.trim())}".` : state.clients.length ? "Everyone's still onboarding - they'll show here once they're past it." : "No clients yet. Add your first client to get started."}</div>`);
+  if (focused){ const s = $("#pf-search"); if (s){ s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+  if (!list.dataset.pfWired){
+    list.dataset.pfWired = "1";
+    list.addEventListener("input", (e) => { if (e.target.id === "pf-search"){ state.clientsGallerySearch = e.target.value; renderClientPortfolio(); } });
+    list.addEventListener("click", (e) => {
+      const s = e.target.closest("[data-pf-sort]");
+      if (s){ pfSort = s.dataset.pfSort; try { localStorage.setItem("mp_pf_sort", pfSort); } catch(err){} return renderClientPortfolio(); }
+      if (e.target.closest("[data-action]")) return;
+      const card = e.target.closest("[data-pf-open]");
+      if (card){ const b = document.createElement("button"); b.dataset.action = "view-client"; b.dataset.id = card.dataset.pfOpen; b.hidden = true; document.body.appendChild(b); b.click(); b.remove(); }
+    });
+    list.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("[data-pf-open]")) e.target.click(); });
+  }
+}
+
 function renderClientsList(){
+  // The one menu shows the portfolio board; the old stage tabs stay for anyone else.
+  if (mainMode()) return renderClientPortfolio();
   const avg = clientAvgCPL();
   const alertsById = new Map(state.clients.map(c => [c.id, getClientAlerts(c)]));
   const realClients = state.clients.filter(c => !inOnboardingSection(c) && c.stage !== "churned");
@@ -8091,14 +8216,15 @@ function cmdPlace(){
   const bar = $("#cmd-bar"), main = $(".main");
   if (!bar || !main) return;
   const act = $(".page.active");
-  const tabs = act && [...act.querySelectorAll(":scope > .page-tabs")].find(t => !t.hidden && t.offsetParent);
-  document.querySelectorAll(".page.has-cmd").forEach(pg => { if (pg !== act) pg.classList.remove("has-cmd"); });
+  const tabs = act && [...act.querySelectorAll(".page-tabs")].find(t => !t.hidden && t.offsetParent);
+  const host = tabs && tabs.parentNode;
+  document.querySelectorAll(".has-cmd").forEach(el => { if (el !== host) el.classList.remove("has-cmd"); });
   if (tabs && innerWidth >= 821){
-    act.classList.add("has-cmd");
-    if (bar.parentNode !== act || bar.previousElementSibling !== tabs) act.insertBefore(bar, tabs.nextSibling);
+    host.classList.add("has-cmd");
+    if (bar.parentNode !== host || bar.previousElementSibling !== tabs) host.insertBefore(bar, tabs.nextSibling);
     bar.classList.add("inline");
     bar.style.top = (tabs.offsetTop + (tabs.offsetHeight - 44) / 2) + "px";
-    bar.style.width = Math.max(240, Math.min(460, act.clientWidth - tabs.offsetWidth - 24)) + "px";
+    bar.style.width = Math.max(240, Math.min(460, host.clientWidth - tabs.offsetWidth - 24)) + "px";
   } else {
     if (bar.parentNode !== main || main.firstChild !== bar) main.insertBefore(bar, main.firstChild);
     bar.classList.remove("inline");
