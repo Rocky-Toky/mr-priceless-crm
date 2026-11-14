@@ -1305,6 +1305,7 @@ async function initAuth(){
     setupClientInbox();
     setupToday();
   setupHowWeWork();
+  setupCommandBar();
     setupEmployees();
     setupFollowUps();
     setupLeadCalls();
@@ -1414,6 +1415,7 @@ async function handleSignedInNow(session, freshLogin){
   setupClientInbox();
   setupToday();
   setupHowWeWork();
+  setupCommandBar();
   setupEmployees();
   setupFollowUps();
   setupLeadCalls();
@@ -5832,6 +5834,21 @@ function renderClientDetail(c){
     }
     contactEl.innerHTML = bits.join(`<span class="cl-dot-sep">·</span>`);
   }
+  // One-tap jobs for this client, right under their name.
+  const qa = $("#cp-quick");
+  if (qa){
+    const tel = (c.phone || "").replace(/[^0-9+]/g, "");
+    const site = c.website ? (/^https?:\/\//i.test(c.website) ? c.website : "https://" + c.website) : "";
+    qa.innerHTML = [
+      tel ? `<button type="button" class="cpq-btn gold" data-action="call-number" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name)}">Call</button>` : "",
+      tel ? `<a class="cpq-btn" href="sms:${escapeHtml(tel)}">Text</a>` : "",
+      c.email ? `<a class="cpq-btn" href="mailto:${escapeHtml(c.email)}">Email</a>` : "",
+      `<button type="button" class="cpq-btn" data-action="make-report" data-id="${c.id}">Make report</button>`,
+      `<button type="button" class="cpq-btn" data-cp-goto="portal">Client portal</button>`,
+      site ? `<a class="cpq-btn" href="${escapeHtml(site)}" target="_blank" rel="noopener">Website</a>` : "",
+    ].filter(Boolean).join("");
+  }
+  renderClientLeadsCard(c);
   const avatarEl = $("#client-detail-avatar");
   if (avatarEl) avatarEl.textContent = (c.name||"?").trim().charAt(0).toUpperCase();
   const churnRiskEl = $("#client-detail-churn-risk");
@@ -5927,6 +5944,27 @@ function renderClientDetail(c){
   renderClientPortal(c);
 }
 
+// The client's latest leads (from Lead Follow Up): how many lately, the last
+// few with where each is at, one tap to open one in the call queue.
+function renderClientLeadsCard(c){
+  const el = $("#cp-leads");
+  if (!el) return;
+  if (isOnboardingClient(c)){ el.innerHTML = ""; return; }
+  const leads = state.clientLeads.filter(l => l.client_id === c.id).sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0));
+  const since = (d) => leads.filter(l => Date.now() - (Date.parse(l.created_at) || 0) < d * 86400e3).length;
+  const booked = leads.filter(l => ["site_visit", "consult_call", "booked", "qualified"].includes(l.follow_status) && Date.now() - (Date.parse(l.created_at) || 0) < 30 * 86400e3).length;
+  el.innerHTML = `<div class="cp-leads">
+    <div class="cp-leads-head"><h3>Leads</h3><span><b>${since(7)}</b> this week · <b>${since(30)}</b> in 30 days · <b>${booked}</b> booked</span></div>
+    ${leads.length ? `<div class="cp-leads-list">${leads.slice(0, 5).map(l => `<button type="button" class="cp-lead" data-cp-lead="${l.id}"><b>${escapeHtml(l.name || "No name")}</b><small>${escapeHtml(lqTime(l.created_at))}</small><span class="cp-lead-st st-${escapeHtml(l.follow_status || "new")}">${escapeHtml(LQ_STATUS_LABEL[l.follow_status || "new"] || l.follow_status || "New")}</span></button>`).join("")}</div>`
+      : `<p class="cp-leads-empty">No leads synced for ${escapeHtml(inboxShortName(c.name))} yet.</p>`}
+  </div>`;
+}
+document.addEventListener("click", (e) => {
+  const lead = e.target.closest("[data-cp-lead]");
+  if (lead){ lqSel = lead.dataset.cpLead; lqPending = null; goPage("lead-queue"); renderLeadQueue(); return; }
+  const tab = e.target.closest("[data-cp-goto]");
+  if (tab){ setCpTab(tab.dataset.cpGoto); $("#cp-tabs")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+});
 // The parts of the client profile that pull from other areas: their results
 // from the reports, their workshops, and their reports and 90-day plan.
 // Quotes and what they cost, from the client's reports: every month's
@@ -7964,10 +8002,142 @@ function mpCelebrate(title, sub){
     clearTimeout(timer);
     timer = setTimeout(() => document.body.classList.remove("page-entering"), 700);
     setTimeout(() => mpCountUp(act), 60);
+    requestAnimationFrame(() => { try { cmdPlace(); } catch(e){} });
   });
   const start = () => document.querySelectorAll(".page").forEach(pg => obs.observe(pg, { attributes: true, attributeFilter: ["class"] }));
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();
+
+/* ───────── Command bar (Rocky, 14 Nov 2026) ─────────
+   One search box at the top of every page (press / or Ctrl+K): type a few
+   letters of any client, lead, prospect, deal, meeting, contact, page or job
+   and press Enter to go straight there. Only in the one menu (not Carmen's). */
+const CMD_EXTRA_PAGES = [["contacts", "Contacts", "Sales"], ["rates", "Stats", "Sales"], ["lead-engine", "Add prospects", "Sales"], ["workshops", "Workshops", "Clients"], ["creative", "Creative library", "Ads"], ["client-inbox", "Client inbox & Gmail setup", "Clients"]];
+const cmdDigits = (s) => String(s || "").replace(/\D/g, "");
+let cmdSel = 0, cmdItems = [];
+function cmdActions(){
+  const click = (sel, page) => () => { if (page) goPage(page); setTimeout(() => $(sel)?.click(), page ? 120 : 0); };
+  return [
+    { label: "Book a meeting", sub: "Opens the booking form", run: () => openBookMeeting({}) },
+    { label: "Add a prospect", sub: "To the Dialler", run: click("#dialer-add-btn", "dialer") },
+    { label: "Add a client", sub: "New client", run: click("#add-client-btn", "clients") },
+    { label: "New deal", sub: "Pipeline", run: click("#add-deal-btn", "deals") },
+    { label: "Add a to-do", sub: "Task", run: click("#add-task-btn", "tasks") },
+  ].map(a => ({ ...a, kind: "Do" }));
+}
+function cmdPages(){
+  const seen = new Set(), out = [];
+  MAIN_NAV.forEach(sec => sec.pages.forEach(([p, label]) => { if (!seen.has(p) && mainPageOk(p)){ seen.add(p); out.push({ kind: "Page", label, sub: sec.label, run: () => goPage(p) }); } }));
+  CMD_EXTRA_PAGES.forEach(([p, label, sec]) => { if (!seen.has(p) && mainPageOk(p) && $(`.nav-item[data-page="${p}"]`)) out.push({ kind: "Page", label, sub: sec, run: () => goPage(p) }); });
+  return out;
+}
+const cmdAct = (action, id) => { const b = document.createElement("button"); b.dataset.action = action; b.dataset.id = id; b.hidden = true; document.body.appendChild(b); b.click(); b.remove(); };
+const cmdFlash = (sel) => setTimeout(() => { const el = $(sel); if (el){ el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("cmd-flash"); setTimeout(() => el.classList.remove("cmd-flash"), 1800); } }, 250);
+function cmdSearch(q){
+  const ql = q.trim().toLowerCase(), qd = cmdDigits(q);
+  if (!ql) return [...cmdActions(), ...cmdPages().slice(0, 8)];
+  const score = (...fields) => {
+    let best = 0;
+    for (const f of fields){
+      const s = String(f || "").toLowerCase();
+      if (!s) continue;
+      if (s.startsWith(ql)) best = Math.max(best, 3);
+      else if (s.split(/[\s\-·,(]+/).some(w => w.startsWith(ql))) best = Math.max(best, 2);
+      else if (s.includes(ql)) best = Math.max(best, 1);
+    }
+    return best;
+  };
+  const phoneHit = (p) => qd.length >= 3 && cmdDigits(p).includes(qd) ? 2 : 0;
+  const groups = [];
+  const add = (kind, list, max = 5) => { const top = list.filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, max); if (top.length) groups.push(...top.map(x => ({ kind, ...x }))); };
+  const delivery = canAccessDelivery();
+  add("Do", cmdActions().map(a => ({ ...a, s: score(a.label) })), 3);
+  add("Page", cmdPages().map(p => ({ ...p, s: score(p.label, p.sub + " " + p.label) })), 4);
+  if (delivery) add("Client", state.clients.map(c => ({ label: c.name, sub: [CLIENT_STAGE_MAP[c.stage]?.label, c.phone ? formatPhone(c.phone) : ""].filter(Boolean).join(" · "), s: Math.max(score(c.name, c.email, c.website), phoneHit(c.phone)), run: () => cmdAct("view-client", c.id) })));
+  add("Lead", state.clientLeads.map(l => { const c = state.clients.find(x => x.id === l.client_id); return { label: l.name || "No name", sub: [c?.name, LQ_STATUS_LABEL[l.follow_status || "new"], l.phone].filter(Boolean).join(" · "), s: Math.max(score(l.name, l.email), phoneHit(l.phone)), run: () => { lqSel = l.id; lqPending = null; goPage("lead-queue"); renderLeadQueue(); } }; }));
+  add("Inbound", (inbLeads || []).map(l => ({ label: l.name || "No name", sub: ["Inbound lead", l.business, l.phone].filter(Boolean).join(" · "), s: Math.max(score(l.name, l.business, l.email), phoneHit(l.phone)), run: () => { inbFilter = "all"; goPage("inbound-leads"); renderInboundLeads(); cmdFlash(`[data-inb-id="${l.id}"]`); } })));
+  add("Plastering", (plLeads || []).map(l => ({ label: l.name, sub: ["Plastering lead", l.suburb, l.phone].filter(Boolean).join(" · "), s: Math.max(score(l.name, l.suburb, l.email), phoneHit(l.phone)), run: () => { plFilter = "all"; goPage("plastering-leads"); renderPlasteringLeads(); cmdFlash(`[data-pl-id="${l.id}"]`); } })));
+  add("Prospect", state.prospects.map(p => ({ label: p.name || p.company || "Prospect", sub: [p.company && p.company !== p.name ? p.company : "", p.region, p.phone].filter(Boolean).join(" · "), s: Math.max(score(p.name, p.company), phoneHit(p.phone)), run: () => { goPage("dialer"); setTimeout(() => cmdAct("edit-prospect", p.id), 150); } })));
+  add("Meeting", state.meetings.map(m => ({ label: pmName(m), sub: [m.business_name, new Date(m.starts_at).toLocaleDateString("en-NZ", { day: "numeric", month: "short" }) + " " + pmTime(m.starts_at), m.status === "cancelled" ? "cancelled" : ""].filter(Boolean).join(" · "), s: Math.max(score(pmName(m), m.business_name, m.email), phoneHit(m.phone)), run: () => { goPage("meetings"); setTimeout(() => openTimeline(m), 150); } })));
+  add("Deal", state.deals.map(d => ({ label: d.title, sub: [d.contact_name, (STAGES.find(s => s.key === d.stage)?.label || d.stage)].filter(Boolean).join(" · "), s: score(d.title, d.contact_name), run: () => { goPage("deals"); setTimeout(() => cmdAct("edit-deal", d.id), 150); } })));
+  add("Contact", state.contacts.map(c => ({ label: c.name, sub: [c.company, c.phone, c.email].filter(Boolean).join(" · "), s: Math.max(score(c.name, c.company, c.email), phoneHit(c.phone)), run: () => cmdAct("edit-contact", c.id) })), 4);
+  return groups.slice(0, 30);
+}
+function cmdRender(){
+  const box = $("#cmd-results"), inp = $("#cmd-input");
+  if (!box || !inp) return;
+  cmdItems = cmdSearch(inp.value);
+  cmdSel = Math.min(cmdSel, Math.max(0, cmdItems.length - 1));
+  let last = "";
+  box.innerHTML = cmdItems.length ? cmdItems.map((it, i) => {
+    const head = it.kind !== last ? `<div class="cmd-group">${escapeHtml(it.kind === "Do" ? "Jump to a job" : it.kind + "s")}</div>` : "";
+    last = it.kind;
+    return `${head}<button type="button" class="cmd-item${i === cmdSel ? " on" : ""}" data-cmd="${i}"><b>${escapeHtml(it.label)}</b>${it.sub ? `<small>${escapeHtml(it.sub)}</small>` : ""}</button>`;
+  }).join("") : `<div class="cmd-empty">Nothing found for "${escapeHtml(inp.value)}"</div>`;
+  box.hidden = false;
+  box.querySelector(".cmd-item.on")?.scrollIntoView({ block: "nearest" });
+}
+function cmdClose(){ const box = $("#cmd-results"); if (box) box.hidden = true; $("#cmd-input")?.blur(); }
+function cmdGo(i){
+  const it = cmdItems[i];
+  if (!it) return;
+  const inp = $("#cmd-input"); if (inp) inp.value = "";
+  cmdClose();
+  try { it.run(); } catch(e){ console.warn("cmd:", e); }
+}
+// Where the bar sits: on the same line as the page's tabs (so it takes no
+// extra height on the no-scroll pages), else at the top of the page.
+function cmdPlace(){
+  const bar = $("#cmd-bar"), main = $(".main");
+  if (!bar || !main) return;
+  const act = $(".page.active");
+  const tabs = act && [...act.querySelectorAll(":scope > .page-tabs")].find(t => !t.hidden && t.offsetParent);
+  document.querySelectorAll(".page.has-cmd").forEach(pg => { if (pg !== act) pg.classList.remove("has-cmd"); });
+  if (tabs && innerWidth >= 821){
+    act.classList.add("has-cmd");
+    if (bar.parentNode !== act || bar.previousElementSibling !== tabs) act.insertBefore(bar, tabs.nextSibling);
+    bar.classList.add("inline");
+    bar.style.top = (tabs.offsetTop + (tabs.offsetHeight - 44) / 2) + "px";
+    bar.style.width = Math.max(240, Math.min(460, act.clientWidth - tabs.offsetWidth - 24)) + "px";
+  } else {
+    if (bar.parentNode !== main || main.firstChild !== bar) main.insertBefore(bar, main.firstChild);
+    bar.classList.remove("inline");
+    bar.style.top = ""; bar.style.width = "";
+  }
+}
+addEventListener("resize", () => { clearTimeout(cmdPlace.t); cmdPlace.t = setTimeout(cmdPlace, 100); });
+function setupCommandBar(){
+  if ($("#cmd-bar")) return;
+  const main = $(".main");
+  if (!main) return;
+  const bar = document.createElement("div");
+  bar.id = "cmd-bar";
+  bar.innerHTML = `<label class="cmd-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="cmd-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search clients, leads, prospects, meetings, pages…" aria-label="Search the CRM">
+      <kbd>/</kbd></label>
+    <div class="cmd-results" id="cmd-results" hidden></div>`;
+  main.insertBefore(bar, main.firstChild);
+  setTimeout(cmdPlace, 0);
+  const inp = $("#cmd-input"), box = $("#cmd-results");
+  inp.addEventListener("focus", () => { cmdSel = 0; cmdRender(); });
+  inp.addEventListener("input", () => { cmdSel = 0; cmdRender(); });
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown"){ e.preventDefault(); cmdSel = Math.min(cmdSel + 1, cmdItems.length - 1); cmdRender(); }
+    else if (e.key === "ArrowUp"){ e.preventDefault(); cmdSel = Math.max(cmdSel - 1, 0); cmdRender(); }
+    else if (e.key === "Enter"){ e.preventDefault(); cmdGo(cmdSel); }
+    else if (e.key === "Escape"){ e.preventDefault(); inp.value = ""; cmdClose(); }
+  });
+  box.addEventListener("mousedown", (e) => { const b = e.target.closest("[data-cmd]"); if (b){ e.preventDefault(); cmdGo(+b.dataset.cmd); } });
+  document.addEventListener("mousedown", (e) => { if (!e.target.closest("#cmd-bar")) box.hidden = true; });
+  document.addEventListener("keydown", (e) => {
+    if (!mainMode()) return;
+    const typing = /^(input|textarea|select)$/i.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable;
+    if ((e.key === "k" && (e.ctrlKey || e.metaKey)) || (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey && !e.altKey)){
+      if (document.querySelector(".overlay.visible, .modal.open, .lq-alert")) return;
+      e.preventDefault(); inp.focus(); inp.select();
+    }
+  });
+}
 
 /* ───────── Render: Tasks ───────── */
 function dealTitle(id){ return state.deals.find(d => d.id === id)?.title || ""; }
@@ -11883,7 +12053,14 @@ function renderToday(){
     root.innerHTML = `<section class="td-hero"><canvas class="td-waves" aria-hidden="true"></canvas>
       <div class="td-hero-in"><div class="td-hero-text"><p class="td-date"></p><h2></h2><p class="td-sum"></p></div>
         <div class="td-ring" aria-hidden="true"><svg viewBox="0 0 120 120"><circle class="td-ring-bg" cx="60" cy="60" r="52"/><circle class="td-ring-fg" cx="60" cy="60" r="52"/></svg><div class="td-ring-num"><b></b><span></span></div></div></div>
-    </section><div class="td-body"></div>`;
+    </section>
+    <nav class="td-quick" aria-label="Quick jobs">
+      <button type="button" data-td-q="book"><b>Book a meeting</b><small>Booking form</small></button>
+      <button type="button" data-td-q="dialer"><b>Start dialling</b><small>Dialler</small></button>
+      <button type="button" data-td-q="inbound"><b>Inbound leads</b><small>Call new ones fast</small></button>
+      <button type="button" data-td-q="clients"><b>Find a client</b><small>Type their name</small></button>
+      <button type="button" data-td-q="pipeline"><b>Pipeline</b><small>Every deal</small></button>
+    </nav><div class="td-body"></div>`;
     if (window.mpWaves) tdWaves = window.mpWaves(root.querySelector(".td-waves"), { dim: true });
   }
   root.querySelector(".td-date").textContent = dateLine;
@@ -11928,6 +12105,15 @@ function setupToday(){
   if (!root || root.dataset.wired) return;
   root.dataset.wired = "1";
   root.addEventListener("click", async (e) => {
+    const q = e.target.closest("[data-td-q]");
+    if (q){
+      const k = q.dataset.tdQ;
+      if (k === "book") return openBookMeeting({});
+      if (k === "dialer") return goPage("dialer");
+      if (k === "inbound") return goPage("inbound-leads");
+      if (k === "pipeline") return goPage("deals");
+      if (k === "clients"){ const i = $("#cmd-input"); if (i){ i.focus(); i.select(); } return; }
+    }
     const t = e.target.closest("[data-td-go],[data-td-client],[data-td-done],[data-td-ws],[data-td-task]");
     if (!t) return;
     if (t.dataset.tdGo) return goPage(t.dataset.tdGo);
