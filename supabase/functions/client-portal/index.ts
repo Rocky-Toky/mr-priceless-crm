@@ -64,7 +64,7 @@ async function sendWelcome(to: string, name: string, business: string, link: str
   const text = [
     `Hi ${first},`,
     "",
-    `We've set up your Mr Priceless client portal for ${business}. It's where you'll see every lead the moment it comes in, with what they put on the form, so you can call the best ones first - straight from your phone.`,
+    `We've set up your Mr Priceless client portal for ${business}. It's where you'll see your most qualified leads the moment they come in, with what they put on the form, so you can call the best ones first - straight from your phone.`,
     "",
     "Choose your password here (the link works once, for an hour):",
     link,
@@ -77,7 +77,7 @@ async function sendWelcome(to: string, name: string, business: string, link: str
   ].join("\n");
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#15130f;max-width:520px">
     <p>Hi ${escapeHtml(first)},</p>
-    <p>We've set up your <b>Mr Priceless client portal</b> for ${escapeHtml(business)}. It's where you'll see every lead the moment it comes in, with what they put on the form, so you can call the best ones first - straight from your phone.</p>
+    <p>We've set up your <b>Mr Priceless client portal</b> for ${escapeHtml(business)}. It's where you'll see your most qualified leads the moment they come in, with what they put on the form, so you can call the best ones first - straight from your phone.</p>
     <p style="margin:24px 0"><a href="${escapeHtml(link)}" style="background:#d4a017;color:#111;padding:14px 22px;border-radius:10px;font-weight:bold;text-decoration:none;display:inline-block">Choose your password</a></p>
     <p style="font-size:13px;color:#555">The button works once, for an hour. After that, sign in any time at <a href="${PORTAL_URL}">${PORTAL_URL}</a>.<br>Tip: on your phone, open it and tap Share &gt; Add to Home Screen so it sits with your apps.</p>
     <p>Cheers,<br>Mr Priceless</p></div>`;
