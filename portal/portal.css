@@ -378,3 +378,11 @@ body.pp-dragging,body.pp-dragging *{cursor:grabbing !important;user-select:none;
 .pp-timer.over{background:var(--blue-soft);color:var(--blue);}
 .pp-timer.big{font-size:15px;padding:6px 12px;}
 .pp-note-line:has(.pp-timer){background:none;padding:0;}
+/* The Pipeline's sideways scroll bar sits at the top: the board is flipped
+   upside down (which moves its scroll bar up) and each column flipped back. */
+.pp-board{transform:rotateX(180deg);}
+.pp-board > .pp-col{transform:rotateX(180deg);}
+.pp-board::-webkit-scrollbar{height:12px;}
+.pp-board::-webkit-scrollbar-track{background:#e9e4d8;border-radius:6px;}
+.pp-board::-webkit-scrollbar-thumb{background:#c6b98f;border-radius:6px;}
+.pp-board::-webkit-scrollbar-thumb:hover{background:var(--gold);}
