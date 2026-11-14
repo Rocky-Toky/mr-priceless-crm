@@ -12405,15 +12405,16 @@ function todayItems(){
 
   if (delivery) safe(() => {
     const live = state.clients.filter(c => !c.is_test && !inOnboardingSection(c) && ["quote_guarantee", "live", "at_risk"].includes(normalizeClientStage(c.stage)));
-    // Ads due this month.
-    live.forEach(c => {
-      const am = amClientProgress(c);
-      if (am.live >= am.target) return;
-      const owner = (c.onboarding_progress || {}).owner || null;
-      items.push({ area: "ads", owner, tone: am.overdue ? "bad" : "warn", at: now,
-        title: `${inboxShortName(c.name)}: ${am.live} of ${am.target} ads live this month`, sub: am.overdue ? "Behind - some are past their due date." : "Still to go live this month.",
-        actions: go("Ads this month", "ads-month", am.overdue ? "gold" : "ghost") });
-    });
+    // Ads still to go live this month: one row for every client, not one each (Rocky, 14 Nov 2026).
+    const behindAds = live.map(c => ({ c, am: amClientProgress(c) })).filter(x => x.am.live < x.am.target);
+    if (behindAds.length){
+      const late = behindAds.filter(x => x.am.overdue).length;
+      const names = behindAds.map(x => `${inboxShortName(x.c.name)} ${x.am.live}/${x.am.target}`);
+      items.push({ area: "ads", owner: null, tone: late ? "bad" : "warn", at: now,
+        title: `${behindAds.length} client${behindAds.length === 1 ? "" : "s"} still need ads live this month`,
+        sub: names.slice(0, 6).join(" · ") + (names.length > 6 ? ` · +${names.length - 6} more` : "") + (late ? ` - ${late} behind` : ""),
+        actions: go("Ads this month", "ads-month", late ? "gold" : "ghost") });
+    }
     // Onboarding clients that are behind or waiting on the client.
     state.clients.filter(c => !c.is_test && inOnboardingSection(c)).forEach(c => {
       const ls = launchState(c);
@@ -12425,14 +12426,7 @@ function todayItems(){
     });
     // Stripe: failed / overdue payments (one red row each).
     stTodayItems().forEach(x => items.push(x));
-    // Payments due (hand-kept due dates; skipped for clients Stripe charges every month).
-    state.clients.filter(c => { try { return !c.is_test && rcActive(c) && !stCoversClient(c); } catch(e){ return false; } }).forEach(c => {
-      const next = rcNextDue(c);
-      if (!next || next.date > today) return;
-      items.push({ area: "money", owner: null, tone: next.date < today ? "bad" : "warn", at: now,
-        title: `Payment due from ${inboxShortName(c.name)}`, sub: next.date < today ? `Was due ${new Date(next.date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : "Due today",
-        actions: go("Receipts", "receipts") });
-    });
+    // Payments: Stripe tells us when one fails or goes overdue (above), so the hand-kept "payment due" rows are gone (Rocky, 14 Nov 2026).
   });
 
   // To-dos due today or overdue.
