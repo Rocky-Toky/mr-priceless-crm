@@ -386,3 +386,24 @@ body.pp-dragging,body.pp-dragging *{cursor:grabbing !important;user-select:none;
 .pp-board::-webkit-scrollbar-track{background:#e9e4d8;border-radius:6px;}
 .pp-board::-webkit-scrollbar-thumb{background:#c6b98f;border-radius:6px;}
 .pp-board::-webkit-scrollbar-thumb:hover{background:var(--gold);}
+
+/* ───────── their calendar ───────── */
+.pp-calbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.pp-calbtn{flex:1 1 220px;justify-content:flex-start;}
+.pp-calbtn b{width:24px;height:24px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:13px;}
+.pp-calbtn b.g{background:#4285f4;}
+.pp-calbtn b.o{background:#0f6cbd;}
+.pp-calset p{margin-top:4px;}
+.pp-cal:empty{display:none;}
+.pp-calday{border:1px solid var(--line);border-radius:var(--r-sm);background:#fbfaf6;padding:12px;display:flex;flex-direction:column;gap:8px;}
+.pp-calday > b{font-size:14px;}
+.pp-calday ul{list-style:none;display:flex;flex-direction:column;gap:4px;}
+.pp-calday li{display:flex;gap:10px;font-size:14px;padding:6px 8px;border-radius:8px;background:#fff;border:1px solid var(--line);}
+.pp-calday li span{flex:none;min-width:118px;color:var(--text2);font-weight:600;font-variant-numeric:tabular-nums;}
+.pp-calday li.clash{border-color:var(--red);background:var(--red-soft);}
+.pp-clash{color:var(--red);font-weight:700;font-size:14px;}
+.pp-free{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.pp-free span{font-size:13px;font-weight:700;color:var(--text2);margin-right:2px;}
+.pp-free button{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #bfe0cb;background:var(--green-soft);color:var(--green);font-weight:700;font-size:14px;}
+.pp-free button.on{background:var(--green);color:#fff;border-color:var(--green);}
+@media (max-width:700px){ .pp-calday li span{min-width:96px;} }
