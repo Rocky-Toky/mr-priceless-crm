@@ -370,3 +370,11 @@ body.pp-dragging,body.pp-dragging *{cursor:grabbing !important;user-select:none;
   .pp-col{flex-basis:78vw;}
 }
 .pp-col,.pp-col ul,.pp-bcard{min-width:0;}
+
+/* Live countdown to when Mr Priceless steps in (Call now / Didn't answer). */
+.pp-timer{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--gold-soft);color:#7a5c12;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.pp-timer::before{content:"⏱";font-size:13px;}
+.pp-timer.soon{background:var(--red-soft);color:var(--red);}
+.pp-timer.over{background:var(--blue-soft);color:var(--blue);}
+.pp-timer.big{font-size:15px;padding:6px 12px;}
+.pp-note-line:has(.pp-timer){background:none;padding:0;}
