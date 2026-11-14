@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=405">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=405">
+<link rel="stylesheet" href="css/style.css?v=407">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=407">
 </head>
 <body>
 <!-- Boot screen: flowing gold waves while the CRM loads (js/waves.js) -->
@@ -1028,6 +1028,7 @@
               <div class="cp-eyebrow"><label class="cp-stage"><span>Stage</span><select id="client-detail-stage-select" aria-label="Stage"></select></label><span id="cp-since"></span></div>
               <h2 id="client-detail-name">Client</h2>
               <div class="cp-contact" id="client-detail-contact"></div>
+              <div class="cp-quick" id="cp-quick"></div>
               <div class="cp-meta">
                 <span id="client-detail-churn-risk"></span>
                 <span class="cp-meta-item"><span class="cp-meta-k">Ads live since</span><span id="client-detail-ad-start-date">-</span></span>
@@ -1074,7 +1075,7 @@
         </section>
 
         <div class="card cl-launch" id="client-launch-card" hidden></div>
-        <div class="cp-month" id="cp-month"></div>
+        <div class="cp-row2"><div class="cp-month" id="cp-month"></div><div class="cp-leads-wrap" id="cp-leads"></div></div>
         <div class="country-toggle cp-tabs" id="cp-tabs" role="tablist">
           <button type="button" data-cp-tab="ads" class="active">Ads</button>
           <button type="button" data-cp-tab="workshops">Workshops</button>
@@ -2972,17 +2973,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=405"></script>
-<script src="js/supabaseClient.js?v=405"></script>
-<script src="js/report-pdf.js?v=405"></script>
-<script src="js/plan-pdf.js?v=405"></script>
-<script src="js/workshop-pdf.js?v=405"></script>
-<script src="js/receipt-pdf.js?v=405"></script>
-<script src="js/welcome-pdf.js?v=405"></script>
-<script src="js/builtin-playbooks.js?v=405"></script>
-<script src="js/builtin-email-templates.js?v=405"></script>
-<script src="js/app.js?v=405"></script>
-<script src="js/meetings-tracker.js?v=405"></script>
-<script src="js/todo.js?v=405"></script>
+<script src="js/config.js?v=407"></script>
+<script src="js/supabaseClient.js?v=407"></script>
+<script src="js/report-pdf.js?v=407"></script>
+<script src="js/plan-pdf.js?v=407"></script>
+<script src="js/workshop-pdf.js?v=407"></script>
+<script src="js/receipt-pdf.js?v=407"></script>
+<script src="js/welcome-pdf.js?v=407"></script>
+<script src="js/builtin-playbooks.js?v=407"></script>
+<script src="js/builtin-email-templates.js?v=407"></script>
+<script src="js/app.js?v=407"></script>
+<script src="js/meetings-tracker.js?v=407"></script>
+<script src="js/todo.js?v=407"></script>
 </body>
 </html>
