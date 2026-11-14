@@ -12443,6 +12443,31 @@ const tdDoneKey = () => "mp_today_done_" + localDayStr();
 const tdDoneCount = () => { try { return Number(localStorage.getItem(tdDoneKey())) || 0; } catch(e){ return 0; } };
 function tdDoneBump(){ try { localStorage.setItem(tdDoneKey(), String(tdDoneCount() + 1)); } catch(e){} }
 let tdWaves = null;
+// The big one-click jobs at the top of Today, each with a live number.
+const TD_QUICK = [
+  ["dialer", "Start dialling", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>`],
+  ["inbound", "Inbound leads", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></svg>`],
+  ["clients", "Clients", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>`],
+  ["pipeline", "Pipeline", `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-6"/></svg>`],
+];
+function tdQuickSync(root){
+  const set = (k, num, sub) => {
+    const n = root.querySelector(`[data-tdq-num="${k}"]`), s = root.querySelector(`[data-tdq-sub="${k}"]`);
+    if (n) n.textContent = num; if (s) s.textContent = sub;
+  };
+  const safe = (f, d) => { try { return f(); } catch(e){ return d; } };
+  const fresh = safe(() => state.prospects.filter(p => !p.last_called_at && !p.last_outcome).length, 0);
+  set("dialer", "", fresh ? `${fresh} never called yet` : "Pick up where you left off");
+  const inb = safe(() => inbNewCount(), 0);
+  set("inbound", inb ? String(inb) : "", inb ? `new to call` : "All called");
+  const live = safe(() => state.clients.filter(c => !c.is_test && !inOnboardingSection(c) && c.stage !== "churned"), []);
+  const avg = safe(() => clientAvgCPL(), null);
+  const needYou = safe(() => live.filter(c => pfHealth(c, avg).band === "bad").length, 0);
+  set("clients", String(live.length), needYou ? `${needYou} need${needYou === 1 ? "s" : ""} you` : "All healthy");
+  const open = safe(() => state.deals.filter(d => !CLOSED_STAGES.has(d.stage)), []);
+  const val = open.reduce((t, d) => t + (Number(d.value) || 0), 0);
+  set("pipeline", String(open.length), val ? `open deals · ${fmtMoney(val)}` : "open deals");
+}
 function renderToday(){
   const root = $("#today-root");
   if (!root) return;
@@ -12460,13 +12485,7 @@ function renderToday(){
       <div class="td-hero-in"><div class="td-hero-text"><p class="td-date"></p><h2></h2><p class="td-sum"></p></div>
         <div class="td-ring" aria-hidden="true"><svg viewBox="0 0 120 120"><circle class="td-ring-bg" cx="60" cy="60" r="52"/><circle class="td-ring-fg" cx="60" cy="60" r="52"/></svg><div class="td-ring-num"><b></b><span></span></div></div></div>
     </section>
-    <nav class="td-quick" aria-label="Quick jobs">
-      <button type="button" data-td-q="book"><b>Book a meeting</b><small>Booking form</small></button>
-      <button type="button" data-td-q="dialer"><b>Start dialling</b><small>Dialler</small></button>
-      <button type="button" data-td-q="inbound"><b>Inbound leads</b><small>Call new ones fast</small></button>
-      <button type="button" data-td-q="clients"><b>Find a client</b><small>Type their name</small></button>
-      <button type="button" data-td-q="pipeline"><b>Pipeline</b><small>Every deal</small></button>
-    </nav><div class="td-body"></div>`;
+    <nav class="td-quick" aria-label="Quick jobs">${TD_QUICK.map(([k, label, icon]) => `<button type="button" data-td-q="${k}"><span class="tdq-ico" aria-hidden="true">${icon}</span><span class="tdq-txt"><b>${label}</b><small data-tdq-sub="${k}"></small></span><em class="tdq-num" data-tdq-num="${k}"></em><span class="tdq-go" aria-hidden="true">→</span></button>`).join("")}</nav><div class="td-body"></div>`;
     if (window.mpWaves) tdWaves = window.mpWaves(root.querySelector(".td-waves"), { dim: true });
   }
   root.querySelector(".td-date").textContent = dateLine;
@@ -12487,6 +12506,7 @@ function renderToday(){
     const g = list.filter(x => x.tone === t);
     return g.length ? `<section class="td-group ${t}"><h3>${label}<span>${g.length}</span></h3>${g.map(row).join("")}</section>` : "";
   }).join("");
+  tdQuickSync(root);
   root.querySelector(".td-body").innerHTML = groups || `<div class="td-clear"><div class="td-trophy" aria-hidden="true">★</div><b>All clear</b><span>Nothing's due right now. New things land here the moment they're due.</span></div>`;
 }
 // Ticking something off: the row flashes green, slides away, the ring fills.
@@ -12514,11 +12534,10 @@ function setupToday(){
     const q = e.target.closest("[data-td-q]");
     if (q){
       const k = q.dataset.tdQ;
-      if (k === "book") return openBookMeeting({});
       if (k === "dialer") return goPage("dialer");
       if (k === "inbound") return goPage("inbound-leads");
       if (k === "pipeline") return goPage("deals");
-      if (k === "clients"){ const i = $("#cmd-input"); if (i){ i.focus(); i.select(); } return; }
+      if (k === "clients") return goPage("clients");
     }
     const t = e.target.closest("[data-td-go],[data-td-client],[data-td-done],[data-td-ws],[data-td-task]");
     if (!t) return;
