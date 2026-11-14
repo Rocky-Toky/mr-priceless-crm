@@ -12098,7 +12098,7 @@ function todayItems(){
   }));
 
   if (delivery) safe(() => {
-    const live = state.clients.filter(c => !inOnboardingSection(c) && ["quote_guarantee", "live", "at_risk"].includes(normalizeClientStage(c.stage)));
+    const live = state.clients.filter(c => !c.is_test && !inOnboardingSection(c) && ["quote_guarantee", "live", "at_risk"].includes(normalizeClientStage(c.stage)));
     // Ads due this month.
     live.forEach(c => {
       const am = amClientProgress(c);
@@ -12109,7 +12109,7 @@ function todayItems(){
         actions: go("Ads this month", "ads-month", am.overdue ? "gold" : "ghost") });
     });
     // Onboarding clients that are behind or waiting on the client.
-    state.clients.filter(inOnboardingSection).forEach(c => {
+    state.clients.filter(c => !c.is_test && inOnboardingSection(c)).forEach(c => {
       const ls = launchState(c);
       if (!["late", "stalled", "client", "ready"].includes(ls.status.key)) return;
       items.push({ area: "clients", owner: ls.owner, tone: ["late", "stalled"].includes(ls.status.key) ? "bad" : "warn", at: now,
@@ -12118,7 +12118,7 @@ function todayItems(){
         actions: openClient(c.id, ls.status.key === "ready" ? "Finish onboarding" : "Open") });
     });
     // Payments due.
-    state.clients.filter(c => { try { return rcActive(c); } catch(e){ return false; } }).forEach(c => {
+    state.clients.filter(c => { try { return !c.is_test && rcActive(c); } catch(e){ return false; } }).forEach(c => {
       const next = rcNextDue(c);
       if (!next || next.date > today) return;
       items.push({ area: "money", owner: null, tone: next.date < today ? "bad" : "warn", at: now,
@@ -12905,6 +12905,9 @@ const lqIsOpen = (l) => LQ_OPEN.has(l.follow_status || "new");
 // the "Did they get back to you?" check by 10pm) - or we've already rung it.
 // portal_lead_is_ours() in sql/113 is the same rule.
 function lqWithClient(l){
+  // The test client (clients.is_test, sql/seed_test_client.sql) is only for
+  // trying the client portal: its fake leads never reach our call queue.
+  if (lqClient(l)?.is_test) return true;
   if (!l.client_calls || l.handed_over_at) return false;
   const log = Array.isArray(l.call_log) ? l.call_log : [];
   return !log.some(x => x.by !== "client");

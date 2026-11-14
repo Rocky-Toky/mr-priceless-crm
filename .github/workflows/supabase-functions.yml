@@ -94,6 +94,10 @@ on:
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
     inputs:
+      seed_test_client:
+        description: "Client portal test client: type yes to create it (or reset its fake leads to fresh times), or remove to delete it"
+        required: false
+        default: ""
       test_email:
         description: "Send a test email to this address once everything's deployed (leave blank to skip)"
         required: false
@@ -296,6 +300,24 @@ jobs:
           for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings sync-aircall-calls creative-agent client-portal sync-meta-leads; do
             supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --yes --no-verify-jwt
           done
+      # Run by hand with seed_test_client=yes: makes (or resets) the client
+      # portal test client with fake leads at every stage (sql/seed_test_client.sql);
+      # remove deletes it. Prints counts only.
+      - name: Client portal test client
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.seed_test_client != ''
+        env:
+          SEED: ${{ inputs.seed_test_client }}
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          if [ "$SEED" = "remove" ]; then
+            q "delete from clients where id = '7e57c11e-0000-4000-8000-000000000001' and is_test returning 'removed' as done" | jq -c '.'
+          elif [ "$SEED" = "yes" ]; then
+            jq -Rs '{query: .}' sql/seed_test_client.sql > /tmp/q.json
+            curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json | jq -c '.'
+          else
+            echo "::error::Type yes or remove."; exit 1
+          fi
       # Run this workflow by hand with a test_email to check sending works.
       - name: Send a test email
         if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.test_email != ''

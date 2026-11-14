@@ -14,6 +14,9 @@
 -- "Sent it" on the reminder covers that date.
 -- Run after 107. Safe to re-run.
 
+-- The portal test client (sql/seed_test_client.sql) never gets report reminders.
+alter table clients add column if not exists is_test boolean not null default false;
+
 alter table clients add column if not exists report_anchor date;
 
 create or replace function public.queue_client_reports()
@@ -44,6 +47,7 @@ begin
     from clients c
     left join deals d on d.id = c.source_deal_id
     where coalesce(c.stage, 'onboarding') not in ('onboarding', 'churned', 'archived')
+      and not coalesce(c.is_test, false)
       and coalesce(d.stage, '') not in ('qualified', 'no_show', 'proposal', 'negotiation', 'onboarding')
   loop
     -- A set report day: due on it and every 14 days after.
