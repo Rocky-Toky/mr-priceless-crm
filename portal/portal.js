@@ -622,7 +622,7 @@ function renderSheet(){
       <h3>What ${esc(first)} told us</h3>
       ${qa.length ? `<dl class="pp-qa">${qa.map(x => `<div><dt>${esc(x.q)}</dt><dd>${esc(x.a)}</dd></div>`).join("")}</dl>` : `<p class="pp-muted">No form answers came through with this lead.</p>`}
       ${l.scope ? `<dl class="pp-qa"><div><dt>The job</dt><dd>${esc(l.scope)}</dd></div></dl>` : ""}
-      ${EARLY.has(st) && (r.why.length || r.warn.length) ? `<div class="pp-reasons">${r.why.map(w => `<span class="pp-why">✓ ${esc(w)}</span>`).join("")}${r.warn.map(w => `<span class="pp-warnchip">! ${esc(w)}</span>`).join("")}</div>` : ""}
+      ${EARLY.has(st) && r.warn.length ? `<div class="pp-reasons">${r.warn.map(w => `<span class="pp-warnchip">! ${esc(w)}</span>`).join("")}</div>` : ""}
     </section>
 
     ${moveHtml(l)}
