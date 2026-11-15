@@ -470,3 +470,18 @@ body.pp-dragging,body.pp-dragging *{cursor:grabbing !important;user-select:none;
 .pp-plist.pp-col-blue > summary{border-left:4px solid var(--blue);}
 .pp-plist.pp-col-purple > summary{border-left:4px solid #6a3fb5;}
 @media (max-width:420px){ .pp-next{font-size:16px;min-height:60px;} }
+
+/* ───────── note pop-up: every outcome needs a note ───────── */
+.pp-notepop{position:fixed;inset:0;z-index:70;background:rgba(9,9,10,.6);display:flex;align-items:center;justify-content:center;padding:16px;}
+.pp-notepop-box{background:var(--paper);border-radius:var(--r);width:100%;max-width:460px;padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 20px 60px rgba(0,0,0,.35);max-height:calc(100vh - 32px);overflow-y:auto;}
+.pp-notepop-box .pp-st{align-self:flex-start;}
+.pp-notepop-box h2{font-size:22px;}
+.pp-notepop-box p{color:var(--text2);font-size:15px;margin-top:-4px;}
+.pp-notepop-ideas{display:flex;flex-wrap:wrap;gap:6px;}
+.pp-notepop-ideas button{min-height:40px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:#fff;font-weight:600;font-size:14px;}
+.pp-notepop-ideas button:hover{border-color:var(--gold);}
+.pp-notepop textarea{width:100%;min-height:96px;border:2px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;font-size:17px;background:#fff;resize:vertical;}
+.pp-notepop textarea:focus{border-color:var(--gold);outline:none;}
+.pp-notepop .pp-btn[disabled]{opacity:.45;}
+.pp-notepop .pp-link{align-self:center;}
+@media (max-width:700px){ .pp-notepop{align-items:flex-end;padding:0;} .pp-notepop-box{border-radius:var(--r) var(--r) 0 0;max-width:none;padding-bottom:max(18px, env(safe-area-inset-bottom));} }

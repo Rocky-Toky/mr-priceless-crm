@@ -500,11 +500,14 @@ async function moveLead(id, k){
   if (readOnly()){ toast("Preview only - the client moves leads from their login."); return; }
   // Stages that need a time, amount or reason: open the lead with that stage picked.
   if (ASK_ON_DROP.has(k)){ openLead(id, { pick: k }); return; }
+  const note = await askNote(l, k);
+  if (!note) return;
   const was = l.stage;
   l.stage = k; l.stage_at = new Date().toISOString();
   render();
   try {
-    await rpc("portal_update_lead", { p_lead: id, p_stage: k, p_note: null, p_when: null, p_amount: null, p_reason: null });
+    await rpc("portal_update_lead", { p_lead: id, p_stage: k, p_note: note, p_when: null, p_amount: null, p_reason: null });
+    delete S.drafts[id];
     toast(`Moved ${firstName(l.name)} to ${STAGE[k].label}.`);
     await refreshAfterSave(); render();
   } catch(e){
@@ -700,8 +703,7 @@ function moveHtml(l){
       ${o.when ? `<label>${esc(o.when)}${o.whenNeeded ? "" : " <small>(optional)</small>"}<input type="datetime-local" id="pp-when" value="${esc(def)}"></label><div class="pp-cal" id="pp-cal"></div>` : ""}
       ${o.amount ? `<label>${esc(o.amount)} <small>(optional)</small><span class="pp-money"><i>$</i><input type="number" inputmode="decimal" min="0" step="1" id="pp-amount" value="${esc(o.k === "won" ? (l.job_value || l.quote_amount || "") : (l.quote_amount || ""))}" placeholder="0"></span></label>` : ""}
       ${o.reasons ? `<label>Why? <small>(optional)</small><select id="pp-reason"><option value="">Pick one</option>${o.reasons.map(x => `<option${l.lost_reason === x ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></label>` : ""}
-      <label>Note <small>(optional)</small><textarea id="pp-note" rows="2" placeholder="${o.k === "no_answer" ? "e.g. Left a voicemail" : "Anything worth remembering"}">${esc(S.drafts[l.id] || "")}</textarea></label>
-      <button type="button" class="pp-btn pp-btn-gold pp-btn-big" data-act="save-stage"${S.saving ? " disabled" : ""}>Save: ${esc(o.label)}</button>
+      <button type="button" class="pp-btn pp-btn-gold pp-btn-big" data-act="save-stage"${S.saving ? " disabled" : ""}>Next: add a note</button>
     </div>` : ""}
   </section>`;
 }
@@ -727,18 +729,66 @@ function gcalHref(l, st, at){
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(what)}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(l.address || l.city || "")}`;
 }
 
+// Every outcome needs a note: a pop-up that won't save without one.
+const NOTE_MIN = 3;
+const NOTE_IDEAS = {
+  new: ["Moved back to new"],
+  no_answer: ["Left a voicemail", "Rang twice, no answer", "Sent them a text"],
+  call_scheduled: ["Asked me to ring back", "Busy at work, call later", "Talking to their partner first"],
+  site_visit: ["Booked in, they'll be home", "Meeting them on site", "Texted to confirm"],
+  quote_to_send: ["Measured up, quote this week", "Need to price materials"],
+  quote_sent: ["Emailed the quote", "Follow up in a few days"],
+  won: ["Accepted the quote", "Paid a deposit", "Start date booked"],
+  lost: ["Went with someone cheaper", "Not going ahead this year", "Stopped replying"],
+  not_qualified: ["Job too small", "Outside my area", "Not my kind of work"],
+};
+function askNote(l, k){
+  return new Promise((done) => {
+    const o = STAGE[k], first = firstName(l.name);
+    const el = document.createElement("div");
+    el.className = "pp-notepop"; el.id = "pp-notepop";
+    el.innerHTML = `<div class="pp-notepop-box" role="dialog" aria-modal="true" aria-labelledby="pp-notepop-h">
+      <span class="pp-st pp-st-${o.cls}">${esc(o.label)}</span>
+      <h2 id="pp-notepop-h">Add a note about ${esc(first)}</h2>
+      <p>What happened? A quick line is fine - you need one to save.</p>
+      <div class="pp-notepop-ideas">${(NOTE_IDEAS[k] || []).map(x => `<button type="button" data-idea="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+      <textarea id="pp-notepop-text" rows="3" placeholder="Type your note here">${esc(S.drafts[l.id] || "")}</textarea>
+      <button type="button" class="pp-btn pp-btn-gold pp-btn-big" data-np="save" disabled>Save</button>
+      <button type="button" class="pp-link" data-np="back">Go back</button>
+    </div>`;
+    document.body.appendChild(el);
+    const ta = $("#pp-notepop-text", el), btn = $("[data-np=save]", el);
+    const sync = () => { btn.disabled = ta.value.trim().length < NOTE_MIN; S.drafts[l.id] = ta.value; };
+    const close = (v) => { el.parentNode?.removeChild(el); document.removeEventListener("keydown", key, true); done(v); };
+    const key = (e) => { if (e.key === "Escape"){ e.stopPropagation(); close(null); } };
+    document.addEventListener("keydown", key, true);
+    ta.addEventListener("input", sync);
+    el.addEventListener("click", (e) => {
+      const idea = e.target.closest("[data-idea]");
+      if (idea){ ta.value = ta.value.trim() ? `${ta.value.trim()}. ${idea.dataset.idea}` : idea.dataset.idea; sync(); ta.focus(); return; }
+      const np = e.target.closest("[data-np]")?.dataset.np;
+      if (np === "back") close(null);
+      else if (np === "save"){ const v = ta.value.trim(); if (v.length < NOTE_MIN){ ta.focus(); return; } close(v); }
+    });
+    sync();
+    setTimeout(() => ta.focus(), 30);
+  });
+}
+// Stages with nothing else to ask (no time, amount or reason) go straight to the note.
+const askNothing = (k) => { const o = STAGE[k]; return !o.when && !o.amount && !o.reasons; };
 async function saveStage(){
   const l = S.leads.find(x => x.id === S.openId), o = S.pick ? STAGE[S.pick] : null;
-  if (!l || !o) return;
+  if (!l || !o || S.saving) return;
   if (readOnly()){ toast("Preview only - the client saves this from their login."); return; }
   const whenVal = $("#pp-when")?.value, amt = $("#pp-amount")?.value, reason = $("#pp-reason")?.value || null;
-  const note = ($("#pp-note")?.value || "").trim();
   if (o.whenNeeded && !whenVal){ toast("Pick when you'll ring them."); return; }
   const at = whenVal ? new Date(whenVal).toISOString() : null;
   const amount = amt !== undefined && amt !== "" && !isNaN(Number(amt)) ? Number(amt) : null;
+  const note = await askNote(l, o.k);
+  if (!note) return;
   S.saving = true; renderSheet();
   try {
-    await rpc("portal_update_lead", { p_lead: l.id, p_stage: o.k, p_note: note || null, p_when: at, p_amount: amount, p_reason: reason });
+    await rpc("portal_update_lead", { p_lead: l.id, p_stage: o.k, p_note: note, p_when: at, p_amount: amount, p_reason: reason });
     const inCal = at && (o.k === "site_visit" || o.k === "call_scheduled") ? await calAdd(l) : null;
     const wasAsked = l.checkin;
     delete S.drafts[l.id];
@@ -1170,8 +1220,9 @@ function bind(){
     if (open && !e.target.closest("a")){ openLead(open.dataset.open); return; }
     const pick = e.target.closest("[data-pick]");
     if (pick){
-      const note = $("#pp-note"); if (note && S.openId) S.drafts[S.openId] = note.value;
-      S.pick = S.pick === pick.dataset.pick ? null : pick.dataset.pick; renderSheet();
+      const k = pick.dataset.pick;
+      if (askNothing(k) && !readOnly()){ S.pick = k; renderSheet(); saveStage(); return; }
+      S.pick = S.pick === k ? null : k; renderSheet();
       setTimeout(() => $("#pp-out-form, .pp-out-form")?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 30);
       return;
     }
