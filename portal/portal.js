@@ -169,6 +169,8 @@ const stageOf = (l) => STAGE[l.stage] ? l.stage : "new";
 // Still the client's to call? (Our team takes over early-stage leads it's
 // rung or been handed; anything booked is the client's whatever happened.)
 const withUs = (l) => l.ours && EARLY.has(stageOf(l));
+// Moved on in their own GoHighLevel (status in_ghl): not one to ring from here.
+const inGhl = (l) => l.status === "in_ghl";
 const handoverAt = (l) => l.client_calls && !l.ours && stageOf(l) === "new" && !l.dialled_at ? t(l.assigned_at || l.at) + HANDOVER_MS : null;
 const tries = (l) => (l.log || []).filter(x => x.by === "you" && x.outcome === "no_answer").length;
 const nextAt = (l) => l.next_at || null;
@@ -185,15 +187,15 @@ function callNow(){
   const due = st("call_scheduled").filter(l => mine(l) && nextAt(l) && t(nextAt(l)) <= now + 3600e3).sort((a, b) => t(nextAt(a)) - t(nextAt(b)));
   return [
     { k: "call", title: "Call now", sub: "Best ones at the top. Ring them fast - it wins more jobs.",
-      list: [...st("new").filter(l => mine(l) && !l.checkin).sort(byRank), ...due] },
+      list: [...st("new").filter(l => mine(l) && !l.checkin && !inGhl(l)).sort(byRank), ...due] },
     { k: "noanswer", title: "Didn't answer", sub: "Try them again. Still can't get them? Mr Priceless will.",
-      list: st("no_answer").filter(mine).sort((a, b) => (b.checkin ? 1 : 0) - (a.checkin ? 1 : 0) || (timerFor(a)?.until ?? Infinity) - (timerFor(b)?.until ?? Infinity)) },
+      list: st("no_answer").filter(l => mine(l) && !inGhl(l)).sort((a, b) => (b.checkin ? 1 : 0) - (a.checkin ? 1 : 0) || (timerFor(a)?.until ?? Infinity) - (timerFor(b)?.until ?? Infinity)) },
   ];
 }
 const callCount = () => callNow().reduce((n, x) => n + x.list.length, 0);
 // When does a lead go to Mr Priceless (or get the 24-hour check-in)?
 function timerFor(l){
-  if (!l.client_calls || withUs(l)) return null;
+  if (!l.client_calls || withUs(l) || inGhl(l)) return null;
   if (l.checkin && l.checkin_deadline) return { until: t(l.checkin_deadline), label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" };
   if (stageOf(l) === "no_answer" && l.first_na_at) return { until: t(l.first_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
   const ho = handoverAt(l);
@@ -288,7 +290,7 @@ function flashTitle(msg){
 function render(){
   if (!S.client) return;
   $("#pp-biz").textContent = S.client.name;
-  const n = S.leads.filter(l => l.checkin || (stageOf(l) === "new" && !withUs(l))).length;
+  const n = S.leads.filter(l => l.checkin || (stageOf(l) === "new" && !withUs(l) && !inGhl(l))).length;
   const c = $("#pp-count"); c.hidden = !n; c.textContent = n;
   $$("#pp-tabs [data-tab]").forEach(x => x.classList.toggle("active", x.dataset.tab === S.tab));
   $$("[data-pane]").forEach(p => { p.hidden = p.dataset.pane !== S.tab; });
