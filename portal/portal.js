@@ -39,7 +39,7 @@ const CALL_LABELS = { no_answer: "No answer", call_back: "Call back booked", sit
 const S = {
   me: null, client: null, leads: [], ads: [], tab: "leads", view: "call", q: "", period: "month",
   preview: null, openId: null, sheet: null, askFor: null, dialledAt: 0, known: null, loaded: false,
-  saving: false, pick: null, drafts: {}, swReg: null, installEvt: null, alerts: "unknown",
+  saving: false, pick: null, more: false, drafts: {}, swReg: null, installEvt: null, alerts: "unknown",
 };
 
 /* ───────── little helpers ───────── */
@@ -184,9 +184,9 @@ function callNow(){
   const st = (k) => L.filter(l => stageOf(l) === k);
   const due = st("call_scheduled").filter(l => mine(l) && nextAt(l) && t(nextAt(l)) <= now + 3600e3).sort((a, b) => t(nextAt(a)) - t(nextAt(b)));
   return [
-    { k: "call", title: "Call now", sub: S.client.client_calls ? "Best ones at the top. Ring within 5 minutes and you're far more likely to win the job. Anyone not rung within 24 hours, Mr Priceless calls for you." : "Best ones at the top. Ring within 5 minutes and you're far more likely to win the job.",
+    { k: "call", title: "Call now", sub: "Best ones at the top. Ring them fast - it wins more jobs.",
       list: [...st("new").filter(l => mine(l) && !l.checkin).sort(byRank), ...due] },
-    { k: "noanswer", title: "Didn't answer", sub: "Try them again. When the 24 hours is up we'll ask if they got back to you - if they didn't, Mr Priceless calls them for you.",
+    { k: "noanswer", title: "Didn't answer", sub: "Try them again. Still can't get them? Mr Priceless will.",
       list: st("no_answer").filter(mine).sort((a, b) => (b.checkin ? 1 : 0) - (a.checkin ? 1 : 0) || (timerFor(a)?.until ?? Infinity) - (timerFor(b)?.until ?? Infinity)) },
   ];
 }
@@ -341,7 +341,6 @@ function leadCardHtml(l, section){
         <span class="pp-lead-sub">${esc([l.form, where].filter(Boolean).join(" · "))}</span>
         ${qa.length ? `<span class="pp-card-qa">${qa.slice(0, 4).map(x => `<span${x.a.length > 26 ? ` class="wide"` : ""}><i>${esc(shortQ(x.q))}</i><b>${esc(x.a)}</b></span>`).join("")}</span>` : `<span class="pp-noqa">No form answers came through</span>`}
         <span class="pp-lead-tags">${section === "pipeline" || !early ? stageChip(l) : st !== "new" ? stageChip(l) : ""}
-          ${early && !withUs(l) && r.why.length ? r.why.slice(0, 2).map(w => `<span class="pp-why">${esc(w)}</span>`).join("") : ""}
           ${withUs(l) ? `<span class="pp-ours">Mr Priceless is calling them</span>` : ""}
           ${timerHtml(l)}
         </span>
@@ -393,6 +392,21 @@ function summaryHtml(){
   </section>`;
 }
 
+// How it works, in three steps. Shown until they tap Got it.
+function welcomeHtml(){
+  if (readOnly() || store.get("mpp_welcome") === "1") return "";
+  const mine = S.client.client_calls;
+  return `<div class="pp-welcome">
+    <b>How it works</b>
+    <ol>${mine ? `<li><i>1</i><span>A new lead comes in - your phone buzzes</span></li>
+      <li><i>2</i><span>Tap the green phone to call them</span></li>
+      <li><i>3</i><span>Tap what happened - that's it</span></li>`
+      : `<li><i>1</i><span>Our team calls your new leads and books them in</span></li>
+      <li><i>2</i><span>Open a lead to see what they told us</span></li>
+      <li><i>3</i><span>Tap what happened next - quote sent, job won</span></li>`}</ol>
+    <button type="button" class="pp-btn pp-btn-gold" data-act="welcome-ok">Got it</button>
+  </div>`;
+}
 function alertsBannerHtml(){
   if (readOnly() || S.alerts === "on" || S.alerts === "unsupported" || store.get("mpp_alerts_later") === nzDay()) return "";
   return `<div class="pp-alertbar">
@@ -418,13 +432,14 @@ function renderLeads(){
   }
   const checkins = S.leads.filter(l => l.checkin).length;
   el.innerHTML = `
+    ${welcomeHtml()}
     ${alertsBannerHtml()}
     <div class="pp-hero"><div>
       <h1>${S.view === "board" ? "Your pipeline" : checkins ? `${checkins} lead${checkins === 1 ? "" : "s"} need${checkins === 1 ? "s" : ""} an answer` : n ? `${n} lead${n === 1 ? "" : "s"} to call` : "Your leads"}</h1>
-      <p>${S.view === "board" ? "Every lead, from new to job won." : S.client.client_calls ? "You call your leads. Can't reach one? Tap Didn't answer - we'll check with you after 24 hours, and Mr Priceless can follow them up." : "Our team calls your new leads and books them in. Take them from there in your Pipeline: site visit, quote, job won."}</p>
+      <p>${S.view === "board" ? "Every lead, from new to job won. Tap one to update it." : S.client.client_calls ? "Tap the green phone to call. Then tap what happened." : "Our team calls your new leads and books them in. Follow them in Pipeline."}</p>
     </div></div>
     <nav class="pp-pipe pp-views" aria-label="Leads">${views.map(([k, label, c]) => `<button type="button" data-view="${k}" class="${S.view === k ? "active" : ""}"><span>${esc(label)}</span>${c ? `<b>${c}</b>` : ""}</button>`).join("")}</nav>
-    <input type="search" id="pp-search" placeholder="Search name, phone, suburb, answers" value="${esc(S.q)}" aria-label="Search leads">
+    ${S.leads.length > 8 || S.q ? `<input type="search" id="pp-search" placeholder="Find a lead by name, phone or suburb" value="${esc(S.q)}" aria-label="Search leads">` : ""}
     ${body}`;
 }
 
@@ -434,8 +449,22 @@ const BOARD_CLOSED_MS = 60 * 86400e3;
 // Dropping on these asks a quick question first (time, amount or reason);
 // the rest move straight away.
 const ASK_ON_DROP = new Set(["call_scheduled", "site_visit", "quote_sent", "won", "lost", "not_qualified"]);
+const narrow = () => matchMedia("(max-width: 760px)").matches;
 function boardHtml(){
   const L = S.leads.filter(matchQ);
+  if (narrow()){
+    const secs = STAGES.map(s => {
+      let list = L.filter(l => stageOf(l) === s.k);
+      if (CLOSED.has(s.k)) list = list.filter(l => Date.now() - t(l.stage_at || l.at) < BOARD_CLOSED_MS);
+      list.sort(EARLY.has(s.k) ? byRank : s.k === "call_scheduled" || s.k === "site_visit" ? (a, b) => t(nextAt(a)) - t(nextAt(b)) : (a, b) => t(b.stage_at || b.at) - t(a.stage_at || a.at));
+      return { s, list };
+    }).filter(x => x.list.length);
+    if (!secs.length) return `<div class="pp-empty">${S.q ? "No leads match that." : "No leads yet. They'll show up here the moment they come in."}</div>`;
+    return secs.map(({ s, list }) => `<details class="pp-plist pp-col-${s.cls}"${CLOSED.has(s.k) ? "" : " open"}>
+        <summary><b>${esc(s.label)}</b><span>${list.length}</span></summary>
+        <ul class="pp-list">${list.map(l => leadCardHtml(l, "pipeline")).join("")}</ul>
+      </details>`).join("");
+  }
   const cols = STAGES.map(s => {
     let list = L.filter(l => stageOf(l) === s.k);
     if (CLOSED.has(s.k)) list = list.filter(l => Date.now() - t(l.stage_at || l.at) < BOARD_CLOSED_MS);
@@ -563,7 +592,7 @@ function openLead(id, opts = {}){
   if (!l) return;
   // The phone's back button closes the lead instead of leaving the portal.
   if (!S.sheet) try { history.pushState({ sheet: 1 }, ""); } catch(e){}
-  S.openId = id; S.sheet = "lead"; S.pick = opts.pick || null; S.askFor = opts.ask ? id : null;
+  S.openId = id; S.sheet = "lead"; S.pick = opts.pick || null; S.askFor = opts.ask ? id : null; S.more = false;
   $("#pp-sheet-wrap").hidden = false;
   document.body.classList.add("pp-locked");
   renderSheet();
@@ -605,7 +634,7 @@ function renderSheet(){
     ${l.checkin ? `<div class="pp-ask big">
       <b>Did ${esc(first)} get back to you?</b>
       <span>You couldn't reach them${l.first_na_at ? ` on ${esc(when(l.first_na_at))}` : ""}. ${l.checkin_deadline ? `If we don't hear by ${esc(whenWords(l.checkin_deadline))}, our team will call them.` : ""}</span>
-      <div><button type="button" class="pp-btn pp-btn-dark" data-act="ask-yes">Yes - pick where they're at</button><button type="button" class="pp-btn pp-btn-light" data-ask-no="${esc(l.id)}">No - pass to Mr Priceless</button></div>
+      <div><button type="button" class="pp-btn pp-btn-dark" data-act="ask-yes">Yes - tell us what happened</button><button type="button" class="pp-btn pp-btn-light" data-ask-no="${esc(l.id)}">No - pass to Mr Priceless</button></div>
     </div>` : ""}
     ${timerFor(l) ? `<p class="pp-note-line">${timerHtml(l, true)}</p>` : ""}
     ${withUs(l) ? `<p class="pp-note-line us">The Mr Priceless team is calling ${esc(first)}${l.handover_reason === "client_no" ? " - you passed them to us" : ""}. If they get in touch with you, just update them here.</p>` : ""}
@@ -627,7 +656,7 @@ function renderSheet(){
 
     ${moveHtml(l)}
 
-    <section class="pp-block pp-grid2">
+    <section class="pp-block pp-grid2 pp-details">
       ${l.address || l.city ? `<div><h3>Where</h3><p>${esc(l.address || l.city)}</p><a class="pp-link" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(l.address || l.city)}">Open in Maps</a></div>` : ""}
       ${(st === "site_visit" || st === "call_scheduled") && na ? `<div><h3>${st === "site_visit" ? "Site visit" : "Call them"}</h3><p>${esc(when(na))}</p>${calOn() ? `<small class="pp-muted">In your ${esc(S.cal.connected.name)}</small>` : `<a class="pp-link" target="_blank" rel="noopener" href="${esc(gcalHref(l, st, na))}">Add to my calendar</a>`}</div>` : ""}
       ${l.quote_amount ? `<div><h3>Quote</h3><p>${esc(money(l.quote_amount))}${l.quote_sent_at ? ` · sent ${esc(day(l.quote_sent_at))}` : ""}</p></div>` : ""}
@@ -637,21 +666,36 @@ function renderSheet(){
       ${l.ad || l.campaign ? `<div><h3>The ad they saw</h3><p>${esc(l.ad || l.campaign)}</p></div>` : ""}
     </section>
 
-    <section class="pp-block">
-      <h3>Notes and calls</h3>
+    <details class="pp-block pp-fold"${S.drafts["note:" + l.id] ? " open" : ""}>
+      <summary>Notes and history</summary>
       ${readOnly() ? "" : `<div class="pp-addnote"><textarea id="pp-newnote" rows="2" placeholder="Add a note - e.g. wants it done before Christmas">${esc(S.drafts["note:" + l.id] || "")}</textarea><button type="button" class="pp-btn pp-btn-light" data-act="save-note">Save note</button></div>`}
       ${historyHtml(l)}
-    </section>`;
+    </details>`;
   calRefresh();
 }
+// The few things that usually happen next, in plain words, for each stage.
+const NEXT = {
+  new: [["site_visit", "Booked a site visit"], ["call_scheduled", "Call them back later"], ["no_answer", "They didn't answer"], ["not_qualified", "Not a job for me"]],
+  call_scheduled: [["site_visit", "Booked a site visit"], ["call_scheduled", "Change the call time"], ["no_answer", "They didn't answer"], ["not_qualified", "Not a job for me"]],
+  site_visit: [["quote_to_send", "Been out - quote to do"], ["quote_sent", "Quote sent"], ["site_visit", "Change the visit time"], ["lost", "They're not going ahead"]],
+  quote_to_send: [["quote_sent", "Quote sent"], ["lost", "They're not going ahead"]],
+  quote_sent: [["won", "Won the job!"], ["lost", "Lost the job"]],
+};
+NEXT.no_answer = NEXT.new;
 function moveHtml(l){
   const st = stageOf(l), first = firstName(l.name), o = S.pick ? STAGE[S.pick] : null;
   const asking = S.askFor === l.id;
+  const next = NEXT[st] || [];
+  if (S.pick && !next.some(([k]) => k === S.pick)) S.more = true;
+  const more = S.more || !next.length;
+  const nextBtns = next.map(([k, label]) => `<button type="button" class="pp-next pp-stage-${STAGE[k].cls}${S.pick === k ? " picked" : ""}" data-pick="${k}">${esc(label)}</button>`).join("");
   const def = o?.when ? localInput(nextAt(l) && o.k === st ? nextAt(l) : (() => { const d = new Date(Date.now() + (o.k === "call_scheduled" ? 3 : 24) * 3600e3); d.setMinutes(0, 0, 0); return d.toISOString(); })()) : "";
   return `<section class="pp-block pp-move${asking ? " asking" : ""}" id="pp-move">
-    <h3>${asking ? `How did it go with ${esc(first)}?` : `Where's ${esc(first)} at?`}</h3>
-    <p class="pp-muted pp-small">${asking ? "Tap what happened." : "Tap to move them along. You can change it any time."}</p>
-    <div class="pp-stages">${STAGES.map(s => `<button type="button" class="pp-stage pp-stage-${s.cls}${s.k === st ? " now" : ""}${S.pick === s.k ? " picked" : ""}" data-pick="${s.k}"><b>${esc(s.label)}</b><small>${s.k === st ? "Now" : esc(s.hint)}</small></button>`).join("")}</div>
+    <h3>${asking ? `How did it go with ${esc(first)}?` : "What happened?"}</h3>
+    <p class="pp-muted pp-small">${next.length ? "Tap one. You can change it any time." : `${esc(first)} is at ${esc(STAGE[st].label)}. Need to change it?`}</p>
+    ${next.length ? `<div class="pp-nexts">${nextBtns}</div>` : ""}
+    ${next.length ? `<button type="button" class="pp-link pp-more" data-act="more-stages">${more ? "Hide other options" : "Something else"}</button>` : ""}
+    ${more ? `<div class="pp-stages">${STAGES.map(s => `<button type="button" class="pp-stage pp-stage-${s.cls}${s.k === st ? " now" : ""}${S.pick === s.k ? " picked" : ""}" data-pick="${s.k}"><b>${esc(s.label)}</b><small>${s.k === st ? "Now" : esc(s.hint)}</small></button>`).join("")}</div>` : ""}
     ${o ? `<div class="pp-out-form">
       ${o.when ? `<label>${esc(o.when)}${o.whenNeeded ? "" : " <small>(optional)</small>"}<input type="datetime-local" id="pp-when" value="${esc(def)}"></label><div class="pp-cal" id="pp-cal"></div>` : ""}
       ${o.amount ? `<label>${esc(o.amount)} <small>(optional)</small><span class="pp-money"><i>$</i><input type="number" inputmode="decimal" min="0" step="1" id="pp-amount" value="${esc(o.k === "won" ? (l.job_value || l.quote_amount || "") : (l.quote_amount || ""))}" placeholder="0"></span></label>` : ""}
@@ -1145,6 +1189,8 @@ function bind(){
     else if (act === "save-note") saveNote();
     else if (act === "ask-yes"){ S.askFor = S.openId; renderSheet(); $("#pp-move")?.scrollIntoView({ block: "start", behavior: "smooth" }); }
     else if (act === "alerts-setup"){ await checkAlerts(); openSheet("alerts"); }
+    else if (act === "welcome-ok"){ store.set("mpp_welcome", "1"); render(); }
+    else if (act === "more-stages"){ S.more = !S.more; if (!S.more) S.pick = null; renderSheet(); }
     else if (act === "alerts-later"){ store.set("mpp_alerts_later", nzDay()); render(); }
     else if (act === "alerts-on") turnOnAlerts();
     else if (act === "install"){ try { S.installEvt?.prompt(); await S.installEvt?.userChoice; } catch(err){} S.installEvt = null; renderSheet(); }
@@ -1230,6 +1276,9 @@ async function start(){
   const want = params.get("client");
   S.preview = want || store.get("mpp_preview_client") || null;
   S.view = store.get("mpp_view") === "board" ? "board" : "call";
+  // Phones get the Pipeline as a plain list, wider screens the drag board.
+  let wasNarrow = narrow();
+  addEventListener("resize", () => { if (narrow() !== wasNarrow){ wasNarrow = narrow(); if (S.loaded && S.tab === "leads" && S.view === "board") renderLeads(); } });
   try {
     await loadAll(true);
   } catch(e){
