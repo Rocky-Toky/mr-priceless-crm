@@ -176,7 +176,7 @@ begin
         checkin_at = null, checkin_deadline = null, checkin_token = null
       where l.client_id = p_client and l.client_calls and l.handed_over_at is null
         and coalesce(l.follow_status, 'new') in ('new', 'no_answer')
-        and coalesce(l.client_stage, public.portal_stage_from_follow(l.follow_status)) in ('new', 'no_answer')
+        and public.portal_lead_stage(l) in ('new', 'no_answer')
       returning 1)
     select count(*) into to_us from m;
   end if;
@@ -195,7 +195,7 @@ immutable
 as $$
   select case coalesce(fs, 'new')
     when 'no_answer' then 'no_answer'
-    when 'unreachable' then 'no_answer'
+    when 'unreachable' then 'lost'
     when 'call_back' then 'call_scheduled'
     when 'consult_call' then 'call_scheduled'
     when 'site_visit' then 'site_visit'
@@ -213,12 +213,38 @@ as $$
   select case st when 'new' then 0 when 'no_answer' then 1 when 'call_scheduled' then 2 when 'site_visit' then 3
     when 'quote_to_send' then 4 when 'quote_sent' then 5 when 'won' then 6 when 'lost' then 7 when 'not_qualified' then 7 else 0 end;
 $$;
+-- A lead the client moved on in their own GoHighLevel (the sync marks it
+-- in_ghl): read the stage from its name there. Null if we can't tell.
+create or replace function public.portal_ghl_stage(name text)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when name ~* '(won|sold|accepted|signed|job booked|in progress|complete)' then 'won'
+    when name ~* '(disqualif|not a fit|unqualif|junk|spam|wrong number)' then 'not_qualified'
+    when name ~* '(lost|dead|abandon|not interested|declined|no go)' then 'lost'
+    when name ~* '(quote|proposal|estimate)' and name ~* '(sent|given|delivered|follow)' then 'quote_sent'
+    when name ~* '(quote|proposal|estimate|measure)' then 'quote_to_send'
+    when name ~* '(site visit|visit|appointment|booked|consult|meeting|inspection)' then 'site_visit'
+    when name ~* '(call ?back|follow ?up|contacted|in contact|nurture)' then 'call_scheduled'
+    else null end;
+$$;
+-- Where a lead shows in the client's pipeline. Their own pick counts once
+-- they've made one (client_log holds a stage); until then it follows our
+-- calling status live, so our call-backs and no-answers never leave a lead
+-- stuck on a stage the client didn't choose.
 create or replace function public.portal_lead_stage(l client_leads)
 returns text
 language sql
 stable
 as $$
-  select coalesce(l.client_stage, public.portal_stage_from_follow(l.follow_status));
+  select case
+    when l.client_stage is not null
+      and exists (select 1 from jsonb_array_elements(case when jsonb_typeof(l.client_log) = 'array' then l.client_log else '[]'::jsonb end) e
+                  where jsonb_typeof(e) = 'object' and e ? 'stage') then l.client_stage
+    when l.follow_status = 'in_ghl' then coalesce(public.portal_ghl_stage(l.status), 'new')
+    else public.portal_stage_from_follow(l.follow_status) end;
 $$;
 
 -- Is a lead ours to call (true) or still the client's (false)?
@@ -251,7 +277,7 @@ as $$
 declare cur text; nxt text;
 begin
   if new.follow_status is distinct from old.follow_status and new.client_stage is not distinct from old.client_stage then
-    cur := coalesce(old.client_stage, public.portal_stage_from_follow(old.follow_status));
+    cur := public.portal_lead_stage(old);
     nxt := public.portal_stage_from_follow(new.follow_status);
     if nxt <> cur and (
       public.portal_stage_rank(nxt) > public.portal_stage_rank(cur) and cur not in ('lost', 'not_qualified', 'won')
@@ -462,7 +488,7 @@ begin
           'quote_amount', l.quote_amount,
           'quote_sent_at', l.quote_sent_at,
           'job_value', l.job_value,
-          'lost_reason', l.lost_reason,
+          'lost_reason', coalesce(l.lost_reason, case when l.follow_status = 'unreachable' then 'Couldn''t reach them' end),
           'client_calls', l.client_calls,
           'assigned_at', coalesce(l.client_assigned_at, l.lead_created_at, l.created_at),
           'ours', public.portal_lead_is_ours(l),

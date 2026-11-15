@@ -6271,11 +6271,30 @@ function renderClientPortal(c){
 }
 // Their pipeline in the portal (client_leads.client_stage, sql/113), so we can see how they're getting on.
 const CPP_STAGES = [["new", "New"], ["no_answer", "Didn't answer"], ["call_scheduled", "Call scheduled"], ["site_visit", "Site visit"], ["quote_to_send", "Quote to send"], ["quote_sent", "Quote sent"], ["won", "Won"], ["lost", "Lost"], ["not_qualified", "Not qualified"]];
-const CPP_FROM_FOLLOW = { no_answer: "no_answer", unreachable: "no_answer", call_back: "call_scheduled", consult_call: "call_scheduled", site_visit: "site_visit", booked: "site_visit", disqualified: "not_qualified", wrong_number: "not_qualified", not_interested: "lost" };
+// Same rule as portal_lead_stage() (sql/113): the client's own pick once
+// they've made one, else from our calling status (or their GHL stage name).
+function cppStageOf(l){
+  const log = Array.isArray(l.client_log) ? l.client_log : [];
+  if (l.client_stage && log.some(e => e && typeof e === "object" && "stage" in e)) return l.client_stage;
+  if (l.follow_status === "in_ghl") return cppGhlStage(l.status) || "new";
+  return CPP_FROM_FOLLOW[l.follow_status] || "new";
+}
+function cppGhlStage(n){
+  n = String(n || "");
+  if (/won|sold|accepted|signed|job booked|in progress|complete/i.test(n)) return "won";
+  if (/disqualif|not a fit|unqualif|junk|spam|wrong number/i.test(n)) return "not_qualified";
+  if (/lost|dead|abandon|not interested|declined|no go/i.test(n)) return "lost";
+  if (/quote|proposal|estimate/i.test(n) && /sent|given|delivered|follow/i.test(n)) return "quote_sent";
+  if (/quote|proposal|estimate|measure/i.test(n)) return "quote_to_send";
+  if (/site visit|visit|appointment|booked|consult|meeting|inspection/i.test(n)) return "site_visit";
+  if (/call ?back|follow ?up|contacted|in contact|nurture/i.test(n)) return "call_scheduled";
+  return null;
+}
+const CPP_FROM_FOLLOW = { no_answer: "no_answer", unreachable: "lost", call_back: "call_scheduled", consult_call: "call_scheduled", site_visit: "site_visit", booked: "site_visit", disqualified: "not_qualified", wrong_number: "not_qualified", not_interested: "lost" };
 function cppPipelineHtml(c){
   const leads = state.clientLeads.filter(l => l.client_id === c.id && l.follow_status !== "old" && Date.now() - lqIn(l) < 90 * 86400e3);
   if (!leads.length) return "";
-  const stageOf = (l) => l.client_stage || CPP_FROM_FOLLOW[l.follow_status] || "new";
+  const stageOf = cppStageOf;
   const n = (k) => leads.filter(l => stageOf(l) === k).length;
   const won = leads.filter(l => stageOf(l) === "won"), wonV = won.reduce((s, l) => s + (Number(l.job_value) || 0), 0);
   const waiting = leads.filter(l => l.checkin_at && !l.checkin_answered_at && !l.handed_over_at).length;
@@ -6361,7 +6380,7 @@ const cppUntouched = (l) => (l.follow_status || "new") === "new" && !(Number(l.a
 const cppWouldMove = (c, rules) => state.clientLeads.filter(l => l.client_id === c.id && !l.client_calls && cppUntouched(l)
   && (l.source !== "ghl" || /^rep to contact/i.test(l.status || "")) && cppRulesMatch(rules, l.answers));
 const cppComingBack = (c) => state.clientLeads.filter(l => l.client_id === c.id && l.client_calls && !l.handed_over_at
-  && ["new", "no_answer"].includes(l.follow_status || "new") && ["new", "no_answer"].includes(l.client_stage || CPP_FROM_FOLLOW[l.follow_status] || "new"));
+  && ["new", "no_answer"].includes(l.follow_status || "new") && ["new", "no_answer"].includes(cppStageOf(l)));
 // Switch who calls (and move the leads), through portal_set_client_calls (sql/113).
 async function cppSetMode(c, on){
   let r;
