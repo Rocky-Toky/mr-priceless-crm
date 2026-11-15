@@ -169,7 +169,7 @@ const stageOf = (l) => STAGE[l.stage] ? l.stage : "new";
 // Still the client's to call? (Our team takes over early-stage leads it's
 // rung or been handed; anything booked is the client's whatever happened.)
 const withUs = (l) => l.ours && EARLY.has(stageOf(l));
-const handoverAt = (l) => l.client_calls && !l.ours && stageOf(l) === "new" && !l.dialled_at ? t(l.at) + HANDOVER_MS : null;
+const handoverAt = (l) => l.client_calls && !l.ours && stageOf(l) === "new" && !l.dialled_at ? t(l.assigned_at || l.at) + HANDOVER_MS : null;
 const tries = (l) => (l.log || []).filter(x => x.by === "you" && x.outcome === "no_answer").length;
 const nextAt = (l) => l.next_at || null;
 function matchQ(l){

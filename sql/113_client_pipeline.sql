@@ -43,6 +43,147 @@ alter table client_leads add column if not exists call_reminded_for timestamptz;
 alter table client_leads add column if not exists visit_reminded_for timestamptz;
 create index if not exists client_leads_client_calls_idx on client_leads (client_id) where client_calls and handed_over_at is null;
 create unique index if not exists client_leads_checkin_token_idx on client_leads (checkin_token) where checkin_token is not null;
+-- When the lead became the client's to call (their 24 hours count from here,
+-- not from when it came in - a lead moved over when the setting is switched
+-- on may be days old).
+alter table client_leads add column if not exists client_assigned_at timestamptz;
+
+-- ───────── Which leads go to the client (their form rules) ─────────
+-- clients.lead_rules: [{ "q": <form question as it comes from GHL>, "a": [<answers that qualify>] }].
+-- A lead qualifies when, for every rule, its answer to that question is one
+-- of the ticked answers. A rule with no answers or "*" is "any answer" (it
+-- doesn't restrict). No rules = every lead qualifies. Matching ignores case,
+-- spaces and punctuation; a multi-choice answer qualifies if any choice does.
+alter table clients add column if not exists lead_rules jsonb not null default '[]'::jsonb;
+
+create or replace function public.portal_norm(t text)
+returns text
+language sql
+immutable
+as $$ select lower(regexp_replace(coalesce(t, ''), '[^a-zA-Z0-9]+', '', 'g')); $$;
+
+create or replace function public.portal_rules_match(p_rules jsonb, p_answers jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select coalesce(bool_and(
+    jsonb_typeof(r -> 'a') is distinct from 'array' or jsonb_array_length(r -> 'a') = 0 or (r -> 'a') ? '*'
+    or exists (
+      select 1
+      from jsonb_array_elements(case when jsonb_typeof(p_answers) = 'array' then p_answers else '[]'::jsonb end) la,
+           lateral (select v from jsonb_array_elements_text(case when jsonb_typeof(coalesce(la -> 'a', la -> 'answer', la -> 'value')) = 'array'
+                       then coalesce(la -> 'a', la -> 'answer', la -> 'value')
+                       else jsonb_build_array(coalesce(la ->> 'a', la ->> 'answer', la ->> 'value', '')) end) v) vals
+      where public.portal_norm(coalesce(la ->> 'q', la ->> 'question', la ->> 'label')) = public.portal_norm(r ->> 'q')
+        and exists (select 1 from jsonb_array_elements_text(r -> 'a') ok where public.portal_norm(ok) = public.portal_norm(vals.v))
+    )), true)
+  from jsonb_array_elements(case when jsonb_typeof(p_rules) = 'array' then p_rules else '[]'::jsonb end) r;
+$$;
+
+-- A lead nobody has touched yet: not rung by us or the client, nothing logged, not handed over.
+create or replace function public.portal_lead_untouched(l client_leads)
+returns boolean
+language sql
+stable
+as $$
+  select coalesce(l.follow_status, 'new') = 'new' and coalesce(l.attempts, 0) = 0
+    and coalesce(jsonb_array_length(l.call_log), 0) = 0 and coalesce(jsonb_array_length(l.client_log), 0) = 0
+    and l.client_dialled_at is null and l.handed_over_at is null;
+$$;
+
+-- New leads (and leads whose form answers arrive later, while nobody has
+-- touched them): theirs to call if the client calls their own leads and the
+-- answers pass their rules, else ours.
+create or replace function public.client_leads_set_client_calls()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare c record; ok boolean;
+begin
+  select lead_client_calls, lead_rules into c from clients where id = new.client_id;
+  if tg_op = 'INSERT' then
+    new.client_calls := coalesce(c.lead_client_calls, false) and public.portal_rules_match(c.lead_rules, new.answers);
+    if new.client_calls then new.client_assigned_at := coalesce(new.client_assigned_at, now()); end if;
+  elsif new.answers is distinct from old.answers and coalesce(c.lead_client_calls, false) and public.portal_lead_untouched(new) then
+    ok := public.portal_rules_match(c.lead_rules, new.answers);
+    if ok and not new.client_calls then
+      new.client_calls := true;
+      new.client_assigned_at := now();
+      begin
+        perform public.portal_queue(new.client_id, new.id, 'new_lead',
+          'New lead: ' || coalesce(nullif(trim(new.name), ''), 'someone'),
+          'Call ' || coalesce(nullif(split_part(trim(coalesce(new.name, '')), ' ', 1), ''), 'them') || ' now',
+          'https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || new.id, null, '{}'::jsonb);
+        perform public.portal_kick();
+      exception when others then null;
+      end;
+    elsif not ok and new.client_calls then
+      new.client_calls := false;
+      new.client_assigned_at := null;
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists client_leads_client_calls on client_leads;
+create trigger client_leads_client_calls before insert or update of answers on client_leads
+  for each row execute function public.client_leads_set_client_calls();
+
+-- Switching a client between "our team calls" and "they call", or saving
+-- their rules: moves the leads straight away and says how many.
+--   on:  their untouched leads waiting in Rep to contact (or added by hand)
+--        that pass the rules go to them (24 hours from now); untouched ones
+--        of theirs that no longer pass come back to us.
+--   off: their leads still at New or Didn't answer (not handed over) come
+--        back to our call queue; anything they've booked stays theirs.
+create or replace function public.portal_set_client_calls(p_client uuid, p_on boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare rules jsonb; to_them int := 0; to_us int := 0; biz text;
+begin
+  if not public.is_allowlisted() then raise exception 'Not allowed'; end if;
+  update clients set lead_client_calls = coalesce(p_on, false) where id = p_client returning lead_rules, name into rules, biz;
+  if not found then raise exception 'No such client'; end if;
+  if p_on then
+    with m as (
+      update client_leads l set client_calls = true, client_assigned_at = now(),
+        checkin_at = null, checkin_deadline = null, checkin_token = null, checkin_answered_at = null
+      where l.client_id = p_client and not l.client_calls and public.portal_lead_untouched(l)
+        and (coalesce(l.source, '') <> 'ghl' or coalesce(l.status, '') ilike 'rep to contact%')
+        and public.portal_rules_match(rules, l.answers)
+      returning 1)
+    select count(*) into to_them from m;
+    with m as (
+      update client_leads l set client_calls = false, client_assigned_at = null
+      where l.client_id = p_client and l.client_calls and public.portal_lead_untouched(l)
+        and not public.portal_rules_match(rules, l.answers)
+      returning 1)
+    select count(*) into to_us from m;
+    if to_them > 0 then
+      perform public.portal_queue(p_client, null, 'moved',
+        to_them || ' lead' || case when to_them = 1 then ' is' else 's are' end || ' ready for you to call',
+        'The best ones are at the top of Call now.', 'https://rocky-toky.github.io/mr-priceless-crm/portal/', null, '{}'::jsonb);
+      perform public.portal_kick();
+    end if;
+  else
+    with m as (
+      update client_leads l set client_calls = false, client_assigned_at = null,
+        checkin_at = null, checkin_deadline = null, checkin_token = null
+      where l.client_id = p_client and l.client_calls and l.handed_over_at is null
+        and coalesce(l.follow_status, 'new') in ('new', 'no_answer')
+        and coalesce(l.client_stage, public.portal_stage_from_follow(l.follow_status)) in ('new', 'no_answer')
+      returning 1)
+    select count(*) into to_us from m;
+  end if;
+  return jsonb_build_object('on', coalesce(p_on, false), 'to_client', to_them, 'to_us', to_us);
+end $$;
+revoke all on function public.portal_set_client_calls(uuid, boolean) from public;
+grant execute on function public.portal_set_client_calls(uuid, boolean) to authenticated;
 
 -- ───────── Stages ─────────
 -- Where a lead sits in the client's pipeline when they haven't set it
@@ -323,6 +464,7 @@ begin
           'job_value', l.job_value,
           'lost_reason', l.lost_reason,
           'client_calls', l.client_calls,
+          'assigned_at', coalesce(l.client_assigned_at, l.lead_created_at, l.created_at),
           'ours', public.portal_lead_is_ours(l),
           'handed_over_at', l.handed_over_at,
           'handover_reason', l.handover_reason,
@@ -585,7 +727,7 @@ begin
       and coalesce(l.follow_status, 'new') = 'new' and public.portal_lead_stage(l) = 'new'
       and l.client_dialled_at is null
       and not exists (select 1 from jsonb_array_elements(coalesce(l.call_log, '[]'::jsonb)) e)
-      and coalesce(l.lead_created_at, l.created_at) <= now() - interval '24 hours'
+      and coalesce(l.client_assigned_at, l.lead_created_at, l.created_at) <= now() - interval '24 hours'
     for update skip locked
   loop
     update client_leads set handed_over_at = now(), handover_reason = 'not_called', updated_at = now() where id = r.id;

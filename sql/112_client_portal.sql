@@ -223,21 +223,9 @@ begin
     execute format('grant execute on function public.%s to authenticated', f);
   end loop;
 end $$;
--- ───────── New leads: remember who calls them (their pipeline, alerts and
--- the 24-hour check-in are in sql/113) ─────────
-create or replace function public.client_leads_set_client_calls()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  new.client_calls := coalesce((select lead_client_calls from clients where id = new.client_id), false);
-  return new;
-end $$;
-drop trigger if exists client_leads_client_calls on client_leads;
-create trigger client_leads_client_calls before insert on client_leads
-  for each row execute function public.client_leads_set_client_calls();
+-- Which leads the client calls (client_leads.client_calls, the client's form
+-- rules, moving leads when the setting changes), their pipeline, alerts and
+-- the 24-hour check-in are all in sql/113.
 
 -- ───────── No client logins anywhere else ─────────
 -- A restrictive rule is ANDed with every other rule on the table, so a client

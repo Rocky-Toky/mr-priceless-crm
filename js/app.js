@@ -6251,8 +6251,9 @@ function renderClientPortal(c){
     <h4 class="cpp-h">Who calls their leads?</h4>
     <div class="cpp-mode">
       <label class="${c.lead_client_calls ? "" : "on"}"><input type="radio" name="cpp-mode" value="us"${c.lead_client_calls ? "" : " checked"}><b>Our team</b><span>Leads go in the Lead Follow Up call queue as soon as they come in.</span></label>
-      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>New leads go to their portal with a phone alert. Not rung in 24 hours, or they couldn't reach them and say so (asked the next day, by 10pm), and it comes into our call queue.</span></label>
+      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>Leads that pass the rules below go to their portal with a phone alert. Not rung in 24 hours, or they couldn't reach them and say so (asked the next day, by 10pm), and it comes into our call queue.</span></label>
     </div>
+    ${cppRulesHtml(c)}
     ${cppPipelineHtml(c)}
     <h4 class="cpp-h">Logins</h4>
     ${users.error ? `<p class="cpp-p cpp-err">${escapeHtml(users.error)}</p>` : users.length ? `<ul class="cpp-users">${users.map(u => `<li><div><b>${escapeHtml(u.name || u.email)}</b><span>${u.name ? escapeHtml(u.email) + " · " : ""}${escapeHtml(seen(u))}${u.phone ? ` · ${escapeHtml(u.phone)}` : ""} · ${u.devices ? `phone alerts on ${u.devices} device${u.devices === 1 ? "" : "s"}` : "no phone alerts yet"}${u.notify_new_leads ? " · new lead emails" : ""}</span></div>
@@ -6282,6 +6283,109 @@ function cppPipelineHtml(c){
     <div class="cpp-pipe">${CPP_STAGES.map(([k, label]) => `<span class="${k === "won" ? "won" : ""}"><b>${n(k)}</b>${escapeHtml(label)}</span>`).join("")}</div>
     <p class="cpp-p cpp-small">${won.length ? `${won.length} job${won.length === 1 ? "" : "s"} won${wonV ? ` (${fmtMoney(wonV)})` : ""}. ` : ""}${waiting ? `${waiting} waiting on their "Did they get back to you?" answer. ` : ""}${leads.filter(l => l.handed_over_at).length} passed to our team.</p>`;
 }
+// Which leads go to the client (clients.lead_rules, sql/113): built from the
+// questions and answers on their own leads. Same matching as
+// portal_rules_match(): every question with ticked answers must be answered
+// with one of them; "Any answer" doesn't restrict; ignores case / punctuation.
+const cppNorm = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+const cppQ = (x) => x?.q ?? x?.question ?? x?.label ?? "";
+const cppVals = (x) => { const a = x?.a ?? x?.answer ?? x?.value; return Array.isArray(a) ? a.map(String) : [String(a ?? "")]; };
+function cppRulesMatch(rules, answers){
+  const list = Array.isArray(answers) ? answers : [];
+  return (Array.isArray(rules) ? rules : []).every(r => {
+    const ok = Array.isArray(r.a) ? r.a : [];
+    if (!ok.length || ok.includes("*")) return true;
+    const want = new Set(ok.map(cppNorm));
+    return list.some(x => cppNorm(cppQ(x)) === cppNorm(r.q) && cppVals(x).some(v => want.has(cppNorm(v))));
+  });
+}
+const cppPretty = (s) => { let t = String(s || "").replace(/_+/g, " ").replace(/\s+/g, " ").trim(); t = t.charAt(0).toUpperCase() + t.slice(1); return /^(what|when|how|where|are|do|does|is|which|who|would|will|have)\b/i.test(t) && !/[?:.]$/.test(t) ? t + "?" : t; };
+// The client's form: every question their leads have answered, with the answers given.
+function cppForm(c){
+  const qs = new Map();
+  state.clientLeads.filter(l => l.client_id === c.id).slice(0, 400).forEach(l => (Array.isArray(l.answers) ? l.answers : []).forEach(x => {
+    const q = cppQ(x), k = cppNorm(q);
+    if (!k) return;
+    if (!qs.has(k)) qs.set(k, { q, k, n: 0, answers: new Map() });
+    const e = qs.get(k); e.n++;
+    cppVals(x).forEach(v => { const vk = cppNorm(v); if (!vk) return; const a = e.answers.get(vk) || { a: v, n: 0 }; a.n++; e.answers.set(vk, a); });
+  }));
+  // Questions the rules mention that no lead has answered yet still show.
+  (c.lead_rules || []).forEach(r => { const k = cppNorm(r.q); if (k && !qs.has(k)) qs.set(k, { q: r.q, k, n: 0, answers: new Map() }); });
+  (c.lead_rules || []).forEach(r => { const e = qs.get(cppNorm(r.q)); (r.a || []).filter(a => a !== "*").forEach(a => { const vk = cppNorm(a); if (vk && !e.answers.has(vk)) e.answers.set(vk, { a, n: 0 }); }); });
+  return [...qs.values()].sort((a, b) => b.n - a.n);
+}
+Object.assign(state, { cppRules: {} });
+const cppDraft = (c) => state.cppRules[c.id] || (state.cppRules[c.id] = JSON.parse(JSON.stringify(Array.isArray(c.lead_rules) ? c.lead_rules : [])));
+function cppRulesHtml(c){
+  const form = cppForm(c), draft = cppDraft(c), biz = lqBizName(c) || "them";
+  const ruleFor = (k) => draft.find(r => cppNorm(r.q) === k);
+  const recent = state.clientLeads.filter(l => l.client_id === c.id && Date.now() - lqIn(l) < 30 * 86400e3);
+  const pass = recent.filter(l => cppRulesMatch(draft, l.answers)).length;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(Array.isArray(c.lead_rules) ? c.lead_rules : []);
+  return `<h4 class="cpp-h">Which leads go to ${escapeHtml(biz)}</h4>
+    <p class="cpp-p cpp-small">When ${escapeHtml(biz)} call their own leads, only leads whose form answers you tick here go to them. The rest stay with our team. Leave a question on "Any answer" if it doesn't matter.</p>
+    ${form.length ? `<div class="cpp-rules">${form.map(q => {
+      const r = ruleFor(q.k), any = !r || !(r.a || []).filter(a => a !== "*").length;
+      const ans = [...q.answers.values()].sort((a, b) => b.n - a.n).slice(0, 20);
+      return `<div class="cpp-rule${any ? "" : " set"}">
+        <b>${escapeHtml(cppPretty(q.q))}</b>
+        <div class="cpp-rule-opts">
+          <label class="any"><input type="checkbox" data-cpp-any="${escapeHtml(q.k)}"${any ? " checked" : ""}> Any answer</label>
+          ${ans.map(a => `<label><input type="checkbox" data-cpp-q="${escapeHtml(q.k)}" data-cpp-qraw="${escapeHtml(q.q)}" data-cpp-a="${escapeHtml(a.a)}"${!any && (r.a || []).some(x => cppNorm(x) === cppNorm(a.a)) ? " checked" : ""}> ${escapeHtml(cppPretty(a.a))}${a.n ? ` <small>${a.n}</small>` : ""}</label>`).join("")}
+        </div>
+      </div>`; }).join("")}</div>
+      <p class="cpp-p cpp-small cpp-preview">${recent.length ? `With these, <b>${pass} of their ${recent.length} leads</b> from the last 30 days would have gone to ${escapeHtml(biz)}; ${recent.length - pass} to our team.` : "No leads in the last 30 days to check these against."}</p>
+      <div class="cpp-rule-save"><button type="button" class="btn gold sm" data-cpp="save-rules"${dirty ? "" : " disabled"}>Save which leads go to them</button>${dirty ? `<button type="button" class="btn ghost sm" data-cpp="undo-rules">Undo changes</button>` : ""}</div>`
+      : `<p class="cpp-p cpp-small">No leads with form answers yet, so there's nothing to pick from. Until there are, every lead counts.</p>`}`;
+}
+function cppRuleChange(e){
+  const c = cppClient(); if (!c) return false;
+  const draft = cppDraft(c);
+  const any = e.target.dataset.cppAny, k = e.target.dataset.cppQ;
+  if (any){
+    if (e.target.checked){ const i = draft.findIndex(r => cppNorm(r.q) === any); if (i >= 0) draft.splice(i, 1); }
+    else e.target.checked = true; // untick "Any" by picking an answer instead
+  } else if (k){
+    let r = draft.find(x => cppNorm(x.q) === k);
+    if (!r){ r = { q: e.target.dataset.cppQraw, a: [] }; draft.push(r); }
+    r.a = (r.a || []).filter(a => a !== "*" && cppNorm(a) !== cppNorm(e.target.dataset.cppA));
+    if (e.target.checked) r.a.push(e.target.dataset.cppA);
+    if (!r.a.length) draft.splice(draft.indexOf(r), 1);
+  } else return false;
+  renderClientPortal(c);
+  return true;
+}
+// What switching on would move: their untouched leads in Rep to contact (or added by hand) that pass the rules.
+const cppUntouched = (l) => (l.follow_status || "new") === "new" && !(Number(l.attempts) > 0) && !(l.call_log || []).length && !(l.client_log || []).length && !l.client_dialled_at && !l.handed_over_at;
+const cppWouldMove = (c, rules) => state.clientLeads.filter(l => l.client_id === c.id && !l.client_calls && cppUntouched(l)
+  && (l.source !== "ghl" || /^rep to contact/i.test(l.status || "")) && cppRulesMatch(rules, l.answers));
+const cppComingBack = (c) => state.clientLeads.filter(l => l.client_id === c.id && l.client_calls && !l.handed_over_at
+  && ["new", "no_answer"].includes(l.follow_status || "new") && ["new", "no_answer"].includes(l.client_stage || CPP_FROM_FOLLOW[l.follow_status] || "new"));
+// Switch who calls (and move the leads), through portal_set_client_calls (sql/113).
+async function cppSetMode(c, on){
+  let r;
+  if (IS_CONFIGURED){
+    const { data, error } = await supabase.rpc("portal_set_client_calls", { p_client: c.id, p_on: on });
+    if (error){ rcToast("Couldn't save that - " + error.message); return null; }
+    r = data;
+  } else {
+    // Demo: the same moves in the browser.
+    const now = new Date().toISOString();
+    if (on){
+      const go = cppWouldMove(c, c.lead_rules || []), back = state.clientLeads.filter(l => l.client_id === c.id && l.client_calls && cppUntouched(l) && !cppRulesMatch(c.lead_rules || [], l.answers));
+      go.forEach(l => { l.client_calls = true; l.client_assigned_at = now; });
+      back.forEach(l => { l.client_calls = false; l.client_assigned_at = null; });
+      r = { to_client: go.length, to_us: back.length };
+    } else {
+      const back = cppComingBack(c);
+      back.forEach(l => { l.client_calls = false; l.client_assigned_at = null; l.checkin_at = null; });
+      r = { to_client: 0, to_us: back.length };
+    }
+  }
+  c.lead_client_calls = on;
+  return r;
+}
 const cppClient = () => state.clients.find(x => x.id === $("#cp-portal")?.dataset.id);
 async function cppInvite(c, email, name, phone = ""){
   if (!IS_CONFIGURED){
@@ -6305,6 +6409,23 @@ async function cppClick(e){
   const act = b.dataset.cpp;
   if (act === "copy-link"){ try { await navigator.clipboard.writeText(state.portalLink?.link || ""); rcToast("Link copied."); } catch(err){ $("#cp-portal .cpp-link input")?.select(); } return; }
   if (act === "resend") return cppInvite(c, b.dataset.email, b.dataset.name || "", b.dataset.phone || "");
+  if (act === "undo-rules"){ delete state.cppRules[c.id]; renderClientPortal(c); return; }
+  if (act === "save-rules"){
+    const rules = cppDraft(c).filter(r => (r.a || []).filter(a => a !== "*").length);
+    const old = c.lead_rules;
+    c.lead_rules = rules;
+    if (IS_CONFIGURED){
+      const { error } = await supabase.from("clients").update({ lead_rules: rules }).eq("id", c.id);
+      if (error){ c.lead_rules = old; rcToast("Couldn't save that - " + error.message); return; }
+    }
+    delete state.cppRules[c.id];
+    let msg = "Saved. New leads are checked against these from now on.";
+    if (c.lead_client_calls){
+      const r = await cppSetMode(c, true);
+      if (r) msg = `Saved. ${r.to_client ? `${r.to_client} waiting lead${r.to_client === 1 ? "" : "s"} moved to ${lqBizName(c)}` : "No waiting leads moved to them"}${r.to_us ? `, ${r.to_us} came back to our call queue` : ""}.`;
+    }
+    rcToast(msg); renderClientPortal(c); return;
+  }
   if (act === "remove"){
     if (!confirm(`Take away ${b.dataset.email}'s portal login? They won't be able to sign in any more.`)) return;
     if (IS_CONFIGURED){
@@ -6316,16 +6437,22 @@ async function cppClick(e){
   }
 }
 async function cppChange(e){
+  if (cppRuleChange(e)) return;
   if (e.target.name !== "cpp-mode") return;
   const c = cppClient(); if (!c) return;
-  const on = e.target.value === "client";
-  c.lead_client_calls = on;
+  const on = e.target.value === "client", biz = lqBizName(c);
+  if (on === !!c.lead_client_calls) return;
+  const n = on ? cppWouldMove(c, c.lead_rules || []).length : cppComingBack(c).length;
+  const ask = on
+    ? `Switch ${biz} to calling their own leads?\n\n${n ? `${n} lead${n === 1 ? "" : "s"} waiting in Rep to contact that nobody has rung (and that pass the rules) will move to ${biz}'s app now.` : "No waiting leads to move right now."} New leads that pass the rules go to them from now on.`
+    : `Switch ${biz} back to our team calling their leads?\n\n${n ? `${n} lead${n === 1 ? "" : "s"} they haven't got anywhere with (New or Didn't answer) will come back to Carmen's call queue now.` : "No leads to bring back right now."} Anything they've already booked stays with them.`;
+  if (!confirm(ask)){ renderClientPortal(c); return; }
+  const r = await cppSetMode(c, on);
   renderClientPortal(c);
-  if (IS_CONFIGURED){
-    const { error } = await supabase.from("clients").update({ lead_client_calls: on }).eq("id", c.id);
-    if (error){ c.lead_client_calls = !on; renderClientPortal(c); rcToast("Couldn't save that - " + error.message); return; }
-  }
-  rcToast(on ? `New leads now go to ${lqBizName(c)} to call. We pick up any they haven't spoken to in 24 hours.` : `Our team calls ${lqBizName(c)}'s new leads again.`);
+  if (!r) return;
+  rcToast(on ? `${biz} now call their leads.${r.to_client ? ` ${r.to_client} lead${r.to_client === 1 ? "" : "s"} moved to their app.` : ""}${r.to_us ? ` ${r.to_us} came back to our queue.` : ""}`
+    : `Our team calls ${biz}'s leads again.${r.to_us ? ` ${r.to_us} lead${r.to_us === 1 ? "" : "s"} came back to the call queue.` : ""}`);
+  if (typeof renderLeadQueue === "function" && state.page === "lead-queue") renderLeadQueue();
 }
 function cppSubmit(e){
   if (!e.target.matches(".cpp-add")) return;
