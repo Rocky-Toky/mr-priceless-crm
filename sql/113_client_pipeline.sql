@@ -47,6 +47,10 @@ create unique index if not exists client_leads_checkin_token_idx on client_leads
 -- not from when it came in - a lead moved over when the setting is switched
 -- on may be days old).
 alter table client_leads add column if not exists client_assigned_at timestamptz;
+-- The client's move still to be mirrored into their GoHighLevel (sync-ghl-leads
+-- action portal_push clears it; the 5-minute sync retries anything left).
+alter table client_leads add column if not exists ghl_push_at timestamptz;
+create index if not exists client_leads_ghl_push on client_leads (ghl_push_at) where ghl_push_at is not null;
 
 -- ───────── Which leads go to the client (their form rules) ─────────
 -- clients.lead_rules: [{ "q": <form question as it comes from GHL>, "a": [<answers that qualify>] }].
@@ -379,6 +383,30 @@ exception when others then
   raise notice 'portal_kick: %', sqlerrm;
 end $$;
 
+-- Mirror a client's move into their GoHighLevel now (sync-ghl-leads,
+-- portal_push). Never fails the caller: the 5-minute sync retries.
+create or replace function public.portal_push_ghl(p_lead uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform net.http_post(
+    url := 'https://chaexdenosljtdwuyjnw.supabase.co/functions/v1/sync-ghl-leads',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_',
+      'x-cron-secret', (select value from public.app_secrets where name = 'leads_cron_secret')
+    ),
+    body := jsonb_build_object('action', 'portal_push', 'lead_id', p_lead),
+    timeout_milliseconds := 60000
+  );
+exception when others then
+  raise notice 'portal_push_ghl: %', sqlerrm;
+end $$;
+revoke all on function public.portal_push_ghl(uuid) from public;
+
 -- ───────── New leads: email (if they want it) and a phone alert, straight away ─────────
 create or replace function public.client_leads_portal_alert()
 returns trigger
@@ -596,8 +624,11 @@ begin
     checkin_answered_at = case when pending and p_stage is not null then now() else checkin_answered_at end,
     handed_over_at = case when pending and p_stage = 'no_answer' then now() else handed_over_at end,
     handover_reason = case when pending and p_stage = 'no_answer' then 'client_no' else handover_reason end,
+    ghl_push_at = case when p_stage is not null then now() else ghl_push_at end,
     updated_at = now()
   where id = l.id;
+  -- Their GoHighLevel follows (stage, calendar, a note), straight away.
+  if p_stage is not null then perform public.portal_push_ghl(l.id); end if;
   return jsonb_build_object('ok', true);
 end $$;
 

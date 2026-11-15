@@ -7,6 +7,8 @@
 //   Scheduled (sql/078 pg_cron, every 5 minutes): header x-cron-secret
 //     matches app_secrets.leads_cron_secret.
 //   Signed-in allowlisted user, body { action: "sync" }: the same, now.
+//   Cron secret + { action: "portal_push", lead_id }: mirror a client's own
+//     move in their portal into their GoHighLevel (see pushPortalStage).
 //
 // Where leads come from, for each client, looking back 3 days:
 //   - every opportunity created (the usual Meta -> GHL route), and
@@ -360,6 +362,8 @@ async function syncAll(admin: any) {
   todo.sort((x: any, y: any) => String((prevOf.get(x.client_id) as any)?.last_ok_at || "").localeCompare(String((prevOf.get(y.client_id) as any)?.last_ok_at || "")));
 
   let added = 0, failed = 0, checked = 0, noContacts = 0, skipped = 0;
+  let pushed = 0;
+  try { pushed = await pushPending(admin, Date.now() + 25e3); } catch (e) { console.warn("sync-ghl-leads: portal pushes failed:", String((e as any)?.message || e).slice(0, 120)); }
   const one = async (conn: any) => {
     const client: any = byId.get(conn.client_id), prev: any = prevOf.get(conn.client_id);
     const now = new Date().toISOString();
@@ -384,7 +388,7 @@ async function syncAll(admin: any) {
     if (Date.now() > deadline) { skipped = todo.length - i; break; } // the rest go first next run
     await Promise.all(todo.slice(i, i + PARALLEL).map(one));
   }
-  return { connected: todo.length, checked, added, failed, skipped, no_contacts_access: noContacts };
+  return { connected: todo.length, checked, added, failed, skipped, no_contacts_access: noContacts, portal_pushes: pushed };
 }
 
 // Where a client's lead details live in GHL, by shape only - counts and
@@ -733,6 +737,146 @@ async function applyOutcome(admin: any, leadId: string, outcome: string, when: s
   return result;
 }
 
+// ───────── The client's own moves (client portal) into their GoHighLevel ─────────
+// The portal is the client's only screen; their GHL mirrors it so GHL's own
+// automations (texts, emails) run off the same stages. portal_update_lead
+// (sql/113) marks the lead (ghl_push_at) and calls { action: "portal_push" }
+// straight away; anything that didn't go through is retried by the 5-minute
+// sync. It always mirrors where the lead is now, so repeats are harmless.
+//   new -> Rep to contact · no_answer / call_scheduled -> Stuck (as Carmen's)
+//   site_visit -> Site visit stage + their site visit calendar (moved, not
+//   doubled, when the time changes) · quote_to_send / quote_sent -> a stage
+//   named like that · won / lost -> the opportunity marked won / lost (and a
+//   Won / Lost stage if they have one) · not_qualified -> Disqualified.
+// A note goes on the contact each time, with what the client wrote.
+const PORTAL_STAGE_MATCH: Record<string, RegExp[]> = {
+  rep_to_contact: [/rep\s*to\s*contact/i, /new\s*lead/i],
+  quote_to_send: [/quote.*(to\s*(send|do|be\s*sent)|needed|pending|required|prep)/i, /(need|needs|to)\s*quote/i, /visit\s*(done|complete)|measured/i],
+  quote_sent: [/quote.*(sent|given|delivered|follow)/i, /quoted/i, /proposal\s*sent|estimate\s*sent/i],
+  won: [/\bwon\b|closed\s*won|job\s*(booked|won)|sold|accepted/i],
+  lost: [/\blost\b|closed\s*lost|not\s*going\s*ahead|declined/i],
+};
+const PORTAL_KIND: Record<string, string> = {
+  new: "rep_to_contact", no_answer: "stuck", call_scheduled: "stuck", site_visit: "site_visit",
+  quote_to_send: "quote_to_send", quote_sent: "quote_sent", won: "won", lost: "lost", not_qualified: "disqualified",
+};
+const PORTAL_LABEL: Record<string, string> = {
+  new: "Back to new", no_answer: "Didn't answer", call_scheduled: "Call back booked", site_visit: "Site visit booked",
+  quote_to_send: "Quote to send", quote_sent: "Quote sent", won: "Job won", lost: "Job lost", not_qualified: "Not qualified",
+};
+const nzWhen = (iso: string) => new Date(iso).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+
+async function pushPortalStage(admin: any, leadId: string) {
+  const { data: lead } = await admin.from("client_leads")
+    .select("id, client_id, name, external_lead_id, ghl_contact_id, client_stage, client_log, client_next_at, address, job_scope, quote_amount, job_value, lost_reason, ghl_sync")
+    .eq("id", leadId).maybeSingle();
+  if (!lead) return { error: "Lead not found." };
+  const done = async (result: any) => {
+    // Keep the appointment we made earlier, so a moved visit moves the same one.
+    const prevAppt = lead.ghl_sync?.portal_appointment || null;
+    const out = { ...result, source: "portal", portal_appointment: result.portal_appointment || prevAppt || undefined };
+    if (!out.errors?.length) delete out.errors;
+    await admin.from("client_leads").update({ ghl_sync: out, ghl_push_at: null }).eq("id", lead.id);
+    return out;
+  };
+  const log = Array.isArray(lead.client_log) ? lead.client_log : [];
+  const last = [...log].reverse().find((e: any) => e && typeof e === "object" && e.stage);
+  const st = lead.client_stage;
+  if (!st || !last) return done({ at: new Date().toISOString(), skipped: true, reason: "The client hasn't moved this lead." });
+  const kind = PORTAL_KIND[st];
+  const isGhl = String(lead.external_lead_id || "").startsWith("ghl");
+  if (!kind || (!isGhl && !lead.ghl_contact_id)) return done({ at: new Date().toISOString(), stage_picked: st, skipped: true, reason: "This lead didn't come from GoHighLevel." });
+  const { data: conn } = await admin.from("client_ghl").select("location_id, token").eq("client_id", lead.client_id).maybeSingle();
+  if (!conn) return done({ at: new Date().toISOString(), stage_picked: st, skipped: true, reason: "This client isn't connected to GoHighLevel." });
+  const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", lead.client_id).maybeSingle();
+  const result: any = { at: new Date().toISOString(), stage_picked: st, errors: [] as string[] };
+  const loc = conn.location_id, token = conn.token;
+  const oppId = String(lead.external_lead_id).startsWith("ghl:") ? String(lead.external_lead_id).slice(4) : null;
+  let contactId = lead.ghl_contact_id || (String(lead.external_lead_id).startsWith("ghlc:") ? String(lead.external_lead_id).slice(5) : null);
+
+  try {
+    const pipes = (await ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(loc)}`, token))?.pipelines || [];
+    let opp: any = null;
+    if (oppId) { opp = (await ghl(`/opportunities/${encodeURIComponent(oppId)}`, token))?.opportunity || null; contactId = contactId || opp?.contactId; }
+    const pipe = pipes.find((p: any) => p.id === opp?.pipelineId) || pipes[0];
+    const mine = (pipe?.stages || []).map((s: any) => ({ ...s, pipeline_id: pipe.id }));
+    const all = pipes.flatMap((p: any) => (p.stages || []).map((s: any) => ({ ...s, pipeline_id: p.id })));
+    const find = (k: string) => {
+      const picked = map?.[k + "_stage"] && all.find((s: any) => s.id === map[k + "_stage"]);
+      if (picked) return picked;
+      const res = PORTAL_STAGE_MATCH[k] || STAGE_MATCH[k] || [];
+      for (const re of res) { const hit = mine.find((s: any) => re.test(s.name || "") && !/to\s*be\s*booked|not\s*booked/i.test(s.name || "")); if (hit) return hit; }
+      return null;
+    };
+    const stage = find(kind);
+    const status = kind === "won" ? "won" : kind === "lost" ? "lost" : "open";
+    const value = st === "won" ? Number(lead.job_value) || null : st === "quote_sent" ? Number(lead.quote_amount) || null : null;
+    if (!stage && status === "open") {
+      const want: Record<string, string> = { rep_to_contact: "Rep to contact", stuck: "Stuck", site_visit: "Site visit", quote_to_send: "Quote to send", quote_sent: "Quote sent", disqualified: "Disqualified" };
+      result.errors.push(`Their GoHighLevel has no "${want[kind] || kind}" stage, so the lead wasn't moved there.`);
+    }
+    const body: any = { status, ...(stage ? { pipelineId: stage.pipeline_id, pipelineStageId: stage.id } : {}), ...(value ? { monetaryValue: value } : {}) };
+    if (opp && (stage || status !== "open")) {
+      await ghl(`/opportunities/${encodeURIComponent(opp.id)}`, token, { method: "PUT", body: JSON.stringify(body) });
+      result.moved = true; if (stage) result.stage = stage.name; if (status !== "open") result.status = status;
+    } else if (!opp && contactId && stage) {
+      const made = await ghl(`/opportunities/`, token, { method: "POST", body: JSON.stringify({ locationId: loc, contactId, name: lead.name || "New lead", ...body }) });
+      result.moved = true; result.stage = stage.name; result.created_opportunity = made?.opportunity?.id || true;
+    }
+  } catch (e) { result.errors.push("Couldn't move it in GoHighLevel: " + String((e as any)?.message || e).slice(0, 160)); }
+
+  // A site visit with a time: in their site visit calendar (moving the one we made before).
+  if (st === "site_visit" && lead.client_next_at && contactId) {
+    try {
+      const cals = (await ghl(`/calendars/?locationId=${encodeURIComponent(loc)}`, token, {}, CAL_VERSION))?.calendars || [];
+      const cal = (map?.site_visit_calendar && cals.find((c: any) => c.id === map.site_visit_calendar)) || bestCalendar(cals, "site_visit");
+      if (!cal) result.errors.push("No site visit calendar in their GoHighLevel - pick one under Stages on Lead calling setup.");
+      else {
+        const mins = Number(cal.slotDuration) && /hour/i.test(String(cal.slotDurationUnit || "")) ? Number(cal.slotDuration) * 60 : Number(cal.slotDuration) || 60;
+        const start = new Date(lead.client_next_at), end = new Date(start.getTime() + mins * 60e3);
+        const assignedUserId = calendarUser(cal);
+        const address = String(lead.address || "").trim().slice(0, 240);
+        const appt = { calendarId: cal.id, locationId: loc, contactId, startTime: start.toISOString(), endTime: end.toISOString(),
+          title: `Site visit - ${lead.name || "new lead"}${address ? ` - ${address}` : ""}`, appointmentStatus: "confirmed",
+          ignoreFreeSlotValidation: true, ignoreDateRange: true, toNotify: true, ...(assignedUserId ? { assignedUserId } : {}) };
+        const prev = lead.ghl_sync?.portal_appointment;
+        let id: string | null = null;
+        if (prev && typeof prev === "string") {
+          try { await ghl(`/calendars/events/appointments/${encodeURIComponent(prev)}`, token, { method: "PUT", body: JSON.stringify(appt) }, CAL_VERSION); id = prev; result.appointment_moved = true; }
+          catch { id = null; }
+        }
+        if (!id) {
+          const r = await ghl(`/calendars/events/appointments`, token, { method: "POST", body: JSON.stringify(appt) }, CAL_VERSION);
+          id = r?.id || r?.appointment?.id || null;
+        }
+        result.calendar = cal.name; result.appointment = true;
+        if (id) result.portal_appointment = id;
+      }
+    } catch (e) { result.errors.push("Couldn't put the site visit in their GoHighLevel calendar: " + String((e as any)?.message || e).slice(0, 160)); }
+  }
+
+  if (contactId) {
+    const when = (st === "site_visit" || st === "call_scheduled") && lead.client_next_at ? ` for ${nzWhen(lead.client_next_at)}` : "";
+    const money = st === "quote_sent" && lead.quote_amount ? ` ($${Number(lead.quote_amount).toLocaleString("en-NZ")})` : st === "won" && lead.job_value ? ` ($${Number(lead.job_value).toLocaleString("en-NZ")})` : "";
+    const why = (st === "lost" || st === "not_qualified") && lead.lost_reason ? ` - ${lead.lost_reason}` : "";
+    const text = `${PORTAL_LABEL[st] || st}${when}${money}${why} - updated in the Mr Priceless app.${last.note ? "\n\n" + String(last.note).slice(0, 2000) : ""}`;
+    try { await ghl(`/contacts/${encodeURIComponent(contactId)}/notes`, token, { method: "POST", body: JSON.stringify({ body: text }) }); result.note = true; }
+    catch { /* a note is a nice-to-have */ }
+  }
+  return done(result);
+}
+// Pushes that didn't go through straight away (the 5-minute run picks them up).
+async function pushPending(admin: any, deadline: number) {
+  const { data } = await admin.from("client_leads").select("id").not("ghl_push_at", "is", null)
+    .lt("ghl_push_at", new Date(Date.now() - 60e3).toISOString()).order("ghl_push_at").limit(20);
+  let n = 0;
+  for (const r of data || []) {
+    if (Date.now() > deadline) break;
+    try { await pushPortalStage(admin, r.id); n++; } catch (e) { console.warn("sync-ghl-leads: portal push failed:", String((e as any)?.message || e).slice(0, 120)); }
+  }
+  return n;
+}
+
 // What's already booked in a client's GoHighLevel calendar(s) - the site visit
 // and consultation calendars the outcome buttons book into - from yesterday to
 // 6 weeks out, so the caller can see which times are taken. Read-only.
@@ -778,6 +922,7 @@ Deno.serve(async (req: Request) => {
     try { cb = (await req.json()) ?? {}; } catch { cb = {}; }
     if (cb.action === "inspect") return json(await inspect(admin));
     if (cb.action === "check_outcomes") return json(await checkOutcomes(admin));
+    if (cb.action === "portal_push") return json(cb.lead_id ? await pushPortalStage(admin, String(cb.lead_id)) : { error: "lead_id is needed." });
     return json(await syncAll(admin));
   }
 
