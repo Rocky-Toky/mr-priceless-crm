@@ -23,9 +23,8 @@
 // portal_cron_secret, sql/113), { action: "deliver" }: sends the waiting
 // portal_notifications. Each goes as a phone notification to every device
 // that login turned alerts on for. Kinds queued with fallback "text" are
-// also texted to the login's mobile every time (new lead, the 9am / 3pm
-// "leads to call" text, the check-in question, site visit today, our team
-// booked one for you); "sms" texts only when no device got it; "email"
+// also texted to the login's mobile every time (new lead, and the 9am / 3pm
+// "leads to call" text); "sms" texts only when no device got it; "email"
 // emails when neither went. Texts go from our own GoHighLevel number
 // (GHL_PRECALL_TOKEN / GHL_PRECALL_LOCATION_ID: the client is upserted as a
 // contact tagged mr-priceless-app, then an SMS is sent in that conversation),
@@ -420,7 +419,7 @@ Deno.serve(async (req) => {
       const { data: row } = await admin.from("client_portal_users").select("phone, name").eq("id", body.id).maybeSingle();
       const to = e164(row?.phone || "");
       if (!to) return json({ error: "This login has no mobile number. Add one first." }, 400);
-      const err = await sendText(to, "Mr Priceless: this is a test. New leads, the 9am and 3pm leads-to-call texts and site visit reminders will come from this number.", row?.name || "");
+      const err = await sendText(to, "Mr Priceless: this is a test. Your new leads and the 9am and 3pm leads-to-call texts will come from this number.", row?.name || "");
       return json(err ? { error: `The text didn't go: ${err}` } : { ok: true });
     }
 

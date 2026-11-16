@@ -1181,7 +1181,7 @@ function renderAccount(){
       ${readOnly() ? `<p class="pp-muted">Settings are the client's own - not shown in the team preview.</p>` : `
       <div class="pp-row"><span>Alerts on this ${isPhone() ? "phone" : "computer"}</span>${alertsTxt || `<button type="button" class="pp-btn pp-btn-gold" data-act="alerts-setup">Set up</button>`}</div>
       <label class="pp-switch"><input type="checkbox" id="pp-notify"${S.me.notify_new_leads ? " checked" : ""}><span>Also email me each new lead</span></label>
-      <div class="pp-row pp-phone-row"><span>Text me new leads, my 9am and 3pm leads to call and site visit reminders</span>
+      <div class="pp-row pp-phone-row"><span>Text me new leads and my 9am and 3pm leads to call</span>
         <span class="pp-addnote"><input type="tel" id="pp-phone" value="${esc(S.me.phone || "")}" placeholder="Your mobile" autocomplete="tel"><button type="button" class="pp-btn pp-btn-light" data-act="save-phone">Save</button></span></div>
       <div class="pp-row"><span>Signed in as ${esc(S.me.email || "")}</span><button type="button" class="pp-btn pp-btn-light" data-act="signout">Sign out</button></div>
       <button type="button" class="pp-link" data-act="change-pw">Change my password</button>`}
