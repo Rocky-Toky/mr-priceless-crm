@@ -3914,22 +3914,30 @@ function renderDialerFilters(){
   const industrySel = $("#dialer-filter-industry");
   const ownerSel = $("#dialer-filter-owner");
   const pool = state.prospects.filter(inDialerCountry);
+  // Each list only offers what goes with the other one: pick Roofing and the
+  // regions are just the ones with roofing prospects (with roofing counts),
+  // pick a region and the industries are just the ones there.
+  const pickedIndustry = state.dialerFilter.industry;
+  const regionPool = pickedIndustry ? pool.filter(p => p.industry === pickedIndustry) : pool;
   // Regions in the pick-list's own order, only the ones with prospects on
   // file, each with how many - so it's obvious where there's work to do.
   const counts = new Map();
-  pool.forEach(p => { if (p.region) counts.set(p.region, (counts.get(p.region)||0) + 1); });
+  regionPool.forEach(p => { if (p.region) counts.set(p.region, (counts.get(p.region)||0) + 1); });
   const canonical = DIALER_COUNTRIES[country].regions;
   const regions = [...canonical.filter(r => counts.has(r)), ...[...counts.keys()].filter(r => !canonical.includes(r)).sort()];
   if (state.dialerFilter.region && !regions.includes(state.dialerFilter.region)) state.dialerFilter.region = "";
   if (regionSel){
     const label = country === "AU" ? "All states" : "All regions";
-    regionSel.innerHTML = `<option value="">${label} (${pool.length})</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)} (${counts.get(r)})</option>`).join("");
+    regionSel.innerHTML = `<option value="">${label} (${regionPool.length})</option>` + regions.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)} (${counts.get(r)})</option>`).join("");
     regionSel.value = state.dialerFilter.region;
   }
   if (industrySel){
-    const industries = [...new Set(pool.filter(p => !state.dialerFilter.region || p.region === state.dialerFilter.region).map(p => p.industry).filter(Boolean))].sort();
+    const inRegion = pool.filter(p => !state.dialerFilter.region || p.region === state.dialerFilter.region);
+    const icounts = new Map();
+    inRegion.forEach(p => { if (p.industry) icounts.set(p.industry, (icounts.get(p.industry) || 0) + 1); });
+    const industries = [...icounts.keys()].sort();
     if (state.dialerFilter.industry && !industries.includes(state.dialerFilter.industry)) state.dialerFilter.industry = "";
-    industrySel.innerHTML = `<option value="">All Industries</option>` + industries.map(i => `<option value="${escapeHtml(i)}">${escapeHtml(i)}</option>`).join("");
+    industrySel.innerHTML = `<option value="">All Industries (${inRegion.length})</option>` + industries.map(i => `<option value="${escapeHtml(i)}">${escapeHtml(i)} (${icounts.get(i)})</option>`).join("");
     industrySel.value = state.dialerFilter.industry;
   }
   if (ownerSel && document.activeElement !== ownerSel) ownerSel.value = state.dialerOwnerFilter || "";
@@ -19379,7 +19387,7 @@ function renderRecentCalls(){
 }
 function setupDialerFilters(){
   $("#dialer-search")?.addEventListener("input", (e) => { state.dialerFilter.search = e.target.value; renderProspectViews(); });
-  $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; state.dialerFilter.industry = ""; renderProspectViews(); });
+  $("#dialer-filter-region")?.addEventListener("change", (e) => { state.dialerFilter.region = e.target.value; renderProspectViews(); });
   $$("#dialer-country [data-country]").forEach(b => b.addEventListener("click", () => setDialerCountry(b.dataset.country)));
   $("#dialer-filter-industry")?.addEventListener("change", (e) => { state.dialerFilter.industry = e.target.value; renderProspectViews(); });
   $("#dialer-filter-owner")?.addEventListener("change", (e) => { state.dialerOwnerFilter = e.target.value; renderProspectViews(); });
