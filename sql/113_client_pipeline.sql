@@ -51,6 +51,11 @@ alter table client_leads add column if not exists client_assigned_at timestamptz
 -- action portal_push clears it; the 5-minute sync retries anything left).
 alter table client_leads add column if not exists ghl_push_at timestamptz;
 create index if not exists client_leads_ghl_push on client_leads (ghl_push_at) where ghl_push_at is not null;
+-- The deal's state in their GoHighLevel, kept by sync-ghl-leads (only set once
+-- a deal's been won; then follows it): won shows as Job won with its value.
+alter table client_leads add column if not exists ghl_status text;
+alter table client_leads add column if not exists ghl_value numeric;
+alter table client_leads add column if not exists ghl_closed_at timestamptz;
 
 -- ───────── Which leads go to the client (their form rules) ─────────
 -- clients.lead_rules: [{ "q": <form question as it comes from GHL>, "a": [<answers that qualify>] }].
@@ -258,11 +263,14 @@ language sql
 stable
 as $$
   select case
-    when l.client_stage is not null
-      and exists (select 1 from jsonb_array_elements(case when jsonb_typeof(l.client_log) = 'array' then l.client_log else '[]'::jsonb end) e
-                  where jsonb_typeof(e) = 'object' and e ? 'stage') then l.client_stage
+    -- Won in their GoHighLevel, unless the client moved it themselves since.
+    when l.ghl_status = 'won' and not (p.picked and l.client_stage_at > coalesce(l.ghl_closed_at, l.client_stage_at)) then 'won'
+    when p.picked then l.client_stage
     when l.follow_status = 'in_ghl' then coalesce(public.portal_ghl_stage(l.status), 'new')
-    else public.portal_stage_from_follow(l.follow_status) end;
+    else public.portal_stage_from_follow(l.follow_status) end
+  from (select l.client_stage is not null
+      and exists (select 1 from jsonb_array_elements(case when jsonb_typeof(l.client_log) = 'array' then l.client_log else '[]'::jsonb end) e
+                  where jsonb_typeof(e) = 'object' and e ? 'stage') as picked) p;
 $$;
 
 -- Is a lead ours to call (true) or still the client's (false)?
@@ -523,13 +531,13 @@ begin
           'campaign', nullif(coalesce(l.ad_info ->> 'campaign', l.ad_info ->> 'form', ''), ''),
           'status', coalesce(l.follow_status, 'new'),
           'stage', public.portal_lead_stage(l),
-          'stage_at', coalesce(l.client_stage_at, l.last_attempt_at),
+          'stage_at', case when public.portal_lead_stage(l) = 'won' and l.ghl_status = 'won' then coalesce(l.ghl_closed_at, l.client_stage_at, l.last_attempt_at) else coalesce(l.client_stage_at, l.last_attempt_at) end,
           'next_at', coalesce(l.client_next_at,
                        case when l.follow_status in ('site_visit', 'booked', 'consult_call') then l.booked_for end,
                        case when l.follow_status = 'call_back' then l.next_attempt_at end),
           'quote_amount', l.quote_amount,
           'quote_sent_at', l.quote_sent_at,
-          'job_value', l.job_value,
+          'job_value', coalesce(case when l.ghl_status = 'won' then l.ghl_value end, l.job_value),
           'lost_reason', coalesce(l.lost_reason, case when l.follow_status = 'unreachable' then 'Couldn''t reach them' end),
           'client_calls', l.client_calls,
           'assigned_at', coalesce(l.client_assigned_at, l.lead_created_at, l.created_at),
@@ -552,7 +560,7 @@ begin
         ) as x
       from client_leads l
       where l.client_id = cid
-        and coalesce(l.follow_status, 'new') <> 'old'
+        and (coalesce(l.follow_status, 'new') <> 'old' or l.ghl_status = 'won')
         and coalesce(l.lead_created_at, l.created_at) > now() - make_interval(days => greatest(1, least(coalesce(p_days, 365), 400)))
       order by coalesce(l.lead_created_at, l.created_at) desc
       limit 1000

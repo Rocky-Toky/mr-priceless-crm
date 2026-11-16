@@ -48,6 +48,18 @@ async function ghl(path: string, token: string, init: RequestInit = {}, version 
 }
 
 const createdAt = (o: any) => new Date(o.createdAt || o.dateAdded || 0).getTime();
+// A deal's won / lost state and value in their GHL, onto our lead (only what
+// changed, so nothing is rewritten each run): won shows as "Job won" with its
+// value in the client's portal (portal_lead_stage, sql/113).
+function wonPatch(o: any, r: any) {
+  const st = String(o.status || "open").toLowerCase(), value = Number(o.monetaryValue) || null;
+  const p: any = {};
+  if (st === "won") {
+    if (r.ghl_status !== "won") { p.ghl_status = "won"; p.ghl_closed_at = o.lastStatusChangeAt || o.updatedAt || new Date().toISOString(); }
+    if (value !== (r.ghl_value == null ? null : Number(r.ghl_value))) p.ghl_value = value;
+  } else if (r.ghl_status && r.ghl_status !== st) { p.ghl_status = st; p.ghl_closed_at = st === "open" ? null : (o.lastStatusChangeAt || new Date().toISOString()); }
+  return p;
+}
 
 // Every opportunity in the location (for the backlog sitting in Rep to
 // contact / Stuck, whatever its age).
@@ -257,7 +269,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
   const windowStart = Date.now() - WINDOW_MS;
   const opps = allOpps.filter((o: any) => !closed(o) && (createdAt(o) >= windowStart || inQueueStage(o)));
 
-  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at, answers, address, city, follow_status, status, lead_created_at")
+  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at, answers, address, city, follow_status, status, lead_created_at, ghl_status, ghl_value")
     .eq("client_id", client.id).limit(20000);
 
   // Keep the queue in step with their pipeline: refresh each open lead's
@@ -273,7 +285,43 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     if (OPEN_FOLLOW.has(r.follow_status) && stage && stage !== r.status) patch.status = clean(stage, 100);
     if (OPEN_FOLLOW.has(r.follow_status) && QUEUE_STAGE.test(r.status || "") && (closed(o) || (stage && !QUEUE_STAGE.test(stage)))) { patch.follow_status = "in_ghl"; patch.next_attempt_at = null; }
     if ((r.follow_status === "old" || r.follow_status === "in_ghl") && !closed(o) && inQueueStage(o)) { patch.follow_status = "new"; patch.status = clean(stage, 100); }
+    Object.assign(patch, wonPatch(o, r));
     if (Object.keys(patch).length) { await admin.from("client_leads").update(patch).eq("id", r.id); Object.assign(r, patch); }
+  }
+  // Jobs won in their GoHighLevel that never came in as a lead (closed before
+  // the sync saw them, or older): add them so the client's pipeline shows the
+  // job and its value. They come in as in_ghl, so they never reach the call
+  // queue; one already in under the same contact, phone or email is marked won instead.
+  let wonAdded = 0;
+  {
+    const seen = new Set((recent || []).map((r: any) => r.external_lead_id));
+    const byCid = new Map((recent || []).filter((r: any) => r.ghl_contact_id).map((r: any) => [r.ghl_contact_id, r]));
+    const byPhone = new Map((recent || []).filter((r: any) => digits(r.phone).length >= 8).map((r: any) => [digits(r.phone), r]));
+    const byEmail = new Map((recent || []).filter((r: any) => r.email).map((r: any) => [String(r.email).toLowerCase(), r]));
+    const add: any[] = [];
+    for (const o of allOpps) {
+      if (String(o.status || "").toLowerCase() !== "won" || seen.has("ghl:" + o.id)) continue;
+      const c = o.contact || {}, cid = o.contactId || c.id || "";
+      const phone = clean(c.phone, 40), email = clean(c.email, 200).toLowerCase();
+      const same: any = (cid && byCid.get(cid)) || (digits(phone).length >= 8 && byPhone.get(digits(phone))) || (email && byEmail.get(email));
+      if (same) {
+        const patch = wonPatch(o, same);
+        if (Object.keys(patch).length) { await admin.from("client_leads").update(patch).eq("id", same.id); Object.assign(same, patch); }
+        continue;
+      }
+      seen.add("ghl:" + o.id);
+      add.push({
+        client_id: client.id, external_lead_id: "ghl:" + o.id, source: "ghl", ghl_contact_id: cid || null,
+        name: nameOf(c, { name: o.name }), phone, email, status: clean(stageName.get(o.pipelineStageId) || "Won", 100),
+        form_name: clean(o.source || c.source || "GoHighLevel", 120), answers: [], ad_info: {}, details_at: new Date().toISOString(),
+        lead_created_at: new Date(createdAt(o) || Date.now()).toISOString(), follow_status: "in_ghl", ...wonPatch(o, {}),
+      });
+    }
+    for (let i = 0; i < add.length; i += 200) {
+      const { error } = await admin.from("client_leads").insert(add.slice(i, i + 200));
+      if (error) throw new Error(error.message);
+    }
+    wonAdded = add.length;
   }
   const byExt = new Map((recent || []).map((r: any) => [r.external_lead_id, r]));
   const byContact = new Map((recent || []).filter((r: any) => r.ghl_contact_id).map((r: any) => [r.ghl_contact_id, r]));
@@ -337,7 +385,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
     added = rows.length;
   }
   const access = await keyAccess(loc, token, contacts !== null).catch(() => null);
-  return { added, contactsAccess: contacts !== null, lastLead, stages, access };
+  return { added, wonAdded, contactsAccess: contacts !== null, lastLead, stages, access };
 }
 
 async function syncAll(admin: any) {
