@@ -6258,6 +6258,7 @@ function renderClientPortal(c){
     <h4 class="cpp-h">Logins</h4>
     ${users.error ? `<p class="cpp-p cpp-err">${escapeHtml(users.error)}</p>` : users.length ? `<ul class="cpp-users">${users.map(u => `<li><div><b>${escapeHtml(u.name || u.email)}</b><span>${u.name ? escapeHtml(u.email) + " · " : ""}${escapeHtml(seen(u))}${u.phone ? ` · ${escapeHtml(u.phone)}` : ""} · ${u.devices ? `phone alerts on ${u.devices} device${u.devices === 1 ? "" : "s"}` : "no phone alerts yet"}${u.notify_new_leads ? " · new lead emails" : ""}</span></div>
       <button type="button" class="btn ghost sm" data-cpp="resend" data-email="${escapeHtml(u.email)}" data-name="${escapeHtml(u.name || "")}" data-phone="${escapeHtml(u.phone || "")}">Send a new link</button>
+      ${u.phone ? `<button type="button" class="btn ghost sm" data-cpp="test-text" data-uid="${escapeHtml(u.id)}">Send a test text</button>` : ""}
       <button type="button" class="btn ghost sm cpp-x" data-cpp="remove" data-uid="${escapeHtml(u.id)}" data-email="${escapeHtml(u.email)}">Remove</button></li>`).join("")}</ul>` : `<p class="cpp-p">Nobody from ${escapeHtml(lqBizName(c) || "this client")} has a login yet.</p>`}
     ${mine ? `<div class="cpp-link"><b>The email didn't go${mine.why ? ` (${escapeHtml(mine.why)})` : ""}.</b> Text or email them this link instead - it lets them choose a password, works once, for an hour:
       <input type="text" readonly value="${escapeHtml(mine.link)}"><button type="button" class="btn gold sm" data-cpp="copy-link">Copy link</button></div>` : ""}
@@ -6489,6 +6490,14 @@ async function cppClick(e){
       if (r) msg = `Saved. ${r.to_client ? `${r.to_client} waiting lead${r.to_client === 1 ? "" : "s"} moved to ${lqBizName(c)}` : "No waiting leads moved to them"}${r.to_us ? `, ${r.to_us} came back to our call queue` : ""}.`;
     }
     rcToast(msg); renderClientPortal(c); return;
+  }
+  if (act === "test-text"){
+    if (!IS_CONFIGURED){ rcToast("Demo mode - a test text would go to their mobile now."); return; }
+    b.disabled = true;
+    const { data, error } = await supabase.functions.invoke("client-portal", { body: { action: "test_text", id: b.dataset.uid } });
+    b.disabled = false;
+    rcToast(error || data?.error ? (data?.error || "Couldn't send it - " + (error?.message || "try again")) : "Test text sent. Check their phone.");
+    return;
   }
   if (act === "remove"){
     if (!confirm(`Take away ${b.dataset.email}'s portal login? They won't be able to sign in any more.`)) return;

@@ -104,6 +104,26 @@ as $$
     where coalesce(r ->> 'form', '') = '' or public.portal_norm(r ->> 'form') = public.portal_norm(p_form)), '[]'::jsonb), p_answers);
 $$;
 
+-- Texts to the client (client-portal function sends portal_notifications
+-- with fallback 'text' to the login's mobile every time). Not at night: a
+-- text only goes from 7am to 9pm NZ.
+create or replace function public.portal_text_ok()
+returns boolean
+language sql
+stable
+as $$ select extract(hour from now() at time zone 'Pacific/Auckland') between 7 and 20; $$;
+-- "Sarah Lin" + phone, the new-lead text.
+create or replace function public.portal_new_lead_sms(l client_leads)
+returns text
+language sql
+stable
+as $$
+  select 'Mr Priceless: new lead - ' || coalesce(nullif(trim(l.name), ''), 'someone')
+    || coalesce(' (' || nullif(concat_ws(', ', nullif(trim(coalesce(l.form_name, '')), ''), nullif(trim(coalesce(l.city, '')), '')), '') || ')', '')
+    || '. Call them now' || coalesce(': ' || nullif(trim(coalesce(l.phone, '')), ''), '')
+    || '. Details: https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || l.id;
+$$;
+
 -- A lead nobody has touched yet: not rung by us or the client, nothing logged, not handed over.
 create or replace function public.portal_lead_untouched(l client_leads)
 returns boolean
@@ -139,7 +159,8 @@ begin
         perform public.portal_queue(new.client_id, new.id, 'new_lead',
           'New lead: ' || coalesce(nullif(trim(new.name), ''), 'someone'),
           'Call ' || coalesce(nullif(split_part(trim(coalesce(new.name, '')), ' ', 1), ''), 'them') || ' now',
-          'https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || new.id, null, '{}'::jsonb);
+          'https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || new.id,
+          case when public.portal_text_ok() then 'text' end, jsonb_build_object('sms', public.portal_new_lead_sms(new)));
         perform public.portal_kick();
       exception when others then null;
       end;
@@ -190,7 +211,9 @@ begin
     if to_them > 0 then
       perform public.portal_queue(p_client, null, 'moved',
         to_them || ' lead' || case when to_them = 1 then ' is' else 's are' end || ' ready for you to call',
-        'The best ones are at the top of Call now.', 'https://rocky-toky.github.io/mr-priceless-crm/portal/', null, '{}'::jsonb);
+        'The best ones are at the top of Call now.', 'https://rocky-toky.github.io/mr-priceless-crm/portal/',
+        case when public.portal_text_ok() then 'text' end,
+        jsonb_build_object('sms', 'Mr Priceless: ' || to_them || ' lead' || case when to_them = 1 then ' is' else 's are' end || ' ready for you to call. Open your leads: https://rocky-toky.github.io/mr-priceless-crm/portal/'));
       perform public.portal_kick();
     end if;
   else
@@ -474,7 +497,7 @@ begin
   pushed := public.portal_queue(new.client_id, new.id, 'new_lead',
     'New lead: ' || coalesce(nullif(trim(new.name), ''), 'someone'),
     coalesce(nullif(new.form_name, '') || ' · ', '') || coalesce(nullif(new.city, ''), '') || case when coalesce(new.city, '') <> '' then ' · ' else '' end || 'Call ' || coalesce(first, 'them') || ' now',
-    url, null, '{}'::jsonb);
+    url, case when public.portal_text_ok() then 'text' end, jsonb_build_object('sms', public.portal_new_lead_sms(new)));
   -- Send now rather than on the next 5-minute run. Never holds up the lead itself.
   if emailed > 0 then
     begin
@@ -791,6 +814,53 @@ grant execute on function public.portal_checkin_link(text, text) to anon, authen
 revoke all on function public.portal_queue(uuid, uuid, text, text, text, text, text, jsonb) from public;
 revoke all on function public.portal_kick() from public;
 
+-- Which 9am / 3pm "leads to call" texts have gone (server only).
+create table if not exists portal_digest_log (
+  client_id uuid not null references clients(id) on delete cascade,
+  slot text not null,
+  sent_at timestamptz not null default now(),
+  primary key (client_id, slot)
+);
+alter table portal_digest_log enable row level security;
+delete from portal_digest_log where sent_at < now() - interval '30 days';
+
+-- Our team books a site visit or a call for them: tell the client (a text, and
+-- a phone alert). Only when our team made the booking (the newest call_log
+-- entry isn't the client's own), so the client's own bookings don't echo back.
+create or replace function public.client_leads_booked_alert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  last jsonb := case when jsonb_typeof(new.call_log) = 'array' then new.call_log -> -1 end;
+  who text := coalesce(nullif(trim(new.name), ''), 'a lead');
+  at_txt text := case when new.booked_for is not null then to_char(new.booked_for at time zone 'Pacific/Auckland', 'FMDy FMDD Mon, FMHH12:MIam') end;
+  url text := 'https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || new.id;
+  sms text;
+begin
+  if new.follow_status is not distinct from old.follow_status or new.follow_status not in ('site_visit', 'booked', 'consult_call')
+     or last is null or coalesce(last ->> 'by', '') = 'client' then
+    return new;
+  end if;
+  sms := 'Mr Priceless: ' || case
+    when new.follow_status = 'consult_call' and at_txt is null then who || ' would like a call from you as soon as you can'
+    when new.follow_status = 'consult_call' then 'we booked ' || who || ' in for a phone call with you ' || at_txt
+    else 'we booked ' || who || ' in for a site visit' || coalesce(' ' || at_txt, '') || coalesce(' at ' || nullif(trim(coalesce(new.address, '')), ''), '') end
+    || coalesce('. Their number: ' || nullif(trim(coalesce(new.phone, '')), ''), '') || '. Details: ' || url;
+  perform public.portal_queue(new.client_id, new.id, 'booked',
+    case when new.follow_status = 'consult_call' then 'Call booked: ' else 'Site visit booked: ' end || who,
+    coalesce(at_txt, 'As soon as you can') || ' - booked by Mr Priceless', url, 'text', jsonb_build_object('sms', sms));
+  perform public.portal_kick();
+  return new;
+exception when others then
+  return new;
+end $$;
+drop trigger if exists client_leads_booked_alert on client_leads;
+create trigger client_leads_booked_alert after update of follow_status on client_leads
+  for each row execute function public.client_leads_booked_alert();
+
 -- ───────── Every 5 minutes: hand-overs, the check-in, reminders ─────────
 create or replace function public.portal_tick()
 returns jsonb
@@ -806,6 +876,7 @@ declare
   tok text;
   dl timestamptz;
   n_not_called int := 0; n_checkin int := 0; n_no_reply int := 0; n_other int := 0;
+  dslot text; n_new int; n_ask int;
   nz_now timestamp := now() at time zone 'Pacific/Auckland';
 begin
   -- 1. Never rung by the client 24 hours after it came in: ours.
@@ -833,6 +904,7 @@ begin
       and coalesce(l.follow_status, 'new') in ('new', 'no_answer')
       and public.portal_lead_stage(l) in ('new', 'no_answer')
       and coalesce(l.client_first_na_at, l.client_dialled_at) <= now() - interval '24 hours'
+      and public.portal_text_ok() -- asked (and texted) in the day; one due at night waits for 7am
       and not exists (select 1 from jsonb_array_elements(coalesce(l.call_log, '[]'::jsonb)) e where coalesce(e ->> 'by', '') <> 'client')
     for update skip locked
   loop
@@ -843,7 +915,7 @@ begin
     select name into biz from clients where id = r.client_id;
     perform public.portal_queue(r.client_id, r.id, 'checkin', 'Did ' || first || ' get back to you?',
       'Tap to say where ' || first || ' is at. Not yet? We''ll follow them up for you from ' || to_char(dl at time zone 'Pacific/Auckland', 'FMHH12am Dy') || '.',
-      base || '?lead=' || r.id, 'sms,email',
+      base || '?lead=' || r.id, 'text,email',
       jsonb_build_object('token', tok,
         'sms', 'Mr Priceless: did ' || coalesce(nullif(trim(r.name), ''), 'your lead') || ' get back to you? Update them: ' || base || '?lead=' || r.id
           || ' - Not yet? Tap to pass them to our team: ' || base || '?checkin=' || tok,
@@ -910,7 +982,53 @@ begin
       update client_leads set visit_reminded_for = r.visit_at where id = r.id;
       first := coalesce(nullif(split_part(trim(coalesce(r.name, '')), ' ', 1), ''), 'them');
       perform public.portal_queue(r.client_id, r.id, 'visit_today', 'Site visit today: ' || coalesce(nullif(trim(r.name), ''), 'a lead'),
-        to_char(r.visit_at at time zone 'Pacific/Auckland', 'FMHH12:MIam') || coalesce(' · ' || nullif(coalesce(r.address, r.city), ''), ''), base || '?lead=' || r.id);
+        to_char(r.visit_at at time zone 'Pacific/Auckland', 'FMHH12:MIam') || coalesce(' · ' || nullif(coalesce(r.address, r.city), ''), ''), base || '?lead=' || r.id,
+        'text', jsonb_build_object('sms', 'Mr Priceless: site visit today at ' || to_char(r.visit_at at time zone 'Pacific/Auckland', 'FMHH12:MIam')
+          || ' - ' || coalesce(nullif(trim(r.name), ''), 'your lead')
+          || coalesce(', ' || nullif(trim(coalesce(r.address, r.city, '')), ''), '')
+          || coalesce('. Their number: ' || nullif(trim(coalesce(r.phone, '')), ''), '')
+          || coalesce('. Map: https://maps.google.com/?q=' || nullif(regexp_replace(trim(coalesce(r.address, r.city, '')), '[^A-Za-z0-9,]+', '+', 'g'), ''), '')));
+      n_other := n_other + 1;
+    end loop;
+  end if;
+
+  -- 7. 9am and 3pm NZ: "N leads to call" to each client with leads to ring or
+  --    a "did they get back to you?" to answer (only then; once per slot).
+  if extract(hour from nz_now) in (9, 15) then
+    dslot := to_char(nz_now, 'YYYY-MM-DD') || case when extract(hour from nz_now) = 9 then '-am' else '-pm' end;
+    for r in
+      select c.id, c.name from clients c
+      where exists (select 1 from client_portal_users u where u.client_id = c.id)
+        and not exists (select 1 from portal_digest_log d where d.client_id = c.id and d.slot = dslot)
+    loop
+      insert into portal_digest_log (client_id, slot) values (r.id, dslot) on conflict do nothing;
+      select count(*) filter (where public.portal_lead_stage(l) = 'new' and coalesce(l.follow_status, 'new') = 'new' and not (l.checkin_at is not null and l.checkin_answered_at is null)),
+             count(*) filter (where l.checkin_at is not null and l.checkin_answered_at is null)
+        into n_new, n_ask
+      from client_leads l
+      where l.client_id = r.id and l.client_calls and l.handed_over_at is null and not public.portal_lead_is_ours(l)
+        and coalesce(l.follow_status, 'new') <> 'in_ghl';
+      continue when n_new + n_ask = 0;
+      -- The next one about to go to our team.
+      select x.who, x.at into first, dl from (
+        select coalesce(nullif(split_part(trim(coalesce(l.name, '')), ' ', 1), ''), 'A lead') as who,
+          case when l.checkin_at is not null and l.checkin_answered_at is null then l.checkin_deadline
+               when public.portal_lead_stage(l) = 'new' and coalesce(l.follow_status, 'new') = 'new' and l.client_dialled_at is null
+                 then coalesce(l.client_assigned_at, l.lead_created_at, l.created_at) + interval '24 hours' end as at
+        from client_leads l
+        where l.client_id = r.id and l.client_calls and l.handed_over_at is null and not public.portal_lead_is_ours(l)
+          and coalesce(l.follow_status, 'new') <> 'in_ghl') x
+      where x.at is not null and x.at > now() order by x.at limit 1;
+      tok := concat_ws(' and ',
+        case when n_new > 0 then n_new || ' new lead' || case when n_new = 1 then '' else 's' end || ' to call' end,
+        case when n_ask > 0 then n_ask || ' lead' || case when n_ask = 1 then '' else 's' end || ' to update (did they get back to you?)' end);
+      perform public.portal_queue(r.id, null, 'digest',
+        'You have ' || (n_new + n_ask) || ' lead' || case when n_new + n_ask = 1 then '' else 's' end || ' to deal with',
+        tok || '.', base, 'text',
+        jsonb_build_object('sms', 'Mr Priceless: you have ' || tok || '.'
+          || case when dl is not null then ' ' || first || ' goes to our team at ' || to_char(dl at time zone 'Pacific/Auckland', 'FMHH12:MIam')
+             || case when (dl at time zone 'Pacific/Auckland')::date = nz_now::date then ' today' else ' tomorrow' end || '.' else '' end
+          || ' Open your leads: ' || base));
       n_other := n_other + 1;
     end loop;
   end if;
