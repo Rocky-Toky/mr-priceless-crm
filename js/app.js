@@ -6309,9 +6309,11 @@ function cppPipelineHtml(c){
 const cppNorm = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 const cppQ = (x) => x?.q ?? x?.question ?? x?.label ?? "";
 const cppVals = (x) => { const a = x?.a ?? x?.answer ?? x?.value; return Array.isArray(a) ? a.map(String) : [String(a ?? "")]; };
-function cppRulesMatch(rules, answers){
-  const list = Array.isArray(answers) ? answers : [];
-  return (Array.isArray(rules) ? rules : []).every(r => {
+// Rules can be per lead form (r.form, matched on the lead's form_name): a lead
+// only meets the rules for its own form plus any without a form.
+function cppRulesMatch(rules, answers, form){
+  const list = Array.isArray(answers) ? answers : [], fk = cppNorm(form);
+  return (Array.isArray(rules) ? rules : []).filter(r => !cppNorm(r.form) || cppNorm(r.form) === fk).every(r => {
     const ok = Array.isArray(r.a) ? r.a : [];
     if (!ok.length || ok.includes("*")) return true;
     const want = new Set(ok.map(cppNorm));
@@ -6319,10 +6321,23 @@ function cppRulesMatch(rules, answers){
   });
 }
 const cppPretty = (s) => { let t = String(s || "").replace(/_+/g, " ").replace(/\s+/g, " ").trim(); t = t.charAt(0).toUpperCase() + t.slice(1); return /^(what|when|how|where|are|do|does|is|which|who|would|will|have)\b/i.test(t) && !/[?:.]$/.test(t) ? t + "?" : t; };
-// The client's form: every question their leads have answered, with the answers given.
-function cppForm(c){
+// The lead forms a client's leads come from (form_name), most used first.
+function cppForms(c){
+  const m = new Map();
+  state.clientLeads.filter(l => l.client_id === c.id && cppNorm(l.form_name)).slice(0, 400).forEach(l => {
+    const k = cppNorm(l.form_name);
+    if (!m.has(k)) m.set(k, { k, name: String(l.form_name).trim(), n: 0, withAnswers: 0 });
+    const f = m.get(k); f.n++; if (Array.isArray(l.answers) && l.answers.length) f.withAnswers++;
+  });
+  (c.lead_rules || []).forEach(r => { const k = cppNorm(r.form); if (k && !m.has(k)) m.set(k, { k, name: r.form, n: 0, withAnswers: 0 }); });
+  return [...m.values()].filter(f => f.withAnswers || (c.lead_rules || []).some(r => cppNorm(r.form) === f.k)).sort((a, b) => b.n - a.n);
+}
+// One form's questions: every question its leads have answered, with the answers given.
+function cppForm(c, fk){
   const qs = new Map();
-  state.clientLeads.filter(l => l.client_id === c.id).slice(0, 400).forEach(l => (Array.isArray(l.answers) ? l.answers : []).forEach(x => {
+  // This form's rules (or every rule when there's no form to pick); older rules without a form only add answers to questions the form asks.
+  const mine = (r) => fk == null || cppNorm(r.form) === fk;
+  state.clientLeads.filter(l => l.client_id === c.id && (fk == null || cppNorm(l.form_name) === fk)).slice(0, 400).forEach(l => (Array.isArray(l.answers) ? l.answers : []).forEach(x => {
     const q = cppQ(x), k = cppNorm(q);
     if (!k) return;
     if (!qs.has(k)) qs.set(k, { q, k, n: 0, answers: new Map() });
@@ -6330,20 +6345,42 @@ function cppForm(c){
     cppVals(x).forEach(v => { const vk = cppNorm(v); if (!vk) return; const a = e.answers.get(vk) || { a: v, n: 0 }; a.n++; e.answers.set(vk, a); });
   }));
   // Questions the rules mention that no lead has answered yet still show.
-  (c.lead_rules || []).forEach(r => { const k = cppNorm(r.q); if (k && !qs.has(k)) qs.set(k, { q: r.q, k, n: 0, answers: new Map() }); });
-  (c.lead_rules || []).forEach(r => { const e = qs.get(cppNorm(r.q)); (r.a || []).filter(a => a !== "*").forEach(a => { const vk = cppNorm(a); if (vk && !e.answers.has(vk)) e.answers.set(vk, { a, n: 0 }); }); });
+  const rs = (c.lead_rules || []).filter(mine);
+  rs.forEach(r => { const k = cppNorm(r.q); if (k && !qs.has(k)) qs.set(k, { q: r.q, k, n: 0, answers: new Map() }); });
+  rs.concat(fk == null ? [] : (c.lead_rules || []).filter(r => !cppNorm(r.form))).forEach(r => { const e = qs.get(cppNorm(r.q)); if (!e) return; (r.a || []).filter(a => a !== "*").forEach(a => { const vk = cppNorm(a); if (vk && !e.answers.has(vk)) e.answers.set(vk, { a, n: 0 }); }); });
   return [...qs.values()].sort((a, b) => b.n - a.n);
 }
-Object.assign(state, { cppRules: {} });
+Object.assign(state, { cppRules: {}, cppFormPick: {} });
+// Older rules have no form: on the first change they're copied onto every form
+// that asks that question, so each form can then be set on its own (a rule a
+// form doesn't ask would otherwise stop all of that form's leads).
+function cppSplitLegacy(c, draft){
+  const old = draft.filter(r => !cppNorm(r.form));
+  if (!old.length) return;
+  const forms = cppForms(c);
+  if (!forms.length) return;
+  for (const r of old){
+    draft.splice(draft.indexOf(r), 1);
+    forms.forEach(f => { if (cppForm(c, f.k).some(q => q.k === cppNorm(r.q))) draft.push({ form: f.name, q: r.q, a: [...(r.a || [])] }); });
+  }
+}
 const cppDraft = (c) => state.cppRules[c.id] || (state.cppRules[c.id] = JSON.parse(JSON.stringify(Array.isArray(c.lead_rules) ? c.lead_rules : [])));
 function cppRulesHtml(c){
-  const form = cppForm(c), draft = cppDraft(c), biz = lqBizName(c) || "them";
-  const ruleFor = (k) => draft.find(r => cppNorm(r.q) === k);
+  const forms = cppForms(c), draft = cppDraft(c), biz = lqBizName(c) || "them";
+  let pick = state.cppFormPick[c.id];
+  if (!forms.some(f => f.k === pick)) pick = state.cppFormPick[c.id] = forms[0]?.k ?? null;
+  const cur = forms.find(f => f.k === pick);
+  const form = cppForm(c, pick);
+  // This form's rule for a question (an older rule without a form counts until it's split).
+  const ruleFor = (k) => draft.find(r => cppNorm(r.q) === k && cppNorm(r.form) === pick) || draft.find(r => cppNorm(r.q) === k && !cppNorm(r.form));
   const recent = state.clientLeads.filter(l => l.client_id === c.id && Date.now() - lqIn(l) < 30 * 86400e3);
-  const pass = recent.filter(l => cppRulesMatch(draft, l.answers)).length;
+  const pass = recent.filter(l => cppRulesMatch(draft, l.answers, l.form_name)).length;
+  const fRecent = recent.filter(l => cppNorm(l.form_name) === pick), fPass = fRecent.filter(l => cppRulesMatch(draft, l.answers, l.form_name)).length;
+  const setOn = (f) => draft.some(r => cppNorm(r.form) === f.k && (r.a || []).filter(a => a !== "*").length);
   const dirty = JSON.stringify(draft) !== JSON.stringify(Array.isArray(c.lead_rules) ? c.lead_rules : []);
   return `<h4 class="cpp-h">Which leads go to ${escapeHtml(biz)}</h4>
-    <p class="cpp-p cpp-small">When ${escapeHtml(biz)} call their own leads, only leads whose form answers you tick here go to them. The rest stay with our team. Leave a question on "Any answer" if it doesn't matter.</p>
+    <p class="cpp-p cpp-small">When ${escapeHtml(biz)} call their own leads, only leads whose form answers you tick here go to them. The rest stay with our team. Leave a question on "Any answer" if it doesn't matter.${forms.length > 1 ? " Each form has its own answers: pick a form, then tick." : ""}</p>
+    ${forms.length > 1 ? `<div class="cpp-forms" role="tablist" aria-label="Lead forms">${forms.map(f => `<button type="button" role="tab" class="cpp-form${f.k === pick ? " on" : ""}" data-cpp="form" data-form="${escapeHtml(f.k)}" aria-selected="${f.k === pick}"><b>${escapeHtml(f.name)}</b><small>${f.n} lead${f.n === 1 ? "" : "s"}${setOn(f) ? " · rules set" : ""}</small></button>`).join("")}</div>` : cur ? `<p class="cpp-p cpp-small">Form: <b>${escapeHtml(cur.name)}</b></p>` : ""}
     ${form.length ? `<div class="cpp-rules">${form.map(q => {
       const r = ruleFor(q.k), any = !r || !(r.a || []).filter(a => a !== "*").length;
       const ans = [...q.answers.values()].sort((a, b) => b.n - a.n).slice(0, 20);
@@ -6354,31 +6391,35 @@ function cppRulesHtml(c){
           ${ans.map(a => `<label><input type="checkbox" data-cpp-q="${escapeHtml(q.k)}" data-cpp-qraw="${escapeHtml(q.q)}" data-cpp-a="${escapeHtml(a.a)}"${!any && (r.a || []).some(x => cppNorm(x) === cppNorm(a.a)) ? " checked" : ""}> ${escapeHtml(cppPretty(a.a))}${a.n ? ` <small>${a.n}</small>` : ""}</label>`).join("")}
         </div>
       </div>`; }).join("")}</div>
-      <p class="cpp-p cpp-small cpp-preview">${recent.length ? `With these, <b>${pass} of their ${recent.length} leads</b> from the last 30 days would have gone to ${escapeHtml(biz)}; ${recent.length - pass} to our team.` : "No leads in the last 30 days to check these against."}</p>
+      <p class="cpp-p cpp-small cpp-preview">${recent.length ? `With these, <b>${pass} of their ${recent.length} leads</b> from the last 30 days would have gone to ${escapeHtml(biz)}; ${recent.length - pass} to our team.${forms.length > 1 && cur ? ` From ${escapeHtml(cur.name)}: ${fPass} of ${fRecent.length}.` : ""}` : "No leads in the last 30 days to check these against."}</p>
       <div class="cpp-rule-save"><button type="button" class="btn gold sm" data-cpp="save-rules"${dirty ? "" : " disabled"}>Save which leads go to them</button>${dirty ? `<button type="button" class="btn ghost sm" data-cpp="undo-rules">Undo changes</button>` : ""}</div>`
-      : `<p class="cpp-p cpp-small">No leads with form answers yet, so there's nothing to pick from. Until there are, every lead counts.</p>`}`;
+      : `<p class="cpp-p cpp-small">No leads with form answers ${forms.length > 1 ? "on this form " : ""}yet, so there's nothing to pick from. Until there are, every lead ${forms.length > 1 ? "from it " : ""}counts.</p>`}`;
 }
 function cppRuleChange(e){
   const c = cppClient(); if (!c) return false;
   const draft = cppDraft(c);
   const any = e.target.dataset.cppAny, k = e.target.dataset.cppQ;
+  if (!any && !k) return false;
+  cppSplitLegacy(c, draft);
+  const pick = state.cppFormPick[c.id] ?? null, fname = cppForms(c).find(f => f.k === pick)?.name || "";
+  const same = (r, q) => cppNorm(r.q) === q && cppNorm(r.form) === (pick || "");
   if (any){
-    if (e.target.checked){ const i = draft.findIndex(r => cppNorm(r.q) === any); if (i >= 0) draft.splice(i, 1); }
+    if (e.target.checked){ const i = draft.findIndex(r => same(r, any)); if (i >= 0) draft.splice(i, 1); }
     else e.target.checked = true; // untick "Any" by picking an answer instead
   } else if (k){
-    let r = draft.find(x => cppNorm(x.q) === k);
-    if (!r){ r = { q: e.target.dataset.cppQraw, a: [] }; draft.push(r); }
+    let r = draft.find(x => same(x, k));
+    if (!r){ r = { ...(fname ? { form: fname } : {}), q: e.target.dataset.cppQraw, a: [] }; draft.push(r); }
     r.a = (r.a || []).filter(a => a !== "*" && cppNorm(a) !== cppNorm(e.target.dataset.cppA));
     if (e.target.checked) r.a.push(e.target.dataset.cppA);
     if (!r.a.length) draft.splice(draft.indexOf(r), 1);
-  } else return false;
+  }
   renderClientPortal(c);
   return true;
 }
 // What switching on would move: their untouched leads in Rep to contact (or added by hand) that pass the rules.
 const cppUntouched = (l) => (l.follow_status || "new") === "new" && !(Number(l.attempts) > 0) && !(l.call_log || []).length && !(l.client_log || []).length && !l.client_dialled_at && !l.handed_over_at;
 const cppWouldMove = (c, rules) => state.clientLeads.filter(l => l.client_id === c.id && !l.client_calls && cppUntouched(l)
-  && (l.source !== "ghl" || /^rep to contact/i.test(l.status || "")) && cppRulesMatch(rules, l.answers));
+  && (l.source !== "ghl" || /^rep to contact/i.test(l.status || "")) && cppRulesMatch(rules, l.answers, l.form_name));
 const cppComingBack = (c) => state.clientLeads.filter(l => l.client_id === c.id && l.client_calls && !l.handed_over_at
   && ["new", "no_answer"].includes(l.follow_status || "new") && ["new", "no_answer"].includes(cppStageOf(l)));
 // Switch who calls (and move the leads), through portal_set_client_calls (sql/113).
@@ -6392,7 +6433,7 @@ async function cppSetMode(c, on){
     // Demo: the same moves in the browser.
     const now = new Date().toISOString();
     if (on){
-      const go = cppWouldMove(c, c.lead_rules || []), back = state.clientLeads.filter(l => l.client_id === c.id && l.client_calls && cppUntouched(l) && !cppRulesMatch(c.lead_rules || [], l.answers));
+      const go = cppWouldMove(c, c.lead_rules || []), back = state.clientLeads.filter(l => l.client_id === c.id && l.client_calls && cppUntouched(l) && !cppRulesMatch(c.lead_rules || [], l.answers, l.form_name));
       go.forEach(l => { l.client_calls = true; l.client_assigned_at = now; });
       back.forEach(l => { l.client_calls = false; l.client_assigned_at = null; });
       r = { to_client: go.length, to_us: back.length };
@@ -6428,6 +6469,7 @@ async function cppClick(e){
   const act = b.dataset.cpp;
   if (act === "copy-link"){ try { await navigator.clipboard.writeText(state.portalLink?.link || ""); rcToast("Link copied."); } catch(err){ $("#cp-portal .cpp-link input")?.select(); } return; }
   if (act === "resend") return cppInvite(c, b.dataset.email, b.dataset.name || "", b.dataset.phone || "");
+  if (act === "form"){ state.cppFormPick[c.id] = b.dataset.form; renderClientPortal(c); return; }
   if (act === "undo-rules"){ delete state.cppRules[c.id]; renderClientPortal(c); return; }
   if (act === "save-rules"){
     const rules = cppDraft(c).filter(r => (r.a || []).filter(a => a !== "*").length);
