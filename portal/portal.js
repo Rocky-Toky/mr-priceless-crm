@@ -21,7 +21,7 @@ const STAGES = [
   { k: "new", label: "New", hint: "Not called yet", cls: "gold" },
   { k: "no_answer", label: "Didn't answer", hint: "Rang, no answer", cls: "amber" },
   { k: "call_scheduled", label: "Call scheduled", hint: "Ringing them at a set time", cls: "blue", when: "When will you ring them?", whenNeeded: true },
-  { k: "site_visit", label: "Site visit booked", hint: "Going out to see the job", cls: "green", when: "When is the visit?" },
+  { k: "site_visit", label: "Site visit booked", hint: "Going out to see the job", cls: "green", when: "When is the visit?", whenNeeded: true, job: true },
   { k: "quote_to_send", label: "Quote to send", hint: "Seen the job, quote to do", cls: "purple" },
   { k: "quote_sent", label: "Quote sent", hint: "Waiting to hear back", cls: "purple", amount: "How much was the quote?" },
   { k: "won", label: "Job won", hint: "They said yes!", cls: "won", amount: "What's the job worth?" },
@@ -703,6 +703,8 @@ function moveHtml(l){
     ${more ? `<div class="pp-stages">${STAGES.map(s => `<button type="button" class="pp-stage pp-stage-${s.cls}${s.k === st ? " now" : ""}${S.pick === s.k ? " picked" : ""}" data-pick="${s.k}"><b>${esc(s.label)}</b><small>${s.k === st ? "Now" : esc(s.hint)}</small></button>`).join("")}</div>` : ""}
     ${o ? `<div class="pp-out-form">
       ${o.when ? `<label>${esc(o.when)}${o.whenNeeded ? "" : " <small>(optional)</small>"}<input type="datetime-local" id="pp-when" value="${esc(def)}"></label><div class="pp-cal" id="pp-cal"></div>` : ""}
+      ${o.job ? `<label>The job's address<input type="text" id="pp-addr" autocomplete="street-address" placeholder="e.g. 12 Kauri Road, Albany" value="${esc(S.drafts["addr:" + l.id] ?? (l.address || ""))}"></label>
+      <label>What's the job? <small>(optional)</small><textarea id="pp-scope" rows="2" placeholder="e.g. New driveway, about 60m2, exposed aggregate">${esc(S.drafts["scope:" + l.id] ?? (l.scope || ""))}</textarea></label>` : ""}
       ${o.amount ? `<label>${esc(o.amount)} <small>(optional)</small><span class="pp-money"><i>$</i><input type="number" inputmode="decimal" min="0" step="1" id="pp-amount" value="${esc(o.k === "won" ? (l.job_value || l.quote_amount || "") : (l.quote_amount || ""))}" placeholder="0"></span></label>` : ""}
       ${o.reasons ? `<label>Why? <small>(optional)</small><select id="pp-reason"><option value="">Pick one</option>${o.reasons.map(x => `<option${l.lost_reason === x ? " selected" : ""}>${esc(x)}</option>`).join("")}</select></label>` : ""}
       <button type="button" class="pp-btn pp-btn-gold pp-btn-big" data-act="save-stage"${S.saving ? " disabled" : ""}>Next: add a note</button>
@@ -783,14 +785,17 @@ async function saveStage(){
   if (!l || !o || S.saving) return;
   if (readOnly()){ toast("Preview only - the client saves this from their login."); return; }
   const whenVal = $("#pp-when")?.value, amt = $("#pp-amount")?.value, reason = $("#pp-reason")?.value || null;
-  if (o.whenNeeded && !whenVal){ toast("Pick when you'll ring them."); return; }
+  if (o.whenNeeded && !whenVal){ toast(o.k === "site_visit" ? "Pick when the visit is." : "Pick when you'll ring them."); $("#pp-when")?.focus(); return; }
+  const addr = o.job ? ($("#pp-addr")?.value || "").trim() : null, scope = o.job ? ($("#pp-scope")?.value || "").trim() : null;
+  if (o.job && addr.length < 4){ toast("Add the job's address."); $("#pp-addr")?.focus(); return; }
   const at = whenVal ? new Date(whenVal).toISOString() : null;
   const amount = amt !== undefined && amt !== "" && !isNaN(Number(amt)) ? Number(amt) : null;
   const note = await askNote(l, o.k);
   if (!note) return;
   S.saving = true; renderSheet();
   try {
-    await rpc("portal_update_lead", { p_lead: l.id, p_stage: o.k, p_note: note, p_when: at, p_amount: amount, p_reason: reason });
+    await rpc("portal_update_lead", { p_lead: l.id, p_stage: o.k, p_note: note, p_when: at, p_amount: amount, p_reason: reason, ...(o.job ? { p_address: addr, p_scope: scope || null } : {}) });
+    delete S.drafts["addr:" + l.id]; delete S.drafts["scope:" + l.id];
     const inCal = at && (o.k === "site_visit" || o.k === "call_scheduled") ? await calAdd(l) : null;
     const wasAsked = l.checkin;
     delete S.drafts[l.id];
@@ -1262,6 +1267,8 @@ function bind(){
       const s = $("#pp-search"); s.focus(); try { s.setSelectionRange(pos, pos); } catch(err){}
     }
     if (e.target.id === "pp-note" && S.openId) S.drafts[S.openId] = e.target.value;
+    if (e.target.id === "pp-addr" && S.openId) S.drafts["addr:" + S.openId] = e.target.value;
+    if (e.target.id === "pp-scope" && S.openId) S.drafts["scope:" + S.openId] = e.target.value;
     if (e.target.id === "pp-newnote" && S.openId) S.drafts["note:" + S.openId] = e.target.value;
   });
   document.addEventListener("change", async (e) => {
@@ -1492,6 +1499,10 @@ async function demoRpc(fn, args){
   if (fn === "portal_update_lead"){
     const now = new Date().toISOString(), st = args.p_stage;
     if (st === "call_scheduled" && !args.p_when) throw new Error("Pick when to call them");
+    if (st === "site_visit" && !args.p_when) throw new Error("Pick when the visit is");
+    if (st === "site_visit" && !String(args.p_address || l.address || "").trim()) throw new Error("Add the job's address");
+    if (args.p_address) l.address = args.p_address;
+    if (args.p_scope) l.scope = args.p_scope;
     l.notes.push(Object.fromEntries(Object.entries({ at: now, stage: st, from: st ? l.stage : null, note: args.p_note, when: args.p_when, amount: args.p_amount, reason: args.p_reason }).filter(([, v]) => v != null && v !== "")));
     if (st){
       if (l.checkin){ l.checkin = false; if (st === "no_answer"){ l.ours = true; l.handed_over_at = now; l.handover_reason = "client_no"; } }

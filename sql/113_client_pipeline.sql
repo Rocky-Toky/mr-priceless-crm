@@ -561,8 +561,11 @@ begin
 end $$;
 
 -- ───────── What the portal changes (client logins only - the team's preview is read-only) ─────────
--- Move a lead along their pipeline and/or add a note.
-create or replace function public.portal_update_lead(p_lead uuid, p_stage text default null, p_note text default null, p_when timestamptz default null, p_amount numeric default null, p_reason text default null)
+-- Move a lead along their pipeline and/or add a note. A site visit needs a
+-- time and the job's address (p_address, saved on client_leads.address);
+-- p_scope (what the job is) goes on job_scope. Both go on to their GHL.
+drop function if exists public.portal_update_lead(uuid, text, text, timestamptz, numeric, text);
+create or replace function public.portal_update_lead(p_lead uuid, p_stage text default null, p_note text default null, p_when timestamptz default null, p_amount numeric default null, p_reason text default null, p_address text default null, p_scope text default null)
 returns jsonb
 language plpgsql
 security definer
@@ -573,6 +576,8 @@ declare
   cid uuid;
   note text := nullif(left(trim(coalesce(p_note, '')), 2000), '');
   reason text := nullif(left(trim(coalesce(p_reason, '')), 200), '');
+  addr text := nullif(left(trim(coalesce(p_address, '')), 240), '');
+  scope text := nullif(left(trim(coalesce(p_scope, '')), 2000), '');
   cur text;
   call_out text;
   pending boolean;
@@ -588,6 +593,8 @@ begin
     raise exception 'Unknown stage';
   end if;
   if p_stage = 'call_scheduled' and p_when is null then raise exception 'Pick when to call them'; end if;
+  if p_stage = 'site_visit' and p_when is null then raise exception 'Pick when the visit is'; end if;
+  if p_stage = 'site_visit' and coalesce(addr, nullif(trim(coalesce(l.address, '')), '')) is null then raise exception 'Add the job''s address'; end if;
   if p_amount is not null and (p_amount < 0 or p_amount > 100000000) then raise exception 'That amount doesn''t look right'; end if;
 
   cur := public.portal_lead_stage(l);
@@ -639,6 +646,8 @@ begin
     handed_over_at = case when pending and p_stage = 'no_answer' then now() else handed_over_at end,
     handover_reason = case when pending and p_stage = 'no_answer' then 'client_no' else handover_reason end,
     ghl_push_at = case when p_stage is not null then now() else ghl_push_at end,
+    address = coalesce(addr, address),
+    job_scope = coalesce(scope, job_scope),
     updated_at = now()
   where id = l.id;
   -- Their GoHighLevel follows (stage, calendar, a note), straight away.
@@ -762,7 +771,7 @@ end $$;
 do $$
 declare f text;
 begin
-  foreach f in array array['portal_leads(uuid, integer)', 'portal_update_lead(uuid, text, text, timestamptz, numeric, text)',
+  foreach f in array array['portal_leads(uuid, integer)', 'portal_update_lead(uuid, text, text, timestamptz, numeric, text, text, text)',
     'portal_log_call(uuid, text, text, timestamptz)', 'portal_checkin(uuid, text)', 'portal_save_push(jsonb)',
     'portal_set_settings(boolean, text)'] loop
     execute format('revoke all on function public.%s from public', f);
