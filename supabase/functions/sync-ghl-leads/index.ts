@@ -825,6 +825,11 @@ async function pushPortalStage(admin: any, leadId: string) {
     }
   } catch (e) { result.errors.push("Couldn't move it in GoHighLevel: " + String((e as any)?.message || e).slice(0, 160)); }
 
+    // A site visit: the address on the contact (and any address field) and the
+  // scope in their "Scope of Work" field, same as Carmen's bookings.
+  if (st === "site_visit" && (lead.address || lead.job_scope)) {
+    await fillJobFields(loc, token, contactId, oppId || (typeof result.created_opportunity === "string" ? result.created_opportunity : null), String(lead.address || "").trim().slice(0, 240), String(lead.job_scope || "").trim().slice(0, 2000), result);
+  }
   // A site visit with a time: in their site visit calendar (moving the one we made before).
   if (st === "site_visit" && lead.client_next_at && contactId) {
     try {
@@ -840,13 +845,19 @@ async function pushPortalStage(admin: any, leadId: string) {
           title: `Site visit - ${lead.name || "new lead"}${address ? ` - ${address}` : ""}`, appointmentStatus: "confirmed",
           ignoreFreeSlotValidation: true, ignoreDateRange: true, toNotify: true, ...(assignedUserId ? { assignedUserId } : {}) };
         const prev = lead.ghl_sync?.portal_appointment;
+        // The address goes on the booking as its location; if GHL won't take it there, book without it.
+        const withAddr: any = address ? { ...appt, meetingLocationType: "address", address } : appt;
+        const send = async (method: string, path: string) => {
+          try { return await ghl(path, token, { method, body: JSON.stringify(withAddr) }, CAL_VERSION); }
+          catch (e) { if (withAddr === appt) throw e; return await ghl(path, token, { method, body: JSON.stringify(appt) }, CAL_VERSION); }
+        };
         let id: string | null = null;
         if (prev && typeof prev === "string") {
-          try { await ghl(`/calendars/events/appointments/${encodeURIComponent(prev)}`, token, { method: "PUT", body: JSON.stringify(appt) }, CAL_VERSION); id = prev; result.appointment_moved = true; }
+          try { await send("PUT", `/calendars/events/appointments/${encodeURIComponent(prev)}`); id = prev; result.appointment_moved = true; }
           catch { id = null; }
         }
         if (!id) {
-          const r = await ghl(`/calendars/events/appointments`, token, { method: "POST", body: JSON.stringify(appt) }, CAL_VERSION);
+          const r = await send("POST", `/calendars/events/appointments`);
           id = r?.id || r?.appointment?.id || null;
         }
         result.calendar = cal.name; result.appointment = true;
