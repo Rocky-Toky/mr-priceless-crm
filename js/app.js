@@ -6275,7 +6275,10 @@ const CPP_STAGES = [["new", "New"], ["no_answer", "Didn't answer"], ["call_sched
 // they've made one, else from our calling status (or their GHL stage name).
 function cppStageOf(l){
   const log = Array.isArray(l.client_log) ? l.client_log : [];
-  if (l.client_stage && log.some(e => e && typeof e === "object" && "stage" in e)) return l.client_stage;
+  const picked = !!l.client_stage && log.some(e => e && typeof e === "object" && "stage" in e);
+  // Won in their GoHighLevel, unless the client moved it themselves since.
+  if (l.ghl_status === "won" && !(picked && l.client_stage_at && new Date(l.client_stage_at) > new Date(l.ghl_closed_at || l.client_stage_at))) return "won";
+  if (picked) return l.client_stage;
   if (l.follow_status === "in_ghl") return cppGhlStage(l.status) || "new";
   return CPP_FROM_FOLLOW[l.follow_status] || "new";
 }
