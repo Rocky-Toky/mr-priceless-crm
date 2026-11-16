@@ -13507,15 +13507,15 @@ const lqGapWords = (calls) => { const d = LQ_GAPS[calls - 1] || 1; return d === 
 const lqStageName = (l) => l.source === "ghl" ? String(l.status || "").replace(/\s*\([^)]*\)\s*$/, "").trim() : "";
 function lqQueue(){
   const all = state.clientLeads.filter(l => l.follow_status !== "old" && !lqWithClient(l));
-  // Fresh enquiries nobody's called yet, then retries and call-backs that are
-  // due, then older leads sitting in Rep to contact / Stuck. Within each, the
-  // person who's been waiting longest goes first.
-  const tier = (l) => lqBacklog(l) ? 2 : (l.follow_status || "new") === "new" ? 0 : 1;
-  const due = all.filter(lqDue).sort((a, b) => tier(a) - tier(b) || lqIn(a) - lqIn(b));
+  // Fresh enquiries nobody's called yet (newest first), then older leads
+  // nobody's called yet, sitting in Rep to contact / Stuck, then retries and
+  // call-backs that are due. In those two, the longest waiting goes first.
+  const tier = (l) => lqBacklog(l) ? 1 : (l.follow_status || "new") === "new" ? 0 : 2;
+  const due = all.filter(lqDue).sort((a, b) => tier(a) - tier(b) || (tier(a) === 0 ? lqIn(b) - lqIn(a) : lqIn(a) - lqIn(b)));
   const later = all.filter(l => lqIsOpen(l) && !lqDue(l)).sort((a, b) => new Date(a.next_attempt_at) - new Date(b.next_attempt_at));
   const today = localDayStr();
   const doneToday = all.filter(l => !lqIsOpen(l) && l.last_attempt_at && localDayStr(new Date(l.last_attempt_at)) === today).sort((a, b) => new Date(b.last_attempt_at) - new Date(a.last_attempt_at));
-  return { due, fresh: due.filter(l => tier(l) === 0), retries: due.filter(l => tier(l) === 1), backlog: due.filter(l => tier(l) === 2), later, doneToday };
+  return { due, fresh: due.filter(l => tier(l) === 0), backlog: due.filter(l => tier(l) === 1), retries: due.filter(l => tier(l) === 2), later, doneToday };
 }
 function lqNavCount(){
   const n = state.clientLeads.filter(lqDue).length;
@@ -13712,7 +13712,7 @@ function renderLeadQueue(){
   const logsToday = state.clientLeads.flatMap(l => (l.call_log || []).filter(x => x.at && localDayStr(new Date(x.at)) === today));
   const bookedToday = logsToday.filter(x => LQ_BOOKED.has(x.outcome)).length;
   const waiting = q.fresh;
-  const longest = waiting.length ? now - lqIn(waiting[0]) : 0;
+  const longest = waiting.length ? now - Math.min(...waiting.map(lqIn)) : 0;
   const me = lqWho(state.user?.email || "");
   const checked = lqLastChecked();
   const top = `
