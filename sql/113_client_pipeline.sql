@@ -85,6 +85,20 @@ as $$
   from jsonb_array_elements(case when jsonb_typeof(p_rules) = 'array' then p_rules else '[]'::jsonb end) r;
 $$;
 
+-- Rules can be per form (each rule may carry "form": the lead form it's for,
+-- matched on client_leads.form_name): a lead is checked against the rules for
+-- its own form plus any rule without a form. A form with no rules lets every
+-- lead from it through.
+create or replace function public.portal_rules_match(p_rules jsonb, p_form text, p_answers jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select public.portal_rules_match(coalesce((
+    select jsonb_agg(r) from jsonb_array_elements(case when jsonb_typeof(p_rules) = 'array' then p_rules else '[]'::jsonb end) r
+    where coalesce(r ->> 'form', '') = '' or public.portal_norm(r ->> 'form') = public.portal_norm(p_form)), '[]'::jsonb), p_answers);
+$$;
+
 -- A lead nobody has touched yet: not rung by us or the client, nothing logged, not handed over.
 create or replace function public.portal_lead_untouched(l client_leads)
 returns boolean
@@ -109,10 +123,10 @@ declare c record; ok boolean;
 begin
   select lead_client_calls, lead_rules into c from clients where id = new.client_id;
   if tg_op = 'INSERT' then
-    new.client_calls := coalesce(c.lead_client_calls, false) and public.portal_rules_match(c.lead_rules, new.answers);
+    new.client_calls := coalesce(c.lead_client_calls, false) and public.portal_rules_match(c.lead_rules, new.form_name, new.answers);
     if new.client_calls then new.client_assigned_at := coalesce(new.client_assigned_at, now()); end if;
-  elsif new.answers is distinct from old.answers and coalesce(c.lead_client_calls, false) and public.portal_lead_untouched(new) then
-    ok := public.portal_rules_match(c.lead_rules, new.answers);
+  elsif (new.answers is distinct from old.answers or new.form_name is distinct from old.form_name) and coalesce(c.lead_client_calls, false) and public.portal_lead_untouched(new) then
+    ok := public.portal_rules_match(c.lead_rules, new.form_name, new.answers);
     if ok and not new.client_calls then
       new.client_calls := true;
       new.client_assigned_at := now();
@@ -132,7 +146,7 @@ begin
   return new;
 end $$;
 drop trigger if exists client_leads_client_calls on client_leads;
-create trigger client_leads_client_calls before insert or update of answers on client_leads
+create trigger client_leads_client_calls before insert or update of answers, form_name on client_leads
   for each row execute function public.client_leads_set_client_calls();
 
 -- Switching a client between "our team calls" and "they call", or saving
@@ -159,13 +173,13 @@ begin
         checkin_at = null, checkin_deadline = null, checkin_token = null, checkin_answered_at = null
       where l.client_id = p_client and not l.client_calls and public.portal_lead_untouched(l)
         and (coalesce(l.source, '') <> 'ghl' or coalesce(l.status, '') ilike 'rep to contact%')
-        and public.portal_rules_match(rules, l.answers)
+        and public.portal_rules_match(rules, l.form_name, l.answers)
       returning 1)
     select count(*) into to_them from m;
     with m as (
       update client_leads l set client_calls = false, client_assigned_at = null
       where l.client_id = p_client and l.client_calls and public.portal_lead_untouched(l)
-        and not public.portal_rules_match(rules, l.answers)
+        and not public.portal_rules_match(rules, l.form_name, l.answers)
       returning 1)
     select count(*) into to_us from m;
     if to_them > 0 then
