@@ -1181,7 +1181,7 @@ function renderAccount(){
       ${readOnly() ? `<p class="pp-muted">Settings are the client's own - not shown in the team preview.</p>` : `
       <div class="pp-row"><span>Alerts on this ${isPhone() ? "phone" : "computer"}</span>${alertsTxt || `<button type="button" class="pp-btn pp-btn-gold" data-act="alerts-setup">Set up</button>`}</div>
       <label class="pp-switch"><input type="checkbox" id="pp-notify"${S.me.notify_new_leads ? " checked" : ""}><span>Also email me each new lead</span></label>
-      <div class="pp-row pp-phone-row"><span>Text me here if an alert can't reach me</span>
+      <div class="pp-row pp-phone-row"><span>Text me new leads, my 9am and 3pm leads to call and site visit reminders</span>
         <span class="pp-addnote"><input type="tel" id="pp-phone" value="${esc(S.me.phone || "")}" placeholder="Your mobile" autocomplete="tel"><button type="button" class="pp-btn pp-btn-light" data-act="save-phone">Save</button></span></div>
       <div class="pp-row"><span>Signed in as ${esc(S.me.email || "")}</span><button type="button" class="pp-btn pp-btn-light" data-act="signout">Sign out</button></div>
       <button type="button" class="pp-link" data-act="change-pw">Change my password</button>`}
@@ -1190,7 +1190,7 @@ function renderAccount(){
 async function savePhone(input){
   const v = (input?.value || "").trim();
   if (v && v.replace(/\D/g, "").length < 8) return toast("That number looks too short.");
-  try { await rpc("portal_set_settings", { p_notify: null, p_phone: v }); S.me.phone = v.replace(/[^\d+]/g, "") || null; toast(v ? "Saved - we'll text you if an alert can't reach you." : "Number removed."); render(); }
+  try { await rpc("portal_set_settings", { p_notify: null, p_phone: v }); S.me.phone = v.replace(/[^\d+]/g, "") || null; toast(v ? "Saved - your texts will come to this number." : "Number removed - no more texts."); render(); }
   catch(e){ toast("Couldn't save that - try again."); }
 }
 

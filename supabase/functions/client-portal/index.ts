@@ -22,9 +22,15 @@
 // From pg_cron / the database (header x-cron-secret = app_secrets
 // portal_cron_secret, sql/113), { action: "deliver" }: sends the waiting
 // portal_notifications. Each goes as a phone notification to every device
-// that login turned alerts on for; if none got it and the kind allows
-// (fallback), a text (Twilio, if set up, to the login's mobile), else an
-// email. Makes the VAPID keys for phone alerts the first time (app_secrets
+// that login turned alerts on for. Kinds queued with fallback "text" are
+// also texted to the login's mobile every time (new lead, the 9am / 3pm
+// "leads to call" text, the check-in question, site visit today, our team
+// booked one for you); "sms" texts only when no device got it; "email"
+// emails when neither went. Texts go from our own GoHighLevel number
+// (GHL_PRECALL_TOKEN / GHL_PRECALL_LOCATION_ID: the client is upserted as a
+// contact tagged mr-priceless-app, then an SMS is sent in that conversation),
+// else Twilio if it's set up.
+//   { action: "test_text", id } (team): a test text to that login's mobile. Makes the VAPID keys for phone alerts the first time (app_secrets
 // push_vapid; the public half is handed to the portal by portal_me).
 //
 // Client logins live in client_portal_users, never in the allowlist, so every
@@ -51,6 +57,9 @@ const EMAIL_REPLY_TO = Deno.env.get("EMAIL_REPLY_TO") || "";
 const TWILIO_SID = Deno.env.get("TWILIO_ACCOUNT_SID") || "";
 const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") || "";
 const TWILIO_FROM = Deno.env.get("TWILIO_FROM") || "";
+const GHL_TOKEN = Deno.env.get("GHL_PRECALL_TOKEN") || "";
+const GHL_LOCATION = Deno.env.get("GHL_PRECALL_LOCATION_ID") || "";
+const GHL = "https://services.leadconnectorhq.com";
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const cleanEmail = (s: unknown) => String(s || "").trim().toLowerCase();
@@ -130,8 +139,35 @@ function e164(phone: string): string | null {
   if (d.startsWith("0")) return "+64" + d.slice(1);
   return null;
 }
-async function sendText(to: string, body: string): Promise<string | null> {
-  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) return "Texts aren't set up";
+// A text: from our GoHighLevel number first, else Twilio. Returns null when sent, else why not.
+const ghlContacts = new Map<string, string>();
+async function ghlText(to: string, body: string, name: string): Promise<string | null> {
+  const call = async (path: string, payload: unknown, version: string) => {
+    const res = await fetch(GHL + path, { method: "POST", body: JSON.stringify(payload),
+      headers: { Authorization: `Bearer ${GHL_TOKEN}`, Version: version, Accept: "application/json", "Content-Type": "application/json" } });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(String(out?.message || out?.error || `GoHighLevel returned ${res.status}`).slice(0, 200));
+    return out;
+  };
+  try {
+    let cid = ghlContacts.get(to);
+    if (!cid) {
+      const up = await call("/contacts/upsert", { locationId: GHL_LOCATION, phone: to, ...(name ? { name } : {}), tags: ["mr-priceless-app"] }, "2021-07-28");
+      cid = up?.contact?.id || up?.id;
+      if (!cid) return "GoHighLevel didn't give back a contact";
+      ghlContacts.set(to, cid);
+    }
+    await call("/conversations/messages", { type: "SMS", contactId: cid, message: body.slice(0, 600) }, "2021-04-15");
+    return null;
+  } catch (e) { return String((e as any)?.message || e); }
+}
+async function sendText(to: string, body: string, name = ""): Promise<string | null> {
+  let ghlErr: string | null = null;
+  if (GHL_TOKEN && GHL_LOCATION) {
+    ghlErr = await ghlText(to, body, name);
+    if (!ghlErr) return null;
+  }
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) return ghlErr || "Texts aren't set up";
   const form = new URLSearchParams({ To: to, Body: body.slice(0, 600) });
   form.set(TWILIO_FROM.startsWith("MG") ? "MessagingServiceSid" : "From", TWILIO_FROM);
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
@@ -143,7 +179,7 @@ async function sendText(to: string, body: string): Promise<string | null> {
   const out = await res.json().catch(() => ({}));
   return String(out?.message || `Twilio returned ${res.status}`);
 }
-const STALE_MS: Record<string, number> = { new_lead: 6 * 3600e3, call_due: 3600e3, visit_today: 12 * 3600e3 };
+const STALE_MS: Record<string, number> = { new_lead: 6 * 3600e3, call_due: 3600e3, visit_today: 12 * 3600e3, digest: 3 * 3600e3, booked: 24 * 3600e3 };
 
 async function deliver(admin: any) {
   const keys = await vapidKeys(admin);
@@ -176,17 +212,18 @@ async function deliver(admin: any) {
           else await admin.from("portal_push_subs").update({ failures: (sub.failures || 0) + 1 }).eq("id", sub.id);
         } catch (_e) { /* one bad device doesn't stop the rest */ }
       }
-      if (ok) { await finish("sent", "push"); continue; }
       const fb = String(n.fallback || "");
-      if (fb.includes("sms") && TWILIO_SID) {
-        const { data: users } = await admin.from("client_portal_users").select("phone").ilike("email", n.email).not("phone", "is", null).limit(1);
+      // "text": always texted too. "sms": only when no phone got it.
+      let textErr: string | null = null;
+      if (fb.includes("text") || (!ok && fb.includes("sms"))) {
+        const { data: users } = await admin.from("client_portal_users").select("phone, name").ilike("email", n.email).not("phone", "is", null).limit(1);
         const to = e164(users?.[0]?.phone || "");
         if (to) {
-          const err = await sendText(to, n.payload?.sms || `${n.title} - ${n.body} ${n.url || ""}`);
-          if (!err) { await finish("texted", "sms"); continue; }
-          if (!fb.includes("email")) { await finish("failed", "sms", err); continue; }
-        }
+          textErr = await sendText(to, n.payload?.sms || `Mr Priceless: ${n.title} - ${n.body} ${n.url || ""}`.trim(), users?.[0]?.name || "");
+          if (!textErr) { await finish("texted", ok ? "push+sms" : "sms"); continue; }
+        } else textErr = "No mobile number for this login";
       }
+      if (ok) { await finish("sent", "push", textErr); continue; }
       if (fb.includes("email")) {
         await admin.from("scheduled_emails").insert({
           kind: "portal_alert", record_id: n.id, to_email: n.email,
@@ -198,7 +235,7 @@ async function deliver(admin: any) {
         await finish("emailed", "email");
         continue;
       }
-      await finish("no_device", null);
+      await finish(textErr ? "failed" : "no_device", null, textErr);
     } catch (e) {
       await finish("failed", null, String((e as any)?.message || e).slice(0, 300));
     }
@@ -377,6 +414,14 @@ Deno.serve(async (req) => {
       const emailErr = await sendWelcome(email, name, client.name, link);
       // The link only goes back to the team if the email didn't go - so they can text it.
       return json(emailErr ? { ok: true, emailed: false, why: emailErr, link } : { ok: true, emailed: true });
+    }
+
+    if (body.action === "test_text") {
+      const { data: row } = await admin.from("client_portal_users").select("phone, name").eq("id", body.id).maybeSingle();
+      const to = e164(row?.phone || "");
+      if (!to) return json({ error: "This login has no mobile number. Add one first." }, 400);
+      const err = await sendText(to, "Mr Priceless: this is a test. New leads, the 9am and 3pm leads-to-call texts and site visit reminders will come from this number.", row?.name || "");
+      return json(err ? { error: `The text didn't go: ${err}` } : { ok: true });
     }
 
     if (body.action === "remove") {
