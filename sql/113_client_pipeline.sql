@@ -108,13 +108,14 @@ as $$
 $$;
 
 -- Texts to the client (client-portal function sends portal_notifications
--- with fallback 'text' to the login's mobile every time). Not at night: a
--- text only goes from 7am to 9pm NZ.
+-- with fallback 'text' to the login's mobile every time). Only in working
+-- hours: a new-lead text goes from 8am to 6pm NZ (Rocky, 17 Nov 2026);
+-- outside them it's a phone alert only and shows in the next 9am / 3pm text.
 create or replace function public.portal_text_ok()
 returns boolean
 language sql
 stable
-as $$ select extract(hour from now() at time zone 'Pacific/Auckland') between 7 and 20; $$;
+as $$ select extract(hour from now() at time zone 'Pacific/Auckland') between 8 and 17; $$;
 -- "Sarah Lin" + phone, the new-lead text.
 create or replace function public.portal_new_lead_sms(l client_leads)
 returns text
