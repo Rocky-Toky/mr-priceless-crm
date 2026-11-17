@@ -411,8 +411,11 @@ function welcomeHtml(){
     <button type="button" class="pp-btn pp-btn-gold" data-act="welcome-ok">Got it</button>
   </div>`;
 }
+// Phone alerts are paused (Rocky, 18 Nov 2026: the texts are doing the job), so
+// nobody is asked to set them up. Flip to false to bring them back.
+const ALERTS_PAUSED = true;
 function alertsBannerHtml(){
-  if (readOnly() || S.alerts === "on" || S.alerts === "unsupported" || store.get("mpp_alerts_later") === nzDay()) return "";
+  if (ALERTS_PAUSED || readOnly() || S.alerts === "on" || S.alerts === "unsupported" || store.get("mpp_alerts_later") === nzDay()) return "";
   return `<div class="pp-alertbar">
     <span>🔔</span><div><b>Get new leads on your phone</b><small>A notification the second one comes in, even when this app is closed.</small></div>
     <button type="button" class="pp-btn pp-btn-gold" data-act="alerts-setup">Set it up</button>
@@ -1265,7 +1268,7 @@ function renderAccount(){
     <section class="pp-block pp-settings">
       <h3>Settings</h3>
       ${readOnly() ? `<p class="pp-muted">Settings are the client's own - not shown in the team preview.</p>` : `
-      <div class="pp-row"><span>Alerts on this ${isPhone() ? "phone" : "computer"}</span>${alertsTxt || `<button type="button" class="pp-btn pp-btn-gold" data-act="alerts-setup">Set up</button>`}</div>
+      ${ALERTS_PAUSED ? "" : `<div class="pp-row"><span>Alerts on this ${isPhone() ? "phone" : "computer"}</span>${alertsTxt || `<button type="button" class="pp-btn pp-btn-gold" data-act="alerts-setup">Set up</button>`}</div>`}
       <label class="pp-switch"><input type="checkbox" id="pp-notify"${S.me.notify_new_leads ? " checked" : ""}><span>Also email me each new lead</span></label>
       <div class="pp-row pp-phone-row"><span>Text me new leads and my 9am and 3pm leads to call</span>
         <span class="pp-addnote"><input type="tel" id="pp-phone" value="${esc(S.me.phone || "")}" placeholder="Your mobile" autocomplete="tel"><button type="button" class="pp-btn pp-btn-light" data-act="save-phone">Save</button></span></div>
