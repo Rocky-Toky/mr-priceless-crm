@@ -37,7 +37,7 @@ const CALL_LABELS = { no_answer: "No answer", call_back: "Call back booked", sit
   not_interested: "Not interested", disqualified: "Not a fit", wrong_number: "Wrong number", qualified: "Interested", unreachable: "Couldn't reach them" };
 
 const S = {
-  me: null, client: null, leads: [], ads: [], tab: "leads", view: "call", q: "", period: "month",
+  me: null, client: null, leads: [], reports: null, tab: "leads", view: "call", q: "", period: "month",
   preview: null, openId: null, sheet: null, askFor: null, dialledAt: 0, known: null, loaded: false,
   saving: false, pick: null, more: false, drafts: {}, swReg: null, installEvt: null, alerts: "unknown",
 };
@@ -236,9 +236,9 @@ async function loadAll(first){
   const me = await rpc("portal_me", clientArg());
   S.me = me; S.client = me.client;
   if (me.viewer === "team" && !S.preview) S.preview = me.client.id;
-  const [leads, ads] = await Promise.all([rpc("portal_leads", { ...clientArg(), p_days: 400 }), rpc("portal_ads", clientArg())]);
+  const [leads, reports] = await Promise.all([rpc("portal_leads", { ...clientArg(), p_days: 400 }), rpc("portal_reports", clientArg()).catch(e => { console.warn(e); return { reports: [], lifetime: {} }; })]);
   noticeNew(leads || [], first);
-  S.leads = leads || []; S.ads = ads || [];
+  S.leads = leads || []; S.reports = reports || { reports: [], lifetime: {} };
   S.loaded = true;
   render();
 }
@@ -297,7 +297,7 @@ function render(){
   $(".pp-main")?.classList.toggle("wide", S.tab === "leads" && S.view === "board");
   renderPreview();
   if (S.tab === "leads") renderLeads();
-  if (S.tab === "ads") renderAds();
+  if (S.tab === "reports") renderReports();
   if (S.tab === "account") renderAccount();
   if (S.sheet) renderSheet();
 }
@@ -1095,44 +1095,84 @@ async function demoCal(action, extra){
   return {};
 }
 
-/* ───────── ads ───────── */
-// delivery_status from the ad sync: active / learning / learning_limited are all running.
-const adOn = (a) => /^(active|learning|learning_limited)$/i.test(String(a.status || "").trim());
-function renderAds(){
-  const el = $("#pp-ads");
-  const ads = S.ads || [];
-  const live = ads.filter(adOn);
-  const spend = ads.reduce((s, a) => s + (Number(a.spend) || 0), 0);
-  const results = ads.reduce((s, a) => s + (Number(a.results) || 0), 0);
-  const d30 = S.leads.filter(l => Date.now() - t(l.at) < 30 * 86400e3).length;
-  const d7 = S.leads.filter(l => Date.now() - t(l.at) < 7 * 86400e3).length;
-  const wonAll = S.leads.filter(l => stageOf(l) === "won"), wonV = wonAll.reduce((s, l) => s + (Number(l.job_value) || 0), 0);
-  const updated = ads.map(a => a.updated_at).filter(Boolean).sort().pop();
+/* ───────── reports ─────────
+   Every fortnightly report we've sent them (the numbers saved when the team
+   made it), plus their lifetime results in big, plain numbers: what a lead,
+   a quote and a job have cost them, what they've won and the profit. Built
+   for busy owners: big type, plain words, nothing to work out. */
+function rpNum(v){ const n = Number(v); return v == null || v === "" || !isFinite(n) ? null : n; }
+const rpShort = (d) => new Date(String(d).slice(0, 10) + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+function rpLife(){
+  const R = S.reports || { reports: [], lifetime: {} }, L = R.lifetime || {}, reps = R.reports || [];
+  // One report per month counts towards the totals (later reports in a month carry the month to date).
+  const perMonth = new Map();
+  reps.forEach(r => { const ym = String(r.to).slice(0, 7); if (!perMonth.has(ym)) perMonth.set(ym, r); });
+  const months = [...perMonth.values()];
+  const sumOf = (k) => months.reduce((t, r) => t + (rpNum(r[k]) || 0), 0);
+  const latest = reps[0] || null;
+  const spend = Math.max(rpNum(L.ad_spend) || 0, rpNum(latest?.ad_spend_to_date) || 0, sumOf("ad_spend"));
+  const leads = Math.max(rpNum(L.leads) || 0, rpNum(L.ad_leads) || 0, sumOf("enquiries"));
+  const quotes = Math.max(rpNum(L.quotes) || 0, sumOf("quoted"), Number(S.client?.quotes_sent) || 0);
+  const jobs = Math.max(rpNum(L.jobs) || 0, sumOf("jobs"));
+  const revenue = Math.max(rpNum(L.job_value) || 0, rpNum(latest?.revenue_to_date) || 0, sumOf("revenue"));
+  const profit = rpNum(latest?.profit_to_date);
+  const invested = rpNum(latest?.invested_to_date);
+  const per = (n) => spend && n ? spend / n : null;
+  return { spend, leads, quotes, jobs, revenue, profit, invested, cpl: per(leads), cpq: per(quotes), cpa: per(jobs), latest, reps };
+}
+function renderReports(){
+  const el = $("#pp-reports");
+  if (!S.reports){ el.innerHTML = `<div class="pp-empty">Loading your reports…</div>`; return; }
+  const x = rpLife(), c = S.client;
+  const next = nextReport(c);
+  const back = x.invested && x.revenue ? x.revenue / x.invested : null;
+  const tile = (label, value, help, cls = "") => `<div class="rp-tile ${cls}"><span>${label}</span><b>${value}</b><small>${help}</small></div>`;
   el.innerHTML = `
-    <div class="pp-hero"><div><h1>Your ads</h1><p>${live.length ? `${live.length} ad${live.length === 1 ? "" : "s"} running right now.` : ads.length ? "No ads running right now." : "Your ads will show here once they're live."}</p></div></div>
-    <div class="pp-stats">
-      <div><span>Leads this week</span><b>${d7}</b></div>
-      <div><span>Leads in 30 days</span><b>${d30}</b></div>
-      <div><span>Spent on ads</span><b>${spend ? money(spend) : "-"}</b><small>all time</small></div>
-      <div><span>Cost per lead</span><b>${spend && results ? money(spend / results) : "-"}</b><small>all time</small></div>
+    <div class="pp-hero"><div><h1>Your results</h1><p>Everything since you started with us${c.since ? ` in ${esc(new Date(c.since).toLocaleDateString("en-NZ", { month: "long", year: "numeric" }))}` : ""}.</p></div></div>
+    <section class="rp-big">
+      <div class="rp-big-main">
+        <span>${x.profit != null ? "Profit from your leads so far" : "Work you've won from your leads"}</span>
+        <b>${x.profit != null ? money(x.profit) : x.revenue ? money(x.revenue) : "$0"}</b>
+        <p>${x.jobs ? `${num(x.jobs)} job${x.jobs === 1 ? "" : "s"} won${x.revenue && x.profit != null ? ` · ${money(x.revenue)} of work` : ""}` : "Your first job won will show here."}${back && back >= 1 ? ` · <em>${back.toFixed(1)}x back on what you've put in</em>` : ""}</p>
+      </div>
+      <div class="rp-big-side">
+        <div><span>Leads</span><b>${num(x.leads)}</b></div>
+        <div><span>Quotes</span><b>${num(x.quotes)}</b></div>
+        <div><span>Jobs won</span><b>${num(x.jobs)}</b></div>
+      </div>
+    </section>
+    <div class="rp-tiles">
+      ${tile("Cost per lead", x.cpl != null ? money(x.cpl) : "-", "What each enquiry cost you")}
+      ${tile("Cost per quote", x.cpq != null ? money(x.cpq) : "-", "What each quote cost you")}
+      ${tile("Cost per job won", x.cpa != null ? money(x.cpa) : "-", "What each new job cost you", "gold")}
+      ${tile("Spent on ads", x.spend ? money(x.spend) : "-", "Since your ads started")}
     </div>
-    ${wonAll.length ? `<div class="pp-roi"><span>Jobs you've won from these leads</span><b>${wonAll.length} job${wonAll.length === 1 ? "" : "s"}${wonV ? ` · ${money(wonV)}` : ""}</b>${spend && wonV ? `<small>${money(spend)} spent on ads${wonV > spend ? ` - that's ${(wonV / spend).toFixed(1)}x back in work` : ""}</small>` : `<small>Add the job value when you mark a job won to see your return.</small>`}</div>` : ""}
-    ${ads.length ? `<ul class="pp-ads">${ads.map(a => {
-      const on = adOn(a);
-      return `<li class="pp-ad">
-        <div class="pp-ad-img">${a.image ? `<img src="${esc(a.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span>${a.media === "video" ? "▶" : "Ad"}</span>`}</div>
-        <div class="pp-ad-body">
-          <b>${esc(a.name)}</b>
-          ${a.campaign ? `<small>${esc(a.campaign)}</small>` : ""}
-          <span class="pp-ad-st ${on ? "on" : ""}">${on ? "Running" : /review|process|preapproved/i.test(a.status || "") ? "Waiting on Facebook's review" : "Not running"}</span>
-          <div class="pp-ad-nums">
-            <span><i>Leads</i>${num(a.results)}</span>
-            <span><i>Spent</i>${money(a.spend)}</span>
-            <span><i>Per lead</i>${a.cost_per_result != null ? money(a.cost_per_result) : a.spend && a.results ? money(a.spend / a.results) : "-"}</span>
+    <h2 class="rp-h">Your fortnightly reports</h2>
+    ${x.reps.length ? `<div class="rp-list">${x.reps.map((r, i) => {
+      const cpl = rpNum(r.ad_spend) && rpNum(r.enquiries) ? r.ad_spend / r.enquiries : null;
+      const did = String(r.did || "").split("\n").map(s => s.trim()).filter(Boolean);
+      const nxt = (r.next || []).map(s => String(s).trim()).filter(Boolean);
+      return `<details class="rp-card"${i === 0 ? " open" : ""}>
+        <summary>
+          <span class="rp-card-no">${r.number ? `Report ${esc(r.number)}` : "Report"}${i === 0 ? ` <i>Latest</i>` : ""}</span>
+          <b>${esc(rpShort(r.from))} – ${esc(rpShort(r.to))}</b>
+          <span class="rp-card-chev" aria-hidden="true">›</span>
+        </summary>
+        <div class="rp-card-body">
+          <div class="rp-nums">
+            <div><b>${num(rpNum(r.enquiries))}</b><span>Leads</span></div>
+            <div><b>${num(rpNum(r.quoted) ?? rpNum(r.quotes_booked))}</b><span>Quotes</span></div>
+            <div><b>${num(rpNum(r.jobs))}</b><span>Jobs won</span></div>
+            <div><b>${rpNum(r.revenue) != null ? money(r.revenue) : "-"}</b><span>Work won</span></div>
           </div>
+          ${r.summary ? `<p class="rp-summary">${esc(r.summary)}</p>` : ""}
+          ${did.length ? `<h4>What we did</h4><ul class="rp-ticks">${did.map(s => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}
+          ${nxt.length ? `<h4>What's next</h4><ul class="rp-next">${nxt.map(s => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}
+          <p class="rp-foot">Month to date: ${rpNum(r.ad_spend) != null ? `${money(r.ad_spend)} on ads` : "ad spend not in"}${cpl != null ? ` · ${money(cpl)} a lead` : ""}</p>
         </div>
-      </li>`; }).join("")}</ul>` : ""}
-    <p class="pp-muted pp-small">Numbers come from Facebook and cover each ad's whole life${updated ? `, last updated ${esc(ago(updated))}` : ""}.</p>`;
+      </details>`; }).join("")}</div>`
+      : `<div class="pp-empty">Your first report lands ${next ? esc(new Date(next).toLocaleDateString("en-NZ", { timeZone: NZ_TZ, weekday: "long", day: "numeric", month: "long" })) : "in your first two weeks"}. We'll show every one here.</div>`}
+    ${x.reps.length && next ? `<p class="pp-muted pp-small rp-nextline">Next report: <b>${esc(new Date(next).toLocaleDateString("en-NZ", { timeZone: NZ_TZ, weekday: "long", day: "numeric", month: "long" }))}</b></p>` : ""}`;
 }
 
 /* ───────── account ───────── */
@@ -1439,6 +1479,7 @@ function demoData(){
   if (demo) return demo;
   const ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
   const ahead = (m) => new Date(Date.now() + m * 60e3).toISOString();
+  const dayAgo = (d) => new Date(Date.now() - d * 86400e3).toISOString().slice(0, 10);
   const access = store.get("mpp_demo_viewer") || "client";
   const L = (o) => ({ email: "", answers: [], log: [], notes: [], client_calls: true, ours: false, status: "new", stage: "new", ...o });
   demo = {
@@ -1472,6 +1513,17 @@ function demoData(){
       L({ id: "l10", name: "Ben Carter", phone: "021 555 0109", at: ago(60 * 5), form: "Driveway quote", city: "Takapuna", status: "call_back", stage: "call_scheduled", next_at: ahead(45),
         answers: [{ q: "When", a: "Within a month" }], notes: [{ at: ago(60 * 4), stage: "call_scheduled", from: "new", when: ahead(45), note: "At work, ring after lunch" }] }),
     ],
+    reports: {
+      lifetime: { ad_spend: 1472.5, ad_leads: 47, leads: 52, quotes: 14, jobs: 5, job_value: 61800 },
+      reports: [
+        { id: "r3", from: dayAgo(14), to: dayAgo(1), made_at: ago(60 * 24), number: 3, enquiries: 18, quotes_booked: 6, quoted: 5, jobs: 2, revenue: 26400, ad_spend: 980, revenue_to_date: 61800, invested_to_date: 7472.5, profit_to_date: 18540,
+          summary: "Your best fortnight yet - 18 leads and two driveways signed. The new before/after video is doing most of the work.", did: "Launched the before/after driveway video\nMoved budget off the patio ad\nCalled every lead within 5 minutes", next: ["Film a second customer story", "Test a winter offer", "Push exposed aggregate"] },
+        { id: "r2", from: dayAgo(28), to: dayAgo(15), made_at: ago(60 * 24 * 15), number: 2, enquiries: 21, quotes_booked: 5, quoted: 6, jobs: 2, revenue: 21200, ad_spend: 1880, revenue_to_date: 35400, invested_to_date: 5980, profit_to_date: 10620,
+          summary: "Steady fortnight. Quotes are turning into jobs well.", did: "Refreshed the photos on two ads\nAdded a budget question to the form", next: ["New video ad"] },
+        { id: "r1", from: dayAgo(42), to: dayAgo(29), made_at: ago(60 * 24 * 29), number: 1, enquiries: 13, quotes_booked: 4, quoted: 3, jobs: 1, revenue: 14200, ad_spend: 640, revenue_to_date: 14200, invested_to_date: 2640, profit_to_date: 4260,
+          summary: "Ads went live and the first leads came straight in.", did: "Built and launched three ads", next: ["Watch which ad brings the best leads"] },
+      ],
+    },
     ads: [
       { id: "a1", name: "Driveway before/after - video", campaign: "Driveways - Auckland", status: "active", media: "video", spend: 842.5, results: 31, cost_per_result: 27.18, updated_at: ago(300) },
       { id: "a2", name: "Exposed aggregate - static", campaign: "Driveways - Auckland", status: "learning", spend: 410, results: 12, cost_per_result: 34.17, updated_at: ago(300) },
@@ -1485,7 +1537,7 @@ async function demoRpc(fn, args){
   const copy = (x) => JSON.parse(JSON.stringify(x));
   if (fn === "portal_me") return copy({ ...d.me, client: d.client });
   if (fn === "portal_leads") return copy(d.leads);
-  if (fn === "portal_ads") return copy(d.ads);
+  if (fn === "portal_reports") return copy(d.reports);
   if (fn === "portal_set_settings"){ if (args.p_notify != null) d.me.notify_new_leads = !!args.p_notify; if (args.p_phone != null) d.me.phone = args.p_phone || null; return { ok: true }; }
   if (fn === "portal_save_push") return { ok: true };
   const l = d.leads.find(x => x.id === args.p_lead);
