@@ -189,7 +189,9 @@ function callNow(){
     { k: "call", title: "Call now", sub: "Best ones at the top. Ring them fast - it wins more jobs.",
       list: [...st("new").filter(l => mine(l) && !l.checkin && !inGhl(l)).sort(byRank), ...due] },
     { k: "noanswer", title: "Didn't answer", sub: "Try them again. Still can't get them? Mr Priceless will.",
-      list: st("no_answer").filter(l => mine(l) && !inGhl(l)).sort((a, b) => (b.checkin ? 1 : 0) - (a.checkin ? 1 : 0) || (timerFor(a)?.until ?? Infinity) - (timerFor(b)?.until ?? Infinity)) },
+      // Every lead with the red "Did they get back to you?" question goes here too,
+      // even one still at New (they tapped Call but never said what happened).
+      list: L.filter(l => mine(l) && !inGhl(l) && (stageOf(l) === "no_answer" || l.checkin)).sort((a, b) => (b.checkin ? 1 : 0) - (a.checkin ? 1 : 0) || (timerFor(a)?.until ?? Infinity) - (timerFor(b)?.until ?? Infinity)) },
   ];
 }
 const callCount = () => callNow().reduce((n, x) => n + x.list.length, 0);
@@ -1526,6 +1528,8 @@ function demoData(){
       L({ id: "l3", name: "Tom Fraser", phone: "022 555 0190", email: "tom@example.com", at: ago(60 * 30), form: "Retaining wall", city: "Te Atatū", status: "no_answer", stage: "no_answer",
         answers: [{ q: "What's the job?", a: "Retaining wall, 12m long" }, { q: "Budget", a: "$8k" }], first_na_at: ago(60 * 26), checkin: true, checkin_deadline: ahead(60 * 6),
         log: [{ at: ago(60 * 26), by: "you", outcome: "no_answer", note: "Left a voicemail" }], notes: [{ at: ago(60 * 26), stage: "no_answer", from: "new", note: "Left a voicemail" }] }),
+      L({ id: "l12", name: "Mere Tane", phone: "021 555 0133", at: ago(60 * 30), form: "Driveway quote", city: "Glenfield", dialled_at: ago(60 * 25),
+        answers: [{ q: "When", a: "This month" }, { q: "Budget", a: "$12k" }], checkin: true, checkin_deadline: ahead(60 * 5) }),
       L({ id: "l4", name: "Aroha Pene", phone: "021 555 0111", at: ago(60 * 50), form: "Driveway quote", city: "Howick", status: "no_answer", stage: "no_answer", ours: true, handed_over_at: ago(60 * 2), handover_reason: "client_no",
         answers: [{ q: "When", a: "Next month" }], log: [{ at: ago(60 * 47), by: "you", outcome: "no_answer" }, { at: ago(60), by: "Mr Priceless", outcome: "no_answer", note: "" }] }),
       L({ id: "l11", name: "Jade Kerr", phone: "021 555 0122", at: ago(60 * 7), form: "Driveway quote", city: "Birkenhead", status: "no_answer", stage: "no_answer", first_na_at: ago(60 * 6),
