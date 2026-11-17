@@ -180,6 +180,7 @@ async function sendText(to: string, body: string, name = ""): Promise<string | n
 }
 const STALE_MS: Record<string, number> = { new_lead: 6 * 3600e3, call_due: 3600e3, visit_today: 12 * 3600e3, digest: 3 * 3600e3, booked: 24 * 3600e3 };
 
+const PUSH_PAUSED = true;
 async function deliver(admin: any) {
   const keys = await vapidKeys(admin);
   const { data: waiting } = await admin.from("portal_notifications").select("id").eq("status", "pending").order("created_at").limit(200);
@@ -197,7 +198,9 @@ async function deliver(admin: any) {
     };
     try {
       if (Date.now() - new Date(n.created_at).getTime() > (STALE_MS[n.kind] ?? 48 * 3600e3)) { await finish("expired", null); continue; }
-      const { data: subs } = await admin.from("portal_push_subs").select("id, endpoint, p256dh, auth, failures").ilike("email", n.email);
+      // Phone alerts are paused (Rocky, 18 Nov 2026): texts carry it. Devices stay
+      // saved, so setting PUSH_PAUSED to false brings them straight back.
+      const { data: subs } = PUSH_PAUSED ? { data: [] } : await admin.from("portal_push_subs").select("id, endpoint, p256dh, auth, failures").ilike("email", n.email);
       let ok = 0;
       const message = {
         title: n.title, body: n.body, url: n.url || PORTAL_URL, tag: `${n.kind}:${n.lead_id || n.id}`, kind: n.kind,
