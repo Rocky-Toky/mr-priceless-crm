@@ -666,6 +666,11 @@ function renderSheet(){
       <div><button type="button" class="pp-btn pp-btn-dark" data-act="ask-yes">Yes - tell us what happened</button><button type="button" class="pp-btn pp-btn-light" data-ask-no="${esc(l.id)}">No - pass to Mr Priceless</button></div>
     </div>` : ""}
     ${timerFor(l) ? `<p class="pp-note-line">${timerHtml(l, true)}</p>` : ""}
+    ${readOnly() && withUs(l) ? `<div class="pp-teambox">
+      <b>Team only</b>
+      <span>Mr Priceless has this lead. Give it to ${esc(S.client?.name || "the client")} to call: it goes to the top of their Call now as a new lead with a fresh 24 hours, out of Carmen's queue, and they get the new-lead alert and text.</span>
+      <button type="button" class="pp-btn pp-btn-gold" data-act="give"${S.saving ? " disabled" : ""}>Give it to ${esc(S.client?.name || "them")} to call</button>
+    </div>` : ""}
     ${withUs(l) ? `<p class="pp-note-line us">The Mr Priceless team is calling ${esc(first)}${l.handover_reason === "client_no" ? " - you passed them to us" : ""}. If they get in touch with you, just update them here.</p>` : ""}
 
     ${l.phone ? `<div class="pp-actions">
@@ -737,7 +742,7 @@ function moveHtml(l){
 }
 function historyHtml(l){
   const items = [
-    ...(l.notes || []).map(n => ({ at: n.at, who: "You", what: n.stage ? `${STAGE[n.stage]?.label || n.stage}${n.amount != null ? ` · ${money(n.amount)}` : ""}${n.when ? ` · ${when(n.when)}` : ""}` : "Note", note: [n.reason, n.note].filter(Boolean).join(" - ") })),
+    ...(l.notes || []).map(n => ({ at: n.at, who: n.by === "Mr Priceless" ? "Mr Priceless" : "You", what: n.stage ? `${STAGE[n.stage]?.label || n.stage}${n.amount != null ? ` · ${money(n.amount)}` : ""}${n.when ? ` · ${when(n.when)}` : ""}` : "Note", note: [n.reason, n.note].filter(Boolean).join(" - ") })),
     ...(l.log || []).filter(x => x.by !== "you").map(x => ({ at: x.at, who: "Mr Priceless", what: CALL_LABELS[x.outcome] || x.outcome, note: x.note })),
   ].filter(x => x.at).sort((a, b) => t(b.at) - t(a.at));
   if (!items.length) return `<p class="pp-muted">Nothing yet.</p>`;
@@ -832,6 +837,23 @@ async function saveStage(){
     S.saving = false; renderSheet();
     toast(e?.message && !/fetch|network/i.test(e.message) ? e.message : "Couldn't save that - check your internet and try again.");
     console.warn(e);
+  }
+}
+// Team preview only: hand a lead Mr Priceless has (back) to the client to call (portal_give_to_client, sql/113).
+async function giveToClient(){
+  const l = S.leads.find(x => x.id === S.openId);
+  if (!l || !readOnly() || S.saving) return;
+  if (!confirm(`Give ${l.name || "this lead"} to ${S.client?.name || "the client"} to call?\n\nIt goes to the top of their Call now with a fresh 24 hours, comes out of Carmen's queue, and they get the new-lead alert and text.`)) return;
+  S.saving = true; renderSheet();
+  try {
+    await rpc("portal_give_to_client", { p_lead: l.id });
+    S.saving = false;
+    await refreshAfterSave();
+    toast(`${firstName(l.name)} is in ${S.client?.name || "their"}'s Call now.`);
+    closeSheet();
+  } catch(e){
+    S.saving = false; renderSheet();
+    toast(e?.message && !/fetch|network/i.test(e.message) ? e.message : "Couldn't do that - check your internet and try again.");
   }
 }
 async function saveNote(){
@@ -1311,6 +1333,7 @@ function bind(){
     else if (act === "save-note") saveNote();
     else if (act === "ask-yes"){ S.askFor = S.openId; renderSheet(); $("#pp-move")?.scrollIntoView({ block: "start", behavior: "smooth" }); }
     else if (act === "alerts-setup"){ await checkAlerts(); openSheet("alerts"); }
+    else if (act === "give") giveToClient();
     else if (act === "welcome-ok"){ store.set("mpp_welcome", "1"); render(); }
     else if (act === "more-stages"){ S.more = !S.more; if (!S.more) S.pick = null; renderSheet(); }
     else if (act === "alerts-later"){ store.set("mpp_alerts_later", nzDay()); render(); }
@@ -1580,6 +1603,12 @@ async function demoRpc(fn, args){
   if (fn === "portal_log_call"){
     if (args.p_outcome === "seen") l.seen_at = l.seen_at || new Date().toISOString();
     if (args.p_outcome === "dialled") l.dialled_at = new Date().toISOString();
+    return { ok: true };
+  }
+  if (fn === "portal_give_to_client"){
+    const now = new Date().toISOString();
+    Object.assign(l, { ours: false, client_calls: true, stage: "new", stage_at: now, assigned_at: now, handed_over_at: null, handover_reason: null, checkin: false, checkin_deadline: null, first_na_at: null, dialled_at: null, seen_at: null });
+    l.notes.push({ at: now, stage: "new", by: "Mr Priceless", note: "Passed to you to call" });
     return { ok: true };
   }
   if (fn === "portal_update_lead"){

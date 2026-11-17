@@ -13439,7 +13439,9 @@ function lqWithClient(l){
   if (lqClient(l)?.is_test) return true;
   if (!l.client_calls || l.handed_over_at) return false;
   const log = Array.isArray(l.call_log) ? l.call_log : [];
-  return !log.some(x => x.by !== "client");
+  // Our calls from before the team gave it (back) to the client don't count (portal_give_to_client).
+  const since = l.given_to_client_at ? new Date(l.given_to_client_at).getTime() : null;
+  return !log.some(x => x.by !== "client" && (since == null || !x.at || new Date(x.at).getTime() > since));
 }
 const LQ_HANDOVER_WHY = { not_called: "didn't ring them within 24 hours", client_no: "couldn't reach them and passed them to us", no_reply: "couldn't reach them and didn't answer our check-in" };
 const lqDue = (l) => lqIsOpen(l) && !lqWithClient(l) && (!l.next_attempt_at || new Date(l.next_attempt_at).getTime() <= Date.now());

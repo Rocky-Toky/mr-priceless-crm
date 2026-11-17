@@ -550,3 +550,9 @@ body.pp-dragging,body.pp-dragging *{cursor:grabbing !important;user-select:none;
 .pp-prow-main small i{font-style:normal;color:var(--blue);font-weight:600;}
 .pp-prow.checkin .pp-prow-main small{color:var(--red);font-weight:600;}
 .pp-prow-call{flex:none;width:42px;height:42px;border-radius:50%;background:var(--green);color:#fff;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;font-size:18px;}
+
+/* Team preview: give a lead back to the client (17 Nov 2026) */
+.pp-teambox{display:flex;flex-direction:column;gap:8px;background:#2b2512;color:var(--gold-bright);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:12px;}
+.pp-teambox b{font-size:12px;text-transform:uppercase;letter-spacing:.06em;}
+.pp-teambox span{color:#f3ead2;font-size:14px;}
+.pp-teambox .pp-btn{align-self:flex-start;}
