@@ -53,6 +53,9 @@ alter table client_leads add column if not exists ghl_push_at timestamptz;
 create index if not exists client_leads_ghl_push on client_leads (ghl_push_at) where ghl_push_at is not null;
 -- The deal's state in their GoHighLevel, kept by sync-ghl-leads (only set once
 -- a deal's been won; then follows it): won shows as Job won with its value.
+-- When the team last gave the lead (back) to the client to call (portal_give_to_client).
+-- Our calls from before then no longer make it "ours".
+alter table client_leads add column if not exists given_to_client_at timestamptz;
 alter table client_leads add column if not exists ghl_status text;
 alter table client_leads add column if not exists ghl_value numeric;
 alter table client_leads add column if not exists ghl_closed_at timestamptz;
@@ -295,6 +298,20 @@ as $$
                   where jsonb_typeof(e) = 'object' and e ? 'stage') as picked) p;
 $$;
 
+-- Any call_log entry since p_since (all of them when it's null); only ours
+-- (not the client's own) when p_ours. An entry without a readable time counts.
+create or replace function public.portal_log_since(p_log jsonb, p_since timestamptz, p_ours boolean)
+returns boolean
+language sql
+immutable
+as $$
+  select exists (
+    select 1 from jsonb_array_elements(case when jsonb_typeof(p_log) = 'array' then p_log else '[]'::jsonb end) e
+    where (not p_ours or coalesce(e ->> 'by', '') <> 'client')
+      and (p_since is null
+           or coalesce(case when coalesce(e ->> 'at', '') ~ '^\d{4}-\d{2}-\d{2}' then (e ->> 'at')::timestamptz end, 'infinity'::timestamptz) > p_since));
+$$;
+
 -- Is a lead ours to call (true) or still the client's (false)?
 create or replace function public.portal_lead_is_ours(l client_leads)
 returns boolean
@@ -303,7 +320,7 @@ stable
 as $$
   select not l.client_calls
     or l.handed_over_at is not null
-    or exists (select 1 from jsonb_array_elements(coalesce(l.call_log, '[]'::jsonb)) e where coalesce(e ->> 'by', '') <> 'client');
+    or public.portal_log_since(l.call_log, l.given_to_client_at, true);
 $$;
 
 -- 10pm NZ the day it's asked, or the next day if asked after 6pm.
@@ -450,6 +467,49 @@ exception when others then
   raise notice 'portal_push_ghl: %', sqlerrm;
 end $$;
 revoke all on function public.portal_push_ghl(uuid) from public;
+
+-- ───────── The team gives a lead (back) to the client to call ─────────
+-- From "See what they see" (team only): a lead Mr Priceless has goes to the
+-- top of the client's Call now as a new lead with a fresh 24 hours, out of
+-- our call queue (our earlier calls stay in its history), and the client gets
+-- the usual new-lead alert / text.
+create or replace function public.portal_give_to_client(p_lead uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare l client_leads;
+begin
+  if not public.is_allowlisted() then raise exception 'Not allowed'; end if;
+  select * into l from client_leads where id = p_lead for update;
+  if not found then raise exception 'Couldn''t find that lead'; end if;
+  update client_leads set
+    client_calls = true, given_to_client_at = now(), client_assigned_at = now(),
+    handed_over_at = null, handover_reason = null,
+    checkin_at = null, checkin_deadline = null, checkin_token = null, checkin_answered_at = null,
+    client_first_na_at = null, client_dialled_at = null, client_seen_at = null,
+    follow_status = case when coalesce(follow_status, 'new') in ('site_visit', 'booked', 'consult_call') then follow_status else 'new' end,
+    next_attempt_at = null,
+    client_stage = 'new', client_stage_at = now(),
+    client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+      'at', now(), 'stage', 'new', 'from', public.portal_lead_stage(l), 'by', 'Mr Priceless', 'note', 'Passed to you to call')),
+    updated_at = now()
+  where id = l.id
+  returning * into l;
+  begin
+    perform public.portal_queue(l.client_id, l.id, 'new_lead',
+      'New lead: ' || coalesce(nullif(trim(l.name), ''), 'someone'),
+      'Call ' || coalesce(nullif(split_part(trim(coalesce(l.name, '')), ' ', 1), ''), 'them') || ' now',
+      'https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || l.id,
+      case when public.portal_text_ok() then 'text' end, jsonb_build_object('sms', public.portal_new_lead_sms(l)));
+    perform public.portal_kick();
+  exception when others then null;
+  end;
+  return jsonb_build_object('ok', true);
+end $$;
+revoke all on function public.portal_give_to_client(uuid) from public;
+grant execute on function public.portal_give_to_client(uuid) to authenticated;
 
 -- ───────── New leads: email (if they want it) and a phone alert, straight away ─────────
 create or replace function public.client_leads_portal_alert()
@@ -851,7 +911,7 @@ begin
     where l.client_calls and l.handed_over_at is null
       and coalesce(l.follow_status, 'new') = 'new' and public.portal_lead_stage(l) = 'new'
       and l.client_dialled_at is null
-      and not exists (select 1 from jsonb_array_elements(coalesce(l.call_log, '[]'::jsonb)) e)
+      and not public.portal_log_since(l.call_log, l.given_to_client_at, false)
       and coalesce(l.client_assigned_at, l.lead_created_at, l.created_at) <= now() - interval '24 hours'
     for update skip locked
   loop
@@ -870,7 +930,7 @@ begin
       and coalesce(l.follow_status, 'new') in ('new', 'no_answer')
       and public.portal_lead_stage(l) in ('new', 'no_answer')
       and coalesce(l.client_first_na_at, l.client_dialled_at) <= now() - interval '24 hours'
-      and not exists (select 1 from jsonb_array_elements(coalesce(l.call_log, '[]'::jsonb)) e where coalesce(e ->> 'by', '') <> 'client')
+      and not public.portal_log_since(l.call_log, l.given_to_client_at, true)
     for update skip locked
   loop
     tok := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
