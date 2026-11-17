@@ -6276,7 +6276,88 @@ function renderClientPortal(c){
       <input type="tel" name="phone" placeholder="Their mobile (for texts)" aria-label="Their mobile">
       <button type="submit" class="btn gold">Give them a login</button>
     </form>
-    <p class="cpp-p cpp-small">They get an email to choose a password, then sign in at <b>${escapeHtml(location.origin + location.pathname.replace(/[^/]*$/, ""))}portal/</b></p>`;
+    <p class="cpp-p cpp-small">They get an email to choose a password, then sign in at <b>${escapeHtml(location.origin + location.pathname.replace(/[^/]*$/, ""))}portal/</b></p>
+    ${cppActivityHtml(c)}`;
+  if (state.portalActivity[c.id] === undefined) loadPortalActivity(c.id).then(() => { if ($("#cp-portal")?.dataset.id === c.id) renderClientPortal(c); });
+}
+// Activity in their app (portal_activity, sql/113): every action on a lead -
+// by which login, our team, or the app itself - newest first.
+Object.assign(state, { portalActivity: {}, cppActWho: {}, cppActMore: {} });
+async function loadPortalActivity(clientId){
+  if (!IS_CONFIGURED){ state.portalActivity[clientId] = cppDemoActivity(clientId); return; }
+  state.portalActivity[clientId] = null;
+  const { data, error } = await supabase.from("portal_activity").select("id, lead_id, lead_name, at, who, actor, action, detail").eq("client_id", clientId).order("at", { ascending: false }).limit(500);
+  state.portalActivity[clientId] = error ? { error: /portal_activity/.test(error.message) ? "The log is still being set up - try again in a few minutes." : error.message } : (data || []);
+}
+function cppDemoActivity(clientId){
+  const leads = state.clientLeads.filter(l => l.client_id === clientId).slice(0, 4);
+  const n = (i) => leads[i % Math.max(1, leads.length)]?.name || "Sarah Lin", id = (i) => leads[i % Math.max(1, leads.length)]?.id || null;
+  const ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
+  return [
+    { id: 1, lead_id: id(0), lead_name: n(0), at: ago(4), who: "Dave", actor: "client", action: "stage", detail: { from: "new", stage: "site_visit", when: ago(-1500), address: "12 Rata St, Hamilton", note: "Booked in for Thursday morning" } },
+    { id: 2, lead_id: id(0), lead_name: n(0), at: ago(9), who: "Dave", actor: "client", action: "called", detail: {} },
+    { id: 3, lead_id: id(0), lead_name: n(0), at: ago(10), who: "Dave", actor: "client", action: "opened", detail: {} },
+    { id: 4, lead_id: id(1), lead_name: n(1), at: ago(95), who: "Rocky", actor: "team", action: "given", detail: {} },
+    { id: 5, lead_id: id(2), lead_name: n(2), at: ago(300), who: "Automatic", actor: "auto", action: "handed_over", detail: { reason: "not_called" } },
+    { id: 6, lead_id: id(3), lead_name: n(3), at: ago(1500), who: "Jo", actor: "client", action: "stage", detail: { from: "site_visit", stage: "quote_sent", amount: 14500, note: "Emailed the quote" } },
+    { id: 7, lead_id: id(1), lead_name: n(1), at: ago(1700), who: "Automatic", actor: "auto", action: "checkin_asked", detail: {} },
+    { id: 8, lead_id: id(2), lead_name: n(2), at: ago(1800), who: null, actor: "client", action: "note", detail: { note: "Said to ring back after 5" } }
+  ];
+}
+const CPP_ACT_SHOW = 60;
+function cppActWho(a, biz){
+  if (a.actor === "auto") return "The app";
+  if (a.who) return a.who;
+  return a.actor === "team" ? "Mr Priceless" : `Someone at ${biz}`;
+}
+function cppActText(a, biz){
+  const d = a.detail || {}, lead = `<b>${escapeHtml(a.lead_name || "a lead")}</b>`, st = (k) => escapeHtml((CPP_STAGES.find(x => x[0] === k) || [k, k || "?"])[1]);
+  const when = (t) => new Date(t).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  let t, extra = [];
+  switch (a.action){
+    case "opened": t = `opened ${lead}`; break;
+    case "called": t = `tapped Call on ${lead}`; break;
+    case "stage":
+      t = d.from && d.from !== d.stage ? `moved ${lead} from ${st(d.from)} to <b>${st(d.stage)}</b>` : `put ${lead} at <b>${st(d.stage)}</b>`;
+      if (d.when) extra.push(when(d.when));
+      if (d.amount != null) extra.push(fmtMoney(Number(d.amount)));
+      if (d.reason) extra.push(escapeHtml(d.reason));
+      if (d.address) extra.push(escapeHtml(d.address));
+      if (d.scope) extra.push(escapeHtml(d.scope));
+      if (d.checkin) extra.push("answered the check-in");
+      break;
+    case "note": t = `added a note on ${lead}`; break;
+    case "passed_to_us": t = `passed ${lead} to Mr Priceless${d.via === "link" ? " (from the text / email link)" : ""}`; break;
+    case "given": t = `gave ${lead} to ${escapeHtml(biz)} to call`; break;
+    case "checkin_asked": t = `asked "Did ${lead} get back to you?"`; break;
+    case "handed_over": t = `passed ${lead} to Mr Priceless - ${d.reason === "no_reply" ? "no answer to the check-in in time" : "not rung within 24 hours"}`; break;
+    default: t = `${escapeHtml(a.action)} ${lead}`;
+  }
+  const note = d.note && a.action !== "passed_to_us" ? `<span class="cpp-act-note">"${escapeHtml(d.note)}"</span>` : "";
+  return `${t}${extra.length ? `<span class="cpp-act-x">${extra.join(" · ")}</span>` : ""}${note}`;
+}
+function cppActivityHtml(c){
+  const list = state.portalActivity[c.id], biz = lqBizName(c) || "the client";
+  const head = `<h4 class="cpp-h cpp-act-h">Activity in their app <button type="button" class="btn ghost sm" data-cpp="act-refresh">Refresh</button></h4>`;
+  if (list === undefined || list === null) return head + mpSkel(2);
+  if (list.error) return head + `<p class="cpp-p cpp-err">${escapeHtml(list.error)}</p>`;
+  if (!list.length) return head + `<p class="cpp-p">Nothing yet. Every lead they open, call, move or add a note to will show here, with who did it.</p>`;
+  const people = [...new Set(list.map(a => cppActWho(a, biz)))];
+  const pick = people.includes(state.cppActWho[c.id]) ? state.cppActWho[c.id] : "";
+  const rows = list.filter(a => !pick || cppActWho(a, biz) === pick);
+  const more = state.cppActMore[c.id] || CPP_ACT_SHOW, shown = rows.slice(0, more);
+  const day = (t) => new Date(t).toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "long", day: "numeric", month: "long" });
+  const time = (t) => new Date(t).toLocaleTimeString("en-NZ", { timeZone: "Pacific/Auckland", hour: "numeric", minute: "2-digit" });
+  let last = "", out = "";
+  shown.forEach(a => {
+    const d = day(a.at);
+    if (d !== last){ out += `<li class="cpp-act-day">${escapeHtml(d)}</li>`; last = d; }
+    out += `<li class="cpp-act-row ${a.actor === "client" ? "" : a.actor}"><span class="cpp-act-t">${escapeHtml(time(a.at))}</span><div><b class="cpp-act-who">${escapeHtml(cppActWho(a, biz))}</b> ${cppActText(a, biz)}</div></li>`;
+  });
+  return head + `<div class="cpp-act-bar"><label>Show <select data-cpp-act="who"><option value="">Everyone</option>${people.map(p => `<option${p === pick ? " selected" : ""}>${escapeHtml(p)}</option>`).join("")}</select></label><span>${rows.length} action${rows.length === 1 ? "" : "s"}${list.length >= 500 ? " (latest 500)" : ""}</span></div>
+    <ul class="cpp-act">${out}</ul>
+    ${rows.length > more ? `<button type="button" class="btn ghost sm cpp-act-more" data-cpp="act-more">Show more</button>` : ""}
+    <p class="cpp-p cpp-small">Names show from 17 Nov 2026. Anything before that shows as "Someone at ${escapeHtml(biz)}".</p>`;
 }
 // Their pipeline in the portal (client_leads.client_stage, sql/113), so we can see how they're getting on.
 const CPP_STAGES = [["new", "New"], ["no_answer", "Didn't answer"], ["call_scheduled", "Call scheduled"], ["site_visit", "Site visit"], ["quote_to_send", "Quote to send"], ["quote_sent", "Quote sent"], ["won", "Won"], ["lost", "Lost"], ["not_qualified", "Not qualified"]];
@@ -6482,6 +6563,8 @@ async function cppClick(e){
   if (act === "copy-link"){ try { await navigator.clipboard.writeText(state.portalLink?.link || ""); rcToast("Link copied."); } catch(err){ $("#cp-portal .cpp-link input")?.select(); } return; }
   if (act === "resend") return cppInvite(c, b.dataset.email, b.dataset.name || "", b.dataset.phone || "");
   if (act === "form"){ state.cppFormPick[c.id] = b.dataset.form; renderClientPortal(c); return; }
+  if (act === "act-more"){ state.cppActMore[c.id] = (state.cppActMore[c.id] || CPP_ACT_SHOW) + CPP_ACT_SHOW; renderClientPortal(c); return; }
+  if (act === "act-refresh"){ await loadPortalActivity(c.id); renderClientPortal(c); return; }
   if (act === "undo-rules"){ delete state.cppRules[c.id]; renderClientPortal(c); return; }
   if (act === "save-rules"){
     const rules = cppDraft(c).filter(r => (r.a || []).filter(a => a !== "*").length);
@@ -6519,6 +6602,7 @@ async function cppClick(e){
 }
 async function cppChange(e){
   if (cppRuleChange(e)) return;
+  if (e.target.dataset.cppAct === "who"){ const c = cppClient(); if (c){ state.cppActWho[c.id] = e.target.value; state.cppActMore[c.id] = 0; renderClientPortal(c); } return; }
   if (e.target.name !== "cpp-mode") return;
   const c = cppClient(); if (!c) return;
   const on = e.target.value === "client", biz = lqBizName(c);
