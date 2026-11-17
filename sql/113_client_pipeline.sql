@@ -124,8 +124,7 @@ stable
 as $$
   select 'Mr Priceless: new lead - ' || coalesce(nullif(trim(l.name), ''), 'someone')
     || coalesce(' (' || nullif(concat_ws(', ', nullif(trim(coalesce(l.form_name, '')), ''), nullif(trim(coalesce(l.city, '')), '')), '') || ')', '')
-    || '. Call them now' || coalesce(': ' || nullif(trim(coalesce(l.phone, '')), ''), '')
-    || '. Details: https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || l.id;
+    || '. Call them now: https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || l.id;
 $$;
 
 -- A lead nobody has touched yet: not rung by us or the client, nothing logged, not handed over.
@@ -498,6 +497,7 @@ begin
     updated_at = now()
   where id = l.id
   returning * into l;
+  perform public.portal_act(l.id, 'given', '{}'::jsonb, 'team');
   begin
     perform public.portal_queue(l.client_id, l.id, 'new_lead',
       'New lead: ' || coalesce(nullif(trim(l.name), ''), 'someone'),
@@ -741,6 +741,10 @@ begin
     job_scope = coalesce(scope, job_scope),
     updated_at = now()
   where id = l.id;
+  perform public.portal_act(l.id, case when p_stage is not null then 'stage' else 'note' end, jsonb_strip_nulls(jsonb_build_object(
+    'stage', p_stage, 'from', case when p_stage is not null then cur end, 'note', note, 'when', p_when,
+    'amount', p_amount, 'reason', reason, 'address', addr, 'scope', scope,
+    'checkin', case when pending and p_stage is not null then true end)), 'client');
   -- Their GoHighLevel follows (stage, calendar, a note), straight away.
   if p_stage is not null then perform public.portal_push_ghl(l.id); end if;
   return jsonb_build_object('ok', true);
@@ -762,10 +766,16 @@ begin
   if cid is null or cid <> l.client_id then raise exception 'Not allowed'; end if;
   if p_outcome = 'seen' then
     update client_leads set client_seen_at = coalesce(client_seen_at, now()) where id = l.id;
+    -- In the log once per login per half hour (they open leads a lot).
+    if not exists (select 1 from portal_activity a where a.lead_id = l.id and a.action = 'opened' and a.at > now() - interval '30 minutes'
+                   and lower(coalesce(a.who_email, '')) = lower(coalesce((select email from auth.users where id = auth.uid()), ''))) then
+      perform public.portal_act(l.id, 'opened', '{}'::jsonb, 'client');
+    end if;
     return jsonb_build_object('ok', true);
   end if;
   if p_outcome = 'dialled' then
     update client_leads set client_dialled_at = now(), client_seen_at = coalesce(client_seen_at, now()) where id = l.id;
+    perform public.portal_act(l.id, 'called', '{}'::jsonb, 'client');
     return jsonb_build_object('ok', true);
   end if;
   return public.portal_update_lead(p_lead, case p_outcome
@@ -795,6 +805,7 @@ begin
     client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('at', now(), 'note', 'Passed to Mr Priceless to follow up')),
     updated_at = now()
   where id = l.id;
+  perform public.portal_act(l.id, 'passed_to_us', '{"note": "Passed to Mr Priceless to follow up"}'::jsonb, 'client');
   return jsonb_build_object('ok', true);
 end $$;
 
@@ -818,6 +829,7 @@ begin
       client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('at', now(), 'note', 'Passed to Mr Priceless to follow up')),
       updated_at = now()
     where id = l.id;
+    perform public.portal_act(l.id, 'passed_to_us', '{"note": "Passed to Mr Priceless to follow up", "via": "link"}'::jsonb, 'client');
     return jsonb_build_object('ok', true, 'first', split_part(trim(coalesce(l.name, '')), ' ', 1));
   end if;
   return jsonb_build_object('ok', true, 'already', true, 'first', split_part(trim(coalesce(l.name, '')), ' ', 1));
@@ -875,6 +887,88 @@ revoke all on function public.portal_queue(uuid, uuid, text, text, text, text, t
 revoke all on function public.portal_kick() from public;
 
 -- Which 9am / 3pm "leads to call" texts have gone (server only).
+-- ───────── Activity log: everything done on a lead in the client's app ─────────
+-- Who (which client login, team member, or the app itself) did what, when.
+-- Shown on the CRM's Client portal tab. Written only by the functions here.
+create table if not exists portal_activity (
+  id bigserial primary key,
+  client_id uuid not null references clients(id) on delete cascade,
+  lead_id uuid references client_leads(id) on delete cascade,
+  lead_name text,
+  at timestamptz not null default now(),
+  who text,                              -- null = not known (before 17 Nov 2026)
+  who_email text,
+  actor text not null default 'client',  -- client, team, auto
+  action text not null,                  -- opened, called, stage, note, passed_to_us, given, checkin_asked, handed_over
+  detail jsonb not null default '{}'::jsonb
+);
+create unique index if not exists portal_activity_once on portal_activity (lead_id, action, at);
+create index if not exists portal_activity_client on portal_activity (client_id, at desc);
+alter table portal_activity enable row level security;
+drop policy if exists "team can see" on portal_activity;
+create policy "team can see" on portal_activity for select using (public.is_allowlisted());
+
+create or replace function public.portal_act(p_lead uuid, p_action text, p_detail jsonb default '{}'::jsonb, p_actor text default null)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare l record; em text; nm text; act text := p_actor;
+begin
+  select id, client_id, name into l from client_leads where id = p_lead;
+  if not found then return; end if;
+  if act is distinct from 'auto' then
+    select u.email into em from auth.users u where u.id = auth.uid();
+  end if;
+  if act is null then
+    act := case when em is null then 'auto' when public.is_allowlisted() then 'team' else 'client' end;
+  end if;
+  if act = 'auto' then
+    nm := 'Automatic'; em := null;
+  elsif act = 'team' and em is not null then
+    select nullif(trim(e.name), '') into nm from employees e where lower(e.email) = lower(em) limit 1;
+    nm := coalesce(nm, initcap(split_part(split_part(em, '@', 1), '.', 1)));
+  elsif em is not null then
+    select coalesce(nullif(trim(p.name), ''), p.email) into nm from client_portal_users p
+    where lower(p.email) = lower(em) and p.client_id = l.client_id limit 1;
+    nm := coalesce(nm, em);
+  end if;
+  insert into portal_activity (client_id, lead_id, lead_name, who, who_email, actor, action, detail)
+  values (l.client_id, l.id, l.name, nm, em, act, p_action, coalesce(p_detail, '{}'::jsonb))
+  on conflict do nothing;
+exception when others then null;  -- the log never stops the real action
+end $$;
+revoke all on function public.portal_act(uuid, text, jsonb, text) from public;
+
+-- Fill the log from what was already saved (no names for those). Safe to re-run.
+insert into portal_activity (client_id, lead_id, lead_name, at, who, actor, action, detail)
+select l.client_id, l.id, l.name, (e ->> 'at')::timestamptz,
+  case when e ->> 'by' = 'Mr Priceless' then 'Mr Priceless' end,
+  case when e ->> 'by' = 'Mr Priceless' then 'team' else 'client' end,
+  case when e ->> 'by' = 'Mr Priceless' then 'given'
+       when e ? 'stage' then 'stage'
+       when e ->> 'note' = 'Passed to Mr Priceless to follow up' then 'passed_to_us'
+       else 'note' end,
+  jsonb_strip_nulls(e - 'at' - 'by')
+from client_leads l
+cross join lateral jsonb_array_elements(case when jsonb_typeof(l.client_log) = 'array' then l.client_log else '[]'::jsonb end) e
+where jsonb_typeof(e) = 'object' and e ? 'at'
+on conflict do nothing;
+insert into portal_activity (client_id, lead_id, lead_name, at, who, actor, action, detail)
+select client_id, id, name, handed_over_at, 'Automatic', 'auto', 'handed_over', jsonb_build_object('reason', handover_reason)
+from client_leads where handed_over_at is not null and handover_reason in ('not_called', 'no_reply')
+on conflict do nothing;
+insert into portal_activity (client_id, lead_id, lead_name, at, who, actor, action)
+select client_id, id, name, checkin_at, 'Automatic', 'auto', 'checkin_asked' from client_leads where checkin_at is not null
+on conflict do nothing;
+insert into portal_activity (client_id, lead_id, lead_name, at, actor, action)
+select client_id, id, name, client_dialled_at, 'client', 'called' from client_leads where client_dialled_at is not null
+on conflict do nothing;
+insert into portal_activity (client_id, lead_id, lead_name, at, actor, action)
+select client_id, id, name, client_seen_at, 'client', 'opened' from client_leads where client_seen_at is not null
+on conflict do nothing;
+
 create table if not exists portal_digest_log (
   client_id uuid not null references clients(id) on delete cascade,
   slot text not null,
@@ -917,6 +1011,7 @@ begin
     for update skip locked
   loop
     update client_leads set handed_over_at = now(), handover_reason = 'not_called', updated_at = now() where id = r.id;
+    perform public.portal_act(r.id, 'handed_over', '{"reason": "not_called"}'::jsonb, 'auto');
     first := coalesce(nullif(split_part(trim(coalesce(r.name, '')), ' ', 1), ''), 'them');
     perform public.portal_queue(r.client_id, r.id, 'handed_over', 'We''re calling ' || first || ' for you',
       first || ' hadn''t been rung 24 hours after they enquired, so the Mr Priceless team is following them up.', base || '?lead=' || r.id);
@@ -937,6 +1032,7 @@ begin
     tok := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
     dl := public.portal_checkin_deadline(now());
     update client_leads set checkin_at = now(), checkin_deadline = dl, checkin_token = tok, updated_at = now() where id = r.id;
+    perform public.portal_act(r.id, 'checkin_asked', jsonb_build_object('deadline', dl), 'auto');
     first := coalesce(nullif(split_part(trim(coalesce(r.name, '')), ' ', 1), ''), 'them');
     select name into biz from clients where id = r.client_id;
     perform public.portal_queue(r.client_id, r.id, 'checkin', 'Did ' || first || ' get back to you?',
@@ -962,6 +1058,7 @@ begin
     for update skip locked
   loop
     update client_leads set handed_over_at = now(), handover_reason = 'no_reply', updated_at = now() where id = r.id;
+    perform public.portal_act(r.id, 'handed_over', '{"reason": "no_reply"}'::jsonb, 'auto');
     first := coalesce(nullif(split_part(trim(coalesce(r.name, '')), ' ', 1), ''), 'them');
     perform public.portal_queue(r.client_id, r.id, 'handed_over', 'We''re following up ' || first || ' for you',
       'The Mr Priceless team will give ' || first || ' a call. If they do get back to you, just update them in the app.', base || '?lead=' || r.id);
