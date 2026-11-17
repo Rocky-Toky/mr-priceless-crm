@@ -39,7 +39,7 @@ const CALL_LABELS = { no_answer: "No answer", call_back: "Call back booked", sit
 const S = {
   me: null, client: null, leads: [], reports: null, tab: "leads", view: "call", q: "", period: "month",
   preview: null, openId: null, sheet: null, askFor: null, dialledAt: 0, known: null, loaded: false,
-  saving: false, pick: null, more: false, drafts: {}, swReg: null, installEvt: null, alerts: "unknown",
+  saving: false, pick: null, more: false, plOpen: new Set(), drafts: {}, swReg: null, installEvt: null, alerts: "unknown",
 };
 
 /* ───────── little helpers ───────── */
@@ -460,12 +460,18 @@ function boardHtml(){
       if (CLOSED.has(s.k)) list = list.filter(l => Date.now() - t(l.stage_at || l.at) < BOARD_CLOSED_MS);
       list.sort(EARLY.has(s.k) ? byRank : s.k === "call_scheduled" || s.k === "site_visit" ? (a, b) => t(nextAt(a)) - t(nextAt(b)) : (a, b) => t(b.stage_at || b.at) - t(a.stage_at || a.at));
       return { s, list };
-    }).filter(x => x.list.length);
-    if (!secs.length) return `<div class="pp-empty">${S.q ? "No leads match that." : "No leads yet. They'll show up here the moment they come in."}</div>`;
-    return secs.map(({ s, list }) => `<details class="pp-plist pp-col-${s.cls}"${CLOSED.has(s.k) ? "" : " open"}>
-        <summary><b>${esc(s.label)}</b><span>${list.length}</span></summary>
-        <ul class="pp-list">${list.map(l => leadCardHtml(l, "pipeline")).join("")}</ul>
-      </details>`).join("");
+    });
+    if (!secs.some(x => x.list.length)) return `<div class="pp-empty">${S.q ? "No leads match that." : "No leads yet. They'll show up here the moment they come in."}</div>`;
+    // Every stage folded to one line (name, count, $ for quotes / won); tap to
+    // open it. What's open stays open when the list refreshes (S.plOpen).
+    return `<p class="pp-board-tip">Tap a stage to see its leads.</p>` + secs.map(({ s, list }) => {
+      const total = s.k === "quote_sent" ? list.reduce((n, l) => n + (Number(l.quote_amount) || 0), 0) : s.k === "won" ? list.reduce((n, l) => n + (Number(l.job_value) || 0), 0) : 0;
+      const open = list.length && (S.plOpen.has(s.k) || (S.q && list.length));
+      return `<details class="pp-plist pp-col-${s.cls}${list.length ? "" : " empty"}" data-plist="${s.k}"${open ? " open" : ""}>
+        <summary><b>${esc(s.label)}</b>${total ? `<em>${esc(money(total))}</em>` : ""}<span>${list.length}</span></summary>
+        ${list.length ? `<ul class="pp-prows">${list.map(plRowHtml).join("")}</ul>${CLOSED.has(s.k) ? `<p class="pp-col-note">Last 60 days</p>` : ""}` : ""}
+      </details>`;
+    }).join("");
   }
   const cols = STAGES.map(s => {
     let list = L.filter(l => stageOf(l) === s.k);
@@ -481,6 +487,22 @@ function boardHtml(){
   }).join("");
   return `<p class="pp-board-tip">${readOnly() ? "Clients drag leads between stages here." : isPhone() ? "Press and hold a lead, then drag it to another stage. Tap to open it." : "Drag a lead to another stage. Click to open it."}</p>
     <div class="pp-board" id="pp-board">${cols}</div>`;
+}
+// One short line per lead in the phone Pipeline: name, the one detail that
+// matters for its stage, and a call button. Tap it to open the lead.
+function plRowHtml(l){
+  const st = stageOf(l), na = nextAt(l);
+  const extra = l.checkin ? "Did they get back to you?"
+    : (st === "call_scheduled" || st === "site_visit") && na ? whenWords(na)
+    : st === "quote_sent" && l.quote_amount ? `Quote ${money(l.quote_amount)}` : st === "won" && l.job_value ? money(l.job_value)
+    : st === "no_answer" && tries(l) ? `${tries(l)} ${tries(l) === 1 ? "try" : "tries"} · ${ago(l.at)}` : CLOSED.has(st) && l.lost_reason ? l.lost_reason : ago(l.at);
+  return `<li class="pp-prow${l.checkin ? " checkin" : ""}">
+    <button type="button" class="pp-prow-main" data-open="${esc(l.id)}">
+      <b>${esc(l.name || "No name")}</b>
+      <small>${esc(extra)}${withUs(l) ? ` · <i>Mr Priceless calling</i>` : ""}</small>
+    </button>
+    ${l.phone ? `<a class="pp-prow-call" href="${esc(telHref(l.phone))}" data-dial="${esc(l.id)}" aria-label="Call ${esc(l.name || "them")}">☎</a>` : ""}
+  </li>`;
 }
 function boardCardHtml(l){
   const r = rate(l), st = stageOf(l), qa = answers(l).slice(0, 2), na = nextAt(l);
@@ -1299,6 +1321,14 @@ function bind(){
     else if (act === "signout") signOut();
     else if (act === "change-pw") showSetPassword(true);
   });
+  // Phone Pipeline: an empty stage doesn't open.
+  document.addEventListener("click", (e) => { if (e.target.closest?.(".pp-plist.empty > summary")) e.preventDefault(); }, true);
+  // Phone Pipeline: remember which stages are open across refreshes.
+  document.addEventListener("toggle", (e) => {
+    const d = e.target;
+    if (!d?.dataset?.plist) return;
+    if (d.open) S.plOpen.add(d.dataset.plist); else S.plOpen.delete(d.dataset.plist);
+  }, true);
   document.addEventListener("input", (e) => {
     if (e.target.id === "pp-search"){
       S.q = e.target.value;
