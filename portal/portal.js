@@ -173,6 +173,25 @@ const withUs = (l) => l.ours && EARLY.has(stageOf(l));
 const inGhl = (l) => l.status === "in_ghl";
 const handoverAt = (l) => l.client_calls && !l.ours && stageOf(l) === "new" && !l.dialled_at ? t(l.assigned_at || l.at) + HANDOVER_MS : null;
 const tries = (l) => (l.log || []).filter(x => x.by === "you" && x.outcome === "no_answer").length;
+// Didn't answer sequence (sql/113): call 1 no answer -> back in Call now the
+// next day; call 2 -> "did they get back to you?" the day after and one last
+// try a week after call 2; call 3 -> the same question, then Mr Priceless.
+const naCount = (l) => l.na_count ?? tries(l);
+const callAgainDue = (l) => stageOf(l) === "no_answer" && !l.checkin && !inGhl(l) && l.call_due_at && t(l.call_due_at) <= Date.now();
+const callAgainTag = (l) => callAgainDue(l) ? (naCount(l) >= 2 ? "Last try - 3rd call" : "Call again - 2nd call") : "";
+// The "did they get back to you?" box: after call 2, No just waits for the last try.
+function askHtml(l, big){
+  const first = firstName(l.name), final = l.checkin_final !== false;
+  const line = final
+    ? `${l.checkin_deadline ? `If we don't hear by ${esc(whenWords(l.checkin_deadline))}, our team will call them.` : ""}`
+    : `Not yet? They'll come back for one last call${l.call_due_at ? ` on ${esc(dayWords(l.call_due_at))}` : " next week"}.`;
+  return `<div class="pp-ask${big ? " big" : ""}">
+      <b>Did ${esc(first)} get back to you?</b>
+      <span>${big ? `You couldn't reach them${(l.last_na_at || l.first_na_at) ? ` on ${esc(when(l.last_na_at || l.first_na_at))}` : ""}. ` : ""}${line}</span>
+      <div><button type="button" class="pp-btn pp-btn-dark" ${big ? `data-act="ask-yes"` : `data-ask-yes="${esc(l.id)}"`}>${big ? "Yes - tell us what happened" : "Yes - update it"}</button><button type="button" class="pp-btn pp-btn-light" data-ask-no="${esc(l.id)}">${final ? "No - pass to Mr Priceless" : "No - try again next week"}</button></div>
+    </div>`;
+}
+const dayWords = (iso) => new Date(iso).toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "short" });
 const nextAt = (l) => l.next_at || null;
 function matchQ(l){
   const q = S.q.trim().toLowerCase();
@@ -187,19 +206,27 @@ function callNow(){
   const due = st("call_scheduled").filter(l => mine(l) && nextAt(l) && t(nextAt(l)) <= now + 3600e3).sort((a, b) => t(nextAt(a)) - t(nextAt(b)));
   return [
     { k: "call", title: "Call now", sub: "Best ones at the top. Ring them fast - it wins more jobs.",
-      list: [...st("new").filter(l => mine(l) && !l.checkin && !inGhl(l)).sort(byRank), ...due] },
-    { k: "noanswer", title: "Didn't answer", sub: "Try them again. Still can't get them? Mr Priceless will.",
+      list: [...st("new").filter(l => mine(l) && !l.checkin && !inGhl(l)).sort(byRank),
+             ...L.filter(l => mine(l) && callAgainDue(l)).sort((a, b) => t(a.call_due_at) - t(b.call_due_at)), ...due] },
+    { k: "noanswer", title: "Didn't answer", sub: "They'll come back up here when it's time to try again.",
       // Every lead with the red "Did they get back to you?" question goes here too,
       // even one still at New (they tapped Call but never said what happened).
-      list: L.filter(l => mine(l) && !inGhl(l) && (stageOf(l) === "no_answer" || l.checkin)).sort((a, b) => (b.checkin ? 1 : 0) - (a.checkin ? 1 : 0) || (timerFor(a)?.until ?? Infinity) - (timerFor(b)?.until ?? Infinity)) },
+      list: L.filter(l => mine(l) && !inGhl(l) && ((stageOf(l) === "no_answer" && !callAgainDue(l)) || l.checkin)).sort((a, b) => (b.checkin ? 1 : 0) - (a.checkin ? 1 : 0) || (timerFor(a)?.until ?? Infinity) - (timerFor(b)?.until ?? Infinity)) },
   ];
 }
 const callCount = () => callNow().reduce((n, x) => n + x.list.length, 0);
 // When does a lead go to Mr Priceless (or get the 24-hour check-in)?
 function timerFor(l){
   if (!l.client_calls || withUs(l) || inGhl(l)) return null;
-  if (l.checkin && l.checkin_deadline) return { until: t(l.checkin_deadline), label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" };
-  if (stageOf(l) === "no_answer" && l.first_na_at) return { until: t(l.first_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
+  if (l.checkin) return l.checkin_final !== false && l.checkin_deadline ? { until: t(l.checkin_deadline), label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" } : null;
+  if (stageOf(l) === "no_answer" && l.call_due_at){
+    const due = t(l.call_due_at), last = naCount(l) >= 2;
+    // A 2nd call asks "did they get back to you?" the day after, before the last try comes round.
+    if (last && l.last_na_at && t(l.last_na_at) + HANDOVER_MS > Date.now()) return { until: t(l.last_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
+    if (due > Date.now()) return { until: due, label: last ? "Last try in" : "Call again in", done: "Time to call again" };
+    return { until: due + HANDOVER_MS, label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" };
+  }
+  if (stageOf(l) === "no_answer" && (l.last_na_at || l.first_na_at)) return { until: t(l.last_na_at || l.first_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
   const ho = handoverAt(l);
   if (ho) return { until: ho, label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" };
   return null;
@@ -213,6 +240,7 @@ function timerText(until, label, done){
   const ms = until - Date.now();
   if (ms <= 0) return done;
   const h = Math.floor(ms / 3600e3), m = Math.floor(ms % 3600e3 / 60000), sec = Math.floor(ms % 60000 / 1000);
+  if (h >= 48) return `${label} ${Math.floor(h / 24)}d ${h % 24}h`;
   return `${label} ${h}h ${String(m).padStart(2, "0")}m ${String(sec).padStart(2, "0")}s`;
 }
 // Every second: move the clocks on without redrawing the page.
@@ -330,11 +358,7 @@ function leadCardHtml(l, section){
   const where = l.city || l.address || "";
   const quick = section === "visited" ? ["quote_to_send", "Quote to send →"] : section === "quote" ? ["quote_sent", "Quote sent →"] : section === "chase" ? ["won", "Won it →"] : null;
   return `<li class="pp-lead${l.checkin ? " checkin" : ""}${CLOSED.has(st) ? " done" : ""}${!l.seen_at && st === "new" ? " unseen" : ""}">
-    ${l.checkin ? `<div class="pp-ask">
-      <b>Did ${esc(firstName(l.name))} get back to you?</b>
-      <span>${l.checkin_deadline ? `If we don't hear by ${esc(whenWords(l.checkin_deadline))}, our team will call them.` : ""}</span>
-      <div><button type="button" class="pp-btn pp-btn-dark" data-ask-yes="${esc(l.id)}">Yes - update it</button><button type="button" class="pp-btn pp-btn-light" data-ask-no="${esc(l.id)}">No - pass to Mr Priceless</button></div>
-    </div>` : ""}
+    ${l.checkin ? askHtml(l, false) : ""}
     <div class="pp-lead-row">
       <button type="button" class="pp-lead-main" data-open="${esc(l.id)}">
         <span class="pp-lead-top">
@@ -342,6 +366,7 @@ function leadCardHtml(l, section){
           <b class="pp-lead-name">${esc(l.name || "No name")}</b>
           <span class="pp-lead-when">${esc(ago(l.at))}</span>
         </span>
+        ${callAgainTag(l) ? `<span class="pp-again">${esc(callAgainTag(l))}</span>` : ""}
         <span class="pp-lead-sub">${esc([l.form, where].filter(Boolean).join(" · "))}</span>
         ${qa.length ? `<span class="pp-card-qa">${qa.slice(0, 4).map(x => `<span${x.a.length > 26 ? ` class="wide"` : ""}><i>${esc(shortQ(x.q))}</i><b>${esc(x.a)}</b></span>`).join("")}</span>` : `<span class="pp-noqa">No form answers came through</span>`}
         <span class="pp-lead-tags">${section === "pipeline" || !early ? stageChip(l) : st !== "new" ? stageChip(l) : ""}
@@ -497,7 +522,7 @@ function boardHtml(){
 // matters for its stage, and a call button. Tap it to open the lead.
 function plRowHtml(l){
   const st = stageOf(l), na = nextAt(l);
-  const extra = l.checkin ? "Did they get back to you?"
+  const extra = l.checkin ? "Did they get back to you?" : callAgainTag(l) ? callAgainTag(l)
     : (st === "call_scheduled" || st === "site_visit") && na ? whenWords(na)
     : st === "quote_sent" && l.quote_amount ? `Quote ${money(l.quote_amount)}` : st === "won" && l.job_value ? money(l.job_value)
     : st === "no_answer" && tries(l) ? `${tries(l)} ${tries(l) === 1 ? "try" : "tries"} · ${ago(l.at)}` : CLOSED.has(st) && l.lost_reason ? l.lost_reason : ago(l.at);
@@ -663,11 +688,7 @@ function renderSheet(){
     </div>
     <h2 class="pp-sheet-name">${esc(l.name || "No name")}</h2>
     <p class="pp-sheet-sub">${EARLY.has(st) && !withUs(l) ? `<span class="pp-tier pp-${r.tier}">${r.label} lead</span> ` : ""}Came in ${esc(ago(l.at))} · ${esc(when(l.at))}${l.form ? ` · ${esc(l.form)}` : ""}</p>
-    ${l.checkin ? `<div class="pp-ask big">
-      <b>Did ${esc(first)} get back to you?</b>
-      <span>You couldn't reach them${l.first_na_at ? ` on ${esc(when(l.first_na_at))}` : ""}. ${l.checkin_deadline ? `If we don't hear by ${esc(whenWords(l.checkin_deadline))}, our team will call them.` : ""}</span>
-      <div><button type="button" class="pp-btn pp-btn-dark" data-act="ask-yes">Yes - tell us what happened</button><button type="button" class="pp-btn pp-btn-light" data-ask-no="${esc(l.id)}">No - pass to Mr Priceless</button></div>
-    </div>` : ""}
+    ${l.checkin ? askHtml(l, true) : ""}
     ${timerFor(l) ? `<p class="pp-note-line">${timerHtml(l, true)}</p>` : ""}
     ${readOnly() && withUs(l) ? `<div class="pp-teambox">
       <b>Team only</b>
@@ -877,9 +898,9 @@ async function passToUs(id){
   if (!l) return;
   if (readOnly()) return toast("Preview only - the client answers this from their login.");
   try {
-    await rpc("portal_checkin", { p_lead: id, p_answer: "no" });
+    const r = await rpc("portal_checkin", { p_lead: id, p_answer: "no" });
     await refreshAfterSave();
-    toast(`Done - our team will follow ${firstName(l.name)} up for you.`);
+    toast(r?.again_at ? `OK - ${firstName(l.name)} will come back for one last call on ${dayWords(r.again_at)}.` : `Done - our team will follow ${firstName(l.name)} up for you.`);
     if (S.sheet) closeSheet(); else render();
   } catch(e){ toast("Couldn't save that - try again."); }
 }
@@ -1261,7 +1282,7 @@ function renderAccount(){
     </section>
     <section class="pp-block">
       <h3>How your leads work</h3>
-      ${c.client_calls ? `<ol class="pp-steps"><li>A lead fills in the form on your ad. It shows up here straight away, and your phone gets an alert.</li><li>Call them - the best ones are at the top of To do, with everything they told us.</li><li>Move each lead along as it goes: call scheduled, site visit, quote sent, job won.</li><li>Can't reach someone? Tap Didn't answer. The next day we'll ask if they got back to you - if not, our team follows them up.</li><li>Haven't rung a lead within 24 hours? Our team calls them for you.</li></ol>`
+      ${c.client_calls ? `<ol class="pp-steps"><li>A lead fills in the form on your ad. It shows up here straight away, and your phone gets an alert.</li><li>Call them - the best ones are at the top of To do, with everything they told us.</li><li>Move each lead along as it goes: call scheduled, site visit, quote sent, job won.</li><li>Can't reach someone? Tap Didn't answer. They come back up the next day for a 2nd call, then a week later for one last try. After the 2nd and 3rd calls we'll ask if they got back to you - after the 3rd, our team follows them up.</li><li>Haven't rung a lead within 24 hours? Our team calls them for you.</li></ol>`
         : `<ol class="pp-steps"><li>A lead fills in the form on your ad.</li><li>Our team rings them fast and books them in with you.</li><li>You take it from there here: site visit, quote sent, job won.</li></ol>`}
     </section>
     ${calSettingsHtml()}
@@ -1552,13 +1573,16 @@ function demoData(){
       L({ id: "l2", name: "Sarah Lin", phone: "027 555 0172", at: ago(42), form: "Patio", city: "Hamilton East", seen_at: ago(30),
         answers: [{ q: "when_are_you_hoping_to_complete_the_project", a: "3-6_months" }, { q: "Budget", a: "Not sure" }, { q: "What are you looking to get done?", a: "Patio out the back" }] }),
       L({ id: "l3", name: "Tom Fraser", phone: "022 555 0190", email: "tom@example.com", at: ago(60 * 30), form: "Retaining wall", city: "Te Atatū", status: "no_answer", stage: "no_answer",
-        answers: [{ q: "What's the job?", a: "Retaining wall, 12m long" }, { q: "Budget", a: "$8k" }], first_na_at: ago(60 * 26), checkin: true, checkin_deadline: ahead(60 * 6),
-        log: [{ at: ago(60 * 26), by: "you", outcome: "no_answer", note: "Left a voicemail" }], notes: [{ at: ago(60 * 26), stage: "no_answer", from: "new", note: "Left a voicemail" }] }),
-      L({ id: "l12", name: "Mere Tane", phone: "021 555 0133", at: ago(60 * 30), form: "Driveway quote", city: "Glenfield", dialled_at: ago(60 * 25),
-        answers: [{ q: "When", a: "This month" }, { q: "Budget", a: "$12k" }], checkin: true, checkin_deadline: ahead(60 * 5) }),
+        answers: [{ q: "What's the job?", a: "Retaining wall, 12m long" }, { q: "Budget", a: "$8k" }], first_na_at: ago(60 * 50), last_na_at: ago(60 * 26), na_count: 2, call_due_at: ahead(60 * 24 * 6), checkin: true, checkin_final: false, checkin_deadline: ahead(60 * 6),
+        log: [{ at: ago(60 * 50), by: "you", outcome: "no_answer" }, { at: ago(60 * 26), by: "you", outcome: "no_answer", note: "Left a voicemail" }], notes: [{ at: ago(60 * 26), stage: "no_answer", from: "new", note: "Left a voicemail" }] }),
+      L({ id: "l13", name: "Pita Rangi", phone: "021 555 0177", at: ago(60 * 27), form: "Driveway quote", city: "Northcote", status: "no_answer", stage: "no_answer", first_na_at: ago(60 * 25), last_na_at: ago(60 * 25), na_count: 1, call_due_at: ago(60),
+        answers: [{ q: "When", a: "Next few weeks" }, { q: "Budget", a: "$10k" }], log: [{ at: ago(60 * 25), by: "you", outcome: "no_answer" }], notes: [{ at: ago(60 * 25), stage: "no_answer", from: "new" }] }),
+      L({ id: "l12", name: "Mere Tane", phone: "021 555 0133", at: ago(60 * 24 * 9), form: "Driveway quote", city: "Glenfield", status: "no_answer", stage: "no_answer",
+        first_na_at: ago(60 * 24 * 9), last_na_at: ago(60 * 25), na_count: 3, checkin: true, checkin_final: true, checkin_deadline: ahead(60 * 5),
+        answers: [{ q: "When", a: "This month" }, { q: "Budget", a: "$12k" }], log: [{ at: ago(60 * 24 * 9), by: "you", outcome: "no_answer" }, { at: ago(60 * 24 * 8), by: "you", outcome: "no_answer" }, { at: ago(60 * 25), by: "you", outcome: "no_answer" }] }),
       L({ id: "l4", name: "Aroha Pene", phone: "021 555 0111", at: ago(60 * 50), form: "Driveway quote", city: "Howick", status: "no_answer", stage: "no_answer", ours: true, handed_over_at: ago(60 * 2), handover_reason: "client_no",
         answers: [{ q: "When", a: "Next month" }], log: [{ at: ago(60 * 47), by: "you", outcome: "no_answer" }, { at: ago(60), by: "Mr Priceless", outcome: "no_answer", note: "" }] }),
-      L({ id: "l11", name: "Jade Kerr", phone: "021 555 0122", at: ago(60 * 7), form: "Driveway quote", city: "Birkenhead", status: "no_answer", stage: "no_answer", first_na_at: ago(60 * 6),
+      L({ id: "l11", name: "Jade Kerr", phone: "021 555 0122", at: ago(60 * 7), form: "Driveway quote", city: "Birkenhead", status: "no_answer", stage: "no_answer", first_na_at: ago(60 * 6), last_na_at: ago(60 * 6), na_count: 1, call_due_at: ahead(60 * 18),
         answers: [{ q: "When", a: "ASAP" }, { q: "Budget", a: "$15k" }], log: [{ at: ago(60 * 6), by: "you", outcome: "no_answer" }], notes: [{ at: ago(60 * 6), stage: "no_answer", from: "new" }] }),
       L({ id: "l5", name: "Mike Doyle", phone: "021 555 0133", at: ago(60 * 50), form: "Driveway quote", city: "Albany", address: "4 Rata St, Albany", status: "site_visit", stage: "site_visit", next_at: ahead(60 * 20),
         answers: [{ q: "Budget", a: "$12k" }, { q: "Size", a: "40m2" }], notes: [{ at: ago(60 * 49), stage: "site_visit", from: "new", when: ahead(60 * 20), note: "Wants exposed aggregate" }] }),
@@ -1602,6 +1626,7 @@ async function demoRpc(fn, args){
   if (fn === "portal_save_push") return { ok: true };
   const l = d.leads.find(x => x.id === args.p_lead);
   if (!l) throw new Error("Not allowed");
+  if (fn === "portal_checkin" && l.checkin && l.checkin_final === false){ l.checkin = false; l.notes.push({ at: new Date().toISOString(), note: "Not heard back yet - one last try" }); return { ok: true, again_at: l.call_due_at }; }
   if (fn === "portal_checkin"){ l.ours = true; l.checkin = false; l.handed_over_at = new Date().toISOString(); l.handover_reason = "client_no"; l.notes.push({ at: new Date().toISOString(), note: "Passed to Mr Priceless to follow up" }); return { ok: true }; }
   if (fn === "portal_log_call"){
     if (args.p_outcome === "seen") l.seen_at = l.seen_at || new Date().toISOString();
@@ -1610,7 +1635,7 @@ async function demoRpc(fn, args){
   }
   if (fn === "portal_give_to_client"){
     const now = new Date().toISOString();
-    Object.assign(l, { ours: false, client_calls: true, stage: "new", stage_at: now, assigned_at: now, handed_over_at: null, handover_reason: null, checkin: false, checkin_deadline: null, first_na_at: null, dialled_at: null, seen_at: null });
+    Object.assign(l, { ours: false, client_calls: true, stage: "new", stage_at: now, assigned_at: now, handed_over_at: null, handover_reason: null, checkin: false, checkin_deadline: null, first_na_at: null, dialled_at: null, seen_at: null, na_count: 0, last_na_at: null, call_due_at: null });
     l.notes.push({ at: now, stage: "new", by: "Mr Priceless", note: "Passed to you to call" });
     return { ok: true };
   }
@@ -1623,8 +1648,13 @@ async function demoRpc(fn, args){
     if (args.p_scope) l.scope = args.p_scope;
     l.notes.push(Object.fromEntries(Object.entries({ at: now, stage: st, from: st ? l.stage : null, note: args.p_note, when: args.p_when, amount: args.p_amount, reason: args.p_reason }).filter(([, v]) => v != null && v !== "")));
     if (st){
-      if (l.checkin){ l.checkin = false; if (st === "no_answer"){ l.ours = true; l.handed_over_at = now; l.handover_reason = "client_no"; } }
-      if (st === "no_answer"){ l.log.push({ at: now, by: "you", outcome: "no_answer", note: args.p_note || "" }); l.first_na_at = l.first_na_at || now; }
+      const finalAsk = l.checkin && l.checkin_final !== false;
+      if (l.checkin){ l.checkin = false; if (st === "no_answer" && finalAsk){ l.ours = true; l.handed_over_at = now; l.handover_reason = "client_no"; } }
+      if (st === "no_answer"){
+        l.log.push({ at: now, by: "you", outcome: "no_answer", note: args.p_note || "" }); l.first_na_at = l.first_na_at || now;
+        l.na_count = (l.na_count || 0) + 1; l.last_na_at = now;
+        l.call_due_at = l.na_count === 1 ? new Date(Date.now() + 864e5).toISOString() : l.na_count === 2 ? new Date(Date.now() + 7 * 864e5).toISOString() : null;
+      } else l.call_due_at = null;
       l.stage = st; l.stage_at = now;
       if (st === "call_scheduled" || st === "site_visit") l.next_at = args.p_when; else l.next_at = null;
       if (st === "quote_sent"){ if (args.p_amount != null) l.quote_amount = args.p_amount; l.quote_sent_at = now; }

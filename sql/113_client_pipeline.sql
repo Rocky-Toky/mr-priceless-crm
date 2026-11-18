@@ -41,6 +41,15 @@ alter table client_leads add column if not exists handed_over_at timestamptz;
 alter table client_leads add column if not exists handover_reason text;
 alter table client_leads add column if not exists call_reminded_for timestamptz;
 alter table client_leads add column if not exists visit_reminded_for timestamptz;
+-- Didn't answer sequence (18 Nov 2026, Rocky): call 1 no answer -> back in
+-- Call now 24 hours later; call 2 no answer -> "did they get back to you?"
+-- 24 hours later (No = keep it) and one last call a week after call 2;
+-- call 3 no answer -> the same question 24 hours later, and No / no reply
+-- passes it to Mr Priceless.
+alter table client_leads add column if not exists client_na_count int not null default 0;  -- the client's no-answers
+alter table client_leads add column if not exists client_last_na_at timestamptz;
+alter table client_leads add column if not exists client_call_due_at timestamptz;          -- when the next try comes back to Call now
+alter table client_leads add column if not exists checkin_final boolean not null default true; -- false = after call 2 (No just waits for call 3)
 create index if not exists client_leads_client_calls_idx on client_leads (client_id) where client_calls and handed_over_at is null;
 create unique index if not exists client_leads_checkin_token_idx on client_leads (checkin_token) where checkin_token is not null;
 -- When the lead became the client's to call (their 24 hours count from here,
@@ -56,6 +65,19 @@ create index if not exists client_leads_ghl_push on client_leads (ghl_push_at) w
 -- When the team last gave the lead (back) to the client to call (portal_give_to_client).
 -- Our calls from before then no longer make it "ours".
 alter table client_leads add column if not exists given_to_client_at timestamptz;
+-- Count the no-answers already saved (once: only leads still at 0).
+with c as (
+  select l.id, count(*) as n, max((e ->> 'at')::timestamptz) as last_at
+  from client_leads l
+  cross join lateral jsonb_array_elements(case when jsonb_typeof(l.call_log) = 'array' then l.call_log else '[]'::jsonb end) e
+  where l.client_na_count = 0 and jsonb_typeof(e) = 'object' and e ->> 'by' = 'client' and e ->> 'outcome' = 'no_answer'
+    and (l.given_to_client_at is null or (e ->> 'at')::timestamptz > l.given_to_client_at)
+  group by l.id)
+update client_leads l set client_na_count = c.n, client_last_na_at = c.last_at,
+  -- One no-answer, still open and not asked: back in Call now 24 hours after it (or now).
+  client_call_due_at = case when c.n = 1 and l.handed_over_at is null and l.checkin_at is null and coalesce(l.follow_status, 'new') = 'no_answer'
+    then greatest(c.last_at + interval '24 hours', now()) end
+from c where c.id = l.id;
 alter table client_leads add column if not exists ghl_status text;
 alter table client_leads add column if not exists ghl_value numeric;
 alter table client_leads add column if not exists ghl_closed_at timestamptz;
@@ -489,6 +511,7 @@ begin
     handed_over_at = null, handover_reason = null,
     checkin_at = null, checkin_deadline = null, checkin_token = null, checkin_answered_at = null,
     client_first_na_at = null, client_dialled_at = null, client_seen_at = null,
+    client_na_count = 0, client_last_na_at = null, client_call_due_at = null, checkin_final = true,
     follow_status = case when coalesce(follow_status, 'new') in ('site_visit', 'booked', 'consult_call') then follow_status else 'new' end,
     next_attempt_at = null,
     client_stage = 'new', client_stage_at = now(),
@@ -628,6 +651,10 @@ begin
           'handed_over_at', l.handed_over_at,
           'handover_reason', l.handover_reason,
           'first_na_at', l.client_first_na_at,
+          'na_count', l.client_na_count,
+          'last_na_at', l.client_last_na_at,
+          'call_due_at', case when public.portal_lead_stage(l) = 'no_answer' then l.client_call_due_at end,
+          'checkin_final', l.checkin_final,
           'checkin', l.checkin_at is not null and l.checkin_answered_at is null and l.handed_over_at is null,
           'checkin_deadline', case when l.checkin_answered_at is null and l.handed_over_at is null then l.checkin_deadline end,
           'seen_at', l.client_seen_at,
@@ -672,6 +699,8 @@ declare
   cur text;
   call_out text;
   pending boolean;
+  final_pending boolean;
+  na int;
   open_fs boolean;
 begin
   if not public.is_portal_user() then raise exception 'Only clients can update leads here'; end if;
@@ -690,6 +719,8 @@ begin
 
   cur := public.portal_lead_stage(l);
   pending := l.checkin_at is not null and l.checkin_answered_at is null and l.handed_over_at is null;
+  final_pending := pending and coalesce(l.checkin_final, true);
+  na := coalesce(l.client_na_count, 0) + case when p_stage = 'no_answer' then 1 else 0 end;
   open_fs := coalesce(l.follow_status, 'new') in ('new', 'no_answer', 'call_back', 'qualified');
   call_out := case p_stage
     when 'no_answer' then 'no_answer'
@@ -711,6 +742,11 @@ begin
     client_stage_at = case when p_stage is not null then now() else client_stage_at end,
     client_seen_at = coalesce(client_seen_at, now()),
     client_first_na_at = case when p_stage = 'no_answer' then coalesce(client_first_na_at, now()) else client_first_na_at end,
+    client_na_count = na,
+    client_last_na_at = case when p_stage = 'no_answer' then now() else client_last_na_at end,
+    -- Call 1 -> again tomorrow; call 2 -> one last try a week later; any other stage clears it.
+    client_call_due_at = case when p_stage = 'no_answer' then case na when 1 then now() + interval '24 hours' when 2 then now() + interval '7 days' end
+                              when p_stage is not null then null else client_call_due_at end,
     client_next_at = case when p_stage in ('call_scheduled', 'site_visit') then p_when when p_stage is not null then null else client_next_at end,
     quote_amount = case when p_stage = 'quote_sent' and p_amount is not null then p_amount else quote_amount end,
     quote_sent_at = case when p_stage = 'quote_sent' then now() else quote_sent_at end,
@@ -732,10 +768,16 @@ begin
       when p_stage in ('site_visit', 'quote_to_send', 'quote_sent', 'won', 'lost', 'not_qualified') then null
       else next_attempt_at end,
     booked_for = case when p_stage = 'site_visit' then p_when else booked_for end,
-    -- The 24-hour check-in: picking where it's at answers it, "Didn't answer" again means "No".
-    checkin_answered_at = case when pending and p_stage is not null then now() else checkin_answered_at end,
-    handed_over_at = case when pending and p_stage = 'no_answer' then now() else handed_over_at end,
-    handover_reason = case when pending and p_stage = 'no_answer' then 'client_no' else handover_reason end,
+    -- The check-in: picking where it's at answers it. "Didn't answer" again
+    -- after the last call's check-in means "No" (ours); otherwise it's the next
+    -- call, and a fresh check-in can follow it.
+    checkin_answered_at = case when p_stage = 'no_answer' and not final_pending then null
+                               when pending and p_stage is not null then now() else checkin_answered_at end,
+    checkin_at = case when p_stage = 'no_answer' and not final_pending then null else checkin_at end,
+    checkin_deadline = case when p_stage = 'no_answer' and not final_pending then null else checkin_deadline end,
+    checkin_token = case when p_stage = 'no_answer' and not final_pending then null else checkin_token end,
+    handed_over_at = case when final_pending and p_stage = 'no_answer' then now() else handed_over_at end,
+    handover_reason = case when final_pending and p_stage = 'no_answer' then 'client_no' else handover_reason end,
     ghl_push_at = case when p_stage is not null then now() else ghl_push_at end,
     address = coalesce(addr, address),
     job_scope = coalesce(scope, job_scope),
@@ -800,6 +842,16 @@ begin
   cid := public.portal_client_for(l.client_id);
   if cid is null or cid <> l.client_id then raise exception 'Not allowed'; end if;
   if l.handed_over_at is not null then return jsonb_build_object('ok', true, 'already', true); end if;
+  -- After call 2: "No" just keeps it - one last try comes back a week after call 2.
+  if l.checkin_at is not null and l.checkin_answered_at is null and not coalesce(l.checkin_final, true) then
+    update client_leads set checkin_answered_at = now(),
+      client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('at', now(), 'note', 'Not heard back yet - one last try on '
+        || to_char(coalesce(client_call_due_at, now()) at time zone 'Pacific/Auckland', 'FMDay FMDD FMMon'))),
+      updated_at = now()
+    where id = l.id;
+    perform public.portal_act(l.id, 'checkin_no', jsonb_build_object('again_at', l.client_call_due_at), 'client');
+    return jsonb_build_object('ok', true, 'again_at', l.client_call_due_at);
+  end if;
   update client_leads set
     handed_over_at = now(), handover_reason = 'client_no', checkin_answered_at = coalesce(checkin_answered_at, now()),
     client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('at', now(), 'note', 'Passed to Mr Priceless to follow up')),
@@ -997,7 +1049,7 @@ declare
   tok text;
   dl timestamptz;
   n_not_called int := 0; n_checkin int := 0; n_no_reply int := 0; n_other int := 0;
-  dslot text; n_new int; n_ask int;
+  dslot text; n_new int; n_again int; n_ask int;
   nz_now timestamp := now() at time zone 'Pacific/Auckland';
 begin
   -- 1. Never rung by the client 24 hours after it came in: ours.
@@ -1018,22 +1070,95 @@ begin
     n_not_called := n_not_called + 1;
   end loop;
 
-  -- 2. 24 hours after the client's first no-answer (or a call they never
-  --    said the outcome of): "Did they get back to you?"
+  -- 1b. They tapped Call but never said how it went, 24 hours ago: counted
+  --     as "Didn't answer", so the sequence below carries on from it.
+  for r in
+    select l.* from client_leads l
+    where l.client_calls and l.handed_over_at is null
+      and not (l.checkin_at is not null and l.checkin_answered_at is null)
+      and coalesce(l.follow_status, 'new') in ('new', 'no_answer')
+      and public.portal_lead_stage(l) in ('new', 'no_answer')
+      and l.client_dialled_at <= now() - interval '24 hours'
+      and l.client_dialled_at > coalesce(l.client_last_na_at, '-infinity'::timestamptz)
+      and l.client_dialled_at > coalesce(l.client_stage_at, '-infinity'::timestamptz)
+      and not public.portal_log_since(l.call_log, l.given_to_client_at, true)
+    for update skip locked
+  loop
+    select public.portal_lead_stage(x) into first from client_leads x where x.id = r.id;
+    update client_leads set
+      client_na_count = client_na_count + 1,
+      client_last_na_at = r.client_dialled_at,
+      client_first_na_at = coalesce(client_first_na_at, r.client_dialled_at),
+      client_call_due_at = case client_na_count + 1 when 1 then r.client_dialled_at + interval '24 hours' when 2 then r.client_dialled_at + interval '7 days' end,
+      checkin_at = null, checkin_deadline = null, checkin_token = null, checkin_answered_at = null,
+      call_log = coalesce(call_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+        'at', r.client_dialled_at, 'by', 'client', 'outcome', 'no_answer', 'note', 'Tapped Call - no outcome saved')),
+      client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+        'at', now(), 'stage', 'no_answer', 'from', first, 'note', 'Tapped Call but didn''t say how it went - counted as didn''t answer')),
+      client_stage = 'no_answer', client_stage_at = now(),
+      follow_status = case when coalesce(follow_status, 'new') = 'new' then 'no_answer' else follow_status end,
+      last_attempt_at = r.client_dialled_at,
+      ghl_push_at = now(), updated_at = now()
+    where id = r.id;
+    perform public.portal_act(r.id, 'stage', jsonb_build_object('stage', 'no_answer', 'from', first, 'note', 'Tapped Call but didn''t say how it went'), 'auto');
+    perform public.portal_push_ghl(r.id);
+    n_other := n_other + 1;
+  end loop;
+
+  -- 1c. A call-again that came due 24 hours ago and still hasn't been rung: ours.
+  for r in
+    select l.* from client_leads l
+    where l.client_calls and l.handed_over_at is null
+      and not (l.checkin_at is not null and l.checkin_answered_at is null)
+      and l.client_call_due_at <= now() - interval '24 hours'
+      and coalesce(l.client_dialled_at, '-infinity'::timestamptz) < l.client_call_due_at
+      and public.portal_lead_stage(l) = 'no_answer'
+      and not public.portal_log_since(l.call_log, l.given_to_client_at, true)
+    for update skip locked
+  loop
+    update client_leads set handed_over_at = now(), handover_reason = 'not_called', updated_at = now() where id = r.id;
+    perform public.portal_act(r.id, 'handed_over', '{"reason": "not_called_again"}'::jsonb, 'auto');
+    first := coalesce(nullif(split_part(trim(coalesce(r.name, '')), ' ', 1), ''), 'them');
+    perform public.portal_queue(r.client_id, r.id, 'handed_over', 'We''re calling ' || first || ' for you',
+      first || ' was due another call yesterday and hadn''t been rung, so the Mr Priceless team is following them up.', base || '?lead=' || r.id);
+    n_not_called := n_not_called + 1;
+  end loop;
+
+  -- 2. 24 hours after the client's 2nd and 3rd no-answers: "Did they get back
+  --    to you?" After call 2, "No" just waits for the last try a week after
+  --    call 2; after call 3 (final), "No" or no reply passes it to us.
   for r in
     select l.* from client_leads l
     where l.client_calls and l.handed_over_at is null and l.checkin_at is null
       and coalesce(l.follow_status, 'new') in ('new', 'no_answer')
-      and public.portal_lead_stage(l) in ('new', 'no_answer')
-      and coalesce(l.client_first_na_at, l.client_dialled_at) <= now() - interval '24 hours'
+      and public.portal_lead_stage(l) = 'no_answer'
+      and l.client_na_count >= 2
+      and l.client_last_na_at <= now() - interval '24 hours'
       and not public.portal_log_since(l.call_log, l.given_to_client_at, true)
     for update skip locked
   loop
-    tok := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
-    dl := public.portal_checkin_deadline(now());
-    update client_leads set checkin_at = now(), checkin_deadline = dl, checkin_token = tok, updated_at = now() where id = r.id;
-    perform public.portal_act(r.id, 'checkin_asked', jsonb_build_object('deadline', dl), 'auto');
     first := coalesce(nullif(split_part(trim(coalesce(r.name, '')), ' ', 1), ''), 'them');
+    dl := public.portal_checkin_deadline(now());
+    if r.client_na_count < 3 then
+      update client_leads set checkin_at = now(), checkin_deadline = dl, checkin_token = null, checkin_final = false, updated_at = now() where id = r.id;
+      perform public.portal_act(r.id, 'checkin_asked', jsonb_build_object('again_at', r.client_call_due_at), 'auto');
+      perform public.portal_queue(r.client_id, r.id, 'checkin', 'Did ' || first || ' get back to you?',
+        'Tap to say where ' || first || ' is at. Not yet? We''ll bring them back for one last call on '
+          || to_char(coalesce(r.client_call_due_at, now() + interval '6 days') at time zone 'Pacific/Auckland', 'FMDay') || '.',
+        base || '?lead=' || r.id, 'email',
+        jsonb_build_object(
+          'email_subject', 'Did ' || coalesce(nullif(trim(r.name), ''), 'your lead') || ' get back to you?',
+          'email_body', 'Hi,' || chr(10) || chr(10) || 'You''ve tried ' || coalesce(nullif(trim(r.name), ''), 'a lead') || ' twice and couldn''t get hold of them.' || chr(10) || chr(10)
+            || 'Did they get back to you? Update them here: ' || base || '?lead=' || r.id || chr(10) || chr(10)
+            || 'Not yet? Nothing to do - they''ll come back to your Call now list for one last try on '
+            || to_char(coalesce(r.client_call_due_at, now() + interval '6 days') at time zone 'Pacific/Auckland', 'FMDay FMDD FMMonth') || '.' || chr(10) || chr(10)
+            || 'Mr Priceless'));
+      n_checkin := n_checkin + 1;
+      continue;
+    end if;
+    tok := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+    update client_leads set checkin_at = now(), checkin_deadline = dl, checkin_token = tok, checkin_final = true, updated_at = now() where id = r.id;
+    perform public.portal_act(r.id, 'checkin_asked', jsonb_build_object('deadline', dl), 'auto');
     select name into biz from clients where id = r.client_id;
     perform public.portal_queue(r.client_id, r.id, 'checkin', 'Did ' || first || ' get back to you?',
       'Tap to say where ' || first || ' is at. Not yet? We''ll follow them up for you from ' || to_char(dl at time zone 'Pacific/Auckland', 'FMHH12am Dy') || '.',
@@ -1042,7 +1167,7 @@ begin
         'sms', 'Mr Priceless: did ' || coalesce(nullif(trim(r.name), ''), 'your lead') || ' get back to you? Update them: ' || base || '?lead=' || r.id
           || ' - Not yet? Tap to pass them to our team: ' || base || '?checkin=' || tok,
         'email_subject', 'Did ' || coalesce(nullif(trim(r.name), ''), 'your lead') || ' get back to you?',
-        'email_body', 'Hi,' || chr(10) || chr(10) || 'You couldn''t get hold of ' || coalesce(nullif(trim(r.name), ''), 'a lead') || ' (' || coalesce(biz, 'your business') || ') yesterday.' || chr(10) || chr(10)
+        'email_body', 'Hi,' || chr(10) || chr(10) || 'You''ve tried ' || coalesce(nullif(trim(r.name), ''), 'a lead') || ' (' || coalesce(biz, 'your business') || ') three times and couldn''t get hold of them.' || chr(10) || chr(10)
           || 'Did they get back to you? Update them here: ' || base || '?lead=' || r.id || chr(10) || chr(10)
           || 'Not yet? Tap here and our team will follow them up for you: ' || base || '?checkin=' || tok || chr(10) || chr(10)
           || 'If we don''t hear from you by ' || to_char(dl at time zone 'Pacific/Auckland', 'FMHH12am Day') || ', we''ll follow them up anyway.' || chr(10) || chr(10)
@@ -1050,13 +1175,18 @@ begin
     n_checkin := n_checkin + 1;
   end loop;
 
-  -- 3. No answer to the check-in by the deadline: ours.
+  -- 3. No answer to the check-in by the deadline: after call 2 it just waits
+  --    for the last try; after the last call it's ours.
   for r in
     select l.* from client_leads l
     where l.client_calls and l.handed_over_at is null and l.checkin_at is not null and l.checkin_answered_at is null
       and l.checkin_deadline <= now()
     for update skip locked
   loop
+    if not coalesce(r.checkin_final, true) then
+      update client_leads set checkin_answered_at = now(), updated_at = now() where id = r.id;
+      continue;
+    end if;
     update client_leads set handed_over_at = now(), handover_reason = 'no_reply', updated_at = now() where id = r.id;
     perform public.portal_act(r.id, 'handed_over', '{"reason": "no_reply"}'::jsonb, 'auto');
     first := coalesce(nullif(split_part(trim(coalesce(r.name, '')), ' ', 1), ''), 'them');
@@ -1122,17 +1252,19 @@ begin
     loop
       insert into portal_digest_log (client_id, slot) values (r.id, dslot) on conflict do nothing;
       select count(*) filter (where public.portal_lead_stage(l) = 'new' and coalesce(l.follow_status, 'new') = 'new' and not (l.checkin_at is not null and l.checkin_answered_at is null)),
+             count(*) filter (where public.portal_lead_stage(l) = 'no_answer' and l.client_call_due_at <= now() and not (l.checkin_at is not null and l.checkin_answered_at is null)),
              count(*) filter (where l.checkin_at is not null and l.checkin_answered_at is null)
-        into n_new, n_ask
+        into n_new, n_again, n_ask
       from client_leads l
       where l.client_id = r.id and l.client_calls and l.handed_over_at is null and not public.portal_lead_is_ours(l)
         and coalesce(l.follow_status, 'new') <> 'in_ghl';
-      continue when n_new + n_ask = 0;
+      continue when n_new + n_again + n_ask = 0;
       tok := concat_ws(' and ',
         case when n_new > 0 then n_new || ' new lead' || case when n_new = 1 then '' else 's' end || ' to call' end,
+        case when n_again > 0 then n_again || ' lead' || case when n_again = 1 then '' else 's' end || ' to call again' end,
         case when n_ask > 0 then n_ask || ' lead' || case when n_ask = 1 then '' else 's' end || ' to update' end);
       perform public.portal_queue(r.id, null, 'digest',
-        'You have ' || (n_new + n_ask) || ' lead' || case when n_new + n_ask = 1 then '' else 's' end || ' to deal with',
+        'You have ' || (n_new + n_again + n_ask) || ' lead' || case when n_new + n_again + n_ask = 1 then '' else 's' end || ' to deal with',
         tok || '.', base, 'text',
         jsonb_build_object('sms', 'Mr Priceless: you have ' || tok || '. Open your leads: ' || base));
       n_other := n_other + 1;

@@ -6259,7 +6259,7 @@ function renderClientPortal(c){
     <h4 class="cpp-h">Who calls their leads?</h4>
     <div class="cpp-mode">
       <label class="${c.lead_client_calls ? "" : "on"}"><input type="radio" name="cpp-mode" value="us"${c.lead_client_calls ? "" : " checked"}><b>Our team</b><span>Leads go in the Lead Follow Up call queue as soon as they come in.</span></label>
-      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>Leads that pass the rules below go to their portal with a phone alert. Not rung in 24 hours, or they couldn't reach them and say so (asked the next day, by 10pm), and it comes into our call queue.</span></label>
+      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>Leads that pass the rules below go to their portal with a phone alert. Didn't answer? It comes back to them the next day, then a week later for a last try. Not rung within 24 hours, or still no luck after the 3rd call (asked the next day, by 10pm), and it comes into our call queue.</span></label>
     </div>
     ${cppRulesHtml(c)}
     ${cppPipelineHtml(c)}
@@ -6329,8 +6329,9 @@ function cppActText(a, biz){
     case "note": t = `added a note on ${lead}`; break;
     case "passed_to_us": t = `passed ${lead} to Mr Priceless${d.via === "link" ? " (from the text / email link)" : ""}`; break;
     case "given": t = `gave ${lead} to ${escapeHtml(biz)} to call`; break;
-    case "checkin_asked": t = `asked "Did ${lead} get back to you?"`; break;
-    case "handed_over": t = `passed ${lead} to Mr Priceless - ${d.reason === "no_reply" ? "no answer to the check-in in time" : "not rung within 24 hours"}`; break;
+    case "checkin_asked": t = `asked "Did ${lead} get back to you?"${d.again_at ? " (after the 2nd call)" : ""}`; break;
+    case "checkin_no": t = `said ${lead} hasn't got back to them - one last try${d.again_at ? ` on ${escapeHtml(when(d.again_at))}` : ""}`; break;
+    case "handed_over": t = `passed ${lead} to Mr Priceless - ${d.reason === "no_reply" ? "no answer to the check-in in time" : d.reason === "not_called_again" ? "not called again within 24 hours of it coming due" : "not rung within 24 hours"}`; break;
     default: t = `${escapeHtml(a.action)} ${lead}`;
   }
   const note = d.note && a.action !== "passed_to_us" ? `<span class="cpp-act-note">"${escapeHtml(d.note)}"</span>` : "";
