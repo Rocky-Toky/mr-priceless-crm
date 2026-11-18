@@ -448,6 +448,39 @@ function alertsBannerHtml(){
   </div>`;
 }
 
+// "Add to home screen" - a big bar at the top on a phone until it's on their
+// home screen (or they tap × for today). Android with Chrome's install prompt:
+// one tap. iPhone / everything else: a sheet with the steps.
+function installBannerHtml(){
+  if (readOnly() || installed() || !isPhone() || store.get("mpp_install_later") === nzDay()) return "";
+  return `<div class="pp-installbar">
+    <span class="pp-installbar-icon">📲</span>
+    <div><b>Put My Leads on your home screen</b><small>Opens like a normal app, in one tap.</small></div>
+    <button type="button" class="pp-btn pp-btn-gold pp-btn-big" data-act="install-start">Add to home screen</button>
+    <button type="button" class="pp-x" data-act="install-later" aria-label="Not now">×</button>
+  </div>`;
+}
+function renderInstallSheet(){
+  const ios = isIOS(), android = /Android/i.test(navigator.userAgent);
+  const notSafari = ios && /CriOS|FxiOS|EdgiOS/i.test(navigator.userAgent);
+  const steps = ios ? `<ol class="pp-install">
+      ${notSafari ? `<li><b>Open this page in Safari</b><span>Copy the address at the top and paste it into Safari - adding to the home screen works best from there.</span></li>` : ""}
+      <li><b>Tap the Share button</b><span>The square with an arrow pointing up, at the bottom of the screen (top right on an iPad).</span></li>
+      <li><b>Tap "Add to Home Screen"</b><span>Scroll down the list if you can't see it. Then tap Add.</span></li>
+      <li><b>Open "My Leads" from your home screen</b><span>It's the Mr Priceless icon. You'll stay signed in.</span></li>
+    </ol>`
+    : `<ol class="pp-install">
+      <li><b>Tap the three dots</b><span>Top right of Chrome.</span></li>
+      <li><b>Tap "Add to Home screen" or "Install app"</b><span>Then tap Install (or Add).</span></li>
+      <li><b>Open "My Leads" from your home screen</b><span>It's the Mr Priceless icon. You'll stay signed in.</span></li>
+    </ol>${android ? "" : `<p class="pp-muted pp-small">Not in Chrome? Open this page in Chrome first.</p>`}`;
+  $("#pp-sheet").innerHTML = `
+    <div class="pp-sheet-head"><button type="button" class="pp-back" data-act="close">‹ Back</button></div>
+    <h2 class="pp-sheet-name">Add My Leads to your home screen</h2>
+    <p class="pp-sheet-sub">A one-off. After this it opens like any other app on your phone.</p>
+    <section class="pp-block">${steps}</section>`;
+}
+
 function renderLeads(){
   const el = $("#pp-leads");
   if (S.view !== "board") S.view = "call";
@@ -464,6 +497,7 @@ function renderLeads(){
   }
   const checkins = S.leads.filter(l => l.checkin).length;
   el.innerHTML = `
+    ${installBannerHtml()}
     ${welcomeHtml()}
     ${alertsBannerHtml()}
     <div class="pp-hero"><div>
@@ -677,6 +711,7 @@ function shutSheet(){
 }
 function renderSheet(){
   if (S.sheet === "alerts") return renderAlertsSheet();
+  if (S.sheet === "install") return renderInstallSheet();
   const l = S.leads.find(x => x.id === S.openId);
   if (!l){ shutSheet(); return; }
   const r = rate(l), qa = answers(l), st = stageOf(l), first = firstName(l.name);
@@ -1361,6 +1396,11 @@ function bind(){
     else if (act === "welcome-ok"){ store.set("mpp_welcome", "1"); render(); }
     else if (act === "more-stages"){ S.more = !S.more; if (!S.more) S.pick = null; renderSheet(); }
     else if (act === "alerts-later"){ store.set("mpp_alerts_later", nzDay()); render(); }
+    else if (act === "install-later"){ store.set("mpp_install_later", nzDay()); render(); }
+    else if (act === "install-start"){
+      if (S.installEvt){ try { S.installEvt.prompt(); await S.installEvt.userChoice; } catch(err){} S.installEvt = null; render(); }
+      else openSheet("install");
+    }
     else if (act === "alerts-on") turnOnAlerts();
     else if (act === "install"){ try { S.installEvt?.prompt(); await S.installEvt?.userChoice; } catch(err){} S.installEvt = null; renderSheet(); }
     else if (act === "save-phone") savePhone($("#pp-phone"));
