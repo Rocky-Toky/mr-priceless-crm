@@ -1765,7 +1765,7 @@ const MAIN_NAV = [
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
     pages: [["dialer", "Dialler"], ["inbound-leads", "Inbound leads"], ["cold-calls", "Meetings booked"], ["deals", "Pipeline"], ["sales-followups", "Follow-ups", 1], ["meetings", "Upcoming meetings", 1]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
-    pages: [["clients", "Clients"], ["onboarding", "Onboarding"], ["reporting", "Reports"]] },
+    pages: [["clients", "Clients"], ["onboarding", "Onboarding"], ["reporting", "Reports"], ["portal-texts", "Texts sent", 1]] },
   { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
     pages: [["ads-month", "Ads this month"], ["ad-production", "Ad production"]] },
   { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
@@ -16404,6 +16404,81 @@ function plBind(root){
   });
 }
 
+// ───────── Texts sent: every text the client app has sent a client (portal_texts, sql/113) ─────────
+let ptTexts = null, ptLoading = false, ptErr = "", ptClient = "", ptKind = "", ptMore = 100;
+const PT_KINDS = { new_lead: "New lead", digest: "9am / 3pm leads to call", test: "Test text" };
+async function ptLoad(){
+  if (ptLoading) return;
+  ptLoading = true; ptErr = "";
+  try {
+    if (!IS_CONFIGURED){ ptTexts = ptDemo(); return; }
+    const { data, error } = await supabase.from("portal_texts").select("id, at, client_id, lead_id, to_name, to_phone, kind, body, status, via, error").order("at", { ascending: false }).limit(1000);
+    if (error) throw error;
+    ptTexts = data || [];
+  } catch(err){ ptErr = /portal_texts/.test(err?.message || "") ? "The texts log is still being set up - try again in a few minutes." : "Couldn't load the texts. Check your connection and try again."; }
+  finally { ptLoading = false; }
+}
+function ptDemo(){
+  const cs = state.clients.slice(0, 3), ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
+  const c = (i) => cs[i % Math.max(1, cs.length)]?.id || null;
+  return [
+    { id: 1, at: ago(6), client_id: c(0), to_name: "Dave", to_phone: "021 555 0101", kind: "new_lead", status: "sent", via: "ghl", body: "Mr Priceless: new lead - Sarah Lin (Driveway quote, Hamilton). Call them now: https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=demo" },
+    { id: 2, at: ago(180), client_id: c(1), to_name: "Brett", to_phone: "027 555 0102", kind: "digest", status: "sent", via: "ghl", body: "Mr Priceless: you have 2 new leads to call and 1 lead to call again. Open your leads: https://rocky-toky.github.io/mr-priceless-crm/portal/" },
+    { id: 3, at: ago(200), client_id: c(2), to_name: "Mac", to_phone: null, kind: "new_lead", status: "failed", error: "No mobile number for this login", body: "Mr Priceless: new lead - Tom Fraser (Retaining wall, Te Atatū). Call them now: https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=demo2" },
+    { id: 4, at: ago(60 * 26), client_id: c(0), to_name: "Dave", to_phone: "021 555 0101", kind: "test", status: "sent", via: "ghl", body: "Mr Priceless: this is a test. Your new leads and the 9am and 3pm leads-to-call texts will come from this number." },
+  ];
+}
+function renderPortalTexts(){
+  const root = $("#pt-root");
+  if (!root) return;
+  if (!root.dataset.bound){
+    root.dataset.bound = "1";
+    root.addEventListener("change", (e) => {
+      if (e.target.matches("[data-pt=client]")){ ptClient = e.target.value; ptMore = 100; renderPortalTexts(); }
+      if (e.target.matches("[data-pt=kind]")){ ptKind = e.target.value; ptMore = 100; renderPortalTexts(); }
+    });
+    root.addEventListener("click", async (e) => {
+      if (e.target.closest("[data-pt=more]")){ ptMore += 100; renderPortalTexts(); }
+      if (e.target.closest("[data-pt=refresh]")){ ptTexts = null; renderPortalTexts(); }
+    });
+  }
+  if (ptTexts === null){
+    root.innerHTML = ptErr ? `<p class="pt-empty">${escapeHtml(ptErr)} <button type="button" class="btn ghost sm" data-pt="refresh">Try again</button></p>` : mpSkel(4);
+    if (!ptLoading && !ptErr) ptLoad().then(renderPortalTexts);
+    return;
+  }
+  const cname = (id) => state.clients.find(c => c.id === id)?.name || "Unknown client";
+  const kindOf = (k) => PT_KINDS[k] ? k : "other";
+  const rows = ptTexts.filter(x => (!ptClient || x.client_id === ptClient) && (!ptKind || (ptKind === "failed" ? x.status === "failed" : kindOf(x.kind) === ptKind)));
+  const nzDay = (t) => new Date(t).toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "long", day: "numeric", month: "long" });
+  const nzTime = (t) => new Date(t).toLocaleTimeString("en-NZ", { timeZone: "Pacific/Auckland", hour: "numeric", minute: "2-digit" });
+  const week = ptTexts.filter(x => Date.now() - new Date(x.at) < 7 * 864e5);
+  const today = ptTexts.filter(x => nzDay(x.at) === nzDay(Date.now()));
+  const clientIds = [...new Set(ptTexts.map(x => x.client_id).filter(Boolean))].sort((a, b) => cname(a).localeCompare(cname(b)));
+  let last = "", list = "";
+  rows.slice(0, ptMore).forEach(x => {
+    const d = nzDay(x.at);
+    if (d !== last){ list += `<li class="pt-day">${escapeHtml(d)}</li>`; last = d; }
+    list += `<li class="pt-row${x.status === "failed" ? " failed" : ""}">
+      <span class="pt-time">${escapeHtml(nzTime(x.at))}</span>
+      <div class="pt-main">
+        <div class="pt-top"><b>${escapeHtml(cname(x.client_id))}</b><span>to ${escapeHtml([x.to_name, x.to_phone].filter(Boolean).join(" · ") || "their login")}</span><i class="pt-kind">${escapeHtml(PT_KINDS[x.kind] || (x.kind || "Text").replace(/_/g, " "))}</i></div>
+        <p class="pt-body">${escapeHtml(x.body || "")}</p>
+        ${x.status === "failed" ? `<p class="pt-err">Didn't go: ${escapeHtml(x.error || "unknown problem")}</p>` : ""}
+      </div>
+    </li>`;
+  });
+  root.innerHTML = `
+    <div class="pt-stats"><span><b>${today.filter(x => x.status === "sent").length}</b> sent today</span><span><b>${week.filter(x => x.status === "sent").length}</b> sent this week</span><span class="${week.some(x => x.status === "failed") ? "bad" : ""}"><b>${week.filter(x => x.status === "failed").length}</b> didn't go this week</span></div>
+    <div class="pt-bar">
+      <select data-pt="client" aria-label="Client"><option value="">Every client</option>${clientIds.map(id => `<option value="${escapeHtml(id)}"${id === ptClient ? " selected" : ""}>${escapeHtml(cname(id))}</option>`).join("")}</select>
+      <select data-pt="kind" aria-label="Which texts"><option value="">Every text</option>${[...Object.entries(PT_KINDS), ["other", "Other"], ["failed", "Only ones that didn't go"]].map(([k, t]) => `<option value="${k}"${k === ptKind ? " selected" : ""}>${escapeHtml(t)}</option>`).join("")}</select>
+      <button type="button" class="btn ghost sm" data-pt="refresh">Refresh</button>
+    </div>
+    ${rows.length ? `<ul class="pt-list">${list}</ul>${rows.length > ptMore ? `<button type="button" class="btn ghost sm pt-more" data-pt="more">Show more</button>` : ""}`
+      : `<p class="pt-empty">${ptTexts.length ? "No texts match." : "No texts sent yet. Every text the client app sends - new leads, the 9am and 3pm reminders and test texts - will show here."}</p>`}`;
+}
+
 const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
@@ -16422,6 +16497,7 @@ const RENDERERS = [
   [renderInboundLeads, ["inbound-leads"]],
   [renderSalesFollowups, ["sales-followups"]],
   [renderHowWeWork, ["how"]],
+  [renderPortalTexts, ["portal-texts"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }

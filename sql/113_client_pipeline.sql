@@ -939,6 +939,38 @@ revoke all on function public.portal_queue(uuid, uuid, text, text, text, text, t
 revoke all on function public.portal_kick() from public;
 
 -- Which 9am / 3pm "leads to call" texts have gone (server only).
+-- ───────── Every text the app sends a client (CRM: Clients → Texts sent) ─────────
+-- Written by the client-portal function each time it texts (or tries to):
+-- new lead, the 9am / 3pm "leads to call", test texts. Team can read it.
+create table if not exists portal_texts (
+  id bigserial primary key,
+  at timestamptz not null default now(),
+  client_id uuid references clients(id) on delete cascade,
+  lead_id uuid references client_leads(id) on delete set null,
+  notification_id uuid unique,
+  to_name text,
+  to_phone text,
+  kind text,                              -- new_lead, digest, test, ...
+  body text,
+  status text not null default 'sent',    -- sent / failed
+  via text,                               -- ghl / twilio
+  error text
+);
+create index if not exists portal_texts_at on portal_texts (at desc);
+alter table portal_texts enable row level security;
+drop policy if exists "team can see" on portal_texts;
+create policy "team can see" on portal_texts for select using (public.is_allowlisted());
+-- The texts sent before this log existed (from the alerts they came from). Safe to re-run.
+insert into portal_texts (at, client_id, lead_id, notification_id, to_name, to_phone, kind, body, status, error)
+select coalesce(n.sent_at, n.created_at), n.client_id, n.lead_id, n.id, u.name, u.phone, n.kind,
+  coalesce(n.payload ->> 'sms', 'Mr Priceless: ' || n.title || ' - ' || n.body || coalesce(' ' || n.url, '')),
+  case when n.status = 'texted' then 'sent' else 'failed' end, case when n.status = 'texted' then null else n.error end
+from portal_notifications n
+left join lateral (select p.name, p.phone from client_portal_users p
+  where lower(p.email) = lower(n.email) and (n.client_id is null or p.client_id = n.client_id) order by p.created_at limit 1) u on true
+where n.status = 'texted' or (n.error is not null and coalesce(n.fallback, '') ~ '(text|sms)')
+on conflict (notification_id) do nothing;
+
 -- ───────── Activity log: everything done on a lead in the client's app ─────────
 -- Who (which client login, team member, or the app itself) did what, when.
 -- Shown on the CRM's Client portal tab. Written only by the functions here.
