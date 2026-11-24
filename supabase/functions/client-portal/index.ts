@@ -160,12 +160,17 @@ async function ghlText(to: string, body: string, name: string): Promise<string |
     return null;
   } catch (e) { return String((e as any)?.message || e); }
 }
+// Which way the last text went (ghl / twilio), for the texts log.
+let lastVia: string | null = null;
 async function sendText(to: string, body: string, name = ""): Promise<string | null> {
   let ghlErr: string | null = null;
+  lastVia = null;
   if (GHL_TOKEN && GHL_LOCATION) {
+    lastVia = "ghl";
     ghlErr = await ghlText(to, body, name);
     if (!ghlErr) return null;
   }
+  lastVia = "twilio";
   if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) return ghlErr || "Texts aren't set up";
   const form = new URLSearchParams({ To: to, Body: body.slice(0, 600) });
   form.set(TWILIO_FROM.startsWith("MG") ? "MessagingServiceSid" : "From", TWILIO_FROM);
@@ -177,6 +182,11 @@ async function sendText(to: string, body: string, name = ""): Promise<string | n
   if (res.ok) { await res.body?.cancel(); return null; }
   const out = await res.json().catch(() => ({}));
   return String(out?.message || `Twilio returned ${res.status}`);
+}
+// Every text (or try) goes in portal_texts, so the CRM can show them all.
+async function logText(admin: any, row: Record<string, unknown>) {
+  try { await admin.from("portal_texts").insert({ ...row, status: row.error ? "failed" : "sent", via: row.error && !lastVia ? null : lastVia }); }
+  catch (_e) { /* the log never stops a text */ }
 }
 const STALE_MS: Record<string, number> = { new_lead: 6 * 3600e3, call_due: 3600e3, visit_today: 12 * 3600e3, digest: 3 * 3600e3, booked: 24 * 3600e3 };
 
@@ -220,10 +230,13 @@ async function deliver(admin: any) {
       if (fb.includes("text") || (!ok && fb.includes("sms"))) {
         const { data: users } = await admin.from("client_portal_users").select("phone, name").ilike("email", n.email).not("phone", "is", null).limit(1);
         const to = e164(users?.[0]?.phone || "");
-        if (to) {
-          textErr = await sendText(to, n.payload?.sms || `Mr Priceless: ${n.title} - ${n.body} ${n.url || ""}`.trim(), users?.[0]?.name || "");
-          if (!textErr) { await finish("texted", ok ? "push+sms" : "sms"); continue; }
-        } else textErr = "No mobile number for this login";
+        const smsBody = n.payload?.sms || `Mr Priceless: ${n.title} - ${n.body} ${n.url || ""}`.trim();
+        lastVia = null;
+        if (to) textErr = await sendText(to, smsBody, users?.[0]?.name || "");
+        else textErr = "No mobile number for this login";
+        await logText(admin, { client_id: n.client_id, lead_id: n.lead_id, notification_id: n.id, to_name: users?.[0]?.name || null,
+          to_phone: users?.[0]?.phone || null, kind: n.kind, body: smsBody, error: textErr });
+        if (!textErr) { await finish("texted", ok ? "push+sms" : "sms"); continue; }
       }
       if (ok) { await finish("sent", "push", textErr); continue; }
       if (fb.includes("email")) {
@@ -419,10 +432,12 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "test_text") {
-      const { data: row } = await admin.from("client_portal_users").select("phone, name").eq("id", body.id).maybeSingle();
+      const { data: row } = await admin.from("client_portal_users").select("phone, name, client_id").eq("id", body.id).maybeSingle();
       const to = e164(row?.phone || "");
       if (!to) return json({ error: "This login has no mobile number. Add one first." }, 400);
-      const err = await sendText(to, "Mr Priceless: this is a test. Your new leads and the 9am and 3pm leads-to-call texts will come from this number.", row?.name || "");
+      const testBody = "Mr Priceless: this is a test. Your new leads and the 9am and 3pm leads-to-call texts will come from this number.";
+      const err = await sendText(to, testBody, row?.name || "");
+      await logText(admin, { client_id: row?.client_id || null, to_name: row?.name || null, to_phone: row?.phone || null, kind: "test", body: testBody, error: err });
       return json(err ? { error: `The text didn't go: ${err}` } : { ok: true });
     }
 

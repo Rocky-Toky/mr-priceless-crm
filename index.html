@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=431">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=431">
+<link rel="stylesheet" href="css/style.css?v=432">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=432">
 </head>
 <body>
 <!-- Boot screen: flowing gold waves while the CRM loads (js/waves.js) -->
@@ -271,6 +271,10 @@
       <button type="button" class="nav-item nav-group-item" data-group="ads" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/><path d="M5 17l.6 1.4L7 19l-1.4.6L5 21l-.6-1.4L3 19l1.4-.6z"/></svg>
         <span>Ad production</span><span class="nav-count" id="nav-ads-count" hidden title="Ads still to go live this month"></span>
+      </button>
+      <button class="nav-item" data-page="portal-texts" data-workspace="delivery">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        <span>Texts sent</span>
       </button>
       <button class="nav-item" data-page="reporting" data-workspace="delivery">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>
@@ -1323,6 +1327,14 @@
         <div class="rc-clients" id="rc-clients"></div>
       </section>
       </div>
+    </section>
+
+    <!-- Texts sent: every text the client app has sent a client (portal_texts, sql/113) -->
+    <section class="page" id="page-portal-texts">
+      <div class="page-header">
+        <div><h2>Texts sent</h2><p>Every text the client app has sent your clients: new leads, the 9am and 3pm reminders, and test texts.</p></div>
+      </div>
+      <div id="pt-root"></div>
     </section>
 
     <section class="page" id="page-reporting">
@@ -2974,17 +2986,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=431"></script>
-<script src="js/supabaseClient.js?v=431"></script>
-<script src="js/report-pdf.js?v=431"></script>
-<script src="js/plan-pdf.js?v=431"></script>
-<script src="js/workshop-pdf.js?v=431"></script>
-<script src="js/receipt-pdf.js?v=431"></script>
-<script src="js/welcome-pdf.js?v=431"></script>
-<script src="js/builtin-playbooks.js?v=431"></script>
-<script src="js/builtin-email-templates.js?v=431"></script>
-<script src="js/app.js?v=431"></script>
-<script src="js/meetings-tracker.js?v=431"></script>
-<script src="js/todo.js?v=431"></script>
+<script src="js/config.js?v=432"></script>
+<script src="js/supabaseClient.js?v=432"></script>
+<script src="js/report-pdf.js?v=432"></script>
+<script src="js/plan-pdf.js?v=432"></script>
+<script src="js/workshop-pdf.js?v=432"></script>
+<script src="js/receipt-pdf.js?v=432"></script>
+<script src="js/welcome-pdf.js?v=432"></script>
+<script src="js/builtin-playbooks.js?v=432"></script>
+<script src="js/builtin-email-templates.js?v=432"></script>
+<script src="js/app.js?v=432"></script>
+<script src="js/meetings-tracker.js?v=432"></script>
+<script src="js/todo.js?v=432"></script>
 </body>
 </html>
