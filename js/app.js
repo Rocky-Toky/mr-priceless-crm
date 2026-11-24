@@ -6259,7 +6259,7 @@ function renderClientPortal(c){
     <h4 class="cpp-h">Who calls their leads?</h4>
     <div class="cpp-mode">
       <label class="${c.lead_client_calls ? "" : "on"}"><input type="radio" name="cpp-mode" value="us"${c.lead_client_calls ? "" : " checked"}><b>Our team</b><span>Leads go in the Lead Follow Up call queue as soon as they come in.</span></label>
-      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>Leads that pass the rules below go to their portal with a phone alert. Didn't answer? It comes back to them the next day, then a week later for a last try. Not rung within 24 hours, or still no luck after the 3rd call (asked the next day, by 10pm), and it comes into our call queue.</span></label>
+      <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>Leads that pass the rules below go to their portal with a phone alert. Didn't answer? It comes back to them the next day, then a week later for a last try. Leads stay with them - nothing comes to our call queue unless they pass it to us.</span></label>
     </div>
     ${cppRulesHtml(c)}
     ${cppPipelineHtml(c)}

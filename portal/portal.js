@@ -183,7 +183,7 @@ const callAgainTag = (l) => callAgainDue(l) ? (naCount(l) >= 2 ? "Last try - 3rd
 function askHtml(l, big){
   const first = firstName(l.name), final = l.checkin_final !== false;
   const line = final
-    ? `${l.checkin_deadline ? `If we don't hear by ${esc(whenWords(l.checkin_deadline))}, our team will call them.` : ""}`
+    ? `Not yet? You can pass them to the Mr Priceless team.`
     : `Not yet? They'll come back for one last call${l.call_due_at ? ` on ${esc(dayWords(l.call_due_at))}` : " next week"}.`;
   return `<div class="pp-ask${big ? " big" : ""}">
       <b>Did ${esc(first)} get back to you?</b>
@@ -218,17 +218,16 @@ const callCount = () => callNow().reduce((n, x) => n + x.list.length, 0);
 // When does a lead go to Mr Priceless (or get the 24-hour check-in)?
 function timerFor(l){
   if (!l.client_calls || withUs(l) || inGhl(l)) return null;
-  if (l.checkin) return l.checkin_final !== false && l.checkin_deadline ? { until: t(l.checkin_deadline), label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" } : null;
+  // No "Goes to Mr Priceless" clocks (24 Nov 2026, Rocky): a lead in their list stays theirs.
+  if (l.checkin) return null;
   if (stageOf(l) === "no_answer" && l.call_due_at){
     const due = t(l.call_due_at), last = naCount(l) >= 2;
     // A 2nd call asks "did they get back to you?" the day after, before the last try comes round.
     if (last && l.last_na_at && t(l.last_na_at) + HANDOVER_MS > Date.now()) return { until: t(l.last_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
-    if (due > Date.now()) return { until: due, label: last ? "Last try in" : "Call again in", done: "Time to call again" };
-    return { until: due + HANDOVER_MS, label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" };
+    return due > Date.now() ? { until: due, label: last ? "Last try in" : "Call again in", done: "Time to call again" } : null;
   }
   if (stageOf(l) === "no_answer" && (l.last_na_at || l.first_na_at)) return { until: t(l.last_na_at || l.first_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
-  const ho = handoverAt(l);
-  if (ho) return { until: ho, label: "Goes to Mr Priceless in", done: "Passing to Mr Priceless now" };
+
   return null;
 }
 function timerHtml(l, big){
@@ -727,7 +726,7 @@ function renderSheet(){
     ${timerFor(l) ? `<p class="pp-note-line">${timerHtml(l, true)}</p>` : ""}
     ${readOnly() && withUs(l) ? `<div class="pp-teambox">
       <b>Team only</b>
-      <span>Mr Priceless has this lead. Give it to ${esc(S.client?.name || "the client")} to call: it goes to the top of their Call now as a new lead with a fresh 24 hours, out of Carmen's queue, and they get the new-lead alert and text.</span>
+      <span>Mr Priceless has this lead. Give it to ${esc(S.client?.name || "the client")} to call: it goes to the top of their Call now as a new lead, out of Carmen's queue, and they get the new-lead alert and text.</span>
       <button type="button" class="pp-btn pp-btn-gold" data-act="give"${S.saving ? " disabled" : ""}>Give it to ${esc(S.client?.name || "them")} to call</button>
     </div>` : ""}
     ${withUs(l) ? `<p class="pp-note-line us">The Mr Priceless team is calling ${esc(first)}${l.handover_reason === "client_no" ? " - you passed them to us" : ""}. If they get in touch with you, just update them here.</p>` : ""}
@@ -889,7 +888,7 @@ async function saveStage(){
     delete S.drafts[l.id];
     S.saving = false;
     await refreshAfterSave();
-    toast(o.k === "no_answer" ? (wasAsked ? `Thanks - our team will follow ${firstName(l.name)} up for you.` : `Saved. Try ${firstName(l.name)} again later - we'll check in with you tomorrow if you can't reach them.`)
+    toast(o.k === "no_answer" ? `Saved. ${firstName(l.name)} will come back up when it's time to call again.`
       : o.k === "won" ? "Nice one! Job won." : `Saved: ${o.label}.${inCal ? ` Added to your ${inCal}.` : ""}`);
     closeSheet();
   } catch(e){
@@ -902,7 +901,7 @@ async function saveStage(){
 async function giveToClient(){
   const l = S.leads.find(x => x.id === S.openId);
   if (!l || !readOnly() || S.saving) return;
-  if (!confirm(`Give ${l.name || "this lead"} to ${S.client?.name || "the client"} to call?\n\nIt goes to the top of their Call now with a fresh 24 hours, comes out of Carmen's queue, and they get the new-lead alert and text.`)) return;
+  if (!confirm(`Give ${l.name || "this lead"} to ${S.client?.name || "the client"} to call?\n\nIt goes to the top of their Call now, comes out of Carmen's queue, and they get the new-lead alert and text.`)) return;
   S.saving = true; renderSheet();
   try {
     await rpc("portal_give_to_client", { p_lead: l.id });
@@ -1317,7 +1316,7 @@ function renderAccount(){
     </section>
     <section class="pp-block">
       <h3>How your leads work</h3>
-      ${c.client_calls ? `<ol class="pp-steps"><li>A lead fills in the form on your ad. It shows up here straight away, and your phone gets an alert.</li><li>Call them - the best ones are at the top of To do, with everything they told us.</li><li>Move each lead along as it goes: call scheduled, site visit, quote sent, job won.</li><li>Can't reach someone? Tap Didn't answer. They come back up the next day for a 2nd call, then a week later for one last try. After the 2nd and 3rd calls we'll ask if they got back to you - after the 3rd, our team follows them up.</li><li>Haven't rung a lead within 24 hours? Our team calls them for you.</li></ol>`
+      ${c.client_calls ? `<ol class="pp-steps"><li>A lead fills in the form on your ad. It shows up here straight away, and your phone gets an alert.</li><li>Call them - the best ones are at the top of To do, with everything they told us.</li><li>Move each lead along as it goes: call scheduled, site visit, quote sent, job won.</li><li>Can't reach someone? Tap Didn't answer. They come back up the next day for a 2nd call, then a week later for one last try. After the 2nd and 3rd calls we'll ask if they got back to you.</li></ol>`
         : `<ol class="pp-steps"><li>A lead fills in the form on your ad.</li><li>Our team rings them fast and books them in with you.</li><li>You take it from there here: site visit, quote sent, job won.</li></ol>`}
     </section>
     ${calSettingsHtml()}
