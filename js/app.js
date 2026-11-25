@@ -16607,7 +16607,7 @@ async function estSave(send){
 }
 
 // The businesses (sql/122 trade_businesses) and where new-lead texts go (trade_settings).
-let plBiz = null, plSettings = null, plBizPick = (() => { try { return localStorage.getItem("mp_pl_biz") || "all"; } catch(e){ return "all"; } })(), plSetOpen = false;
+let plBiz = null, plSettings = null, plBizPick = (() => { try { return localStorage.getItem("mp_pl_biz") || "all"; } catch(e){ return "all"; } })();
 async function plLoadSetup(){
   if (!IS_CONFIGURED){ plBiz = plBiz || [{ key: "plastering", name: "Priceless Plastering", active: true }]; plSettings = plSettings || { alert_phone: "", alerts_on: true }; return; }
   const [b, s] = await Promise.all([
@@ -16626,6 +16626,8 @@ function plTitle(){
 const plTel = (p) => String(p || "").replace(/[^\d+]/g, "");
 const plAgo = (iso) => { const ms = Date.now() - (Date.parse(iso) || Date.now()); if (ms < 60e3) return "just now"; if (ms > 7 * 86400e3) return new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short" }); return lqShortAgo(ms) + " ago"; };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && estDraft && !$("#est-modal")?.hidden) estClose(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && plDrawer && !estDraft){ plDrawer = null; plDrawerRender(); } });
+document.addEventListener("click", (e) => { if (!e.target.closest(".pl-switch-wrap")) $$(".pl-switch-menu").forEach(m => { m.hidden = true; }); });
 // Board card: who, what, where, one big Call, notes / details folded away.
 function plCardHtml(l){
   const multi = (plBiz || []).filter(b => b.active).length > 1;
@@ -16636,7 +16638,7 @@ function plCardHtml(l){
       <h3 title="${escapeHtml(l.name || "")}">${escapeHtml(l.name || "No name")}</h3>
       <span class="pl-when">${escapeHtml(plAgo(l.created_at))}</span>
     </header>
-    ${multi ? `<span class="pl-biz">${escapeHtml(plBizName(l.business))}</span>` : ""}
+    ${multi && plBizPick === "all" ? (() => { const b = (plBiz || []).find(x => x.key === (l.business || "plastering")); return `<span class="pl-biz"><i style="background:${plBizColor(b)}"></i>${escapeHtml(plBizName(l.business))}</span>`; })() : ""}
     ${chips.length ? `<div class="pl-chips">${chips.map(c => `<span>${escapeHtml(c)}</span>`).join("")}</div>` : ""}
     ${l.message ? `<p class="pl-msg"><span>${escapeHtml(l.message)}</span></p>` : ""}
     ${l.notes ? `<p class="pl-note-peek"><span>${escapeHtml(l.notes)}</span></p>` : ""}
@@ -16653,25 +16655,101 @@ function plCardHtml(l){
     </details>
   </article>`;
 }
-function plSettingsHtml(){
+// Settings live in a side panel (texts + businesses), so the board never grows.
+const PL_COLORS = ["#b8912c", "#2b6cb0", "#2f6b45", "#a1361f", "#6b46c1", "#0f766e", "#c2410c", "#334155"];
+const plBizColor = (b) => b?.color || PL_COLORS[Math.max(0, (plBiz || []).indexOf(b)) % PL_COLORS.length];
+const plBizReady = (b) => !!(b.legal_name && b.gst_number && b.phone && b.email);
+let plDrawer = null, plPhoneDraft = null; // plDrawer: null | "home" | "biz:<key>" | "biz:new"
+function plDrawerHtml(){
   const s = plSettings || {};
-  return `<div class="pl-settings">
-    <div class="pl-set-row">
-      <label>Text new leads to<input type="tel" id="pl-alert-phone" value="${escapeHtml(s.alert_phone || "")}" placeholder="Your mobile, e.g. 021 123 4567"></label>
-      <label class="pl-switch"><input type="checkbox" id="pl-alerts-on"${s.alerts_on !== false ? " checked" : ""}> Texts on</label>
-      <button type="button" class="btn gold sm" data-pl-save-set>Save</button>
-      <button type="button" class="btn ghost sm" data-pl-test>Send a test text</button>
-    </div>
-    <div class="pl-set-biz">
-      <b>Your businesses</b>
-      <p>Their details print on every estimate - fill them in once.</p>
-      <div class="pl-biz-list">${(plBiz || []).map(b => `<details class="pl-biz-edit" data-biz-key="${escapeHtml(b.key)}"><summary><b>${escapeHtml(b.name)}</b><code>${escapeHtml(b.key)}</code>${b.gst_number && b.phone ? "" : `<em>details missing</em>`}</summary>
-        <div class="pl-biz-grid">${[["name", "Name on the estimate"], ["legal_name", "Legal name (e.g. ... Ltd)"], ["gst_number", "GST number"], ["phone", "Phone"], ["email", "Email"], ["website", "Website"], ["address", "Address"]].map(([k, t]) => `<label>${t}<input data-bf="${k}" value="${escapeHtml(b[k] || "")}"></label>`).join("")}</div>
-        <button type="button" class="btn gold sm" data-pl-save-biz>Save ${escapeHtml(b.name)}</button></details>`).join("")}</div>
-      <div class="pl-set-row"><input type="text" id="pl-new-biz" placeholder="Add one, e.g. Priceless Roofing"><button type="button" class="btn ghost sm" data-pl-add-biz>+ Add business</button></div>
-      <p>Each website sends its leads with its key (e.g. <code>business: "roofing"</code>) so they land under the right business.</p>
-    </div>
-  </div>`;
+  if (String(plDrawer).startsWith("biz:")){
+    const key = plDrawer.slice(4), b = key === "new" ? { key: "", name: "", active: true } : (plBiz || []).find(x => x.key === key) || {};
+    const col = key === "new" ? PL_COLORS[(plBiz || []).length % PL_COLORS.length] : plBizColor(b);
+    return `<header class="pld-head"><button type="button" class="pld-back" data-pld="home" aria-label="Back">‹</button><h3>${key === "new" ? "Add a business" : escapeHtml(b.name)}</h3><button type="button" class="pld-x" data-pld-close aria-label="Close">×</button></header>
+      <div class="pld-body" data-biz-key="${escapeHtml(key)}">
+        <p class="pld-note">These print on every estimate this business sends.</p>
+        ${[["name", "Business name", "e.g. Priceless Roofing"], ["legal_name", "Legal name", "e.g. Priceless Roofing Ltd"], ["gst_number", "GST number", "123-456-789"], ["phone", "Phone", "021 123 4567"], ["email", "Email", "hello@..."], ["website", "Website", "pricelessroofing.co.nz"], ["address", "Address (optional)", ""]].map(([k, t, ph]) => `<label class="pld-field">${t}<input data-bf="${k}" value="${escapeHtml(b[k] || "")}" placeholder="${escapeHtml(ph)}"></label>`).join("")}
+        <div class="pld-field">Colour<div class="pld-swatches">${PL_COLORS.map(c => `<button type="button" class="pld-sw${c === col ? " on" : ""}" style="--c:${c}" data-sw="${c}" aria-label="Colour"></button>`).join("")}</div><input type="hidden" data-bf="color" value="${escapeHtml(col)}"></div>
+        ${key !== "new" ? `<p class="pld-key">Website key: <code>${escapeHtml(key)}</code> - the website sends this with each lead.</p>` : ""}
+        <button type="button" class="pld-save" data-pl-save-biz>${key === "new" ? "Add business" : "Save"}</button>
+        ${key !== "new" && key !== "plastering" ? `<button type="button" class="pld-hide" data-pl-hide-biz>${b.active === false ? "Show this business again" : "Hide this business"}</button>` : ""}
+      </div>`;
+  }
+  return `<header class="pld-head"><h3>Settings</h3><button type="button" class="pld-x" data-pld-close aria-label="Close">×</button></header>
+    <div class="pld-body">
+      <section class="pld-sec"><h4>Text me new leads</h4>
+        <label class="pld-field">Your mobile<input type="tel" id="pl-alert-phone" value="${escapeHtml(plPhoneDraft ?? s.alert_phone ?? "")}" placeholder="021 123 4567"></label>
+        <label class="pld-toggle"><input type="checkbox" id="pl-alerts-on"${s.alerts_on !== false ? " checked" : ""}><span></span>Texts on</label>
+        <div class="pld-row"><button type="button" class="pld-save" data-pl-save-set>Save</button><button type="button" class="pld-ghost" data-pl-test>Send a test text</button></div>
+      </section>
+      <section class="pld-sec"><h4>Your businesses</h4>
+        <ul class="pld-list">${(plBiz || []).map(b => `<li><button type="button" data-pld="biz:${escapeHtml(b.key)}" class="${b.active === false ? "off" : ""}">
+          <i style="background:${plBizColor(b)}"></i><span><b>${escapeHtml(b.name)}</b><small>${b.active === false ? "Hidden" : plBizReady(b) ? "Ready for estimates" : "Add GST + contact details"}</small></span>${plBizReady(b) || b.active === false ? "" : `<em>!</em>`}<span class="pld-go">›</span></button></li>`).join("")}</ul>
+        <button type="button" class="pld-add" data-pld="biz:new">＋ Add a business</button>
+      </section>
+    </div>`;
+}
+function plDrawerRender(){
+  let d = $("#pl-drawer");
+  if (!plDrawer){ plPhoneDraft = null; if (d){ d.classList.remove("open"); setTimeout(() => { if (!plDrawer) d.hidden = true; }, 220); } return; }
+  if (!d){
+    d = document.createElement("div"); d.id = "pl-drawer"; d.className = "pl-drawer";
+    d.innerHTML = `<div class="pld-scrim" data-pld-close></div><aside class="pld-panel" role="dialog" aria-modal="true" aria-label="Settings"></aside>`;
+    document.body.appendChild(d);
+    d.addEventListener("click", plDrawerClick);
+  }
+  if ($("#pl-alert-phone")) plPhoneDraft = $("#pl-alert-phone").value;
+  d.hidden = false; d.querySelector(".pld-panel").innerHTML = plDrawerHtml();
+  requestAnimationFrame(() => d.classList.add("open"));
+}
+async function plDrawerClick(e){
+  if (e.target.closest("[data-pld-close]")){ plDrawer = null; return plDrawerRender(); }
+  const nav = e.target.closest("[data-pld]");
+  if (nav){ plDrawer = nav.dataset.pld; return plDrawerRender(); }
+  const sw = e.target.closest("[data-sw]");
+  if (sw){ sw.parentNode.querySelectorAll(".pld-sw").forEach(x => x.classList.toggle("on", x === sw)); sw.closest(".pld-body").querySelector('[data-bf="color"]').value = sw.dataset.sw; return; }
+  if (e.target.closest("[data-pl-save-set]")) return plSaveSettings();
+  const tb = e.target.closest("[data-pl-test]");
+  if (tb){
+    if (!IS_CONFIGURED) return alert("Test texts only work on the live CRM.");
+    tb.disabled = true; tb.textContent = "Sending…";
+    const { data, error } = await supabase.functions.invoke("client-portal", { body: { action: "trade_test_text" } });
+    tb.disabled = false; tb.textContent = "Send a test text";
+    return alert(error || data?.error ? `That didn't send: ${data?.error || "try again"}` : "Sent - check your phone.");
+  }
+  if (e.target.closest("[data-pl-save-biz]")) return plSaveBiz(e.target.closest("[data-biz-key]"));
+  if (e.target.closest("[data-pl-hide-biz]")){
+    const key = e.target.closest("[data-biz-key]").dataset.bizKey, b = plBiz.find(x => x.key === key), active = b.active === false;
+    if (IS_CONFIGURED){ const { error } = await supabase.from("trade_businesses").update({ active }).eq("key", key); if (error) return alert("Couldn't save that. Try again."); }
+    b.active = active; plDrawer = "home"; plDrawerRender(); return renderPlasteringLeads();
+  }
+}
+async function plSaveBiz(box){
+  const key0 = box.dataset.bizKey, patch = {};
+  box.querySelectorAll("[data-bf]").forEach(i => { patch[i.dataset.bf] = i.value.trim() || null; });
+  if (!patch.name || patch.name.length < 3) return alert("Give the business a name.");
+  if (key0 === "new"){
+    const key = patch.name.toLowerCase().replace(/^priceless\s+/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "business";
+    if ((plBiz || []).some(b => b.key === key)) return alert("You've already got that one.");
+    const row = { key, ...patch, active: true, sort: (plBiz || []).length };
+    if (IS_CONFIGURED){ const { error } = await supabase.from("trade_businesses").insert(row); if (error) return alert("Couldn't add that business. Try again."); }
+    plBiz = [...(plBiz || []), row];
+  } else {
+    if (IS_CONFIGURED){ const { error } = await supabase.from("trade_businesses").update(patch).eq("key", key0); if (error) return alert("Couldn't save that. Try again."); }
+    plBiz = plBiz.map(b => b.key === key0 ? { ...b, ...patch } : b);
+  }
+  plDrawer = "home"; plDrawerRender(); renderPlasteringLeads();
+}
+// The business switcher: one compact button, however many businesses there are.
+function plSwitchHtml(active){
+  if (active.length < 2) return "";
+  const newOf = (k) => plLeads.filter(l => (k === "all" || (l.business || "plastering") === k) && l.status === "new").length;
+  const cur = plBizPick === "all" ? null : active.find(b => b.key === plBizPick);
+  return `<div class="pl-switch-wrap">
+    <button type="button" class="pl-switch-btn" data-pl-switch aria-haspopup="true">${cur ? `<i style="background:${plBizColor(cur)}"></i>${escapeHtml(cur.name)}` : "All businesses"}<span aria-hidden="true">▾</span></button>
+    <div class="pl-switch-menu" hidden>
+      ${[["all", "All businesses", null], ...active.map(b => [b.key, b.name, b])].map(([k, t, b]) => `<button type="button" class="${k === plBizPick ? "on" : ""}" data-pl-pick="${escapeHtml(k)}">${b ? `<i style="background:${plBizColor(b)}"></i>` : `<i class="all"></i>`}<span>${escapeHtml(t)}</span>${newOf(k) ? `<em>${newOf(k)} new</em>` : ""}</button>`).join("")}
+    </div></div>`;
 }
 // A board: one column per stage. Drag a card to move it (mouse, or press and hold on a phone).
 function renderPlasteringLeads(){
@@ -16692,14 +16770,15 @@ function renderPlasteringLeads(){
   root.innerHTML = `
     <div class="pl-head">
       <div><h2>${escapeHtml(plTitle())}</h2><p>New website enquiries land in New and text your phone. Drag a lead to move it along.</p></div>
-      <button type="button" class="btn ghost sm pl-set-btn${plSettings?.alert_phone ? "" : " warn"}" data-pl-settings>${plSettings?.alert_phone ? "⚙ Settings" : "⚠ Set up lead texts"}</button>
+      <div class="pl-head-r">
+        ${plSwitchHtml(active)}
+        <button type="button" class="pl-gear${plSettings?.alert_phone ? "" : " warn"}" data-pl-settings title="Settings" aria-label="Settings">${plSettings?.alert_phone ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>` : "Set up lead texts"}</button>
+      </div>
     </div>
-    ${plSetOpen ? plSettingsHtml() : ""}
-    ${active.length > 1 ? `<div class="pl-bizpills">${[["all", "All businesses"], ...active.map(b => [b.key, b.name])].map(([k, t]) => `<button type="button" class="${k === plBizPick ? "on" : ""}" data-pl-pick="${escapeHtml(k)}">${escapeHtml(t)} <span>${plLeads.filter(l => (k === "all" || (l.business || "plastering") === k) && l.status === "new").length || ""}</span></button>`).join("")}</div>` : ""}
     ${plLeads.length ? `<div class="pl-board">${PL_STATUSES.map(([k, t]) => {
       const col = leads.filter(l => (PL_STATUSES.some(([s]) => s === l.status) ? l.status : "new") === k);
       return `<section class="pl-col pl-col-${k}" data-pl-col="${k}">
-        <header><b>${t}</b><span>${col.length}</span></header>
+        <header class="pl-col-head"><b>${t}</b><span>${col.length}</span></header>
         <div class="pl-col-body">${col.map(plCardHtml).join("") || `<p class="pl-col-empty">Drop a lead here</p>`}</div>
       </section>`;
     }).join("")}</div>`
@@ -16714,21 +16793,7 @@ async function plSaveSettings(){
     const { error } = await supabase.from("trade_settings").upsert({ id: 1, alert_phone: phone || null, alerts_on: on, updated_at: new Date().toISOString(), updated_by: state.user?.email || null });
     if (error) return alert("Couldn't save that. The setup may still be finishing - try again in a few minutes.");
   }
-  plSetOpen = false; renderPlasteringLeads();
-}
-async function plAddBiz(){
-  const name = ($("#pl-new-biz")?.value || "").trim();
-  if (name.length < 3) return;
-  const key = name.toLowerCase().replace(/^priceless\s+/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "business";
-  if ((plBiz || []).some(b => b.key === key)) return alert("You've already got that one.");
-  const row = { key, name, active: true, sort: (plBiz || []).length };
-  if (IS_CONFIGURED){
-    const { error } = await supabase.from("trade_businesses").insert(row);
-    if (error) return alert("Couldn't add that business. Try again.");
-  }
-  const draft = $("#pl-alert-phone")?.value;
-  plBiz = [...(plBiz || []), row]; renderPlasteringLeads(); mainNavRender();
-  if (draft != null && $("#pl-alert-phone")) $("#pl-alert-phone").value = draft;
+  plDrawer = null; plDrawerRender(); renderPlasteringLeads();
 }
 let plDrag = null;
 function plDragStart(card, x, y){
@@ -16810,26 +16875,9 @@ function plBind(root){
     if (en) return estStart(en.dataset.estNew);
     const eo = e.target.closest("[data-est-open]");
     if (eo){ const x = plEst.find(y => y.id === eo.dataset.estOpen); return estStart(x?.lead_id, x?.id); }
-    if (e.target.closest("[data-pl-settings]")){ plSetOpen = !plSetOpen; return renderPlasteringLeads(); }
-    if (e.target.closest("[data-pl-save-set]")) return plSaveSettings();
-    if (e.target.closest("[data-pl-add-biz]")) return plAddBiz();
-    const sb = e.target.closest("[data-pl-save-biz]");
-    if (sb){
-      const box = sb.closest("[data-biz-key]"), key = box.dataset.bizKey, patch = {};
-      box.querySelectorAll("[data-bf]").forEach(i => { patch[i.dataset.bf] = i.value.trim() || null; });
-      if (!patch.name) return alert("The business needs a name.");
-      if (IS_CONFIGURED){ const { error } = await supabase.from("trade_businesses").update(patch).eq("key", key); if (error) return alert("Couldn't save that. Try again."); }
-      plBiz = plBiz.map(b => b.key === key ? { ...b, ...patch } : b);
-      sb.textContent = "Saved ✓"; setTimeout(() => renderPlasteringLeads(), 700); return;
-    }
-    const tb = e.target.closest("[data-pl-test]");
-    if (tb){
-      if (!IS_CONFIGURED) return alert("Test texts only work on the live CRM.");
-      tb.disabled = true; tb.textContent = "Sending…";
-      const { data, error } = await supabase.functions.invoke("client-portal", { body: { action: "trade_test_text" } });
-      tb.disabled = false; tb.textContent = "Send a test text";
-      return alert(error || data?.error ? `That didn't send: ${data?.error || "try again"}` : "Sent - check your phone.");
-    }
+    if (e.target.closest("[data-pl-settings]")){ plDrawer = "home"; return plDrawerRender(); }
+    const sw = e.target.closest("[data-pl-switch]");
+    if (sw){ const m = sw.nextElementSibling; m.hidden = !m.hidden; return; }
     const pk = e.target.closest("[data-pl-pick]");
     if (pk){ plBizPick = pk.dataset.plPick; try { localStorage.setItem("mp_pl_biz", plBizPick); } catch(err){} return renderPlasteringLeads(); }
     const del = e.target.closest("[data-pl-delete]"), card = del?.closest("[data-pl-id]");
