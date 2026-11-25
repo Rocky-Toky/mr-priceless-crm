@@ -20,3 +20,30 @@ alter table client_meta_pages enable row level security;
 drop policy if exists "team can see" on client_meta_pages;
 create policy "team can see" on client_meta_pages for select using (public.is_allowlisted());
 select public.portal_lock_tables() as tables_closed_to_client_logins;
+
+-- Step 2 (25 Nov 2026): leads straight from those Pages. sync-meta-leads
+-- action "client_leads" copies new leads into client_leads (source 'meta',
+-- external_lead_id 'meta:<lead id>'), skipping anyone already in by phone /
+-- email. While GHL still runs, the GHL sync links its opportunity to the
+-- Meta lead (ghl_opp_id / ghl_contact_id) instead of adding it twice.
+alter table client_leads add column if not exists ghl_opp_id text;
+select cron.unschedule('sync-client-meta-leads')
+where exists (select 1 from cron.job where jobname = 'sync-client-meta-leads');
+select cron.schedule(
+  'sync-client-meta-leads',
+  '*/2 * * * *',
+  $$
+  select net.http_post(
+    url := 'https://chaexdenosljtdwuyjnw.supabase.co/functions/v1/sync-meta-leads',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_',
+      'x-cron-secret', (select value from public.app_secrets where name = 'inbound_cron_secret')
+    ),
+    body := '{"action":"client_leads"}'::jsonb,
+    timeout_milliseconds := 110000
+  )
+  where exists (select 1 from public.client_meta_pages where can_read);
+  $$
+);
+select public.portal_lock_tables() as tables_closed_to_client_logins;

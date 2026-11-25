@@ -576,6 +576,8 @@ jobs:
             -H "x-cron-secret: $secret" --data '{"action":"client_check"}' | jq -c '{clients, pages, readable, not_readable, no_page, error}'
           echo "Per client (counts only):"
           q "select count(distinct client_id) as clients, count(*) filter (where can_read) as pages_readable, count(*) filter (where not can_read and page_id <> '') as pages_not_readable, count(*) filter (where page_id = '') as clients_no_page, sum(meta_leads_30d) filter (where can_read) as meta_leads_30d from client_meta_pages" | jq -c '.[0]'
+          echo "Leads that came straight from Meta (not via GHL):"
+          q "select count(*) as meta_leads, count(*) filter (where created_at > now() - interval '24 hours') as last_24h, count(*) filter (where ghl_opp_id is not null) as linked_to_ghl from client_leads where source = 'meta'" | jq -c '.[0]'
           echo "Why pages can't be read (counts):"
           q "select left(coalesce(error,'-'),120) as why, count(*) from client_meta_pages where not can_read group by 1 order by 2 desc" | jq -c '.[]'
       # Run by hand with check_stripe=yes: copy Stripe payments in now and say how

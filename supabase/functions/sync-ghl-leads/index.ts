@@ -269,7 +269,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
   const windowStart = Date.now() - WINDOW_MS;
   const opps = allOpps.filter((o: any) => !closed(o) && (createdAt(o) >= windowStart || inQueueStage(o)));
 
-  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, phone, email, details_at, answers, address, city, follow_status, status, lead_created_at, ghl_status, ghl_value")
+  const { data: recent } = await admin.from("client_leads").select("id, external_lead_id, ghl_contact_id, ghl_opp_id, phone, email, details_at, answers, address, city, follow_status, status, lead_created_at, ghl_status, ghl_value")
     .eq("client_id", client.id).limit(20000);
 
   // Keep the queue in step with their pipeline: refresh each open lead's
@@ -325,7 +325,7 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
   }
   const byExt = new Map((recent || []).map((r: any) => [r.external_lead_id, r]));
   const byContact = new Map((recent || []).filter((r: any) => r.ghl_contact_id).map((r: any) => [r.ghl_contact_id, r]));
-  const phones = new Set((recent || []).map((r: any) => digits(r.phone)).filter((p: string) => p.length >= 8));
+  const phones = new Set((recent || []).flatMap((r: any) => [digits(r.phone), digits(r.phone).slice(-9)]).filter((p: string) => p.length >= 8));
   const emails = new Set((recent || []).map((r: any) => String(r.email || "").toLowerCase()).filter(Boolean));
 
   // One candidate per person: their opportunity if they have one, else the contact.
@@ -364,7 +364,18 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
       try { d = await contactDetails(x.cid, token, fieldNames, loc); c = { ...c, ...d.contact }; } catch { d = null; }
     }
     const phone = clean(c.phone, 40), email = clean(c.email, 200).toLowerCase();
-    if ((digits(phone).length >= 8 && phones.has(digits(phone))) || (email && emails.has(email))) continue;
+    if ((digits(phone).length >= 8 && (phones.has(digits(phone)) || phones.has(digits(phone).slice(-9)))) || (email && emails.has(email))) {
+      // Already in straight from Meta (sync-meta-leads): link it to this GHL
+      // opportunity so stage moves still mirror, instead of adding it twice.
+      const l9 = digits(phone).slice(-9);
+      const m: any = (recent || []).find((r: any) => String(r.external_lead_id || "").startsWith("meta:") && !r.ghl_contact_id
+        && ((l9.length === 9 && digits(r.phone).slice(-9) === l9) || (email && String(r.email || "").toLowerCase() === email)));
+      if (m && x.cid) {
+        const patch = { ghl_contact_id: x.cid, ghl_opp_id: x.ext.startsWith("ghl:") ? x.ext.slice(4) : null };
+        await admin.from("client_leads").update(patch).eq("id", m.id); Object.assign(m, patch);
+      }
+      continue;
+    }
     if (!phone && !email) continue; // nothing to call
     if (digits(phone).length >= 8) phones.add(digits(phone));
     if (email) emails.add(email);
@@ -820,7 +831,7 @@ const nzWhen = (iso: string) => new Date(iso).toLocaleString("en-NZ", { timeZone
 
 async function pushPortalStage(admin: any, leadId: string) {
   const { data: lead } = await admin.from("client_leads")
-    .select("id, client_id, name, external_lead_id, ghl_contact_id, client_stage, client_log, client_next_at, address, job_scope, quote_amount, job_value, lost_reason, ghl_sync")
+    .select("id, client_id, name, external_lead_id, ghl_contact_id, ghl_opp_id, client_stage, client_log, client_next_at, address, job_scope, quote_amount, job_value, lost_reason, ghl_sync")
     .eq("id", leadId).maybeSingle();
   if (!lead) return { error: "Lead not found." };
   const done = async (result: any) => {
@@ -843,7 +854,7 @@ async function pushPortalStage(admin: any, leadId: string) {
   const { data: map } = await admin.from("lead_stage_map").select("*").eq("client_id", lead.client_id).maybeSingle();
   const result: any = { at: new Date().toISOString(), stage_picked: st, errors: [] as string[] };
   const loc = conn.location_id, token = conn.token;
-  const oppId = String(lead.external_lead_id).startsWith("ghl:") ? String(lead.external_lead_id).slice(4) : null;
+  const oppId = lead.ghl_opp_id || (String(lead.external_lead_id).startsWith("ghl:") ? String(lead.external_lead_id).slice(4) : null);
   let contactId = lead.ghl_contact_id || (String(lead.external_lead_id).startsWith("ghlc:") ? String(lead.external_lead_id).slice(5) : null);
 
   try {

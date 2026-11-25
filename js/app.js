@@ -12753,6 +12753,23 @@ function todayItems(){
       actions: btn("Done ✓", `data-td-task="${t.id}"`) + btn("Open", `data-action="edit-task" data-id="${t.id}"`) });
   }));
 
+  // Missing leads: Meta says a client got more leads (30 days) than reached the
+  // CRM (client_meta_pages, refreshed daily by sync-meta-leads). One row.
+  safe(() => {
+    if (!tdPagesLoaded){ tdPagesLoaded = true; tdLoadPages(); return; }
+    const d30 = now - 30 * 864e5;
+    const short = [...new Set(puPages.filter(p => p.can_read).map(p => p.client_id))].map(id => {
+      const meta = puPages.filter(p => p.client_id === id && p.can_read).reduce((n, p) => n + (Number(p.meta_leads_30d) || 0), 0);
+      const crm = state.clientLeads.filter(l => l.client_id === id && lqIn(l) > d30).length;
+      return { c: state.clients.find(c => c.id === id), meta, crm };
+    }).filter(x => x.c && !x.c.is_test && x.meta - x.crm >= 2);
+    if (!short.length) return;
+    items.push({ area: "clients", owner: null, tone: "bad", at: now,
+      title: `Leads may be missing for ${short.length} client${short.length === 1 ? "" : "s"}`,
+      sub: short.map(x => `${x.c.name}: Meta ${x.meta}, CRM ${x.crm}`).join(" · ") + " (30 days)",
+      actions: go("Open App usage", "portal-usage", "gold") });
+  });
+
   // Leads Mr Priceless had, waiting for Rocky to give back or disqualify (one row).
   safe(() => {
     const n = lsLeads().length;
@@ -17073,7 +17090,13 @@ function renderLeadSort(){
 // One row per client: who's using their app, who's ringing their leads, who
 // gets texts, and what isn't working. Built from the leads already loaded plus
 // the portal logins, texts (portal_texts) and calendars (portal_calendar_summary).
-let puUsers = null, puCals = null, puPages = [], puLoading = false, puErr = "", puChecking = false;
+var puUsers = null, puCals = null, puPages = [], puLoading = false, puErr = "", puChecking = false, tdPagesLoaded = false;
+// Today's missing-leads row needs the Page check results (client_meta_pages).
+async function tdLoadPages(){
+  if (!IS_CONFIGURED) return;
+  const { data } = await supabase.from("client_meta_pages").select("*");
+  if (data){ puPages = data; if (state.page === "today") renderToday(); }
+}
 async function puLoad(){
   if (puLoading) return;
   puLoading = true; puErr = "";
