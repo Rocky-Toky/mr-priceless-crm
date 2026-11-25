@@ -399,18 +399,24 @@ async function syncClient(admin: any, conn: any, client: any, deadline: number) 
   return { added, wonAdded, contactsAccess: contacts !== null, lastLead, stages, access };
 }
 
+const MIRROR_TO_GHL = false;
 async function syncAll(admin: any) {
   const deadline = Date.now() + RUN_BUDGET_MS;
-  const [{ data: conns }, { data: clients }, { data: statuses }] = await Promise.all([
+  const [{ data: conns }, { data: clients }, { data: statuses }, { data: direct }] = await Promise.all([
     admin.from("client_ghl").select("client_id, location_id, token"),
     admin.from("clients").select("id, name, stage"),
     admin.from("lead_sync_status").select("client_id, last_ok_at, leads_added, last_lead_at"),
+    admin.from("client_meta_pages").select("client_id").eq("can_read", true),
   ]);
+  // Taking GHL out (Rocky, 25 Nov 2026): clients whose leads come straight from
+  // their Facebook Page (sync-meta-leads) aren't read from GHL at all any more.
+  // GHL is only a fallback for clients whose Page we can't read yet.
+  const viaMeta = new Set((direct || []).map((r: any) => r.client_id));
   const byId = new Map((clients || []).map((c: any) => [c.id, c]));
   const prevOf = new Map((statuses || []).map((r: any) => [r.client_id, r]));
   const todo = (conns || []).filter((cn: any) => {
     const c: any = byId.get(cn.client_id);
-    return c && !["churned", "archived"].includes(String(c.stage || ""));
+    return c && !["churned", "archived"].includes(String(c.stage || "")) && !viaMeta.has(cn.client_id);
   });
   // Every connected client shows as connected straight away, even before its
   // first full check finishes.
@@ -422,7 +428,8 @@ async function syncAll(admin: any) {
 
   let added = 0, failed = 0, checked = 0, noContacts = 0, skipped = 0;
   let pushed = 0;
-  try { pushed = await pushPending(admin, Date.now() + 25e3); } catch (e) { console.warn("sync-ghl-leads: portal pushes failed:", String((e as any)?.message || e).slice(0, 120)); }
+  // Mirroring the app into clients' GHL is switched off (25 Nov 2026).
+  if (MIRROR_TO_GHL) try { pushed = await pushPending(admin, Date.now() + 25e3); } catch (e) { console.warn("sync-ghl-leads: portal pushes failed:", String((e as any)?.message || e).slice(0, 120)); }
   const one = async (conn: any) => {
     const client: any = byId.get(conn.client_id), prev: any = prevOf.get(conn.client_id);
     const now = new Date().toISOString();

@@ -453,6 +453,8 @@ end $$;
 
 -- Mirror a client's move into their GoHighLevel now (sync-ghl-leads,
 -- portal_push). Never fails the caller: the 5-minute sync retries.
+-- Switched off (Rocky, 25 Nov 2026): clients' GHL no longer mirrors the app;
+-- GHL is only used to send our texts. Remove the return to switch it back on.
 create or replace function public.portal_push_ghl(p_lead uuid)
 returns void
 language plpgsql
@@ -460,6 +462,7 @@ security definer
 set search_path = public
 as $$
 begin
+  return;
   perform net.http_post(
     url := 'https://chaexdenosljtdwuyjnw.supabase.co/functions/v1/sync-ghl-leads',
     headers := jsonb_build_object(
@@ -1270,6 +1273,9 @@ update client_leads l set client_stage = 'nurture', client_stage_at = now(), cli
     'at', now(), 'stage', 'nurture', 'from', 'no_answer', 'note', 'Tried 3 times - moved to Nurture'))
 where l.client_calls and l.handed_over_at is null and l.client_na_count >= 3 and l.client_stage = 'no_answer'
   and public.portal_lead_stage(l) = 'no_answer';
+
+-- Nothing left waiting to be mirrored into GHL (that's switched off).
+update client_leads set ghl_push_at = null where ghl_push_at is not null;
 
 select public.portal_lock_tables() as tables_closed_to_client_logins;
 

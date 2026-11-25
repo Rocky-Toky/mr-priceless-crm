@@ -7681,7 +7681,7 @@ function renderCreativeStats(){
   const ghlCount = rows.filter(r => r.source === "ghl").length;
   const ghlNote = !IS_CONFIGURED ? "Demo numbers - live GHL pulls work on the live CRM."
     : csGhlRunning ? "Pulling live quotes from each client's GHL…"
-    : `${ghlCount} of ${rows.length} client${rows.length === 1 ? "" : "s"} live from GHL · the rest from their finance reports`;
+    : `${ghlCount} of ${rows.length} client${rows.length === 1 ? "" : "s"} live from their app · the rest from their finance reports`;
   const kpi = (label, value, sub, cls = "") => `<div class="cs-kpi ${cls}"><span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
   const srcChip = (r) => `<span class="cs-src cs-src-${r.source}" title="${escapeHtml([r.quoteSource && "Quotes: " + r.quoteSource, "Spend: " + r.spendSource, r.ghlError && "GHL: " + r.ghlError].filter(Boolean).join(" · "))}">${{ ghl: "GHL live", reports: "Reports", counter: "Quote counter", leads: "Imported leads", meta: "Meta only", none: "-" }[r.source]}</span>${r.spendSource === "Estimate" ? ` <span class="cs-src" title="Worked out from their monthly ad spend since ads started - sync their Meta ads for the real figure">est. spend</span>` : ""}`;
   const indSelect = (r) => `<select class="cs-ind-select" data-client="${r.c.id}" aria-label="Industry for ${escapeHtml(r.c.name)}">
@@ -7695,7 +7695,7 @@ function renderCreativeStats(){
         <button type="button" data-cs-scope="all" class="${csScope === "all" ? "active" : ""}">Include churned</button>
       </div>
       <span class="cs-ghl-note ${csGhlRunning ? "busy" : ""}">${escapeHtml(ghlNote)}</span>
-      ${IS_CONFIGURED ? `<button type="button" class="btn ghost sm" data-action="cs-refresh-ghl" ${csGhlRunning ? "disabled" : ""}>Refresh from GHL</button>` : ""}
+      ${IS_CONFIGURED ? `<button type="button" class="btn ghost sm" data-action="cs-refresh-ghl" ${csGhlRunning ? "disabled" : ""}>Refresh from their apps</button>` : ""}
     </div>
     <div class="cs-hero card">
       <div class="cs-hero-main">
@@ -9203,7 +9203,35 @@ function rpRenderTotals(){
 /* GHL connection (through the ghl-report-data function, so the key never reaches the browser). */
 // Only the "quote booked" pick is used; an older saved "quote sent" pick is ignored.
 const ghlStagesOf = (c) => { const g = (c.onboarding_progress || {}).ghl_stages || {}; return g.booked ? { booked: g.booked } : {}; };
+// Report numbers now come from the client's own app (client_leads), not their
+// GoHighLevel (Rocky, 25 Nov 2026): same shape as ghl-report-data's "pull".
+//   enquiries    leads that came in during the period
+//   quote_ready  of those, ones that reached a site visit or later
+//   quoted       of those, ones that reached Quote sent / Won (or have a quote)
+//   jobs / revenue won  leads won during the period (job value, else the quote)
+function appLeadMetrics(c, from, to){
+  const day = (t) => t ? localDayStr(new Date(t)) : "";
+  const inP = (t) => { const d = day(t); return d && d >= from && d <= to; };
+  const leads = state.clientLeads.filter(l => l.client_id === c.id);
+  const logStages = (l) => (Array.isArray(l.client_log) ? l.client_log : []).filter(e => e && e.stage).map(e => e.stage);
+  const reached = (l, set) => set.has(cppStageOf(l)) || logStages(l).some(st => set.has(st));
+  const VISIT = new Set(["site_visit", "quote_to_send", "quote_sent", "won"]), QUOTE = new Set(["quote_sent", "won"]);
+  const isQuoted = (l) => reached(l, QUOTE) || !!l.quote_amount || !!l.quote_sent_at;
+  const wonAt = (l) => { if (cppStageOf(l) !== "won") return null; const e = [...(Array.isArray(l.client_log) ? l.client_log : [])].reverse().find(x => x && x.stage === "won"); return (e && e.at) || l.ghl_closed_at || l.client_stage_at || l.updated_at; };
+  const val = (l) => toNum(l.job_value) || toNum(l.ghl_value) || toNum(l.quote_amount) || 0;
+  const came = leads.filter(l => inP(l.lead_created_at || l.created_at) && l.follow_status !== "in_ghl");
+  const won = leads.filter(l => wonAt(l)), wonIn = won.filter(l => inP(wonAt(l)));
+  const item = (l) => ({ name: l.name || "Job", value: val(l), at: day(wonAt(l)), stage: "Job won" });
+  return {
+    enquiries: came.length, quote_ready: came.filter(l => reached(l, VISIT) || isQuoted(l)).length, quoted: came.filter(isQuoted).length,
+    jobs_won: wonIn.length, revenue_won: wonIn.reduce((n, l) => n + val(l), 0), won_list: wonIn.map(item),
+    jobs_won_to_date: won.length, revenue_won_to_date: won.reduce((n, l) => n + val(l), 0), won_list_to_date: won.map(item),
+    quoted_to_date: leads.filter(isQuoted).length,
+  };
+}
 async function ghlCall(body){
+  if (body.action === "pull"){ const c = state.clients.find(x => x.id === body.client_id); return c ? { metrics: appLeadMetrics(c, body.from, body.to) } : { error: "Client not found" }; }
+  if (body.action === "status") return { connected: true, app: true };
   if (!IS_CONFIGURED) return { error: "demo" };
   const { data, error } = await supabase.functions.invoke("ghl-report-data", { body });
   if (error){
@@ -9217,8 +9245,10 @@ async function rpRenderGhl(c){
   const box = $("#rp-ghl"), stagesBox = $("#rp-ghl-stages");
   if (!box) return;
   if (stagesBox) stagesBox.hidden = true;
-  if (!IS_CONFIGURED){ box.innerHTML = `<span class="rp-ghl-note">GHL pulls work on the live CRM. In demo mode, type the numbers in.</span>`; return; }
-  box.innerHTML = `<span class="rp-ghl-note">Checking GHL…</span>`;
+  // Numbers come from their app now (appLeadMetrics), not GHL.
+  box.innerHTML = `<span class="rp-ghl-ok">Numbers come from ${escapeHtml(c.name)}'s app</span><button type="button" class="btn gold sm" data-action="rp-ghl-pull">Fill from their app</button>`;
+  if (!rpExisting) rpGhlPull();
+  return;
   const s = await ghlCall({ action: "status", client_id: c.id });
   if (rpClientId !== c.id) return;
   if (s.error){
@@ -9245,14 +9275,14 @@ function rpStartDate(c, to){
 async function rpGhlPull(){
   const c = state.clients.find(x => x.id === rpClientId);
   if (!c) return;
-  rpStatus("Pulling from GHL…");
+  rpStatus("Filling from their app…");
   // Ask GHL for the whole month so far, then take off what earlier reports this
   // month already counted. Leads that moved along since the last report are caught.
   const to = rpVal("to") || localDayStr();
   const pick = ghlStagesOf(c);
   const r = await ghlCall({ action: "pull", client_id: c.id, from: monthStart(to), to, stages: pick });
   if (rpClientId !== c.id) return;
-  if (r.error){ rpStatus(`Couldn't pull from GHL: ${r.error}`, true); return; }
+  if (r.error){ rpStatus(`Couldn't fill the numbers: ${r.error}`, true); return; }
   const m = r.metrics || {};
   // Every job ever won in their GHL (the pipeline we built for their ad
   // leads), so totals to date never miss one won before the first report or
@@ -9267,10 +9297,9 @@ async function rpGhlPull(){
   // Suggest a style from GHL: any job won means the results report.
   if (!rpExisting && (m.jobs_won || m.revenue_won_to_date)) $$("#rp-choose [data-action=rp-pick]").forEach(b => b.classList.toggle("is-suggested", b.dataset.id === "results"));
   rpFillStory();
-  const warn = m.won_missing_value ? ` ${m.won_missing_value} won job${m.won_missing_value === 1 ? " has" : "s have"} no $ value in GHL, so revenue may be low.` : "";
   const g = rpGhlToDate;
   const toDate = g ? ` All time: ${g.jobs} job${g.jobs === 1 ? "" : "s"} won worth ${fmtMoney(g.revenue)}${g.list.length ? ` (${g.list.map(j => `${j.name} ${fmtMoney(j.value)}`).join(", ")})` : ""}.` : "";
-  rpStatus(`Filled from GHL (${m.opportunities_checked ?? 0} opportunities): jobs won and their values from the Won stage, quotes from "${m.booked_stage || "?"}" onwards.${toDate}${warn} Check it over, then make the report.`, Boolean(warn));
+  rpStatus(`Filled from ${c.name}'s app: leads that came in, site visits, quotes and jobs won as they've marked them.${toDate} Check it over, then make the report.`);
 }
 async function rpGhlConnect(){
   const c = state.clients.find(x => x.id === rpClientId);
