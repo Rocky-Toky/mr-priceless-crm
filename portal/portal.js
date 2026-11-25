@@ -814,7 +814,7 @@ function smsHref(l){
 }
 function gcalHref(l, st, at){
   const fmt = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-  const start = t(at), end = start + (st === "site_visit" ? 60 : 15) * 60e3;
+  const start = t(at), end = start + (st === "site_visit" ? 30 : 15) * 60e3;
   const what = st === "site_visit" ? `Site visit - ${l.name || "lead"}` : `Call ${l.name || "lead"}`;
   const details = [l.phone ? `Phone: ${l.phone}` : "", ...answers(l).map(x => `${x.q} ${x.a}`)].filter(Boolean).join("\n");
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(what)}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(l.address || l.city || "")}`;
@@ -1099,7 +1099,7 @@ async function calRefresh(){
     if (chosenDay) dayEvs = onDay(await weekEvents(mondayOf(chosenDay)), chosenDay);
   } catch(e){ box.innerHTML = `<p class="pp-muted pp-small">Couldn't read your calendar just now.</p>`; await loadCal(); return; }
   if (!$("#pp-cal") || $("#pp-when")?.value !== v || S.calWeek !== mon) return; // moved on while it loaded
-  const mins = o?.k === "site_visit" ? 60 : 15, span = (CAL_H1 - CAL_H0) * 3600e3;
+  const mins = o?.k === "site_visit" ? 30 : 15, span = (CAL_H1 - CAL_H0) * 3600e3;
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const pos = (ms, day) => Math.max(0, Math.min(100, (ms - +day - CAL_H0 * 3600e3) / span * 100));
   const hm = (iso) => new Date(iso).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" });

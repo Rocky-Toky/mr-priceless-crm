@@ -355,7 +355,7 @@ async function calendarAction(admin: any, email: string, body: any) {
     if (!mine) return { error: "Not allowed." };
     const visit = l.client_stage === "site_visit", at = l.client_next_at || (visit ? l.booked_for : null);
     if (!at || !["site_visit", "call_scheduled"].includes(l.client_stage)) return { skipped: true };
-    const start = new Date(at), end = new Date(+start + (visit ? 60 : 15) * 60e3);
+    const start = new Date(at), end = new Date(+start + (visit ? 30 : 15) * 60e3); // site visits 30 min (Rocky, 26 Nov 2026)
     const qa = (Array.isArray(l.answers) ? l.answers : []).map((x: any) => `${String(x.q || "").replace(/_/g, " ")}: ${String(x.a || "").replace(/_/g, " ")}`).filter((x: string) => x.length > 2);
     const details = [l.phone ? `Phone: ${l.phone}` : "", l.email ? `Email: ${l.email}` : "", l.form_name ? `Enquiry: ${l.form_name}` : "", ...qa, "", `Open the lead: ${PORTAL_URL}?lead=${l.id}`].filter((x, i, a) => x || (i > 0 && a[i - 1])).join("\n");
     const id = await putEvent(conn, token, {
