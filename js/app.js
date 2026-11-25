@@ -1769,8 +1769,8 @@ const MAIN_NAV = [
     pages: [["dialer", "Dialler"], ["meetings", "Meetings"], ["deals", "Pipeline"], ["inbound-leads", "Inbound leads"], ["cold-calls", "Booked today", 1], ["sales-followups", "Follow-ups", 1]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
     pages: [["clients", "Clients"], ["ads-month", "This month"], ["portal-usage", "App usage"], ["ad-production", "Ad production", 1], ["reporting", "Reports", 1], ["onboarding", "Onboarding", 1], ["lead-sort", "Leads to sort", 1], ["lead-calls", "Recorded calls", 1], ["lead-queue", "Call queue", 1], ["portal-texts", "Texts sent", 1]] },
-  { key: "plastering", label: "Plastering leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
-    pages: [["plastering-leads", "Plastering leads"]] }, // its own menu item again (Rocky, 14 Nov 2026)
+  { key: "plastering", label: "Priceless leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
+    pages: [["plastering-leads", "Priceless Plastering Leads"]] }, // its own menu item again (Rocky, 14 Nov 2026)
   { key: "money", label: "Money", delivery: true, icon: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
     pages: [["receipts", "Payments"], ["expenses", "Expenses"]] },
   { key: "library", label: "Library", icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
@@ -16340,58 +16340,124 @@ function plNewCount(){
   }
   return plLeads.filter(l => l.status === "new").length;
 }
-// Board card: the essentials, with notes / email / delete folded away.
+// The businesses (sql/122 trade_businesses) and where new-lead texts go (trade_settings).
+let plBiz = null, plSettings = null, plBizPick = (() => { try { return localStorage.getItem("mp_pl_biz") || "all"; } catch(e){ return "all"; } })(), plSetOpen = false;
+async function plLoadSetup(){
+  if (!IS_CONFIGURED){ plBiz = plBiz || [{ key: "plastering", name: "Priceless Plastering", active: true }]; plSettings = plSettings || { alert_phone: "", alerts_on: true }; return; }
+  const [b, s] = await Promise.all([
+    supabase.from("trade_businesses").select("*").order("sort").order("name"),
+    supabase.from("trade_settings").select("*").eq("id", 1).maybeSingle(),
+  ]);
+  plBiz = b.error ? [{ key: "plastering", name: "Priceless Plastering", active: true }] : (b.data || []);
+  plSettings = s.data || { alert_phone: "", alerts_on: true, missing: !!s.error };
+}
+const plBizName = (k) => (plBiz || []).find(b => b.key === k)?.name || "Priceless Plastering";
+function plTitle(){
+  const active = (plBiz || []).filter(b => b.active);
+  if (plBizPick !== "all") return `${plBizName(plBizPick)} Leads`;
+  return active.length > 1 ? "Priceless Trade Leads" : `${active[0]?.name || "Priceless Plastering"} Leads`;
+}
+const plTel = (p) => String(p || "").replace(/[^\d+]/g, "");
+const plAgo = (iso) => { const ms = Date.now() - (Date.parse(iso) || Date.now()); if (ms < 60e3) return "just now"; if (ms > 7 * 86400e3) return new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short" }); return lqShortAgo(ms) + " ago"; };
+// Board card: who, what, where, one big Call, notes / details folded away.
 function plCardHtml(l){
-  const facts = [l.service, l.suburb].filter(Boolean).map(escapeHtml).join(" · ");
-  const tel = String(l.phone || "").replace(/[^\d+]/g, "");
+  const multi = (plBiz || []).filter(b => b.active).length > 1;
+  const tel = plTel(l.phone);
+  const chips = [l.service, l.suburb, l.timing].filter(Boolean);
   return `<article class="pl-card${l.status === "new" ? " is-new" : ""}" data-pl-id="${escapeHtml(l.id)}">
-    <div class="pl-top"><h3>${escapeHtml(l.name || "No name")}</h3><span class="pl-when">${escapeHtml(lqTime(l.created_at))}</span></div>
-    ${facts ? `<p class="pl-facts">${facts}</p>` : ""}
-    ${l.timing ? `<p class="pl-timing">${escapeHtml(l.timing)}</p>` : ""}
-    ${l.message ? `<p class="pl-msg">${escapeHtml(l.message)}</p>` : ""}
-    ${l.notes ? `<p class="pl-note-peek">📝 ${escapeHtml(l.notes)}</p>` : ""}
-    ${tel ? `<a class="pl-call" href="tel:${escapeHtml(tel)}">Call ${escapeHtml(l.phone)}</a>` : ""}
+    <header class="pl-card-head">
+      <h3 title="${escapeHtml(l.name || "")}">${escapeHtml(l.name || "No name")}</h3>
+      <span class="pl-when">${escapeHtml(plAgo(l.created_at))}</span>
+    </header>
+    ${multi ? `<span class="pl-biz">${escapeHtml(plBizName(l.business))}</span>` : ""}
+    ${chips.length ? `<div class="pl-chips">${chips.map(c => `<span>${escapeHtml(c)}</span>`).join("")}</div>` : ""}
+    ${l.message ? `<p class="pl-msg"><span>${escapeHtml(l.message)}</span></p>` : ""}
+    ${l.notes ? `<p class="pl-note-peek"><span>${escapeHtml(l.notes)}</span></p>` : ""}
+    ${tel ? `<a class="pl-call" href="tel:${escapeHtml(tel)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>${escapeHtml(l.phone)}</a>` : ""}
     <details class="pl-more">
       <summary>Notes &amp; details</summary>
       <label>Notes<textarea data-pl-notes rows="3" placeholder="Site visit time, quote amount, anything else">${escapeHtml(l.notes || "")}</textarea></label>
-      <label class="pl-move">Move to<select data-pl-status>${PL_STATUSES.map(([k, t]) => `<option value="${k}"${k === l.status ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label>Move to<select data-pl-status>${PL_STATUSES.map(([k, t]) => `<option value="${k}"${k === l.status ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+      ${multi ? `<label>Business<select data-pl-biz>${(plBiz || []).map(b => `<option value="${escapeHtml(b.key)}"${b.key === l.business ? " selected" : ""}>${escapeHtml(b.name)}</option>`).join("")}</select></label>` : ""}
       ${l.email ? `<a class="pl-email" href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>` : ""}
-      ${l.source ? `<p class="pl-source">From the website: ${escapeHtml(l.source)}</p>` : ""}
+      <p class="pl-source">${escapeHtml(lqTime(l.created_at))}${l.source ? ` · from ${escapeHtml(l.source)}` : ""}</p>
       <button type="button" class="pl-delete" data-pl-delete>Delete this lead</button>
     </details>
   </article>`;
+}
+function plSettingsHtml(){
+  const s = plSettings || {};
+  return `<div class="pl-settings">
+    <div class="pl-set-row">
+      <label>Text new leads to<input type="tel" id="pl-alert-phone" value="${escapeHtml(s.alert_phone || "")}" placeholder="Your mobile, e.g. 021 123 4567"></label>
+      <label class="pl-switch"><input type="checkbox" id="pl-alerts-on"${s.alerts_on !== false ? " checked" : ""}> Texts on</label>
+      <button type="button" class="btn gold sm" data-pl-save-set>Save</button>
+      <button type="button" class="btn ghost sm" data-pl-test>Send a test text</button>
+    </div>
+    <div class="pl-set-biz">
+      <b>Your businesses</b>
+      <ul>${(plBiz || []).map(b => `<li><span>${escapeHtml(b.name)}</span><code>${escapeHtml(b.key)}</code></li>`).join("")}</ul>
+      <div class="pl-set-row"><input type="text" id="pl-new-biz" placeholder="Add one, e.g. Priceless Roofing"><button type="button" class="btn ghost sm" data-pl-add-biz>+ Add business</button></div>
+      <p>Each website sends its leads with its key (e.g. <code>business: "roofing"</code>) so they land under the right business.</p>
+    </div>
+  </div>`;
 }
 // A board: one column per stage. Drag a card to move it (mouse, or press and hold on a phone).
 function renderPlasteringLeads(){
   const root = $("#pl-root");
   if (!root) return;
   plBind(root);
-  if (plLeads === null){
-    root.innerHTML = `<div class="pl-head"><h2>Plastering leads</h2></div>${plLoadErr ? `<p class="pl-empty">${escapeHtml(plLoadErr)}</p>` : mpSkel(3)}`;
-    if (!plLoading && !plLoadErr) plLoad().then(renderPlasteringLeads);
+  if (plLeads === null || plBiz === null){
+    root.innerHTML = `<div class="pl-head"><h2>${escapeHtml(plTitle())}</h2></div>${plLoadErr ? `<p class="pl-empty">${escapeHtml(plLoadErr)}</p>` : mpSkel(3)}`;
+    if (!plLoading && !plLoadErr) Promise.all([plLeads === null ? plLoad() : 0, plBiz === null ? plLoadSetup() : 0]).then(renderPlasteringLeads);
     return;
   }
   if (plDrag) return; // don't redraw under a card being dragged
   const keep = new Set([...root.querySelectorAll(".pl-more[open]")].map(d => d.closest("[data-pl-id]")?.dataset.plId));
   const scroll = root.querySelector(".pl-board")?.scrollLeft || 0;
-  const won = plLeads.filter(l => l.status === "won");
+  const active = plBiz.filter(b => b.active);
+  if (plBizPick !== "all" && !active.some(b => b.key === plBizPick)) plBizPick = "all";
+  const leads = plLeads.filter(l => plBizPick === "all" || (l.business || "plastering") === plBizPick);
   root.innerHTML = `
     <div class="pl-head">
-      <div>
-        <h2>Plastering leads</h2>
-        <p>Quote requests from the Priceless Plastering &amp; Painting website. Drag a lead to move it along.</p>
-      </div>
+      <div><h2>${escapeHtml(plTitle())}</h2><p>New website enquiries land in New and text your phone. Drag a lead to move it along.</p></div>
+      <button type="button" class="btn ghost sm pl-set-btn${plSettings?.alert_phone ? "" : " warn"}" data-pl-settings>${plSettings?.alert_phone ? "⚙ Settings" : "⚠ Set up lead texts"}</button>
     </div>
+    ${plSetOpen ? plSettingsHtml() : ""}
+    ${active.length > 1 ? `<div class="pl-bizpills">${[["all", "All businesses"], ...active.map(b => [b.key, b.name])].map(([k, t]) => `<button type="button" class="${k === plBizPick ? "on" : ""}" data-pl-pick="${escapeHtml(k)}">${escapeHtml(t)} <span>${plLeads.filter(l => (k === "all" || (l.business || "plastering") === k) && l.status === "new").length || ""}</span></button>`).join("")}</div>` : ""}
     ${plLeads.length ? `<div class="pl-board">${PL_STATUSES.map(([k, t]) => {
-      const col = plLeads.filter(l => (PL_STATUSES.some(([s]) => s === l.status) ? l.status : "new") === k);
+      const col = leads.filter(l => (PL_STATUSES.some(([s]) => s === l.status) ? l.status : "new") === k);
       return `<section class="pl-col pl-col-${k}" data-pl-col="${k}">
         <header><b>${t}</b><span>${col.length}</span></header>
-        <div class="pl-col-body">${col.map(plCardHtml).join("") || `<p class="pl-col-empty">Drop here</p>`}</div>
+        <div class="pl-col-body">${col.map(plCardHtml).join("") || `<p class="pl-col-empty">Drop a lead here</p>`}</div>
       </section>`;
     }).join("")}</div>`
-    : `<p class="pl-empty">No plastering leads yet. They'll show here as soon as someone fills in the quote form.</p>`}`;
+    : `<p class="pl-empty">No leads yet. They'll show here as soon as someone fills in a quote form.</p>`}`;
   root.querySelectorAll("[data-pl-id]").forEach(c => { if (keep.has(c.dataset.plId)) c.querySelector(".pl-more")?.setAttribute("open", ""); });
   const b = root.querySelector(".pl-board"); if (b) b.scrollLeft = scroll;
+}
+async function plSaveSettings(){
+  const phone = ($("#pl-alert-phone")?.value || "").trim(), on = !!$("#pl-alerts-on")?.checked;
+  plSettings = { ...(plSettings || {}), alert_phone: phone || null, alerts_on: on };
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("trade_settings").upsert({ id: 1, alert_phone: phone || null, alerts_on: on, updated_at: new Date().toISOString(), updated_by: state.user?.email || null });
+    if (error) return alert("Couldn't save that. The setup may still be finishing - try again in a few minutes.");
+  }
+  plSetOpen = false; renderPlasteringLeads();
+}
+async function plAddBiz(){
+  const name = ($("#pl-new-biz")?.value || "").trim();
+  if (name.length < 3) return;
+  const key = name.toLowerCase().replace(/^priceless\s+/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "business";
+  if ((plBiz || []).some(b => b.key === key)) return alert("You've already got that one.");
+  const row = { key, name, active: true, sort: (plBiz || []).length };
+  if (IS_CONFIGURED){
+    const { error } = await supabase.from("trade_businesses").insert(row);
+    if (error) return alert("Couldn't add that business. Try again.");
+  }
+  const draft = $("#pl-alert-phone")?.value;
+  plBiz = [...(plBiz || []), row]; renderPlasteringLeads(); mainNavRender();
+  if (draft != null && $("#pl-alert-phone")) $("#pl-alert-phone").value = draft;
 }
 let plDrag = null;
 function plDragStart(card, x, y){
@@ -16468,7 +16534,20 @@ function plBind(root){
   if (plBound) return;
   plBound = true;
   plBindDrag(root);
-  root.addEventListener("click", (e) => {
+  root.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-pl-settings]")){ plSetOpen = !plSetOpen; return renderPlasteringLeads(); }
+    if (e.target.closest("[data-pl-save-set]")) return plSaveSettings();
+    if (e.target.closest("[data-pl-add-biz]")) return plAddBiz();
+    const tb = e.target.closest("[data-pl-test]");
+    if (tb){
+      if (!IS_CONFIGURED) return alert("Test texts only work on the live CRM.");
+      tb.disabled = true; tb.textContent = "Sending…";
+      const { data, error } = await supabase.functions.invoke("client-portal", { body: { action: "trade_test_text" } });
+      tb.disabled = false; tb.textContent = "Send a test text";
+      return alert(error || data?.error ? `That didn't send: ${data?.error || "try again"}` : "Sent - check your phone.");
+    }
+    const pk = e.target.closest("[data-pl-pick]");
+    if (pk){ plBizPick = pk.dataset.plPick; try { localStorage.setItem("mp_pl_biz", plBizPick); } catch(err){} return renderPlasteringLeads(); }
     const del = e.target.closest("[data-pl-delete]"), card = del?.closest("[data-pl-id]");
     if (card) plDelete(card.dataset.plId);
   });
@@ -16477,6 +16556,7 @@ function plBind(root){
     if (!card) return;
     if (e.target.matches("[data-pl-status]")) plSave(card.dataset.plId, { status: e.target.value }).then(renderPlasteringLeads);
     if (e.target.matches("[data-pl-notes]")) plSave(card.dataset.plId, { notes: e.target.value.trim() || null });
+    if (e.target.matches("[data-pl-biz]")) plSave(card.dataset.plId, { business: e.target.value }).then(renderPlasteringLeads);
   });
 }
 

@@ -6163,3 +6163,37 @@ body.main-nav .page .page-header p{font-size:13.5px;margin-top:2px;}
 body.pl-is-dragging,body.pl-is-dragging *{cursor:grabbing !important;user-select:none;}
 @media (max-width:900px){.pl-board{grid-template-columns:repeat(5,82vw);scroll-snap-type:x mandatory;}.pl-col{scroll-snap-align:start;}}
 #pl-root{max-width:none;}
+
+/* Priceless trade leads: cleaner cards, business pills, settings (26 Nov 2026) */
+.pl-head{align-items:flex-end;}
+.pl-set-btn.warn{border-color:#e7b9ad;color:#a1361f;background:#fbeeea;}
+.pl-settings{margin:0 0 16px;padding:16px 18px;border-radius:16px;background:var(--white);border:1px solid var(--line);display:flex;flex-direction:column;gap:14px;}
+.pl-set-row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
+.pl-set-row label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:var(--text2);}
+.pl-set-row input[type=tel],.pl-set-row input[type=text]{font:inherit;font-size:14px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);min-width:240px;}
+.pl-switch{flex-direction:row !important;align-items:center;gap:6px !important;font-size:14px !important;color:var(--text) !important;padding-bottom:9px;}
+.pl-set-biz b{font-size:14px;}
+.pl-set-biz ul{list-style:none;margin:6px 0 10px;padding:0;display:flex;flex-wrap:wrap;gap:6px;}
+.pl-set-biz li{display:flex;gap:6px;align-items:center;padding:6px 10px;border-radius:10px;background:var(--paper);font-size:13.5px;font-weight:600;}
+.pl-set-biz code{font-size:11.5px;color:var(--text2);}
+.pl-set-biz p{margin:8px 0 0;font-size:12.5px;color:var(--text2);}
+.pl-bizpills{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;}
+.pl-bizpills button{font:inherit;font-size:14px;font-weight:700;padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--white);cursor:pointer;color:#3f3b33;}
+.pl-bizpills button.on{background:var(--black, #15130f);color:var(--gold-bright, #e8c468);border-color:transparent;}
+.pl-bizpills button span{margin-left:4px;color:#a1361f;}
+.pl-board .pl-card{padding:14px 14px 12px;}
+.pl-card-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
+.pl-card-head h3{font-size:15.5px;font-weight:800;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;}
+.pl-board .pl-when{flex:none;font-size:12px;font-weight:600;color:var(--text2);}
+.pl-biz{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:6px;background:#f3ead2;color:#7a5c12;font-size:11.5px;font-weight:800;}
+.pl-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;}
+.pl-chips span{padding:3px 8px;border-radius:7px;background:var(--paper, #f6f3ec);font-size:12px;font-weight:600;color:#3f3b33;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pl-board .pl-msg,.pl-note-peek{display:block;margin:8px 0 0;padding:0;background:none;}
+.pl-board .pl-msg span,.pl-note-peek span{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:1.4;color:#3f3b33;}
+.pl-board .pl-msg span{-webkit-line-clamp:3;}
+.pl-note-peek{padding:6px 9px;border-radius:9px;background:#faf6ea;border-left:3px solid var(--gold, #b8912c);}
+.pl-note-peek span{-webkit-line-clamp:2;color:#5c4a18;}
+.pl-board .pl-call{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:10px;padding:9px 12px;border-radius:11px;background:#3f7d55;color:#fff;font-size:14px;font-weight:800;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pl-board .pl-call svg{width:15px;height:15px;flex:none;}
+.pl-board .pl-call:hover{background:#346b48;}
+.pl-more summary{font-size:12.5px;margin-top:2px;}
