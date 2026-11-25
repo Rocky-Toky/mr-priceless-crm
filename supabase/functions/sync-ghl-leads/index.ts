@@ -803,14 +803,18 @@ const PORTAL_STAGE_MATCH: Record<string, RegExp[]> = {
   quote_sent: [/quote.*(sent|given|delivered|follow)/i, /quoted/i, /proposal\s*sent|estimate\s*sent/i],
   won: [/\bwon\b|closed\s*won|job\s*(booked|won)|sold|accepted/i],
   lost: [/\blost\b|closed\s*lost|not\s*going\s*ahead|declined/i],
+  // Tried 3 times (24 Nov 2026): their Nurture stage if they have one, else Stuck.
+  nurture: [/nurtur/i, /long[\s-]*term/i, ...STAGE_MATCH.stuck],
 };
 const PORTAL_KIND: Record<string, string> = {
   new: "rep_to_contact", no_answer: "stuck", call_scheduled: "stuck", site_visit: "site_visit",
   quote_to_send: "quote_to_send", quote_sent: "quote_sent", won: "won", lost: "lost", not_qualified: "disqualified",
+  nurture: "nurture",
 };
 const PORTAL_LABEL: Record<string, string> = {
   new: "Back to new", no_answer: "Didn't answer", call_scheduled: "Call back booked", site_visit: "Site visit booked",
   quote_to_send: "Quote to send", quote_sent: "Quote sent", won: "Job won", lost: "Job lost", not_qualified: "Not qualified",
+  nurture: "Moved to Nurture (tried 3 times)",
 };
 const nzWhen = (iso: string) => new Date(iso).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 
@@ -860,7 +864,7 @@ async function pushPortalStage(admin: any, leadId: string) {
     const status = kind === "won" ? "won" : kind === "lost" ? "lost" : "open";
     const value = st === "won" ? Number(lead.job_value) || null : st === "quote_sent" ? Number(lead.quote_amount) || null : null;
     if (!stage && status === "open") {
-      const want: Record<string, string> = { rep_to_contact: "Rep to contact", stuck: "Stuck", site_visit: "Site visit", quote_to_send: "Quote to send", quote_sent: "Quote sent", disqualified: "Disqualified" };
+      const want: Record<string, string> = { rep_to_contact: "Rep to contact", stuck: "Stuck", site_visit: "Site visit", quote_to_send: "Quote to send", quote_sent: "Quote sent", disqualified: "Disqualified", nurture: "Nurture or Stuck" };
       result.errors.push(`Their GoHighLevel has no "${want[kind] || kind}" stage, so the lead wasn't moved there.`);
     }
     const body: any = { status, ...(stage ? { pipelineId: stage.pipeline_id, pipelineStageId: stage.id } : {}), ...(value ? { monetaryValue: value } : {}) };

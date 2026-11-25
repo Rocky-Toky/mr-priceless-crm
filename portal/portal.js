@@ -20,6 +20,8 @@ const POLL_MS = 30e3;
 const STAGES = [
   { k: "new", label: "New", hint: "Not called yet", cls: "gold" },
   { k: "no_answer", label: "Didn't answer", hint: "Rang, no answer", cls: "amber" },
+  // Tried 3 times with no answer (24 Nov 2026): parked here, out of Call now.
+  { k: "nurture", label: "Nurture", hint: "Tried 3 times - parked for later", cls: "grey" },
   { k: "call_scheduled", label: "Call scheduled", hint: "Ringing them at a set time", cls: "blue", when: "When will you ring them?", whenNeeded: true },
   { k: "site_visit", label: "Site visit booked", hint: "Going out to see the job", cls: "green", when: "When is the visit?", whenNeeded: true, job: true },
   { k: "quote_to_send", label: "Quote to send", hint: "Seen the job, quote to do", cls: "purple" },
@@ -222,11 +224,8 @@ function timerFor(l){
   if (l.checkin) return null;
   if (stageOf(l) === "no_answer" && l.call_due_at){
     const due = t(l.call_due_at), last = naCount(l) >= 2;
-    // A 2nd call asks "did they get back to you?" the day after, before the last try comes round.
-    if (last && l.last_na_at && t(l.last_na_at) + HANDOVER_MS > Date.now()) return { until: t(l.last_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
     return due > Date.now() ? { until: due, label: last ? "Last try in" : "Call again in", done: "Time to call again" } : null;
   }
-  if (stageOf(l) === "no_answer" && (l.last_na_at || l.first_na_at)) return { until: t(l.last_na_at || l.first_na_at) + HANDOVER_MS, label: "24 hours up in", done: "24 hours are up" };
 
   return null;
 }
@@ -774,6 +773,7 @@ const NEXT = {
   quote_sent: [["won", "Won the job!"], ["lost", "Lost the job"]],
 };
 NEXT.no_answer = NEXT.new;
+NEXT.nurture = NEXT.new;
 function moveHtml(l){
   const st = stageOf(l), first = firstName(l.name), o = S.pick ? STAGE[S.pick] : null;
   const asking = S.askFor === l.id;
@@ -832,6 +832,7 @@ const NOTE_IDEAS = {
   won: ["Accepted the quote", "Paid a deposit", "Start date booked"],
   lost: ["Went with someone cheaper", "Not going ahead this year", "Stopped replying"],
   not_qualified: ["Job too small", "Outside my area", "Not my kind of work"],
+  nurture: ["Tried 3 times, no answer", "Not ready yet", "Try again in a few months"],
 };
 function askNote(l, k){
   return new Promise((done) => {
@@ -888,7 +889,7 @@ async function saveStage(){
     delete S.drafts[l.id];
     S.saving = false;
     await refreshAfterSave();
-    toast(o.k === "no_answer" ? `Saved. ${firstName(l.name)} will come back up when it's time to call again.`
+    toast(o.k === "no_answer" ? (stageOf(S.leads.find(x => x.id === l.id) || l) === "nurture" ? `Saved. ${firstName(l.name)} has moved to Nurture after 3 tries.` : `Saved. ${firstName(l.name)} will come back up when it's time to call again.`)
       : o.k === "won" ? "Nice one! Job won." : `Saved: ${o.label}.${inCal ? ` Added to your ${inCal}.` : ""}`);
     closeSheet();
   } catch(e){
@@ -1316,7 +1317,7 @@ function renderAccount(){
     </section>
     <section class="pp-block">
       <h3>How your leads work</h3>
-      ${c.client_calls ? `<ol class="pp-steps"><li>A lead fills in the form on your ad. It shows up here straight away, and your phone gets an alert.</li><li>Call them - the best ones are at the top of To do, with everything they told us.</li><li>Move each lead along as it goes: call scheduled, site visit, quote sent, job won.</li><li>Can't reach someone? Tap Didn't answer. They come back up the next day for a 2nd call, then a week later for one last try. After the 2nd and 3rd calls we'll ask if they got back to you.</li></ol>`
+      ${c.client_calls ? `<ol class="pp-steps"><li>A lead fills in the form on your ad. It shows up here straight away, and your phone gets an alert.</li><li>Call them - the best ones are at the top of To do, with everything they told us.</li><li>Move each lead along as it goes: call scheduled, site visit, quote sent, job won.</li><li>Can't reach someone? Tap Didn't answer. They come back up the next day for a 2nd call, then a week later for one last try. Still no answer after that? They move to Nurture in your Pipeline.</li></ol>`
         : `<ol class="pp-steps"><li>A lead fills in the form on your ad.</li><li>Our team rings them fast and books them in with you.</li><li>You take it from there here: site visit, quote sent, job won.</li></ol>`}
     </section>
     ${calSettingsHtml()}
@@ -1612,12 +1613,12 @@ function demoData(){
       L({ id: "l2", name: "Sarah Lin", phone: "027 555 0172", at: ago(42), form: "Patio", city: "Hamilton East", seen_at: ago(30),
         answers: [{ q: "when_are_you_hoping_to_complete_the_project", a: "3-6_months" }, { q: "Budget", a: "Not sure" }, { q: "What are you looking to get done?", a: "Patio out the back" }] }),
       L({ id: "l3", name: "Tom Fraser", phone: "022 555 0190", email: "tom@example.com", at: ago(60 * 30), form: "Retaining wall", city: "Te Atatū", status: "no_answer", stage: "no_answer",
-        answers: [{ q: "What's the job?", a: "Retaining wall, 12m long" }, { q: "Budget", a: "$8k" }], first_na_at: ago(60 * 50), last_na_at: ago(60 * 26), na_count: 2, call_due_at: ahead(60 * 24 * 6), checkin: true, checkin_final: false, checkin_deadline: ahead(60 * 6),
+        answers: [{ q: "What's the job?", a: "Retaining wall, 12m long" }, { q: "Budget", a: "$8k" }], first_na_at: ago(60 * 50), last_na_at: ago(60 * 26), na_count: 2, call_due_at: ahead(60 * 24 * 6),
         log: [{ at: ago(60 * 50), by: "you", outcome: "no_answer" }, { at: ago(60 * 26), by: "you", outcome: "no_answer", note: "Left a voicemail" }], notes: [{ at: ago(60 * 26), stage: "no_answer", from: "new", note: "Left a voicemail" }] }),
       L({ id: "l13", name: "Pita Rangi", phone: "021 555 0177", at: ago(60 * 27), form: "Driveway quote", city: "Northcote", status: "no_answer", stage: "no_answer", first_na_at: ago(60 * 25), last_na_at: ago(60 * 25), na_count: 1, call_due_at: ago(60),
         answers: [{ q: "When", a: "Next few weeks" }, { q: "Budget", a: "$10k" }], log: [{ at: ago(60 * 25), by: "you", outcome: "no_answer" }], notes: [{ at: ago(60 * 25), stage: "no_answer", from: "new" }] }),
-      L({ id: "l12", name: "Mere Tane", phone: "021 555 0133", at: ago(60 * 24 * 9), form: "Driveway quote", city: "Glenfield", status: "no_answer", stage: "no_answer",
-        first_na_at: ago(60 * 24 * 9), last_na_at: ago(60 * 25), na_count: 3, checkin: true, checkin_final: true, checkin_deadline: ahead(60 * 5),
+      L({ id: "l12", name: "Mere Tane", phone: "021 555 0133", at: ago(60 * 24 * 9), form: "Driveway quote", city: "Glenfield", status: "no_answer", stage: "nurture",
+        first_na_at: ago(60 * 24 * 9), last_na_at: ago(60 * 25), na_count: 3,
         answers: [{ q: "When", a: "This month" }, { q: "Budget", a: "$12k" }], log: [{ at: ago(60 * 24 * 9), by: "you", outcome: "no_answer" }, { at: ago(60 * 24 * 8), by: "you", outcome: "no_answer" }, { at: ago(60 * 25), by: "you", outcome: "no_answer" }] }),
       L({ id: "l4", name: "Aroha Pene", phone: "021 555 0111", at: ago(60 * 50), form: "Driveway quote", city: "Howick", status: "no_answer", stage: "no_answer", ours: true, handed_over_at: ago(60 * 2), handover_reason: "client_no",
         answers: [{ q: "When", a: "Next month" }], log: [{ at: ago(60 * 47), by: "you", outcome: "no_answer" }, { at: ago(60), by: "Mr Priceless", outcome: "no_answer", note: "" }] }),
@@ -1694,6 +1695,7 @@ async function demoRpc(fn, args){
         l.na_count = (l.na_count || 0) + 1; l.last_na_at = now;
         l.call_due_at = l.na_count === 1 ? new Date(Date.now() + 864e5).toISOString() : l.na_count === 2 ? new Date(Date.now() + 7 * 864e5).toISOString() : null;
       } else l.call_due_at = null;
+      if (st === "no_answer" && l.na_count >= 3){ l.stage = "nurture"; l.stage_at = now; l.notes[l.notes.length - 1].stage = "nurture"; return { ok: true }; }
       l.stage = st; l.stage_at = now;
       if (st === "call_scheduled" || st === "site_visit") l.next_at = args.p_when; else l.next_at = null;
       if (st === "quote_sent"){ if (args.p_amount != null) l.quote_amount = args.p_amount; l.quote_sent_at = now; }

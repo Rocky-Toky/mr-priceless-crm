@@ -169,36 +169,21 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare c record; ok boolean;
 begin
-  select lead_client_calls, lead_rules into c from clients where id = new.client_id;
+  -- Every lead goes to the client to call (Rocky, 24 Nov 2026): no rules, no
+  -- Mr Priceless calling. Bad leads are filtered out in Meta before they come in.
   if tg_op = 'INSERT' then
-    new.client_calls := coalesce(c.lead_client_calls, false) and public.portal_rules_match(c.lead_rules, new.form_name, new.answers);
-    if new.client_calls then new.client_assigned_at := coalesce(new.client_assigned_at, now()); end if;
-  elsif (new.answers is distinct from old.answers or new.form_name is distinct from old.form_name) and coalesce(c.lead_client_calls, false) and public.portal_lead_untouched(new) then
-    ok := public.portal_rules_match(c.lead_rules, new.form_name, new.answers);
-    if ok and not new.client_calls then
-      new.client_calls := true;
-      new.client_assigned_at := now();
-      begin
-        perform public.portal_queue(new.client_id, new.id, 'new_lead',
-          'New lead: ' || coalesce(nullif(trim(new.name), ''), 'someone'),
-          'Call ' || coalesce(nullif(split_part(trim(coalesce(new.name, '')), ' ', 1), ''), 'them') || ' now',
-          'https://rocky-toky.github.io/mr-priceless-crm/portal/?lead=' || new.id,
-          case when public.portal_text_ok() then 'text' end, jsonb_build_object('sms', public.portal_new_lead_sms(new)));
-        perform public.portal_kick();
-      exception when others then null;
-      end;
-    elsif not ok and new.client_calls then
-      new.client_calls := false;
-      new.client_assigned_at := null;
-    end if;
+    new.client_calls := true;
+    new.client_assigned_at := coalesce(new.client_assigned_at, now());
   end if;
   return new;
 end $$;
 drop trigger if exists client_leads_client_calls on client_leads;
-create trigger client_leads_client_calls before insert or update of answers, form_name on client_leads
+create trigger client_leads_client_calls before insert on client_leads
   for each row execute function public.client_leads_set_client_calls();
+
+-- Every client calls their own leads now (24 Nov 2026); the switch is gone from the CRM.
+update clients set lead_client_calls = true where not lead_client_calls;
 
 -- Switching a client between "our team calls" and "they call", or saving
 -- their rules: moves the leads straight away and says how many.
@@ -280,7 +265,7 @@ returns integer
 language sql
 immutable
 as $$
-  select case st when 'new' then 0 when 'no_answer' then 1 when 'call_scheduled' then 2 when 'site_visit' then 3
+  select case st when 'new' then 0 when 'no_answer' then 1 when 'nurture' then 1 when 'call_scheduled' then 2 when 'site_visit' then 3
     when 'quote_to_send' then 4 when 'quote_sent' then 5 when 'won' then 6 when 'lost' then 7 when 'not_qualified' then 7 else 0 end;
 $$;
 -- A lead the client moved on in their own GoHighLevel (the sync marks it
@@ -495,7 +480,7 @@ revoke all on function public.portal_push_ghl(uuid) from public;
 -- top of the client's Call now as a new lead with a fresh 24 hours, out of
 -- our call queue (our earlier calls stay in its history), and the client gets
 -- the usual new-lead alert / text.
-create or replace function public.portal_give_to_client(p_lead uuid)
+create or replace function public.portal_give_lead(p_lead uuid, p_alert boolean)
 returns jsonb
 language plpgsql
 security definer
@@ -521,6 +506,7 @@ begin
   where id = l.id
   returning * into l;
   perform public.portal_act(l.id, 'given', '{}'::jsonb, 'team');
+  if not p_alert then return jsonb_build_object('ok', true); end if;
   begin
     perform public.portal_queue(l.client_id, l.id, 'new_lead',
       'New lead: ' || coalesce(nullif(trim(l.name), ''), 'someone'),
@@ -532,8 +518,51 @@ begin
   end;
   return jsonb_build_object('ok', true);
 end $$;
+revoke all on function public.portal_give_lead(uuid, boolean) from public;
+create or replace function public.portal_give_to_client(p_lead uuid)
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $$ select public.portal_give_lead(p_lead, true); $$;
 revoke all on function public.portal_give_to_client(uuid) from public;
 grant execute on function public.portal_give_to_client(uuid) to authenticated;
+
+-- Rocky sorts the leads Mr Priceless had (CRM: Lead calls → Leads to sort):
+-- 'give' = back to the client's Call now (no new-lead text - they'll see it
+-- in the app and the 9am / 3pm text), 'disqualify' = Not qualified.
+create or replace function public.portal_team_sort(p_leads uuid[], p_action text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare l client_leads; n int := 0; cur text;
+begin
+  if not public.is_allowlisted() then raise exception 'Not allowed'; end if;
+  if p_action not in ('give', 'disqualify') then raise exception 'Unknown action'; end if;
+  for l in select * from client_leads where id = any(coalesce(p_leads, '{}')) for update loop
+    if p_action = 'give' then
+      perform public.portal_give_lead(l.id, false);
+    else
+      cur := public.portal_lead_stage(l);
+      update client_leads set
+        client_stage = 'not_qualified', client_stage_at = now(), lost_reason = 'Disqualified by Mr Priceless',
+        follow_status = case when coalesce(follow_status, 'new') in ('new', 'no_answer', 'call_back', 'qualified') then 'disqualified' else follow_status end,
+        next_attempt_at = null, client_call_due_at = null,
+        client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+          'at', now(), 'stage', 'not_qualified', 'from', cur, 'by', 'Mr Priceless', 'reason', 'Disqualified by Mr Priceless')),
+        ghl_push_at = now(), updated_at = now()
+      where id = l.id;
+      perform public.portal_act(l.id, 'disqualified', '{}'::jsonb, 'team');
+      perform public.portal_push_ghl(l.id);
+    end if;
+    n := n + 1;
+  end loop;
+  return jsonb_build_object('ok', true, 'done', n);
+end $$;
+revoke all on function public.portal_team_sort(uuid[], text) from public;
+grant execute on function public.portal_team_sort(uuid[], text) to authenticated;
 
 -- ───────── New leads: email (if they want it) and a phone alert, straight away ─────────
 create or replace function public.client_leads_portal_alert()
@@ -701,6 +730,7 @@ declare
   pending boolean;
   final_pending boolean;
   na int;
+  dest text;
   open_fs boolean;
 begin
   if not public.is_portal_user() then raise exception 'Only clients can update leads here'; end if;
@@ -709,7 +739,7 @@ begin
   cid := public.portal_client_for(l.client_id);
   if cid is null or cid <> l.client_id then raise exception 'Not allowed'; end if;
   if p_stage is null and note is null then raise exception 'Nothing to save'; end if;
-  if p_stage is not null and p_stage not in ('new', 'no_answer', 'call_scheduled', 'site_visit', 'quote_to_send', 'quote_sent', 'won', 'lost', 'not_qualified') then
+  if p_stage is not null and p_stage not in ('new', 'no_answer', 'call_scheduled', 'site_visit', 'quote_to_send', 'quote_sent', 'won', 'lost', 'not_qualified', 'nurture') then
     raise exception 'Unknown stage';
   end if;
   if p_stage = 'call_scheduled' and p_when is null then raise exception 'Pick when to call them'; end if;
@@ -722,6 +752,8 @@ begin
   -- "Didn't answer" again never passes a lead to us now (24 Nov 2026): it's just another call.
   final_pending := false;
   na := coalesce(l.client_na_count, 0) + case when p_stage = 'no_answer' then 1 else 0 end;
+  -- The 3rd "Didn't answer" moves it to Nurture (Rocky, 24 Nov 2026).
+  dest := case when p_stage = 'no_answer' and na >= 3 then 'nurture' else p_stage end;
   open_fs := coalesce(l.follow_status, 'new') in ('new', 'no_answer', 'call_back', 'qualified');
   call_out := case p_stage
     when 'no_answer' then 'no_answer'
@@ -733,13 +765,13 @@ begin
 
   update client_leads set
     client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
-      'at', now(), 'stage', p_stage, 'from', case when p_stage is not null then cur end,
+      'at', now(), 'stage', dest, 'from', case when p_stage is not null then cur end,
       'note', note, 'when', p_when, 'amount', p_amount, 'reason', reason))),
     call_log = case when call_out is not null
       then coalesce(call_log, '[]'::jsonb) || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
         'at', now(), 'by', 'client', 'outcome', call_out, 'note', coalesce(note, ''), 'when', p_when)))
       else call_log end,
-    client_stage = coalesce(p_stage, client_stage),
+    client_stage = coalesce(dest, client_stage),
     client_stage_at = case when p_stage is not null then now() else client_stage_at end,
     client_seen_at = coalesce(client_seen_at, now()),
     client_first_na_at = case when p_stage = 'no_answer' then coalesce(client_first_na_at, now()) else client_first_na_at end,
@@ -785,7 +817,7 @@ begin
     updated_at = now()
   where id = l.id;
   perform public.portal_act(l.id, case when p_stage is not null then 'stage' else 'note' end, jsonb_strip_nulls(jsonb_build_object(
-    'stage', p_stage, 'from', case when p_stage is not null then cur end, 'note', note, 'when', p_when,
+    'stage', dest, 'from', case when p_stage is not null then cur end, 'note', note, 'when', p_when,
     'amount', p_amount, 'reason', reason, 'address', addr, 'scope', scope,
     'checkin', case when pending and p_stage is not null then true end)), 'client');
   -- Their GoHighLevel follows (stage, calendar, a note), straight away.
@@ -843,6 +875,8 @@ begin
   cid := public.portal_client_for(l.client_id);
   if cid is null or cid <> l.client_id then raise exception 'Not allowed'; end if;
   if l.handed_over_at is not null then return jsonb_build_object('ok', true, 'already', true); end if;
+  -- Check-ins are gone (24 Nov 2026): only an open one can still be answered.
+  if l.checkin_at is null or l.checkin_answered_at is not null then return jsonb_build_object('ok', true, 'already', true); end if;
   -- After call 2: "No" just keeps it - one last try comes back a week after call 2.
   if l.checkin_at is not null and l.checkin_answered_at is null and not coalesce(l.checkin_final, true) then
     update client_leads set checkin_answered_at = now(),
@@ -1112,66 +1146,19 @@ begin
       call_log = coalesce(call_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
         'at', r.client_dialled_at, 'by', 'client', 'outcome', 'no_answer', 'note', 'Tapped Call - no outcome saved')),
       client_log = coalesce(client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
-        'at', now(), 'stage', 'no_answer', 'from', first, 'note', 'Tapped Call but didn''t say how it went - counted as didn''t answer')),
-      client_stage = 'no_answer', client_stage_at = now(),
+        'at', now(), 'stage', case when client_na_count + 1 >= 3 then 'nurture' else 'no_answer' end, 'from', first, 'note', 'Tapped Call but didn''t say how it went - counted as didn''t answer')),
+      client_stage = case when client_na_count + 1 >= 3 then 'nurture' else 'no_answer' end, client_stage_at = now(),
       follow_status = case when coalesce(follow_status, 'new') = 'new' then 'no_answer' else follow_status end,
       last_attempt_at = r.client_dialled_at,
       ghl_push_at = now(), updated_at = now()
     where id = r.id;
-    perform public.portal_act(r.id, 'stage', jsonb_build_object('stage', 'no_answer', 'from', first, 'note', 'Tapped Call but didn''t say how it went'), 'auto');
+    perform public.portal_act(r.id, 'stage', jsonb_build_object('stage', case when r.client_na_count + 1 >= 3 then 'nurture' else 'no_answer' end, 'from', first, 'note', 'Tapped Call but didn''t say how it went'), 'auto');
     perform public.portal_push_ghl(r.id);
     n_other := n_other + 1;
   end loop;
 
-  -- 2. 24 hours after the client's 2nd and 3rd no-answers: "Did they get back
-  --    to you?" After call 2, "No" just waits for the last try a week after
-  --    call 2; after call 3 (final), "No" or no reply passes it to us.
-  for r in
-    select l.* from client_leads l
-    where l.client_calls and l.handed_over_at is null and l.checkin_at is null
-      and coalesce(l.follow_status, 'new') in ('new', 'no_answer')
-      and public.portal_lead_stage(l) = 'no_answer'
-      and l.client_na_count >= 2
-      and l.client_last_na_at <= now() - interval '24 hours'
-      and not public.portal_log_since(l.call_log, l.given_to_client_at, true)
-    for update skip locked
-  loop
-    first := coalesce(nullif(split_part(trim(coalesce(r.name, '')), ' ', 1), ''), 'them');
-    dl := public.portal_checkin_deadline(now());
-    if r.client_na_count < 3 then
-      update client_leads set checkin_at = now(), checkin_deadline = dl, checkin_token = null, checkin_final = false, updated_at = now() where id = r.id;
-      perform public.portal_act(r.id, 'checkin_asked', jsonb_build_object('again_at', r.client_call_due_at), 'auto');
-      perform public.portal_queue(r.client_id, r.id, 'checkin', 'Did ' || first || ' get back to you?',
-        'Tap to say where ' || first || ' is at. Not yet? We''ll bring them back for one last call on '
-          || to_char(coalesce(r.client_call_due_at, now() + interval '6 days') at time zone 'Pacific/Auckland', 'FMDay') || '.',
-        base || '?lead=' || r.id, 'email',
-        jsonb_build_object(
-          'email_subject', 'Did ' || coalesce(nullif(trim(r.name), ''), 'your lead') || ' get back to you?',
-          'email_body', 'Hi,' || chr(10) || chr(10) || 'You''ve tried ' || coalesce(nullif(trim(r.name), ''), 'a lead') || ' twice and couldn''t get hold of them.' || chr(10) || chr(10)
-            || 'Did they get back to you? Update them here: ' || base || '?lead=' || r.id || chr(10) || chr(10)
-            || 'Not yet? Nothing to do - they''ll come back to your Call now list for one last try on '
-            || to_char(coalesce(r.client_call_due_at, now() + interval '6 days') at time zone 'Pacific/Auckland', 'FMDay FMDD FMMonth') || '.' || chr(10) || chr(10)
-            || 'Mr Priceless'));
-      n_checkin := n_checkin + 1;
-      continue;
-    end if;
-    tok := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
-    update client_leads set checkin_at = now(), checkin_deadline = dl, checkin_token = tok, checkin_final = true, updated_at = now() where id = r.id;
-    perform public.portal_act(r.id, 'checkin_asked', jsonb_build_object('deadline', dl), 'auto');
-    select name into biz from clients where id = r.client_id;
-    perform public.portal_queue(r.client_id, r.id, 'checkin', 'Did ' || first || ' get back to you?',
-      'Tap to say where ' || first || ' is at. Not yet? You can pass them to the Mr Priceless team.',
-      base || '?lead=' || r.id, 'email',
-      jsonb_build_object('token', tok,
-        'sms', 'Mr Priceless: did ' || coalesce(nullif(trim(r.name), ''), 'your lead') || ' get back to you? Update them: ' || base || '?lead=' || r.id
-          || ' - Not yet? Tap to pass them to our team: ' || base || '?checkin=' || tok,
-        'email_subject', 'Did ' || coalesce(nullif(trim(r.name), ''), 'your lead') || ' get back to you?',
-        'email_body', 'Hi,' || chr(10) || chr(10) || 'You''ve tried ' || coalesce(nullif(trim(r.name), ''), 'a lead') || ' (' || coalesce(biz, 'your business') || ') three times and couldn''t get hold of them.' || chr(10) || chr(10)
-          || 'Did they get back to you? Update them here: ' || base || '?lead=' || r.id || chr(10) || chr(10)
-          || 'Not yet? Tap here and our team will follow them up for you: ' || base || '?checkin=' || tok || chr(10) || chr(10)
-          || 'Mr Priceless'));
-    n_checkin := n_checkin + 1;
-  end loop;
+  -- 2. (Removed 24 Nov 2026, Rocky: no more "Did they get back to you?"
+  --    questions - the call-again cycle covers it, then Nurture.)
 
   -- 3. No answer to the check-in by the deadline: it just stays with the
   --    client (24 Nov 2026 - no hand-over on a timer).
@@ -1274,6 +1261,16 @@ select cron.unschedule('portal-tick') where exists (select 1 from cron.job where
 select cron.schedule('portal-tick', '*/5 * * * *', $$ select public.portal_tick(); $$);
 
 -- New tables refuse client logins too (sql/112).
+-- No more check-in questions (24 Nov 2026): close any still open.
+update client_leads set checkin_answered_at = now()
+where checkin_at is not null and checkin_answered_at is null and handed_over_at is null;
+-- Leads already tried 3 times and still at Didn't answer go to Nurture.
+update client_leads l set client_stage = 'nurture', client_stage_at = now(), client_call_due_at = null,
+  client_log = coalesce(l.client_log, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+    'at', now(), 'stage', 'nurture', 'from', 'no_answer', 'note', 'Tried 3 times - moved to Nurture'))
+where l.client_calls and l.handed_over_at is null and l.client_na_count >= 3 and l.client_stage = 'no_answer'
+  and public.portal_lead_stage(l) = 'no_answer';
+
 select public.portal_lock_tables() as tables_closed_to_client_logins;
 
 -- Run it once now (counts only in the deploy log); this also makes the

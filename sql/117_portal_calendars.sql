@@ -42,3 +42,20 @@ alter table client_leads add column if not exists calendar_event jsonb;
 delete from portal_calendar_states where created_at < now() - interval '1 day';
 
 select public.portal_lock_tables() as tables_closed_to_client_logins;
+
+-- For the CRM's "App usage" page (team only): which logins have a calendar
+-- connected, and whether it still works. No tokens leave the database.
+create or replace function public.portal_calendar_summary()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_allowlisted() then raise exception 'Not allowed'; end if;
+  return (select coalesce(jsonb_agg(jsonb_build_object('email', email, 'provider', provider, 'error', error, 'connected_at', connected_at)), '[]'::jsonb)
+          from portal_calendars);
+end $$;
+revoke all on function public.portal_calendar_summary() from public;
+grant execute on function public.portal_calendar_summary() to authenticated;
