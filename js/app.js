@@ -16587,19 +16587,26 @@ function renderLeadSort(){
 // One row per client: who's using their app, who's ringing their leads, who
 // gets texts, and what isn't working. Built from the leads already loaded plus
 // the portal logins, texts (portal_texts) and calendars (portal_calendar_summary).
-let puUsers = null, puCals = null, puLoading = false, puErr = "";
+let puUsers = null, puCals = null, puPages = [], puLoading = false, puErr = "", puChecking = false;
 async function puLoad(){
   if (puLoading) return;
   puLoading = true; puErr = "";
   try {
-    if (!IS_CONFIGURED){ puUsers = puDemoUsers(); puCals = [{ email: "dave@example.com", provider: "google", error: null }]; if (ptTexts === null) ptTexts = ptDemo(); return; }
-    const [u, cal] = await Promise.all([
+    if (!IS_CONFIGURED){
+      puUsers = puDemoUsers(); puCals = [{ email: "dave@example.com", provider: "google", error: null }]; if (ptTexts === null) ptTexts = ptDemo();
+      const cs = state.clients.slice(0, 4);
+      puPages = cs.map((c, i) => i === 2 ? { client_id: c.id, page_id: "2", page_name: c.name, can_read: false, error: "Page isn't shared with our Meta system user yet", checked_at: new Date().toISOString() }
+        : { client_id: c.id, page_id: String(i), page_name: c.name, can_read: true, forms: 2, meta_leads_30d: i === 1 ? 9 : 0, checked_at: new Date().toISOString() });
+      return;
+    }
+    const [u, cal, pg] = await Promise.all([
       supabase.from("client_portal_users").select("id, email, name, phone, client_id, last_seen_at, created_at"),
       supabase.rpc("portal_calendar_summary"),
+      supabase.from("client_meta_pages").select("*"),
       ptTexts === null ? ptLoad() : null,
     ]);
     if (u.error) throw u.error;
-    puUsers = u.data || []; puCals = cal.error ? [] : (cal.data || []);
+    puUsers = u.data || []; puCals = cal.error ? [] : (cal.data || []); puPages = pg.error ? [] : (pg.data || []);
   } catch(err){ puErr = "Couldn't load the app logins. Check your connection and try again."; }
   finally { puLoading = false; }
 }
@@ -16626,6 +16633,8 @@ function puRow(c, users, cals){
   const sent = texts.filter(t => t.status === "sent").length, failed = texts.filter(t => t.status === "failed").length;
   const cal = cals.filter(x => users.some(u => u.email.toLowerCase() === String(x.email).toLowerCase()));
   const nurture = leads.filter(l => st(l) === "nurture").length;
+  const pages = (puPages || []).filter(x => x.client_id === c.id);
+  const metaRead = pages.filter(x => x.can_read), metaLeads = metaRead.reduce((n, x) => n + (Number(x.meta_leads_30d) || 0), 0);
   const flags = [];
   if (!users.length) flags.push("No app login");
   else {
@@ -16638,14 +16647,27 @@ function puRow(c, users, cals){
   if (failed) flags.push(`${failed} text${failed === 1 ? "" : "s"} didn't go`);
   if (cal.some(x => x.error)) flags.push("Calendar needs reconnecting");
   if (outcomes != null && recent.length >= 3 && outcomes < 50) flags.push(`Only ${outcomes}% of leads updated`);
-  return { c, users, lastSeen, noMobile, toCall: toCall.length, late: late.length, median, outcomes, recent: recent.length, sent, failed, cal, nurture, flags };
+  if (pages.length && !metaRead.length) flags.push("Can't read their Facebook leads yet");
+  if (metaRead.length && metaLeads > recent.length) flags.push(`Meta had ${metaLeads} leads, CRM got ${recent.length}`);
+  return { c, users, lastSeen, noMobile, toCall: toCall.length, late: late.length, median, outcomes, recent: recent.length, sent, failed, cal, nurture, flags, pages, metaRead, metaLeads };
 }
 function renderPortalUsage(){
   const root = $("#pu-root");
   if (!root) return;
   if (!root.dataset.bound){
     root.dataset.bound = "1";
-    root.addEventListener("click", (e) => { if (e.target.closest("[data-pu=refresh]")){ puUsers = null; ptTexts = null; renderPortalUsage(); } });
+    root.addEventListener("click", async (e) => {
+      if (e.target.closest("[data-pu=refresh]")){ puUsers = null; ptTexts = null; renderPortalUsage(); }
+      if (e.target.closest("[data-pu=meta]")){
+        if (puChecking) return;
+        puChecking = true; renderPortalUsage();
+        try {
+          if (IS_CONFIGURED){ const { data, error } = await supabase.functions.invoke("sync-meta-leads", { body: { action: "client_check" } }); if (error || data?.error) throw new Error(data?.error || error.message); }
+          puUsers = null; rcToast("Facebook Pages checked.");
+        } catch(err){ alert("Couldn't check the Facebook Pages: " + (err?.message || err)); }
+        finally { puChecking = false; renderPortalUsage(); }
+      }
+    });
   }
   if (puUsers === null){
     root.innerHTML = puErr ? `<p class="pt-empty">${escapeHtml(puErr)} <button type="button" class="btn ghost sm" data-pu="refresh">Try again</button></p>` : mpSkel(5);
@@ -16659,7 +16681,7 @@ function renderPortalUsage(){
   const ok = rows.filter(r => !r.flags.length).length;
   root.innerHTML = `
     <div class="pt-stats"><span><b>${rows.length}</b> clients</span><span><b>${ok}</b> all good</span><span class="${rows.length - ok ? "bad" : ""}"><b>${rows.length - ok}</b> need a nudge</span><span><b>${rows.reduce((n, r) => n + r.late, 0)}</b> leads not rung in 24h</span></div>
-    <div class="pu-bar"><span>Sorted by most problems first. Tap a client to open them.</span><button type="button" class="btn ghost sm" data-pu="refresh">Refresh</button></div>
+    <div class="pu-bar"><span>Sorted by most problems first. Tap a client to open them.</span><span class="pu-btns"><button type="button" class="btn ghost sm" data-pu="meta"${puChecking ? " disabled" : ""}>${puChecking ? "Checking Facebook Pages…" : "Check Facebook Pages"}</button><button type="button" class="btn ghost sm" data-pu="refresh">Refresh</button></span></div>
     <div class="pu-list">${rows.map(r => `
       <button type="button" class="pu-row${r.flags.length ? " bad" : ""}" data-action="view-client" data-id="${escapeHtml(r.c.id)}">
         <div class="pu-name"><b>${escapeHtml(r.c.name)}</b>${r.flags.length ? `<span class="pu-flags">${r.flags.map(f => `<i>${escapeHtml(f)}</i>`).join("")}</span>` : `<span class="pu-good">All good</span>`}</div>
@@ -16672,6 +16694,7 @@ function renderPortalUsage(){
           <span><small>Nurture</small><b>${r.nurture}</b></span>
           <span><small>Texts, 7 days</small><b>${r.sent}</b>${r.failed ? `<em class="red">${r.failed} didn't go</em>` : ""}</span>
           <span><small>Calendar</small><b>${r.cal.length ? escapeHtml(r.cal.map(x => (x.provider === "microsoft" ? "Outlook" : "Google") + (x.error ? " - broken" : "")).join(", ")) : "None"}</b></span>
+          <span><small>Facebook leads</small><b>${!r.pages.length ? "Not checked" : r.metaRead.length ? "We can read them" : "Not yet"}</b><em>${escapeHtml(!r.pages.length ? "" : r.metaRead.length ? `${r.metaRead.map(x => x.page_name || "Page").join(", ")} · Meta ${r.metaLeads} leads, 30 days` : (r.pages[0]?.error || ""))}</em></span>
         </div>
       </button>`).join("")}</div>`;
 }
