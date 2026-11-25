@@ -6124,3 +6124,42 @@ body.main-nav .page .page-header p{font-size:13.5px;margin-top:2px;}
 .pf-onb h3{display:flex;align-items:center;gap:8px;font-family:var(--font-display);font-size:18px;font-weight:800;margin:0 0 10px;}
 .pf-onb h3 span{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border-radius:999px;background:var(--gold-bright, #e8c468);color:#141008;font-size:13px;}
 .pf-onb .ob-list{display:flex;flex-direction:column;gap:8px;}
+
+/* ───────── Plastering leads: drag-and-drop board (Rocky, 26 Nov 2026) ───────── */
+.pl-board{display:grid;grid-template-columns:repeat(5,minmax(190px,1fr));gap:12px;overflow-x:auto;padding-bottom:10px;align-items:start;}
+.pl-col{background:#efeadf;border-radius:18px;padding:10px;min-height:220px;transition:background .15s,box-shadow .15s;}
+.pl-col header{display:flex;align-items:center;justify-content:space-between;padding:4px 6px 10px;}
+.pl-col header b{font-family:var(--font-display);font-size:16px;font-weight:800;}
+.pl-col header span{min-width:26px;height:24px;padding:0 8px;border-radius:999px;background:var(--white);display:grid;place-items:center;font-size:13px;font-weight:800;}
+.pl-col-new header span{background:var(--gold-bright, #e8c468);}
+.pl-col-won{background:#e3f1e7;}.pl-col-won header span{background:#2f6b45;color:#fff;}
+.pl-col-lost{background:#f1ece6;opacity:.92;}
+.pl-col.pl-over{background:#fbf0cf;box-shadow:inset 0 0 0 2px var(--gold, #b8912c);}
+.pl-col-body{display:flex;flex-direction:column;gap:10px;min-height:120px;}
+.pl-col-empty{margin:0;padding:22px 8px;text-align:center;font-size:13px;color:var(--text2);border:1.5px dashed rgba(0,0,0,.12);border-radius:14px;}
+.pl-board .pl-card{display:block;padding:14px;border-radius:14px;background:var(--white);border:1px solid var(--line);border-left:4px solid transparent;box-shadow:0 1px 2px rgba(20,15,5,.05),0 6px 14px rgba(20,15,5,.05);cursor:grab;user-select:none;touch-action:pan-y;}
+.pl-board .pl-card.is-new{border-left-color:var(--gold, #b8912c);}
+.pl-board .pl-card:hover{box-shadow:0 10px 24px rgba(20,15,5,.1);}
+.pl-board .pl-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline;}
+.pl-board .pl-top h3{font-size:16px;font-weight:800;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pl-board .pl-when{font-size:11.5px;color:var(--text2);white-space:nowrap;}
+.pl-board .pl-facts{margin:4px 0 0;font-size:13px;font-weight:600;color:#3f3b33;}
+.pl-board .pl-timing{margin:2px 0 0;font-size:12.5px;color:var(--text2);}
+.pl-board .pl-msg{margin:6px 0 0;font-size:13px;color:#3f3b33;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+.pl-note-peek{margin:6px 0 0;padding:6px 8px;border-radius:8px;background:#faf6ea;font-size:12.5px;color:#5c4a18;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.pl-board .pl-call{display:inline-flex;margin-top:10px;padding:8px 14px;border-radius:10px;font-size:14px;}
+.pl-more{margin-top:8px;}
+.pl-more summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--gold-deep, #8a6a1c);list-style:none;}
+.pl-more summary::-webkit-details-marker{display:none;}
+.pl-more summary::before{content:"▸ ";}
+.pl-more[open] summary::before{content:"▾ ";}
+.pl-more label{display:flex;flex-direction:column;gap:4px;margin-top:8px;font-size:12px;font-weight:700;color:var(--text2);}
+.pl-more textarea,.pl-more select{font:inherit;font-size:13.5px;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--white);color:var(--text);}
+.pl-more .pl-email{display:block;margin-top:8px;font-size:13px;word-break:break-all;}
+.pl-more .pl-source{margin:6px 0 0;font-size:12px;color:var(--text2);}
+.pl-more .pl-delete{margin-top:8px;}
+.pl-card.pl-dragging{opacity:.35;}
+.pl-ghost{position:fixed;z-index:9999;pointer-events:none;transform:rotate(2deg) scale(1.02);box-shadow:0 22px 50px rgba(20,15,5,.28) !important;cursor:grabbing;}
+body.pl-is-dragging,body.pl-is-dragging *{cursor:grabbing !important;user-select:none;}
+@media (max-width:900px){.pl-board{grid-template-columns:repeat(5,82vw);scroll-snap-type:x mandatory;}.pl-col{scroll-snap-align:start;}}
+#pl-root{max-width:none;}

@@ -16340,34 +16340,28 @@ function plNewCount(){
   }
   return plLeads.filter(l => l.status === "new").length;
 }
+// Board card: the essentials, with notes / email / delete folded away.
 function plCardHtml(l){
-  const facts = [l.service, l.suburb, l.timing].filter(Boolean).map(escapeHtml).join(" · ");
+  const facts = [l.service, l.suburb].filter(Boolean).map(escapeHtml).join(" · ");
   const tel = String(l.phone || "").replace(/[^\d+]/g, "");
   return `<article class="pl-card${l.status === "new" ? " is-new" : ""}" data-pl-id="${escapeHtml(l.id)}">
-    <div class="pl-main">
-      <div class="pl-top">
-        <h3>${escapeHtml(l.name)}</h3>
-        <span class="pl-when">${escapeHtml(lqTime(l.created_at))}</span>
-      </div>
-      ${facts ? `<p class="pl-facts">${facts}</p>` : ""}
-      ${l.message ? `<p class="pl-msg">${escapeHtml(l.message)}</p>` : ""}
-      <p class="pl-contact">
-        ${tel ? `<a class="pl-call" href="tel:${escapeHtml(tel)}">Call ${escapeHtml(l.phone)}</a>` : ""}
-        ${l.email ? `<a class="pl-email" href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>` : ""}
-      </p>
+    <div class="pl-top"><h3>${escapeHtml(l.name || "No name")}</h3><span class="pl-when">${escapeHtml(lqTime(l.created_at))}</span></div>
+    ${facts ? `<p class="pl-facts">${facts}</p>` : ""}
+    ${l.timing ? `<p class="pl-timing">${escapeHtml(l.timing)}</p>` : ""}
+    ${l.message ? `<p class="pl-msg">${escapeHtml(l.message)}</p>` : ""}
+    ${l.notes ? `<p class="pl-note-peek">📝 ${escapeHtml(l.notes)}</p>` : ""}
+    ${tel ? `<a class="pl-call" href="tel:${escapeHtml(tel)}">Call ${escapeHtml(l.phone)}</a>` : ""}
+    <details class="pl-more">
+      <summary>Notes &amp; details</summary>
+      <label>Notes<textarea data-pl-notes rows="3" placeholder="Site visit time, quote amount, anything else">${escapeHtml(l.notes || "")}</textarea></label>
+      <label class="pl-move">Move to<select data-pl-status>${PL_STATUSES.map(([k, t]) => `<option value="${k}"${k === l.status ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+      ${l.email ? `<a class="pl-email" href="mailto:${escapeHtml(l.email)}">${escapeHtml(l.email)}</a>` : ""}
       ${l.source ? `<p class="pl-source">From the website: ${escapeHtml(l.source)}</p>` : ""}
-    </div>
-    <div class="pl-side">
-      <label>Where it's at
-        <select data-pl-status>${PL_STATUSES.map(([k, t]) => `<option value="${k}"${k === l.status ? " selected" : ""}>${t}</option>`).join("")}</select>
-      </label>
-      <label>Notes
-        <textarea data-pl-notes rows="3" placeholder="Site visit time, quote amount, anything else">${escapeHtml(l.notes || "")}</textarea>
-      </label>
       <button type="button" class="pl-delete" data-pl-delete>Delete this lead</button>
-    </div>
+    </details>
   </article>`;
 }
+// A board: one column per stage. Drag a card to move it (mouse, or press and hold on a phone).
 function renderPlasteringLeads(){
   const root = $("#pl-root");
   if (!root) return;
@@ -16377,17 +16371,77 @@ function renderPlasteringLeads(){
     if (!plLoading && !plLoadErr) plLoad().then(renderPlasteringLeads);
     return;
   }
-  const count = (f) => plLeads.filter(l => f === "all" || (f === "open" ? PL_OPEN.has(l.status) : l.status === f)).length;
-  const list = plLeads.filter(l => plFilter === "all" || (plFilter === "open" ? PL_OPEN.has(l.status) : l.status === plFilter));
+  if (plDrag) return; // don't redraw under a card being dragged
+  const keep = new Set([...root.querySelectorAll(".pl-more[open]")].map(d => d.closest("[data-pl-id]")?.dataset.plId));
+  const scroll = root.querySelector(".pl-board")?.scrollLeft || 0;
+  const won = plLeads.filter(l => l.status === "won");
   root.innerHTML = `
     <div class="pl-head">
       <div>
         <h2>Plastering leads</h2>
-        <p>Quote requests from the Priceless Plastering &amp; Painting website. New ones show here straight away.</p>
+        <p>Quote requests from the Priceless Plastering &amp; Painting website. Drag a lead to move it along.</p>
       </div>
     </div>
-    <div class="pl-pills" role="tablist">${PL_FILTERS.map(([k, t]) => `<button type="button" class="pl-pill${k === plFilter ? " active" : ""}" data-pl-filter="${k}">${t} <span>${count(k)}</span></button>`).join("")}</div>
-    <div class="pl-list">${list.length ? list.map(plCardHtml).join("") : `<p class="pl-empty">${plLeads.length ? "Nothing here." : "No plastering leads yet. They'll show here as soon as someone fills in the quote form."}</p>`}</div>`;
+    ${plLeads.length ? `<div class="pl-board">${PL_STATUSES.map(([k, t]) => {
+      const col = plLeads.filter(l => (PL_STATUSES.some(([s]) => s === l.status) ? l.status : "new") === k);
+      return `<section class="pl-col pl-col-${k}" data-pl-col="${k}">
+        <header><b>${t}</b><span>${col.length}</span></header>
+        <div class="pl-col-body">${col.map(plCardHtml).join("") || `<p class="pl-col-empty">Drop here</p>`}</div>
+      </section>`;
+    }).join("")}</div>`
+    : `<p class="pl-empty">No plastering leads yet. They'll show here as soon as someone fills in the quote form.</p>`}`;
+  root.querySelectorAll("[data-pl-id]").forEach(c => { if (keep.has(c.dataset.plId)) c.querySelector(".pl-more")?.setAttribute("open", ""); });
+  const b = root.querySelector(".pl-board"); if (b) b.scrollLeft = scroll;
+}
+let plDrag = null;
+function plDragStart(card, x, y){
+  const r = card.getBoundingClientRect();
+  const ghost = card.cloneNode(true);
+  ghost.classList.add("pl-ghost");
+  Object.assign(ghost.style, { width: r.width + "px", left: r.left + "px", top: r.top + "px" });
+  document.body.appendChild(ghost);
+  card.classList.add("pl-dragging");
+  document.body.classList.add("pl-is-dragging");
+  plDrag = { id: card.dataset.plId, ghost, dx: x - r.left, dy: y - r.top, over: null };
+}
+function plDragMove(x, y){
+  const d = plDrag;
+  d.ghost.style.left = (x - d.dx) + "px"; d.ghost.style.top = (y - d.dy) + "px";
+  d.ghost.style.display = "none";
+  const col = document.elementFromPoint(x, y)?.closest?.("[data-pl-col]");
+  d.ghost.style.display = "";
+  if (col !== d.over){ d.over?.classList.remove("pl-over"); col?.classList.add("pl-over"); d.over = col; }
+  const board = $(".pl-board");
+  if (board){ const br = board.getBoundingClientRect(); if (x > br.right - 60) board.scrollLeft += 14; else if (x < br.left + 60) board.scrollLeft -= 14; }
+}
+function plDragEnd(){
+  const d = plDrag; plDrag = null;
+  document.body.classList.remove("pl-is-dragging");
+  d.ghost.remove();
+  d.over?.classList.remove("pl-over");
+  const to = d.over?.dataset.plCol, l = (plLeads || []).find(x => x.id === d.id);
+  if (to && l && l.status !== to){ plSave(d.id, { status: to }).then(renderPlasteringLeads); renderPlasteringLeads(); }
+  else renderPlasteringLeads();
+}
+function plBindDrag(root){
+  let pend = null;
+  root.addEventListener("pointerdown", (e) => {
+    const card = e.target.closest(".pl-card");
+    if (!card || e.button > 0 || e.target.closest("a,button,select,textarea,input,summary,label")) return;
+    pend = { card, x: e.clientX, y: e.clientY, touch: e.pointerType !== "mouse", t: null };
+    if (pend.touch) pend.t = setTimeout(() => { if (pend){ plDragStart(pend.card, pend.x, pend.y); navigator.vibrate?.(15); } }, 320);
+  });
+  addEventListener("pointermove", (e) => {
+    if (plDrag){ e.preventDefault(); plDragMove(e.clientX, e.clientY); return; }
+    if (!pend) return;
+    const moved = Math.hypot(e.clientX - pend.x, e.clientY - pend.y);
+    if (pend.touch){ if (moved > 10){ clearTimeout(pend.t); pend = null; } return; } // a swipe scrolls
+    if (moved > 6){ plDragStart(pend.card, pend.x, pend.y); pend = null; plDragMove(e.clientX, e.clientY); }
+  }, { passive: false });
+  const end = () => { if (pend){ clearTimeout(pend.t); pend = null; } if (plDrag) plDragEnd(); };
+  addEventListener("pointerup", end); addEventListener("pointercancel", end);
+  // While dragging on a phone, stop the page scrolling under the finger.
+  addEventListener("touchmove", (e) => { if (plDrag) e.preventDefault(); }, { passive: false });
 }
 async function plSave(id, patch){
   const l = (plLeads || []).find(x => x.id === id);
@@ -16413,9 +16467,8 @@ async function plDelete(id){
 function plBind(root){
   if (plBound) return;
   plBound = true;
+  plBindDrag(root);
   root.addEventListener("click", (e) => {
-    const f = e.target.closest("[data-pl-filter]");
-    if (f){ plFilter = f.dataset.plFilter; renderPlasteringLeads(); }
     const del = e.target.closest("[data-pl-delete]"), card = del?.closest("[data-pl-id]");
     if (card) plDelete(card.dataset.plId);
   });
