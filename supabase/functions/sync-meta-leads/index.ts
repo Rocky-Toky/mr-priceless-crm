@@ -220,6 +220,89 @@ export async function clientCheck(admin: any) {
   return { clients: n, pages, readable, not_readable: notReadable, no_page: noPage };
 }
 
+// ───────── Leads straight from clients' Pages (25 Nov 2026) ─────────
+// Every 2 minutes (sql/121): for each Page we can read (client_meta_pages),
+// every lead form's leads from the last 3 days. New ones go into client_leads
+// as source 'meta' - unless that person is already in (same lead id, or the
+// same phone / email in the last 60 days, e.g. from the GHL sync). Inserting
+// fires the usual new-lead text and puts it in the client's Call now.
+const CLIENT_LOOKBACK_MS = 3 * 86400e3;
+const last9 = (p: any) => String(p || "").replace(/\D/g, "").slice(-9);
+export function clientLeadRow(l: any, clientId: string, formName: string) {
+  const r = leadRow(l, "", formName);
+  const all = (Array.isArray(l.field_data) ? l.field_data : []).map((f: any) => ({ key: String(f.name || "").toLowerCase(), a: (Array.isArray(f.values) ? f.values : []).join(", ") }));
+  const pick = (re: RegExp) => all.find((x: any) => re.test(x.key))?.a || "";
+  const street = pick(/street|address/), suburb = pick(/suburb|city|town|location/), post = pick(/post_?code|zip/);
+  const place = /^(street_address|city|suburb|town|post_?code|zip_?code|state|province|country)$/;
+  return {
+    client_id: clientId, external_lead_id: "meta:" + r.meta_lead_id, source: "meta",
+    name: r.name || "No name", phone: r.phone || "", email: (r.email || "").toLowerCase(),
+    status: "New lead", form_name: (formName || "Facebook lead form").slice(0, 120),
+    answers: r.answers.filter((x: any) => !place.test(String(x.q).toLowerCase().replace(/ /g, "_"))),
+    address: [street, suburb, post].filter(Boolean).join(", ").slice(0, 240) || null,
+    city: (suburb || "").slice(0, 120) || null,
+    ad_info: Object.fromEntries(Object.entries({ ad: r.ad_name, ad_id: r.ad_id, campaign: r.campaign_name, form: formName, source: "meta" }).filter(([, v]) => v)),
+    details_at: new Date().toISOString(), lead_created_at: r.created_at, follow_status: "new",
+  };
+}
+export async function clientLeadsSync(admin: any) {
+  const t = token();
+  if (!t) return { error: "The Meta token isn't set up on the CRM yet." };
+  const started = Date.now();
+  const { data: pages } = await admin.from("client_meta_pages").select("client_id, page_id, checked_at").eq("can_read", true).neq("page_id", "");
+  if (!pages?.length) return { pages: 0 };
+  const mine = await pageList(t);
+  const since = Math.floor((Date.now() - CLIENT_LOOKBACK_MS) / 1000);
+  let saved = 0, seen = 0, errors = 0;
+  const byClient = new Map<string, string[]>();
+  for (const p of pages) byClient.set(p.client_id, [...(byClient.get(p.client_id) || []), p.page_id]);
+  for (const [clientId, pageIds] of byClient) {
+    if (Date.now() - started > 90e3) break;
+    const { data: have } = await admin.from("client_leads").select("external_lead_id, phone, email")
+      .eq("client_id", clientId).gte("created_at", new Date(Date.now() - 60 * 86400e3).toISOString()).limit(5000);
+    const ext = new Set((have || []).map((r: any) => r.external_lead_id));
+    const phones = new Set((have || []).map((r: any) => last9(r.phone)).filter((x: string) => x.length === 9));
+    const emails = new Set((have || []).map((r: any) => String(r.email || "").toLowerCase()).filter(Boolean));
+    const rows: any[] = [];
+    for (const pid of pageIds) {
+      const pt = mine.find(m => m.id === pid)?.token || t;
+      try {
+        const forms = await graphAll(`${pid}/leadgen_forms`, { fields: "id,name", limit: "100" }, pt, 3);
+        for (const f of forms) {
+          const leads = await graphAll(`${f.id}/leads`, {
+            fields: "id,created_time,field_data,ad_id,ad_name,campaign_name,form_id",
+            filtering: JSON.stringify([{ field: "time_created", operator: "GREATER_THAN", value: since }]), limit: "100",
+          }, pt, 5);
+          for (const l of leads) {
+            seen++;
+            const row = clientLeadRow(l, clientId, f.name);
+            if (ext.has(row.external_lead_id)) continue;
+            const ph = last9(row.phone), em = row.email;
+            if ((ph.length === 9 && phones.has(ph)) || (em && emails.has(em))) continue;
+            if (!row.phone && !row.email) continue;
+            ext.add(row.external_lead_id); if (ph.length === 9) phones.add(ph); if (em) emails.add(em);
+            rows.push(row);
+          }
+        }
+      } catch (e) {
+        errors++;
+        await admin.from("client_meta_pages").update({ error: String((e as any)?.message || e).slice(0, 200) }).eq("client_id", clientId).eq("page_id", pid);
+      }
+    }
+    if (rows.length) {
+      const { error } = await admin.from("client_leads").insert(rows);
+      if (error) { errors++; console.log("couldn't save client leads: " + error.message.slice(0, 120)); }
+      else saved += rows.length;
+    }
+  }
+  // Once a day: re-check every client's Pages (new Pages, lost access, Meta vs CRM counts).
+  const oldest = Math.min(...pages.map((p: any) => new Date(p.checked_at).getTime()));
+  let rechecked = false;
+  if (Date.now() - oldest > 24 * 3600e3 && Date.now() - started < 30e3) { await clientCheck(admin); rechecked = true; }
+  console.log(`client meta leads: ${saved} new of ${seen} seen, ${errors} errors`);
+  return { saved, seen, errors, rechecked };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -235,6 +318,7 @@ Deno.serve(async (req: Request) => {
     let cb: any = {};
     try { cb = (await req.json()) ?? {}; } catch { cb = {}; }
     if (cb.action === "client_check") return json(await clientCheck(admin));
+    if (cb.action === "client_leads") return json(await clientLeadsSync(admin));
     return json(await syncLeads(admin));
   }
 
@@ -255,5 +339,6 @@ Deno.serve(async (req: Request) => {
   }
   if (body.action === "sync") return json(await syncLeads(admin));
   if (body.action === "client_check") return json(await clientCheck(admin));
+  if (body.action === "client_leads") return json(await clientLeadsSync(admin));
   return json({ error: "Unknown action." }, 400);
 });
