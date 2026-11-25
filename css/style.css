@@ -6111,3 +6111,5 @@ body.main-nav #clients-list-view > .stat-grid,body.main-nav #clients-list-view >
 .pu-cells b{font-size:16px;}
 .pu-cells em{font-style:normal;font-size:12px;color:var(--text2);overflow-wrap:anywhere;}
 .pu-cells em.red{color:var(--danger,#b3452e);font-weight:600;}
+
+.pu-btns{display:flex;gap:6px;flex-wrap:wrap;}

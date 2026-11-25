@@ -151,6 +151,75 @@ export async function syncLeads(admin: any) {
   }
 }
 
+// ───────── Clients' own Pages (taking GoHighLevel out, 25 Nov 2026) ─────────
+// For each client with a Meta ad account: which Page(s) their ads run under,
+// whether our token can read that Page's lead forms (the Page needs to be
+// shared with our system user, with leads access), how many forms, and how
+// many leads Meta has had in 30 days. Saved to client_meta_pages (sql/121).
+const actId = (raw: string) => { const t = String(raw || "").trim(); return t.startsWith("act_") ? t : `act_${t}`; };
+async function clientPages(act: string, t: string): Promise<{ id: string; name: string }[]> {
+  const found = new Map<string, string>();
+  try {
+    const pp = await graphAll(`${act}/promote_pages`, { fields: "id,name", limit: "50" }, t, 2);
+    pp.forEach((p: any) => found.set(String(p.id), String(p.name || p.id)));
+  } catch (_e) { /* fall back to the ads themselves */ }
+  if (!found.size) {
+    try {
+      const ads = await graphAll(`${act}/ads`, { fields: "creative{effective_object_story_id,object_story_spec}", limit: "50" }, t, 2);
+      for (const a of ads) {
+        const pid = a?.creative?.object_story_spec?.page_id || String(a?.creative?.effective_object_story_id || "").split("_")[0];
+        if (pid && /^\d{5,25}$/.test(String(pid))) found.set(String(pid), found.get(String(pid)) || String(pid));
+      }
+    } catch (_e) { /* nothing more we can do */ }
+  }
+  return [...found].map(([id, name]) => ({ id, name }));
+}
+export async function clientCheck(admin: any) {
+  const t = token();
+  if (!t) return { error: "The Meta token isn't set up on the CRM yet." };
+  const started = Date.now();
+  const { data: clients } = await admin.from("clients").select("id, meta_ad_account_id, stage").not("meta_ad_account_id", "is", null).neq("meta_ad_account_id", "");
+  let mine: { id: string; name: string; token: string }[] = [];
+  try { mine = await pageList(t); } catch (_e) { mine = []; }
+  const since = Math.floor((Date.now() - 30 * 86400e3) / 1000);
+  let pages = 0, readable = 0, notReadable = 0, noPage = 0, n = 0;
+  for (const c of clients || []) {
+    if (c.stage === "churned") continue;
+    if (Date.now() - started > 240e3) break;
+    n++;
+    const found = await clientPages(actId(c.meta_ad_account_id), t);
+    const rows: any[] = [];
+    if (!found.length) {
+      noPage++;
+      rows.push({ client_id: c.id, page_id: "", page_name: null, can_read: false, forms: null, meta_leads_30d: null, error: "Couldn't find which Facebook Page their ads run under", checked_at: new Date().toISOString() });
+    }
+    for (const pg of found) {
+      pages++;
+      const shared = mine.find(m => m.id === pg.id);
+      const row: any = { client_id: c.id, page_id: pg.id, page_name: shared?.name || pg.name, can_read: false, forms: null, meta_leads_30d: null, error: null, checked_at: new Date().toISOString() };
+      if (!shared) row.error = "Page isn't shared with our Meta system user yet";
+      else {
+        try {
+          const forms = await graphAll(`${pg.id}/leadgen_forms`, { fields: "id,name,status", limit: "100" }, shared.token || t, 3);
+          row.forms = forms.length;
+          let count = 0;
+          for (const f of forms.slice(0, 25)) {
+            const leads = await graphAll(`${f.id}/leads`, { fields: "id", limit: "100", filtering: JSON.stringify([{ field: "time_created", operator: "GREATER_THAN", value: since }]) }, shared.token || t, 5);
+            count += leads.length;
+          }
+          row.meta_leads_30d = count; row.can_read = true;
+        } catch (e) { row.error = String((e as any)?.message || e).slice(0, 200); }
+      }
+      row.can_read ? readable++ : notReadable++;
+      rows.push(row);
+    }
+    await admin.from("client_meta_pages").delete().eq("client_id", c.id);
+    if (rows.length) await admin.from("client_meta_pages").insert(rows);
+  }
+  console.log(`client pages: ${n} clients, ${pages} pages, ${readable} readable, ${notReadable} not, ${noPage} with no page`);
+  return { clients: n, pages, readable, not_readable: notReadable, no_page: noPage };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -163,6 +232,9 @@ Deno.serve(async (req: Request) => {
   if (cronHeader) {
     const { data: secret } = await admin.from("app_secrets").select("value").eq("name", "inbound_cron_secret").maybeSingle();
     if (!secret?.value || secret.value !== cronHeader) return json({ error: "Unauthorized." }, 401);
+    let cb: any = {};
+    try { cb = (await req.json()) ?? {}; } catch { cb = {}; }
+    if (cb.action === "client_check") return json(await clientCheck(admin));
     return json(await syncLeads(admin));
   }
 
@@ -182,5 +254,6 @@ Deno.serve(async (req: Request) => {
     return json(ids.length ? await syncLeads(admin) : { picked: 0 });
   }
   if (body.action === "sync") return json(await syncLeads(admin));
+  if (body.action === "client_check") return json(await clientCheck(admin));
   return json({ error: "Unknown action." }, 400);
 });
