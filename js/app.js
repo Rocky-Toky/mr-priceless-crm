@@ -1765,11 +1765,11 @@ const MAIN_NAV = [
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
     pages: [["dialer", "Dialler"], ["inbound-leads", "Inbound leads"], ["cold-calls", "Meetings booked"], ["deals", "Pipeline"], ["sales-followups", "Follow-ups", 1], ["meetings", "Upcoming meetings", 1]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
-    pages: [["clients", "Clients"], ["onboarding", "Onboarding"], ["reporting", "Reports"], ["portal-texts", "Texts sent", 1]] },
+    pages: [["clients", "Clients"], ["portal-usage", "App usage"], ["onboarding", "Onboarding"], ["reporting", "Reports"], ["portal-texts", "Texts sent", 1]] },
   { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
     pages: [["ads-month", "Ads this month"], ["ad-production", "Ad production"]] },
   { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
-    pages: [["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results", 1], ["lead-schedule", "Schedule", 1], ["lead-results", "Setup", 1]] },
+    pages: [["lead-sort", "Leads to sort"], ["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results", 1], ["lead-schedule", "Schedule", 1], ["lead-results", "Setup", 1]] },
   { key: "plastering", label: "Plastering leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
     pages: [["plastering-leads", "Plastering leads"]] }, // its own menu item again (Rocky, 14 Nov 2026)
   { key: "money", label: "Money", delivery: true, icon: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
@@ -6256,12 +6256,12 @@ function renderClientPortal(c){
   el.innerHTML = `
     <div class="cl-panel-head cp-panel-head"><h3>Client portal</h3><a class="btn ghost sm" href="portal/?client=${escapeHtml(c.id)}" target="_blank" rel="noopener">See what they see</a></div>
     <p class="cpp-p">Their own app: every lead with what they put on the form (best ones first), one tap to call or text, their ads and their account with us. They never see the CRM.</p>
-    <h4 class="cpp-h">Who calls their leads?</h4>
-    <div class="cpp-mode">
+    <!-- Every lead goes to the client now (24 Nov 2026): no who-calls switch, no rules. -->
+    <div class="cpp-mode" hidden>
       <label class="${c.lead_client_calls ? "" : "on"}"><input type="radio" name="cpp-mode" value="us"${c.lead_client_calls ? "" : " checked"}><b>Our team</b><span>Leads go in the Lead Follow Up call queue as soon as they come in.</span></label>
       <label class="${c.lead_client_calls ? "on" : ""}"><input type="radio" name="cpp-mode" value="client"${c.lead_client_calls ? " checked" : ""}><b>${escapeHtml(lqBizName(c) || "They")} call them</b><span>Leads that pass the rules below go to their portal with a phone alert. Didn't answer? It comes back to them the next day, then a week later for a last try. Leads stay with them - nothing comes to our call queue unless they pass it to us.</span></label>
     </div>
-    ${cppRulesHtml(c)}
+    <p class="cpp-p">Every lead goes to their app to call. Didn't answer? It comes back the next day, then a week later, then moves to Nurture.</p>
     ${cppPipelineHtml(c)}
     <h4 class="cpp-h">Logins</h4>
     ${users.error ? `<p class="cpp-p cpp-err">${escapeHtml(users.error)}</p>` : users.length ? `<ul class="cpp-users">${users.map(u => `<li><div><b>${escapeHtml(u.name || u.email)}</b><span>${u.name ? escapeHtml(u.email) + " · " : ""}${escapeHtml(seen(u))}${u.phone ? ` · ${escapeHtml(u.phone)}` : ""} · ${u.devices ? `phone alerts on ${u.devices} device${u.devices === 1 ? "" : "s"}` : "no phone alerts yet"}${u.notify_new_leads ? " · new lead emails" : ""}</span></div>
@@ -6361,7 +6361,7 @@ function cppActivityHtml(c){
     <p class="cpp-p cpp-small">Names show from 17 Nov 2026. Anything before that shows as "Someone at ${escapeHtml(biz)}".</p>`;
 }
 // Their pipeline in the portal (client_leads.client_stage, sql/113), so we can see how they're getting on.
-const CPP_STAGES = [["new", "New"], ["no_answer", "Didn't answer"], ["call_scheduled", "Call scheduled"], ["site_visit", "Site visit"], ["quote_to_send", "Quote to send"], ["quote_sent", "Quote sent"], ["won", "Won"], ["lost", "Lost"], ["not_qualified", "Not qualified"]];
+const CPP_STAGES = [["new", "New"], ["no_answer", "Didn't answer"], ["nurture", "Nurture"], ["call_scheduled", "Call scheduled"], ["site_visit", "Site visit"], ["quote_to_send", "Quote to send"], ["quote_sent", "Quote sent"], ["won", "Won"], ["lost", "Lost"], ["not_qualified", "Not qualified"]];
 // Same rule as portal_lead_stage() (sql/113): the client's own pick once
 // they've made one, else from our calling status (or their GHL stage name).
 function cppStageOf(l){
@@ -12729,6 +12729,15 @@ function todayItems(){
       actions: btn("Done ✓", `data-td-task="${t.id}"`) + btn("Open", `data-action="edit-task" data-id="${t.id}"`) });
   }));
 
+  // Leads Mr Priceless had, waiting for Rocky to give back or disqualify (one row).
+  safe(() => {
+    const n = lsLeads().length;
+    if (!n) return;
+    items.push({ area: "leads", owner: null, tone: "warn", at: now,
+      title: `${n} lead${n === 1 ? "" : "s"} for you to sort`, sub: "Leads Mr Priceless had - give each back to the client or disqualify it",
+      actions: go("Sort them", "lead-sort", "gold") });
+  });
+
   // Leads waiting for a call (one row, not one per lead).
   safe(() => {
     const due = state.clientLeads.filter(l => lqDue(l) && !lqWithClient(l));
@@ -13518,7 +13527,15 @@ const lqIsOpen = (l) => LQ_OPEN.has(l.follow_status || "new");
 // portal_tick: not rung within 24 hours, or they said "No" / didn't answer
 // the "Did they get back to you?" check by 10pm) - or we've already rung it.
 // portal_lead_is_ours() in sql/113 is the same rule.
+// Mr Priceless no longer calls client leads (Rocky, 24 Nov 2026): every lead
+// is the client's, so the Lead Follow Up queue, pop-up and follow-ups are
+// empty. Leads we already had are sorted by Rocky on Lead calls → Leads to sort.
+const LQ_OFF = true;
 function lqWithClient(l){
+  if (LQ_OFF) return true;
+  return lqWithClientOld(l);
+}
+function lqWithClientOld(l){
   // The test client (clients.is_test, sql/seed_test_client.sql) is only for
   // trying the client portal: its fake leads never reach our call queue.
   if (lqClient(l)?.is_test) return true;
@@ -16479,6 +16496,186 @@ function renderPortalTexts(){
       : `<p class="pt-empty">${ptTexts.length ? "No texts match." : "No texts sent yet. Every text the client app sends - new leads, the 9am and 3pm reminders and test texts - will show here."}</p>`}`;
 }
 
+// ───────── Leads to sort (Lead calls → Leads to sort; 24 Nov 2026) ─────────
+// Leads Mr Priceless had (handed over, rung by us, or from before the client
+// called their own) and still open: Rocky gives each back to the client or
+// disqualifies it (portal_team_sort, sql/113). Nothing else calls them now.
+let lsPick = new Set(), lsClient = "", lsBusy = false;
+function lsLeads(){
+  return (state.clientLeads || []).filter(l => {
+    if (l.follow_status === "old" || l.follow_status === "in_ghl" || !lqIsOpen(l)) return false;
+    if (lqClient(l)?.is_test) return false;
+    if (!["new", "no_answer", "call_scheduled"].includes(cppStageOf(l))) return false;
+    return !lqWithClientOld(l);
+  });
+}
+function lsWhy(l){
+  if (l.handed_over_at) return { not_called: "Client didn't ring it in time", client_no: "Client passed it to us", no_reply: "Client didn't answer the check-in" }[l.handover_reason] || "Passed to us";
+  if (!l.client_calls) return "Came in when we were calling their leads";
+  return "Our team rang it";
+}
+async function lsDo(ids, action){
+  if (!ids.length || lsBusy) return;
+  const c = lqClient(state.clientLeads.find(l => l.id === ids[0]));
+  const word = action === "give" ? `Give ${ids.length === 1 ? "this lead" : ids.length + " leads"} back to ${ids.every(id => lqClient(state.clientLeads.find(l => l.id === id))?.id === c?.id) ? (c?.name || "the client") : "their clients"} to call?\n\nThey go to the top of the client's Call now. No text for each one - they'll see them in the app and in the 9am / 3pm text.`
+    : `Disqualify ${ids.length === 1 ? "this lead" : ids.length + " leads"}?\n\nThey move to Not qualified in the client's pipeline (and their GoHighLevel).`;
+  if (!confirm(word)) return;
+  lsBusy = true; renderLeadSort();
+  try {
+    if (IS_CONFIGURED){
+      const { error } = await supabase.rpc("portal_team_sort", { p_leads: ids, p_action: action });
+      if (error) throw error;
+    }
+    const now = new Date().toISOString();
+    ids.forEach(id => {
+      const l = state.clientLeads.find(x => x.id === id); if (!l) return;
+      const log = Array.isArray(l.client_log) ? l.client_log : [];
+      if (action === "give") Object.assign(l, { client_calls: true, handed_over_at: null, handover_reason: null, given_to_client_at: now, client_assigned_at: now, follow_status: ["site_visit", "booked", "consult_call"].includes(l.follow_status) ? l.follow_status : "new", client_stage: "new", client_stage_at: now, client_log: [...log, { at: now, stage: "new", by: "Mr Priceless", note: "Passed to you to call" }] });
+      else Object.assign(l, { client_stage: "not_qualified", client_stage_at: now, lost_reason: "Disqualified by Mr Priceless", follow_status: "disqualified", client_log: [...log, { at: now, stage: "not_qualified", by: "Mr Priceless" }] });
+      lsPick.delete(id);
+    });
+    rcToast(action === "give" ? `${ids.length} lead${ids.length === 1 ? "" : "s"} given back.` : `${ids.length} lead${ids.length === 1 ? "" : "s"} disqualified.`);
+  } catch(err){ alert("Couldn't save that: " + (err?.message || err)); }
+  finally { lsBusy = false; renderLeadSort(); mainNavRender(); }
+}
+function renderLeadSort(){
+  const root = $("#ls-root");
+  if (!root) return;
+  if (!root.dataset.bound){
+    root.dataset.bound = "1";
+    root.addEventListener("change", (e) => {
+      if (e.target.matches("[data-ls=client]")){ lsClient = e.target.value; lsPick.clear(); renderLeadSort(); return; }
+      if (e.target.matches("[data-ls-pick]")){ e.target.checked ? lsPick.add(e.target.dataset.lsPick) : lsPick.delete(e.target.dataset.lsPick); renderLeadSort(); return; }
+      if (e.target.matches("[data-ls-all]")){ const ids = lsLeads().filter(l => l.client_id === e.target.dataset.lsAll).map(l => l.id); ids.forEach(id => e.target.checked ? lsPick.add(id) : lsPick.delete(id)); renderLeadSort(); }
+    });
+    root.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-ls-act]"); if (!b) return;
+      const ids = b.dataset.id ? [b.dataset.id] : [...lsPick];
+      lsDo(ids, b.dataset.lsAct);
+    });
+  }
+  const all = lsLeads();
+  const clients = [...new Set(all.map(l => l.client_id))].map(id => state.clients.find(c => c.id === id) || { id, name: "Unknown client" }).sort((a, b) => a.name.localeCompare(b.name));
+  if (lsClient && !clients.some(c => c.id === lsClient)) lsClient = "";
+  const shown = all.filter(l => !lsClient || l.client_id === lsClient);
+  const picked = [...lsPick].filter(id => shown.some(l => l.id === id));
+  if (!all.length){ root.innerHTML = `<div class="ls-empty"><b>All sorted.</b><span>No leads waiting. Every new lead goes straight to the client's app now.</span></div>`; return; }
+  const ago = (l) => { const d = Math.floor((Date.now() - lqIn(l)) / 864e5); return d < 1 ? "today" : d === 1 ? "1 day ago" : `${d} days ago`; };
+  const groups = clients.filter(c => !lsClient || c.id === lsClient).map(c => {
+    const ls = shown.filter(l => l.client_id === c.id).sort((a, b) => lqIn(b) - lqIn(a));
+    const allOn = ls.every(l => lsPick.has(l.id));
+    return `<section class="ls-group">
+      <label class="ls-ghead"><input type="checkbox" data-ls-all="${escapeHtml(c.id)}"${allOn ? " checked" : ""}><b>${escapeHtml(c.name)}</b><span>${ls.length} lead${ls.length === 1 ? "" : "s"}</span></label>
+      <ul class="ls-list">${ls.map(l => `<li class="ls-row${lsPick.has(l.id) ? " on" : ""}">
+        <input type="checkbox" data-ls-pick="${escapeHtml(l.id)}"${lsPick.has(l.id) ? " checked" : ""} aria-label="Pick ${escapeHtml(l.name || "lead")}">
+        <div class="ls-main"><b>${escapeHtml(l.name || "No name")}</b><span>${escapeHtml([l.form_name, l.city, l.phone].filter(Boolean).join(" · "))}</span><small>Came in ${escapeHtml(ago(l))} · ${escapeHtml(lsWhy(l))}${Array.isArray(l.call_log) && l.call_log.length ? ` · ${l.call_log.length} call${l.call_log.length === 1 ? "" : "s"} so far` : ""}</small></div>
+        <div class="ls-btns"><button type="button" class="btn gold sm" data-ls-act="give" data-id="${escapeHtml(l.id)}"${lsBusy ? " disabled" : ""}>Give back</button><button type="button" class="btn ghost sm" data-ls-act="disqualify" data-id="${escapeHtml(l.id)}"${lsBusy ? " disabled" : ""}>Disqualify</button></div>
+      </li>`).join("")}</ul>
+    </section>`;
+  }).join("");
+  root.innerHTML = `
+    <div class="ls-bar">
+      <select data-ls="client" aria-label="Client"><option value="">Every client (${all.length})</option>${clients.map(c => `<option value="${escapeHtml(c.id)}"${c.id === lsClient ? " selected" : ""}>${escapeHtml(c.name)} (${all.filter(l => l.client_id === c.id).length})</option>`).join("")}</select>
+      <span class="ls-sel">${picked.length ? `${picked.length} picked` : "Tick leads to do them together"}</span>
+      <button type="button" class="btn gold" data-ls-act="give"${!picked.length || lsBusy ? " disabled" : ""}>Give back to client</button>
+      <button type="button" class="btn ghost" data-ls-act="disqualify"${!picked.length || lsBusy ? " disabled" : ""}>Disqualify</button>
+    </div>
+    ${groups}`;
+}
+
+// ───────── App usage (Clients → App usage; 24 Nov 2026) ─────────
+// One row per client: who's using their app, who's ringing their leads, who
+// gets texts, and what isn't working. Built from the leads already loaded plus
+// the portal logins, texts (portal_texts) and calendars (portal_calendar_summary).
+let puUsers = null, puCals = null, puLoading = false, puErr = "";
+async function puLoad(){
+  if (puLoading) return;
+  puLoading = true; puErr = "";
+  try {
+    if (!IS_CONFIGURED){ puUsers = puDemoUsers(); puCals = [{ email: "dave@example.com", provider: "google", error: null }]; if (ptTexts === null) ptTexts = ptDemo(); return; }
+    const [u, cal] = await Promise.all([
+      supabase.from("client_portal_users").select("id, email, name, phone, client_id, last_seen_at, created_at"),
+      supabase.rpc("portal_calendar_summary"),
+      ptTexts === null ? ptLoad() : null,
+    ]);
+    if (u.error) throw u.error;
+    puUsers = u.data || []; puCals = cal.error ? [] : (cal.data || []);
+  } catch(err){ puErr = "Couldn't load the app logins. Check your connection and try again."; }
+  finally { puLoading = false; }
+}
+function puDemoUsers(){
+  const cs = state.clients.slice(0, 4), ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  return cs.map((c, i) => ({ id: "u" + i, email: ["dave@example.com", "brett@example.com", "mac@example.com", "jo@example.com"][i], name: ["Dave", "Brett", "Mac", "Jo"][i], phone: i === 2 ? null : "021 555 01" + i, client_id: c.id, last_seen_at: i === 3 ? null : ago([2, 30, 200][i] || 5) }));
+}
+function puRow(c, users, cals){
+  const now = Date.now(), d30 = now - 30 * 864e5;
+  const leads = state.clientLeads.filter(l => l.client_id === c.id && l.follow_status !== "old");
+  const mine = leads.filter(l => lqWithClientOld(l));
+  const st = (l) => cppStageOf(l);
+  const toCall = mine.filter(l => st(l) === "new" || (st(l) === "no_answer" && l.client_call_due_at && Date.parse(l.client_call_due_at) <= now));
+  const late = mine.filter(l => st(l) === "new" && !l.client_dialled_at && now - Date.parse(l.client_assigned_at || l.lead_created_at || l.created_at) > 24 * 3600e3);
+  const recent = leads.filter(l => lqIn(l) > d30);
+  const picked = (l) => (Array.isArray(l.client_log) ? l.client_log : []).some(e => e && e.stage && e.by !== "Mr Priceless");
+  const firstTouch = (l) => { const ts = [l.client_dialled_at, ...(Array.isArray(l.client_log) ? l.client_log : []).filter(e => e && e.by !== "Mr Priceless").map(e => e.at)].map(t => Date.parse(t)).filter(Boolean); return ts.length ? Math.min(...ts) : null; };
+  const speeds = recent.map(l => { const f = firstTouch(l); return f ? (f - lqIn(l)) / 3600e3 : null; }).filter(x => x != null && x >= 0).sort((a, b) => a - b);
+  const median = speeds.length ? speeds[Math.floor(speeds.length / 2)] : null;
+  const outcomes = recent.length ? Math.round(100 * recent.filter(picked).length / recent.length) : null;
+  const lastSeen = users.map(u => Date.parse(u.last_seen_at)).filter(Boolean).sort((a, b) => b - a)[0] || null;
+  const noMobile = users.filter(u => !u.phone).length;
+  const texts = (ptTexts || []).filter(t => t.client_id === c.id && now - Date.parse(t.at) < 7 * 864e5);
+  const sent = texts.filter(t => t.status === "sent").length, failed = texts.filter(t => t.status === "failed").length;
+  const cal = cals.filter(x => users.some(u => u.email.toLowerCase() === String(x.email).toLowerCase()));
+  const nurture = leads.filter(l => st(l) === "nurture").length;
+  const flags = [];
+  if (!users.length) flags.push("No app login");
+  else {
+    if (noMobile === users.length) flags.push("No mobile saved - gets no texts");
+    else if (noMobile) flags.push(`${noMobile} login${noMobile === 1 ? "" : "s"} with no mobile`);
+    if (!lastSeen) flags.push("Never opened the app");
+    else if (now - lastSeen > 3 * 864e5) flags.push(`Not opened in ${Math.floor((now - lastSeen) / 864e5)} days`);
+  }
+  if (late.length) flags.push(`${late.length} lead${late.length === 1 ? "" : "s"} not rung in 24h`);
+  if (failed) flags.push(`${failed} text${failed === 1 ? "" : "s"} didn't go`);
+  if (cal.some(x => x.error)) flags.push("Calendar needs reconnecting");
+  if (outcomes != null && recent.length >= 3 && outcomes < 50) flags.push(`Only ${outcomes}% of leads updated`);
+  return { c, users, lastSeen, noMobile, toCall: toCall.length, late: late.length, median, outcomes, recent: recent.length, sent, failed, cal, nurture, flags };
+}
+function renderPortalUsage(){
+  const root = $("#pu-root");
+  if (!root) return;
+  if (!root.dataset.bound){
+    root.dataset.bound = "1";
+    root.addEventListener("click", (e) => { if (e.target.closest("[data-pu=refresh]")){ puUsers = null; ptTexts = null; renderPortalUsage(); } });
+  }
+  if (puUsers === null){
+    root.innerHTML = puErr ? `<p class="pt-empty">${escapeHtml(puErr)} <button type="button" class="btn ghost sm" data-pu="refresh">Try again</button></p>` : mpSkel(5);
+    if (!puLoading && !puErr) puLoad().then(renderPortalUsage);
+    return;
+  }
+  const clients = state.clients.filter(c => !c.is_test && c.stage !== "churned" && (!inOnboardingSection(c) || puUsers.some(u => u.client_id === c.id)));
+  const rows = clients.map(c => puRow(c, puUsers.filter(u => u.client_id === c.id), puCals || [])).sort((a, b) => b.flags.length - a.flags.length || a.c.name.localeCompare(b.c.name));
+  const ago = (t) => { if (!t) return "Never"; const h = (Date.now() - t) / 3600e3; return h < 1 ? "Just now" : h < 24 ? `${Math.floor(h)}h ago` : `${Math.floor(h / 24)}d ago`; };
+  const hrs = (h) => h == null ? "-" : h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`;
+  const ok = rows.filter(r => !r.flags.length).length;
+  root.innerHTML = `
+    <div class="pt-stats"><span><b>${rows.length}</b> clients</span><span><b>${ok}</b> all good</span><span class="${rows.length - ok ? "bad" : ""}"><b>${rows.length - ok}</b> need a nudge</span><span><b>${rows.reduce((n, r) => n + r.late, 0)}</b> leads not rung in 24h</span></div>
+    <div class="pu-bar"><span>Sorted by most problems first. Tap a client to open them.</span><button type="button" class="btn ghost sm" data-pu="refresh">Refresh</button></div>
+    <div class="pu-list">${rows.map(r => `
+      <button type="button" class="pu-row${r.flags.length ? " bad" : ""}" data-action="view-client" data-id="${escapeHtml(r.c.id)}">
+        <div class="pu-name"><b>${escapeHtml(r.c.name)}</b>${r.flags.length ? `<span class="pu-flags">${r.flags.map(f => `<i>${escapeHtml(f)}</i>`).join("")}</span>` : `<span class="pu-good">All good</span>`}</div>
+        <div class="pu-cells">
+          <span><small>Logins</small><b>${r.users.length}</b>${r.users.length ? `<em>${escapeHtml(r.users.map(u => (u.name || u.email.split("@")[0]) + (u.phone ? "" : " (no mobile)")).join(", "))}</em>` : ""}</span>
+          <span><small>Last opened</small><b>${escapeHtml(ago(r.lastSeen))}</b></span>
+          <span><small>To call now</small><b>${r.toCall}</b></span>
+          <span><small>First call</small><b>${escapeHtml(hrs(r.median))}</b><em>typical, 30 days</em></span>
+          <span><small>Leads updated</small><b>${r.outcomes == null ? "-" : r.outcomes + "%"}</b><em>${r.recent} lead${r.recent === 1 ? "" : "s"}, 30 days</em></span>
+          <span><small>Nurture</small><b>${r.nurture}</b></span>
+          <span><small>Texts, 7 days</small><b>${r.sent}</b>${r.failed ? `<em class="red">${r.failed} didn't go</em>` : ""}</span>
+          <span><small>Calendar</small><b>${r.cal.length ? escapeHtml(r.cal.map(x => (x.provider === "microsoft" ? "Outlook" : "Google") + (x.error ? " - broken" : "")).join(", ")) : "None"}</b></span>
+        </div>
+      </button>`).join("")}</div>`;
+}
+
 const RENDERERS = [
   [renderDashboard, ["dashboard"]], [renderPlaybookUsagePicker, ["*"]], [renderMeetingsPipeline, ["deals"]],
   [renderContacts, ["contacts"]], [renderDeals, ["deals"]], [renderNurture, ["nurture"]], [renderCommission, ["commission"]],
@@ -16498,6 +16695,8 @@ const RENDERERS = [
   [renderSalesFollowups, ["sales-followups"]],
   [renderHowWeWork, ["how"]],
   [renderPortalTexts, ["portal-texts"]],
+  [renderLeadSort, ["lead-sort"]],
+  [renderPortalUsage, ["portal-usage"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
