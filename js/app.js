@@ -377,13 +377,17 @@ function clientProfileCompleteness(c){
 // disturbing any client's already-ticked progress. A key must never be
 // reused for a different step or renamed once clients have real progress
 // against it - add a new key instead and leave the old one retired.
+// The new process (Rocky, 26 Nov 2026): no GoHighLevel, no lead follow-up by us - every
+// lead goes straight to the client's own app and they call it; Meta and Google Ads.
+// Retired keys (GHL / Zapier / old CRM demo): ghl_template, crm_login, crm_auto_text,
+// demo_2, demo_3, demo_5, cal_sync_ghl, cal_block_slots, cal_share_max, zapier_setup,
+// ghl_report_connect - never reuse them.
 const ONBOARDING_SECTIONS = [
   { section: "Get Started", items: [
     { key: "welcome_email", text: "Send the welcome email." },
     { key: "client_website", text: "Add their website link.", derivedFrom: "website" },
     { key: "client_phone", text: "Add their phone number.", derivedFrom: "phone" },
     { key: "client_email", text: "Add their email address.", derivedFrom: "email" },
-    { key: "ghl_template", text: "Set up their GHL CRM pipeline template ahead of time, so it's ready to demo." },
   ]},
   { section: "Define What A Good Lead Looks Like For Them", items: [
     { key: "good_lead_1", text: "Ask what they consider a job they're happy to quote for.", answerable: true, fieldLabel: "What Counts As A Good Lead" },
@@ -394,36 +398,44 @@ const ONBOARDING_SECTIONS = [
     { key: "good_lead_6", text: "Confirm whether they can quote after hours or on weekends.", answerable: true, fieldLabel: "After-Hours / Weekend Quoting" },
     { key: "good_lead_margin", text: "Ask roughly what margin they make on a typical job, after materials and labour.", answerable: true, fieldLabel: "Rough Margin", targetField: "margin" },
   ]},
-  { section: "Meta & CRM Access", items: [
+  { section: "Meta Access", items: [
     { key: "meta_partner_access", text: "Get full partner access on their Meta ad account." },
     { key: "fb_page_access", text: "On their Facebook Page, get access to Content, Ads, Insights, Leads, Creator Content, and Creator Management." },
+    { key: "fb_page_system_user", text: "Share their Facebook Page with our Meta system user, so their leads come straight into their app (Clients → App usage → Check Facebook Pages shows \"We can read them\")." },
     { key: "meta_dataset_card", text: "Create a dataset in their Meta Events Manager." },
-    { key: "meta_card_details", text: "Have them add their card details to the ad account so the ads can run." },
-    { key: "crm_login", text: "Send their login and confirm they can get in." },
-    { key: "crm_auto_text", text: "Mention they'll get an automated text the moment a quote is booked, plus a reminder an hour before it's due." },
+    { key: "meta_card_details", text: "Have them add their card details to the Meta ad account so the ads can run." },
   ]},
-  { section: "Demo The CRM", items: [
-    { key: "demo_2", text: "Walk them through Opportunities - the leads that sync straight in from Meta." },
-    { key: "demo_3", text: "Show them where to add notes, and stress how important it is to drag leads through the stages - that feedback is what we use to optimise targeting back on Meta." },
-    { key: "demo_5", text: "Walk through Document Storage - this is where they upload before/after job photos for us, plus a photo of themselves and one of the whole team, to use in ads." },
-    { key: "cal_sync_ghl", text: "Set up 2-way calendar sync with GHL, so bookings and their calendar stay lined up on both sides." },
+  { section: "Google Ads Access", items: [
+    { key: "google_ads_access", text: "Get access to their Google Ads account - they invite us as an admin, or if they don't have one we set it up under our manager account and send them the invite to accept." },
+    { key: "google_ads_billing", text: "Have them add their card details in Google Ads billing so the ads can run." },
+    { key: "google_business_profile", text: "If they have a Google Business Profile, link it so their ads can show their location and reviews." },
+    { key: "google_conversion", text: "Set up conversion tracking on their quote form, so Google knows which clicks become leads." },
   ]},
-  { section: "Set Up Their Calendar", items: [
-    { key: "cal_block_slots", text: "Explain that quotes get booked straight into whatever shows as free, so every slot they're not available - including travel to and from quotes - needs to be blocked off, and they can set this up as recurring events for their regular hours." },
-    { key: "cal_share_max", text: "Share their calendar access with Max." },
+  { section: "Set Up Their App", items: [
+    { key: "app_login", text: "Give them their login (their client page → Client portal) and check they can sign in." },
+    { key: "app_home_screen", text: "Help them add the app to their phone's home screen, so their leads are one tap away." },
+    { key: "app_mobile", text: "Check their mobile is saved, so they get a text the moment a new lead comes in (8am-6pm, plus a 9am and 3pm summary)." },
+    { key: "app_calendar", text: "Connect their Google or Outlook calendar in the app (Account → Your calendar), so site visits they book land straight in it." },
+  ]},
+  { section: "Show Them How It Works", items: [
+    { key: "app_demo_call", text: "Show them Call now: new leads land here and they call them straight from the app - the faster they ring, the more jobs they win (under 5 minutes is the goal)." },
+    { key: "app_demo_stages", text: "Show them how to update each lead after the call (site visit booked, quote sent, job won...) and stress it matters - that feedback is what we use to optimise their ads." },
+    { key: "app_demo_reports", text: "Show them the Reports tab - every fortnightly report, plus what each lead, quote and job has cost them." },
+    { key: "photos_in", text: "Ask for before/after job photos, plus a photo of them and one of the whole team, to use in their ads." },
   ]},
   { section: "Lock In The Ongoing Cadence", items: [
     { key: "cadence_catchup", text: "Set up a recurring fortnightly catch-up to go through progress, goals, and the pipeline together." },
   ]},
   { section: "Set Honest Expectations", items: [
+    { key: "expect_own_calls", text: "Be clear that they call their own leads - we don't follow up for them - so how fast they ring and how well they update the app makes the biggest difference." },
     { key: "honest_expect_1", text: "Explain that conversion rates and sales cycles on paid leads run lower than word of mouth - word of mouth is still the best lead source in business, the problem is it's unpredictable and hard to scale, which is exactly the gap paid ads fill." },
     { key: "honest_expect_2", text: "Be upfront that they might not see a sale in month one if their sales cycle runs a bit longer than that." },
   ]},
   { section: "Launch Prep", items: [
-    { key: "zapier_setup", text: "Get Max to set up the Zapier integration, connecting the new lead form through to GHL." },
-    { key: "ad_start_date", text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
     { key: "meta_ad_account_id", text: "Add their Meta Ad Account ID to Clients, so their campaigns and creatives start syncing in automatically.", derivedFrom: "meta_ad_account_id" },
-    { key: "ghl_report_connect", text: "Sync GHL with the CRM for reporting." },
+    { key: "google_ads_platform", text: "Tick Google on their client card (Clients board) if we're running Google ads for them." },
+    { key: "test_lead", text: "Send a test lead through their form and check it lands in their app and texts them." },
+    { key: "ad_start_date", text: "Add the date we start running their ads to Clients, so we know when to invoice them.", derivedFrom: "ad_start_date" },
   ]},
 ];
 const ONBOARDING_ANSWER_SUFFIX = "_answer";
@@ -6972,22 +6984,24 @@ const LAUNCH_ESSENTIALS = [
   { key: "good_lead_margin", label: "Rough margin on a job", placeholder: "e.g. 35%", optional: true },
 ];
 const LAUNCH_MILESTONES = [
-  { key: "welcome", label: "Welcome", blurb: "Pack out, logins sent", tasks: [
+  { key: "welcome", label: "Welcome", blurb: "Pack out, app login sent", tasks: [
     { key: "wp_sent", label: "Welcome pack sent", hint: "Ticks itself when you make their pack." },
-    { key: "crm_login", label: "CRM login sent and working" },
+    { key: "app_login", label: "App login sent and they can sign in" },
   ]},
   { key: "kickoff", label: "Kickoff Call", blurb: "Learn the business", tasks: [
     { key: "kickoff_booked", label: "Kickoff call booked", dateField: "kickoff_at" },
+    { key: "expect_own_calls", label: "They know they call their own leads, fast" },
     { key: "honest_expect_1", label: "Honest expectations set (paid leads, month one)" },
     { key: "essentials", label: "Lead essentials captured", derived: "essentials", hint: "Fill in the four lead essentials." },
   ]},
-  { key: "ads_due", label: "Ads Due", blurb: "Access in, ads built", tasks: [
+  { key: "ads_due", label: "Ads Due", blurb: "Access in, app set up", tasks: [
     { key: "meta_partner_access", label: "Partner access to their Meta ad account", who: "client", ask: "Partner access to your Meta ad account" },
     { key: "fb_page_access", label: "Facebook Page access (content, ads, leads)", who: "client", ask: "Access to your Facebook Page (content, ads and leads)" },
-    { key: "cal_share_max", label: "Calendar shared and synced with GHL", who: "client", ask: "Your calendar shared with us, with your busy times blocked out" },
+    { key: "google_ads_access", label: "Google Ads access (or account set up for them)", who: "client", ask: "Access to your Google Ads account (or accept the invite to the one we set up)" },
+    { key: "app_calendar", label: "Calendar connected in their app", who: "client", ask: "Your Google or Outlook calendar connected in the app" },
     { key: "photos_in", label: "Job photos and a team photo received", who: "client", ask: "Some before and after job photos, plus a photo of you and the team" },
     { key: "meta_ad_account_id", label: "Ad account ID added to their client page", derived: "meta_ad_account_id", hint: "Add it on their client page." },
-    { key: "ghl_template", label: "GHL pipeline and calendar set up" },
+    { key: "test_lead", label: "Test lead reached their app and texted them" },
   ]},
   { key: "live", label: "Live", blurb: "Ads running", tasks: [
     { key: "ad_start_date", label: "Ads switched on", derived: "ad_start_date", hint: "Set when they're dropped into Live." },
