@@ -1767,8 +1767,11 @@ const MAIN_NAV = [
   // folds under Clients > More. Off-menu pages still open from the search bar.
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
     pages: [["dialer", "Dialler"], ["meetings", "Meetings"], ["deals", "Pipeline"], ["inbound-leads", "Inbound leads"], ["cold-calls", "Booked today", 1], ["sales-followups", "Follow-ups", 1]] },
+  // Onboarding is its own section again (Rocky, 26 Nov 2026: "such an integral part of what we do").
+  { key: "onboarding", label: "Onboarding", delivery: true, icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>',
+    pages: [["onboarding", "Onboarding"]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
-    pages: [["clients", "Clients"], ["ads-month", "This month"], ["portal-usage", "App usage"], ["ad-production", "Ad production", 1], ["reporting", "Reports", 1], ["onboarding", "Onboarding", 1], ["lead-sort", "Leads to sort", 1], ["lead-calls", "Recorded calls", 1], ["lead-queue", "Call queue", 1], ["portal-texts", "Texts sent", 1]] },
+    pages: [["clients", "Clients"], ["ads-month", "This month"], ["portal-usage", "App usage"], ["ad-production", "Ad production", 1], ["reporting", "Reports", 1], ["lead-sort", "Leads to sort", 1], ["lead-calls", "Recorded calls", 1], ["lead-queue", "Call queue", 1], ["portal-texts", "Texts sent", 1]] },
   { key: "plastering", label: "Priceless leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
     pages: [["plastering-leads", "Priceless Plastering Leads"]] }, // its own menu item again (Rocky, 14 Nov 2026)
   { key: "money", label: "Money", delivery: true, icon: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
@@ -5386,7 +5389,7 @@ function renderClientPortfolio(){
   const onbRows = state.clients.filter(c => !c.is_test && inOnboardingSection(c)).map(c => ({ c, ls: launchState(c) }))
     .sort((a, b) => (({ late: 0, stalled: 1, client: 2, soon: 3, ready: 4 })[a.ls.status.key] ?? 5) - (({ late: 0, stalled: 1, client: 2, soon: 3, ready: 4 })[b.ls.status.key] ?? 5));
   const onbBlock = onbRows.length && !q ? `<section class="pf-onb"><h3>Being set up <span>${onbRows.length}</span></h3><div class="ob-list">${onbRows.map(r => obRowHtml(r.c, r.ls)).join("")}</div></section>` : "";
-  list.innerHTML = kpis + onbBlock + bar + (rows.length ? `<div class="pf-grid">${rows.map(r => pfCardHtml(r.c, r.h)).join("")}</div>`
+  list.innerHTML = kpis + bar + (rows.length ? `<div class="pf-grid">${rows.map(r => pfCardHtml(r.c, r.h)).join("")}</div>`
     : `<div class="cl-empty">${q ? `No clients match "${escapeHtml(state.clientsGallerySearch.trim())}".` : state.clients.length ? "Everyone's still onboarding - they'll show here once they're past it." : "No clients yet. Add your first client to get started."}</div>`);
   if (focused){ const s = $("#pf-search"); if (s){ s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   if (!list.dataset.pfWired){
@@ -12798,6 +12801,37 @@ function tdQuickSync(root){
   const val = open.reduce((t, d) => t + (Number(d.value) || 0), 0);
   set("pipeline", String(open.length), val ? `open deals · ${fmtMoney(val)}` : "open deals");
 }
+// The business at a glance (Rocky, 26 Nov 2026): sales closed, retainers, money in,
+// and how our clients' ads are doing - one row under the quick jobs.
+function tdDashSync(root){
+  const el = root.querySelector("#td-dash");
+  if (!el) return;
+  const safe = (f, d) => { try { return f(); } catch(e){ return d; } };
+  const now = new Date(), ym = localDayStr().slice(0, 7);
+  const lastYm = (() => { const d = new Date(now.getFullYear(), now.getMonth() - 1, 15); return localDayStr(d).slice(0, 7); })();
+  const wonIn = (m) => safe(() => state.deals.filter(d => ["closed_won", ADHOC_STAGE].includes(d.stage) && ymOf(d.stage_changed_at || d.updated_at) === m), []);
+  const sum = (list) => list.reduce((t, d) => t + (Number(d.value) || 0), 0);
+  const wonNow = wonIn(ym), wonLast = wonIn(lastYm);
+  const live = safe(() => state.clients.filter(c => !c.is_test && !inOnboardingSection(c) && c.stage !== "churned"), []);
+  const mrr = live.reduce((t, c) => t + (safe(() => stClientMonthly(c), null) ?? safe(() => clientRetainer(c), null) ?? 0), 0);
+  const cpq = safe(() => { const both = live.filter(c => pfCostPerQuote(c) != null); const q = both.reduce((t, c) => t + pfQuotes(c), 0), sp = both.reduce((t, c) => t + pfSpend(c), 0); return q && sp ? sp / q : null; }, null);
+  const cpl = safe(() => clientAvgCPL(), null);
+  const d30 = Date.now() - 30 * 86400e3;
+  const wonLeads = safe(() => state.clientLeads.filter(l => l.client_stage === "won" && (Date.parse(l.client_stage_at || l.updated_at || l.created_at) || 0) > d30), []);
+  const wonValue = wonLeads.reduce((t, l) => t + (Number(l.job_value) || 0), 0);
+  const collected = safe(() => stData?.status?.connected ? stMonthMoney(ym) : null, null);
+  const booked7 = safe(() => state.meetings.filter(m => m.status !== "cancelled" && (Date.parse(m.created_at) || 0) > Date.now() - 7 * 86400e3).length, 0);
+  const tile = (label, value, sub, cls = "", go = "") => `<button type="button" class="td-dash-tile ${cls}"${go ? ` data-td-go="${go}"` : " disabled"}><span>${label}</span><b>${value}</b><small>${sub}</small></button>`;
+  const delta = sum(wonNow) - sum(wonLast);
+  el.innerHTML = [
+    tile("Closed this month", fmtMoney(sum(wonNow)), `${wonNow.length} deal${wonNow.length === 1 ? "" : "s"} · ${delta >= 0 ? "▲" : "▼"} ${fmtMoney(Math.abs(delta))} vs last month`, delta >= 0 ? "up" : "down", "deals"),
+    tile("Retainers / month", fmtMoney(mrr), `${live.length} live client${live.length === 1 ? "" : "s"}`, "", "clients"),
+    tile("Collected this month", collected ? fmtMoney(Math.round(collected.net)) : "-", collected ? `${collected.paid.length} Stripe payment${collected.paid.length === 1 ? "" : "s"}, after fees` : "Stripe not connected yet", "", "receipts"),
+    tile("Avg cost per quote", cpq != null ? fmtMoney(cpq) : "-", cpl != null ? `${fmtMoney(cpl)} per lead on average` : "average across clients", "gold", "clients"),
+    tile("Jobs won for clients", wonValue ? fmtMoney(wonValue) : String(wonLeads.length), `${wonLeads.length} job${wonLeads.length === 1 ? "" : "s"} in the last 30 days`, "", "clients"),
+    tile("Meetings booked", String(booked7), "in the last 7 days", "", "meetings"),
+  ].join("");
+}
 function renderToday(){
   const root = $("#today-root");
   if (!root) return;
@@ -12815,7 +12849,7 @@ function renderToday(){
       <div class="td-hero-in"><div class="td-hero-text"><p class="td-date"></p><h2></h2><p class="td-sum"></p></div>
         <div class="td-ring" aria-hidden="true"><svg viewBox="0 0 120 120"><circle class="td-ring-bg" cx="60" cy="60" r="52"/><circle class="td-ring-fg" cx="60" cy="60" r="52"/></svg><div class="td-ring-num"><b></b><span></span></div></div></div>
     </section>
-    <nav class="td-quick" aria-label="Quick jobs">${TD_QUICK.map(([k, label, icon]) => `<button type="button" data-td-q="${k}"><span class="tdq-ico" aria-hidden="true">${icon}</span><span class="tdq-txt"><b>${label}</b><small data-tdq-sub="${k}"></small></span><em class="tdq-num" data-tdq-num="${k}"></em><span class="tdq-go" aria-hidden="true">→</span></button>`).join("")}</nav><div class="td-body"></div>`;
+    <nav class="td-quick" aria-label="Quick jobs">${TD_QUICK.map(([k, label, icon]) => `<button type="button" data-td-q="${k}"><span class="tdq-ico" aria-hidden="true">${icon}</span><span class="tdq-txt"><b>${label}</b><small data-tdq-sub="${k}"></small></span><em class="tdq-num" data-tdq-num="${k}"></em><span class="tdq-go" aria-hidden="true">→</span></button>`).join("")}</nav><section class="td-dash" id="td-dash" aria-label="The business at a glance"></section><div class="td-body"></div>`;
     if (window.mpWaves) tdWaves = window.mpWaves(root.querySelector(".td-waves"), { dim: true });
   }
   root.querySelector(".td-date").textContent = dateLine;
@@ -12837,6 +12871,7 @@ function renderToday(){
     return g.length ? `<section class="td-group ${t}"><h3>${label}<span>${g.length}</span></h3>${g.map(row).join("")}</section>` : "";
   }).join("");
   tdQuickSync(root);
+  tdDashSync(root);
   root.querySelector(".td-body").innerHTML = groups || `<div class="td-clear"><div class="td-trophy" aria-hidden="true">★</div><b>All clear</b><span>Nothing's due right now. New things land here the moment they're due.</span></div>`;
 }
 // Ticking something off: the row flashes green, slides away, the ring fills.

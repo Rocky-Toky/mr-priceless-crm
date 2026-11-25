@@ -6197,3 +6197,18 @@ body.pl-is-dragging,body.pl-is-dragging *{cursor:grabbing !important;user-select
 .pl-board .pl-call svg{width:15px;height:15px;flex:none;}
 .pl-board .pl-call:hover{background:#346b48;}
 .pl-more summary{font-size:12.5px;margin-top:2px;}
+
+/* Today: the business at a glance (26 Nov 2026) */
+.td-dash{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:0 0 20px;}
+.td-dash-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px 16px;border-radius:16px;background:var(--white);border:1px solid var(--line);box-shadow:0 1px 2px rgba(20,15,5,.04);font:inherit;text-align:left;color:var(--text);cursor:pointer;transition:transform .12s,box-shadow .18s,border-color .18s;min-width:0;}
+.td-dash-tile:hover:not(:disabled){transform:translateY(-2px);border-color:var(--gold-border, #ecd38a);box-shadow:0 10px 22px rgba(20,15,5,.08);}
+.td-dash-tile:disabled{cursor:default;}
+.td-dash-tile span{font-size:11.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text2);}
+.td-dash-tile b{font-family:var(--font-display);font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.15;}
+.td-dash-tile small{font-size:12.5px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+.td-dash-tile.up small{color:#2f6b45;}
+.td-dash-tile.down small{color:#a1361f;}
+.td-dash-tile.gold{background:linear-gradient(160deg,#fffaf0,#fbf0cf);border-color:#ecd38a;}
+.td-dash-tile.gold b{color:#7a5c12;}
+@media (max-width:1180px){.td-dash{grid-template-columns:repeat(3,minmax(0,1fr));}}
+@media (max-width:600px){.td-dash{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}.td-dash-tile{padding:12px;}.td-dash-tile b{font-size:21px;}}
