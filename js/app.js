@@ -1762,14 +1762,13 @@ const MAIN_NAV = [
   // them (Clients, Ads), call their leads (Lead calls, with Plastering as a tab), then money, how-tos and the team.
   { key: "today", label: "Today", icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     pages: [["today", "Today"]] }, // just the list for today (Rocky, 13 Nov 2026)
+  // Rocky's clear-out (25 Nov 2026): 6 sections. Ads this month + Reports are one "This month" page,
+  // onboarding sits on the client board, and lead calling (leads now go to the clients' app)
+  // folds under Clients > More. Off-menu pages still open from the search bar.
   { key: "sales", label: "Sales", icon: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>',
-    pages: [["dialer", "Dialler"], ["inbound-leads", "Inbound leads"], ["cold-calls", "Meetings booked"], ["deals", "Pipeline"], ["sales-followups", "Follow-ups", 1], ["meetings", "Upcoming meetings", 1]] },
+    pages: [["dialer", "Dialler"], ["meetings", "Meetings"], ["deals", "Pipeline"], ["inbound-leads", "Inbound leads"], ["cold-calls", "Booked today", 1], ["sales-followups", "Follow-ups", 1]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
-    pages: [["clients", "Clients"], ["portal-usage", "App usage"], ["onboarding", "Onboarding"], ["reporting", "Reports"], ["portal-texts", "Texts sent", 1]] },
-  { key: "ads", label: "Ads", delivery: true, icon: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
-    pages: [["ads-month", "Ads this month"], ["ad-production", "Ad production"]] },
-  { key: "leads", label: "Lead calls", icon: '<path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.362 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0122 16.92z"/>',
-    pages: [["lead-sort", "Leads to sort"], ["lead-queue", "Call queue"], ["lead-followups", "Follow-ups"], ["lead-calls", "Recorded calls"], ["lead-kpis", "Results", 1], ["lead-schedule", "Schedule", 1], ["lead-results", "Setup", 1]] },
+    pages: [["clients", "Clients"], ["ads-month", "This month"], ["portal-usage", "App usage"], ["ad-production", "Ad production", 1], ["reporting", "Reports", 1], ["onboarding", "Onboarding", 1], ["lead-sort", "Leads to sort", 1], ["lead-calls", "Recorded calls", 1], ["lead-queue", "Call queue", 1], ["portal-texts", "Texts sent", 1]] },
   { key: "plastering", label: "Plastering leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
     pages: [["plastering-leads", "Plastering leads"]] }, // its own menu item again (Rocky, 14 Nov 2026)
   { key: "money", label: "Money", delivery: true, icon: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
@@ -5383,7 +5382,11 @@ function renderClientPortfolio(){
   const bar = `<div class="pf-bar"><span class="pf-bar-label">${rows.length} client${rows.length === 1 ? "" : "s"}</span>
       <div class="pf-sort" role="tablist">${PF_SORTS.map(([k, t]) => `<button type="button" class="${k === pfSort ? "on" : ""}" data-pf-sort="${k}">${t}</button>`).join("")}</div></div>`;
   const focused = document.activeElement?.id === "pf-search";
-  list.innerHTML = kpis + bar + (rows.length ? `<div class="pf-grid">${rows.map(r => pfCardHtml(r.c, r.h)).join("")}</div>`
+  // Clients still being set up sit on the same board, above the rest (Rocky's clear-out, 25 Nov 2026).
+  const onbRows = state.clients.filter(c => !c.is_test && inOnboardingSection(c)).map(c => ({ c, ls: launchState(c) }))
+    .sort((a, b) => (({ late: 0, stalled: 1, client: 2, soon: 3, ready: 4 })[a.ls.status.key] ?? 5) - (({ late: 0, stalled: 1, client: 2, soon: 3, ready: 4 })[b.ls.status.key] ?? 5));
+  const onbBlock = onbRows.length && !q ? `<section class="pf-onb"><h3>Being set up <span>${onbRows.length}</span></h3><div class="ob-list">${onbRows.map(r => obRowHtml(r.c, r.ls)).join("")}</div></section>` : "";
+  list.innerHTML = kpis + onbBlock + bar + (rows.length ? `<div class="pf-grid">${rows.map(r => pfCardHtml(r.c, r.h)).join("")}</div>`
     : `<div class="cl-empty">${q ? `No clients match "${escapeHtml(state.clientsGallerySearch.trim())}".` : state.clients.length ? "Everyone's still onboarding - they'll show here once they're past it." : "No clients yet. Add your first client to get started."}</div>`);
   if (focused){ const s = $("#pf-search"); if (s){ s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   if (!list.dataset.pfWired){
@@ -5855,6 +5858,7 @@ function renderAdsMonth(){
         <span>Static 1<small>live by ${amFmtDay(ym, 14)}</small></span>
         <span>Static 2<small>live by ${amFmtDay(ym, 14)}</small></span>
         <span>Video<small>live by ${amFmtDay(ym, 21)}</small></span>
+        <span>Report<small>every 2 weeks</small></span>
       </div>
       ${rows.map(({ c, p }) => {
         const hasScript = vsRows().some(r => r.client_id === c.id && vsData(r).month === ym);
@@ -5864,10 +5868,12 @@ function renderAdsMonth(){
             <span class="am-who-sub">${p.live}/3 live · <button type="button" class="am-script-link" data-action="am-script" data-id="${c.id}">${hasScript ? "Video script" : "+ Video script"}</button></span>
           </span>
           ${p.slots.map(s => cell(c, s)).join("")}
+          ${(() => { let d = null; try { d = reportDueInfo(c); } catch(e){} if (!d) return `<span></span>`;
+            return `<button type="button" class="am-box ${d.due ? "am-todo is-late" : "am-live"}" data-action="make-report" data-id="${c.id}" title="${escapeHtml(c.name)} · fortnightly report: ${escapeHtml(d.label)} - tap to make it"><span class="am-box-dot"></span>${d.due ? escapeHtml(d.label) : `Sent ✓ <small>${escapeHtml(d.label.replace(/^Due /, "next "))}</small>`}</button>`; })()}
         </div>`;
       }).join("")}
     </div>
-    <p class="am-howto">Tap a box to mark it: <span class="am-key am-todo">To do</span> → <span class="am-key am-live">Live</span>. Tap a live one to set it back to To do. Anything not live by its date shows as late.</p>`;
+    <p class="am-howto">Tap an ad to mark it: <span class="am-key am-todo">To do</span> → <span class="am-key am-live">Live</span> (tap again to undo). Tap a report to make it. Anything not done by its date shows red.</p>`;
 }
 /* ───────── Clients board: drag clients between lifecycle stages ───────── */
 const CLIENT_STAGE_BLURBS = {
@@ -8470,7 +8476,7 @@ function mpCelebrate(title, sub){
    One search box at the top of every page (press / or Ctrl+K): type a few
    letters of any client, lead, prospect, deal, meeting, contact, page or job
    and press Enter to go straight there. Only in the one menu (not Carmen's). */
-const CMD_EXTRA_PAGES = [["contacts", "Contacts", "Sales"], ["rates", "Stats", "Sales"], ["lead-engine", "Add prospects", "Sales"], ["workshops", "Workshops", "Clients"], ["creative", "Creative library", "Ads"], ["client-inbox", "Client inbox & Gmail setup", "Clients"]];
+const CMD_EXTRA_PAGES = [["lead-followups", "Lead follow-ups", "Lead calls"], ["lead-kpis", "Lead call results", "Lead calls"], ["lead-schedule", "Lead calling schedule", "Lead calls"], ["lead-results", "Lead calling setup", "Lead calls"], ["contacts", "Contacts", "Sales"], ["rates", "Stats", "Sales"], ["lead-engine", "Add prospects", "Sales"], ["workshops", "Workshops", "Clients"], ["creative", "Creative library", "Ads"], ["client-inbox", "Client inbox & Gmail setup", "Clients"]];
 const cmdDigits = (s) => String(s || "").replace(/\D/g, "");
 let cmdSel = 0, cmdItems = [];
 function cmdActions(){
@@ -12706,7 +12712,7 @@ function todayItems(){
       items.push({ area: "ads", owner: null, tone: late ? "bad" : "warn", at: now,
         title: `${behindAds.length} client${behindAds.length === 1 ? "" : "s"} still need ads live this month`,
         sub: names.slice(0, 6).join(" · ") + (names.length > 6 ? ` · +${names.length - 6} more` : "") + (late ? ` - ${late} behind` : ""),
-        actions: go("Ads this month", "ads-month", late ? "gold" : "ghost") });
+        actions: go("This month", "ads-month", late ? "gold" : "ghost") });
     }
     // Onboarding clients that are behind or waiting on the client.
     state.clients.filter(c => !c.is_test && inOnboardingSection(c)).forEach(c => {
