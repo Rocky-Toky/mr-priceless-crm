@@ -12849,7 +12849,7 @@ function renderToday(){
       <div class="td-hero-in"><div class="td-hero-text"><p class="td-date"></p><h2></h2><p class="td-sum"></p></div>
         <div class="td-ring" aria-hidden="true"><svg viewBox="0 0 120 120"><circle class="td-ring-bg" cx="60" cy="60" r="52"/><circle class="td-ring-fg" cx="60" cy="60" r="52"/></svg><div class="td-ring-num"><b></b><span></span></div></div></div>
     </section>
-    <nav class="td-quick" aria-label="Quick jobs">${TD_QUICK.map(([k, label, icon]) => `<button type="button" data-td-q="${k}"><span class="tdq-ico" aria-hidden="true">${icon}</span><span class="tdq-txt"><b>${label}</b><small data-tdq-sub="${k}"></small></span><em class="tdq-num" data-tdq-num="${k}"></em><span class="tdq-go" aria-hidden="true">→</span></button>`).join("")}</nav><section class="td-dash" id="td-dash" aria-label="The business at a glance"></section><div class="td-body"></div>`;
+    <nav class="td-quick" aria-label="Quick jobs">${TD_QUICK.map(([k, label, icon]) => `<button type="button" data-td-q="${k}"><span class="tdq-ico" aria-hidden="true">${icon}</span><span class="tdq-txt"><b>${label}</b><small data-tdq-sub="${k}"></small></span><em class="tdq-num" data-tdq-num="${k}"></em><span class="tdq-go" aria-hidden="true">→</span></button>`).join("")}</nav><div class="td-body"></div>`;
     if (window.mpWaves) tdWaves = window.mpWaves(root.querySelector(".td-waves"), { dim: true });
   }
   root.querySelector(".td-date").textContent = dateLine;
@@ -12871,7 +12871,7 @@ function renderToday(){
     return g.length ? `<section class="td-group ${t}"><h3>${label}<span>${g.length}</span></h3>${g.map(row).join("")}</section>` : "";
   }).join("");
   tdQuickSync(root);
-  tdDashSync(root);
+  // tdDashSync(root); - the dashboard row is off for now (Rocky, 26 Nov 2026); the code stays for later.
   root.querySelector(".td-body").innerHTML = groups || `<div class="td-clear"><div class="td-trophy" aria-hidden="true">★</div><b>All clear</b><span>Nothing's due right now. New things land here the moment they're due.</span></div>`;
 }
 // Ticking something off: the row flashes green, slides away, the ring fills.
