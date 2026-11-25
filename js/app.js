@@ -16357,12 +16357,16 @@ async function plLoad(){
     const { data, error } = await supabase.from("plastering_leads").select("*").order("created_at", { ascending: false }).limit(1000);
     if (error) plLoadErr = "Couldn't load the plastering leads. Refresh to try again.";
     else { plLeads = data || []; plLoadErr = ""; }
+    await estLoad();
   } finally { plLoading = false; }
   if (!plLive){
     plLive = true;
     supabase.channel("pl-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "plastering_leads" }, () => {
         plLoad().then(() => { if (state.page === "plastering-leads") renderPlasteringLeads(); mainNavRender(); });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "trade_estimates" }, () => {
+        estLoad().then(() => { if (state.page === "plastering-leads" && !estDraft) renderPlasteringLeads(); });
       })
       .subscribe();
   }
@@ -16375,6 +16379,233 @@ function plNewCount(){
   }
   return plLeads.filter(l => l.status === "new").length;
 }
+/* ───────── Priceless estimates (sql/123, Rocky 26 Nov 2026) ─────────
+   From a trade lead: tap jobs from a price list (rough NZ prices, all
+   editable), it writes the scope, adds GST, and sends the customer a private
+   link (estimate/?t=...) where they read it and sign with their finger.
+   Signing marks the lead Won and texts Rocky. */
+const EST_PRESETS = {
+  plastering: [
+    ["GIB stopping", "Tape, stop and sand new GIB to a level 4 finish", "m²", 28],
+    ["Skim coat walls", "Two coats, sanded smooth, ready for paint", "m²", 35],
+    ["Plaster repairs - holes and cracks", "Cut out, tape and fill; sanded ready for paint", "job", 380],
+    ["Ceiling repair", "Repair or replace damaged ceiling board, stopped to match", "m²", 65],
+    ["Crack repair", "Rake out, tape and fill cracks along joints", "lm", 45],
+    ["Cornice supply and install", "New cove cornice, stopped and finished", "lm", 25],
+    ["Exterior plaster / render", "Prepare, render and finish exterior surface", "m²", 85],
+    ["Paint walls", "Two coats of quality acrylic, walls only", "m²", 25],
+    ["Paint ceilings", "Two coats of flat ceiling paint", "m²", 22],
+    ["Site set-up, protection and clean-up", "Drop sheets, floor protection, full clean-up after", "job", 150],
+    ["Rubbish removal", "Take away all off-cuts and waste", "job", 120],
+  ],
+  roofing: [
+    ["Roof inspection and report", "Full inspection with photos", "job", 250],
+    ["Roof repair", "Replace damaged iron / tiles and reseal", "job", 650],
+    ["Re-roof (long-run iron)", "Remove old roof, supply and fix new long-run", "m²", 95],
+    ["Spouting replacement", "Supply and install new spouting", "lm", 55],
+    ["Downpipe replacement", "Supply and install new downpipe", "each", 180],
+    ["Roof wash and treatment", "Soft wash and moss / lichen treatment", "m²", 6],
+    ["Scaffolding / edge protection", "Safety set-up for the job", "job", 900],
+  ],
+  concreting: [
+    ["Driveway - plain concrete", "Excavate, base course, mesh, pour and finish", "m²", 110],
+    ["Driveway - exposed aggregate", "Excavate, base course, mesh, exposed finish", "m²", 140],
+    ["Patio / path", "Prepare, box, pour and finish", "m²", 120],
+    ["Remove old concrete", "Break out and dispose", "m²", 35],
+    ["Cut and seal joints", "Saw-cut control joints and seal", "job", 250],
+  ],
+  _: [
+    ["Labour", "Skilled tradesperson", "hr", 85],
+    ["Materials", "Supply of materials for the job", "job", 0],
+    ["Site visit and measure", "", "job", 0],
+    ["Site set-up and clean-up", "Protection and full clean-up after", "job", 150],
+  ],
+};
+const EST_EXCLUSIONS = "Anything not listed above\nMoving heavy furniture";
+const EST_TERMS = "This price is for the work described. Any extra work is agreed with you before we start.\nPayment is due within 7 days of the job being finished.\nWe leave the site clean and tidy.";
+let plEst = [], estDraft = null;
+const estLink = (e) => new URL(`estimate/?t=${e.token}`, location.href.split("#")[0].replace(/[^/]*$/, "")).href;
+const estFor = (leadId) => plEst.filter(e => e.lead_id === leadId).sort((a, b) => (b.number || 0) - (a.number || 0));
+function estTotals(items, rate = 0.15){
+  const subtotal = Math.round(items.reduce((t, it) => t + (Number(it.qty) || 0) * (Number(it.price) || 0), 0) * 100) / 100;
+  const gst = Math.round(subtotal * rate * 100) / 100;
+  return { subtotal, gst, total: Math.round((subtotal + gst) * 100) / 100 };
+}
+const estMoney = (n) => "$" + Number(n || 0).toLocaleString("en-NZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const EST_STATUS = { draft: ["Draft", ""], sent: ["Sent", "blue"], viewed: ["Viewed", "gold"], signed: ["Signed ✓", "ok"], declined: ["Declined", "bad"] };
+function estChipHtml(l){
+  const e = estFor(l.id)[0];
+  if (!e) return `<button type="button" class="pl-est-btn" data-est-new="${escapeHtml(l.id)}">＋ Make an estimate</button>`;
+  const [label, cls] = EST_STATUS[e.status] || EST_STATUS.draft;
+  return `<button type="button" class="pl-est-chip ${cls}" data-est-open="${escapeHtml(e.id)}"><span>Estimate #${e.number}</span><b>${estMoney(e.total)}</b><em>${label}${e.status === "viewed" && e.view_count > 1 ? ` ${e.view_count}x` : ""}</em></button>`;
+}
+async function estLoad(){
+  if (!IS_CONFIGURED) return;
+  const { data, error } = await supabase.from("trade_estimates").select("id,number,token,lead_id,business,status,customer_name,customer_phone,customer_email,site_address,title,intro,items,exclusions,terms,gst_rate,subtotal,gst,total,valid_until,created_at,sent_at,viewed_at,view_count,signed_at,signed_name,declined_at,decline_reason").order("number", { ascending: false }).limit(1000);
+  if (!error) plEst = data || [];
+}
+function estStart(leadId, estId){
+  const l = (plLeads || []).find(x => x.id === leadId);
+  const e = estId ? plEst.find(x => x.id === estId) : null;
+  const biz = e?.business || l?.business || "plastering";
+  estDraft = e ? JSON.parse(JSON.stringify(e)) : {
+    id: null, lead_id: leadId, business: biz, status: "draft",
+    customer_name: l?.name || "", customer_phone: l?.phone || "", customer_email: l?.email || "",
+    site_address: l?.suburb || "", title: l?.service || "", intro: "", items: [],
+    exclusions: EST_EXCLUSIONS, terms: EST_TERMS, gst_rate: 0.15, valid_days: 30,
+  };
+  estDraft._msg = l?.message || "";
+  estRender();
+}
+function estScope(){
+  const d = estDraft, names = d.items.map(it => String(it.desc || "").toLowerCase()).filter(Boolean);
+  const list = names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names.slice(-1) : names[0] || "the work";
+  const where = d.site_address ? ` at ${d.site_address}` : "";
+  return `We'll take care of ${list}${where}, done properly and left clean and tidy. ${d._msg ? `As you described: "${String(d._msg).slice(0, 220)}". ` : ""}Everything included is listed below - no surprises.`;
+}
+function estRender(){
+  let m = $("#est-modal");
+  if (!m){
+    m = document.createElement("div"); m.id = "est-modal"; m.className = "est-modal"; document.body.appendChild(m);
+    m.addEventListener("click", estClick); m.addEventListener("input", estInput); m.addEventListener("change", estInput);
+  }
+  const d = estDraft, t = estTotals(d.items, d.gst_rate), locked = ["signed", "declined"].includes(d.status);
+  const presets = EST_PRESETS[d.business] || EST_PRESETS._;
+  const bizOpts = (plBiz || []).filter(b => b.active || b.key === d.business);
+  m.hidden = false; document.body.classList.add("est-open");
+  m.innerHTML = `<div class="est-sheet" role="dialog" aria-modal="true" aria-label="Estimate">
+    <header class="est-head">
+      <div><span class="est-eyebrow">${d.number ? `Estimate #${d.number}` : "New estimate"} · ${escapeHtml(plBizName(d.business))}</span><h2>${escapeHtml(d.customer_name || "Estimate")}</h2></div>
+      <div class="est-head-r">${d.status !== "draft" ? `<span class="est-status ${(EST_STATUS[d.status] || [])[1] || ""}">${(EST_STATUS[d.status] || ["Draft"])[0]}${d.viewed_at ? ` · opened ${escapeHtml(plAgo(d.viewed_at))}` : ""}</span>` : ""}<button type="button" class="est-x" data-est-close aria-label="Close">×</button></div>
+    </header>
+    <div class="est-body">
+      <div class="est-form">
+        ${locked ? `<div class="est-locked">${d.status === "signed" ? `✓ Signed by ${escapeHtml(d.signed_name)} ${escapeHtml(plAgo(d.signed_at))}.` : `They said no thanks${d.decline_reason ? `: "${escapeHtml(d.decline_reason)}"` : ""}.`} This estimate can't be changed.</div>` : ""}
+        <fieldset ${locked ? "disabled" : ""}>
+        <section class="est-sec"><h3>1. Who it's for</h3>
+          <div class="est-grid2">
+            <label>Name<input data-f="customer_name" value="${escapeHtml(d.customer_name || "")}"></label>
+            <label>Mobile<input data-f="customer_phone" value="${escapeHtml(d.customer_phone || "")}"></label>
+            <label>Email<input data-f="customer_email" value="${escapeHtml(d.customer_email || "")}"></label>
+            <label>Job address<input data-f="site_address" value="${escapeHtml(d.site_address || "")}" placeholder="Street, suburb"></label>
+          </div>
+          ${bizOpts.length > 1 ? `<label>Business<select data-f="business">${bizOpts.map(b => `<option value="${escapeHtml(b.key)}"${b.key === d.business ? " selected" : ""}>${escapeHtml(b.name)}</option>`).join("")}</select></label>` : ""}
+        </section>
+        <section class="est-sec"><h3>2. What's the job?</h3>
+          <label>Job title<input data-f="title" value="${escapeHtml(d.title || "")}" placeholder="e.g. Lounge wall repairs and skim coat"></label>
+          <p class="est-hint">Tap to add - rough prices, change anything:</p>
+          <div class="est-presets">${presets.map((p, i) => `<button type="button" data-est-preset="${i}"><b>${escapeHtml(p[0])}</b><span>${p[3] ? `${estMoney(p[3]).replace(".00", "")}/${escapeHtml(p[2])}` : "you set the price"}</span></button>`).join("")}</div>
+          <div class="est-items">
+            ${d.items.length ? `<div class="est-row est-row-h"><span>What</span><span>Qty</span><span>Unit</span><span>Price (ex GST)</span><span>Total</span><span></span></div>` : ""}
+            ${d.items.map((it, i) => `<div class="est-row" data-i="${i}">
+              <span class="est-desc"><input data-it="desc" value="${escapeHtml(it.desc || "")}" placeholder="What you'll do"><input data-it="detail" class="est-detail" value="${escapeHtml(it.detail || "")}" placeholder="Details (optional)"></span>
+              <input data-it="qty" type="number" step="any" min="0" value="${escapeHtml(it.qty)}">
+              <input data-it="unit" value="${escapeHtml(it.unit || "")}">
+              <input data-it="price" type="number" step="any" min="0" value="${escapeHtml(it.price)}">
+              <b class="est-line">${estMoney((Number(it.qty) || 0) * (Number(it.price) || 0))}</b>
+              <button type="button" class="est-del" data-est-del="${i}" aria-label="Remove">×</button>
+            </div>`).join("")}
+            <button type="button" class="est-add" data-est-add>＋ Add your own line</button>
+          </div>
+        </section>
+        <section class="est-sec"><h3>3. The scope, in plain words</h3>
+          <textarea data-f="intro" rows="4" placeholder="What you'll do for them">${escapeHtml(d.intro || "")}</textarea>
+          <button type="button" class="est-link" data-est-write>✨ Write it for me</button>
+          <details class="est-more"><summary>Not included · good to know · valid for</summary>
+            <label>Not included (one per line)<textarea data-f="exclusions" rows="3">${escapeHtml(d.exclusions || "")}</textarea></label>
+            <label>Good to know (one per line)<textarea data-f="terms" rows="4">${escapeHtml(d.terms || "")}</textarea></label>
+            <label>Valid for<select data-f="valid_days">${[14, 30, 60].map(n => `<option value="${n}"${Number(d.valid_days || 30) === n ? " selected" : ""}>${n} days</option>`).join("")}</select></label>
+          </details>
+        </section>
+        </fieldset>
+      </div>
+      <aside class="est-side">
+        <div class="est-total">
+          <div><span>Subtotal</span><b>${estMoney(t.subtotal)}</b></div>
+          <div><span>GST 15%</span><b>${estMoney(t.gst)}</b></div>
+          <div class="grand"><span>Total</span><b>${estMoney(t.total)}</b></div>
+        </div>
+        ${locked ? "" : `<button type="button" class="est-send" data-est-send ${d.items.length && d.customer_name ? "" : "disabled"}>${d.status === "draft" ? "Send to " + escapeHtml(String(d.customer_name || "them").split(" ")[0]) : "Save & send again"}</button>
+        <button type="button" class="est-save" data-est-save>Save draft</button>`}
+        ${d.token && d.status !== "draft" ? `<div class="est-share">
+          <p>Their link:</p><code>${escapeHtml(estLink(d))}</code>
+          <div class="est-share-btns">
+            ${d.customer_phone ? `<a href="sms:${escapeHtml(String(d.customer_phone).replace(/[^\d+]/g, ""))}?&body=${encodeURIComponent(estMsg(d))}">Text it</a>` : ""}
+            ${d.customer_email ? `<a href="mailto:${escapeHtml(d.customer_email)}?subject=${encodeURIComponent(`Your estimate from ${plBizName(d.business)}`)}&body=${encodeURIComponent(estMsg(d))}">Email it</a>` : ""}
+            <button type="button" data-est-copy>Copy link</button>
+            <a href="${escapeHtml(estLink(d))}" target="_blank" rel="noopener">Open it</a>
+          </div></div>` : `<p class="est-side-note">They get a private link to a branded page where they read it and sign with their finger. You get a text the moment they sign.</p>`}
+      </aside>
+    </div>
+  </div>`;
+}
+function estMsg(d){
+  const first = String(d.customer_name || "").split(" ")[0] || "there";
+  return `Hi ${first}, here's your estimate from ${plBizName(d.business)} for ${d.title || "the job"} (${estMoney(estTotals(d.items, d.gst_rate).total)} incl GST). You can read it and sign it here: ${estLink(d)}`;
+}
+function estClose(){ const m = $("#est-modal"); if (m) m.hidden = true; document.body.classList.remove("est-open"); estDraft = null; renderPlasteringLeads(); }
+function estInput(e){
+  if (!estDraft) return;
+  const f = e.target.dataset.f, it = e.target.dataset.it;
+  if (f){ estDraft[f] = e.target.value; if (f === "business" && e.type === "change") estRender(); return; }
+  if (it){
+    const i = Number(e.target.closest("[data-i]").dataset.i), row = estDraft.items[i];
+    row[it] = ["qty", "price"].includes(it) ? e.target.value : e.target.value;
+    const t = estTotals(estDraft.items, estDraft.gst_rate), m = $("#est-modal");
+    e.target.closest("[data-i]").querySelector(".est-line").textContent = estMoney((Number(row.qty) || 0) * (Number(row.price) || 0));
+    const sums = m.querySelectorAll(".est-total b"); sums[0].textContent = estMoney(t.subtotal); sums[1].textContent = estMoney(t.gst); sums[2].textContent = estMoney(t.total);
+  }
+}
+async function estClick(e){
+  const d = estDraft;
+  if (!d) return;
+  if (e.target === e.currentTarget || e.target.closest("[data-est-close]")) return estClose();
+  const p = e.target.closest("[data-est-preset]");
+  if (p){ const x = (EST_PRESETS[d.business] || EST_PRESETS._)[Number(p.dataset.estPreset)]; d.items.push({ desc: x[0], detail: x[1], qty: 1, unit: x[2], price: x[3] }); if (!d.title) d.title = x[0]; return estRender(); }
+  if (e.target.closest("[data-est-add]")){ d.items.push({ desc: "", detail: "", qty: 1, unit: "job", price: 0 }); estRender(); return $("#est-modal .est-row:last-of-type input")?.focus(); }
+  const del = e.target.closest("[data-est-del]");
+  if (del){ d.items.splice(Number(del.dataset.estDel), 1); return estRender(); }
+  if (e.target.closest("[data-est-write]")){ d.intro = estScope(); return estRender(); }
+  if (e.target.closest("[data-est-copy]")){ try { await navigator.clipboard.writeText(estLink(d)); e.target.textContent = "Copied ✓"; } catch(err){ prompt("Copy this link:", estLink(d)); } return; }
+  if (e.target.closest("[data-est-save]")) return estSave(false);
+  if (e.target.closest("[data-est-send]")) return estSave(true);
+}
+async function estSave(send){
+  const d = estDraft;
+  if (!d.intro && d.items.length) d.intro = estScope();
+  const t = estTotals(d.items, d.gst_rate);
+  const days = Number(d.valid_days) || 30;
+  const row = {
+    lead_id: d.lead_id, business: d.business, customer_name: d.customer_name || null, customer_phone: d.customer_phone || null,
+    customer_email: d.customer_email || null, site_address: d.site_address || null, title: d.title || null, intro: d.intro || null,
+    items: d.items.map(it => ({ desc: String(it.desc || "").trim(), detail: String(it.detail || "").trim(), qty: Number(it.qty) || 0, unit: String(it.unit || "").trim(), price: Number(it.price) || 0 })).filter(it => it.desc),
+    exclusions: d.exclusions || null, terms: d.terms || null, gst_rate: d.gst_rate, ...t,
+    valid_until: d.valid_until && d.status !== "draft" && !send ? d.valid_until : localDayStr(new Date(Date.now() + days * 86400e3)),
+    updated_at: new Date().toISOString(),
+  };
+  if (send){ row.status = ["viewed"].includes(d.status) ? "viewed" : "sent"; row.sent_at = new Date().toISOString(); }
+  let saved;
+  if (IS_CONFIGURED){
+    const q = d.id ? supabase.from("trade_estimates").update(row).eq("id", d.id).select("*").single()
+      : supabase.from("trade_estimates").insert({ ...row, status: row.status || "draft", created_by: state.user?.email || null }).select("*").single();
+    const { data, error } = await q;
+    if (error) return alert("Couldn't save the estimate. The setup may still be finishing - try again in a few minutes.");
+    saved = data;
+  } else {
+    saved = { ...d, ...row, id: d.id || "est-" + Date.now(), number: d.number || 1000 + plEst.length + 1, token: d.token || Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join(""), status: row.status || d.status || "draft" };
+  }
+  plEst = [saved, ...plEst.filter(x => x.id !== saved.id)];
+  // Sending moves the lead along to Quoted.
+  const l = (plLeads || []).find(x => x.id === d.lead_id);
+  if (send && l && ["new", "contacted"].includes(l.status)) await plSave(l.id, { status: "quoted" });
+  estDraft = { ...JSON.parse(JSON.stringify(saved)), _msg: d._msg, valid_days: days };
+  estRender();
+  if (send){
+    const btn = $("#est-modal .est-share-btns a, #est-modal .est-share-btns button");
+    btn?.classList.add("pulse");
+  }
+}
+
 // The businesses (sql/122 trade_businesses) and where new-lead texts go (trade_settings).
 let plBiz = null, plSettings = null, plBizPick = (() => { try { return localStorage.getItem("mp_pl_biz") || "all"; } catch(e){ return "all"; } })(), plSetOpen = false;
 async function plLoadSetup(){
@@ -16394,6 +16625,7 @@ function plTitle(){
 }
 const plTel = (p) => String(p || "").replace(/[^\d+]/g, "");
 const plAgo = (iso) => { const ms = Date.now() - (Date.parse(iso) || Date.now()); if (ms < 60e3) return "just now"; if (ms > 7 * 86400e3) return new Date(iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short" }); return lqShortAgo(ms) + " ago"; };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && estDraft && !$("#est-modal")?.hidden) estClose(); });
 // Board card: who, what, where, one big Call, notes / details folded away.
 function plCardHtml(l){
   const multi = (plBiz || []).filter(b => b.active).length > 1;
@@ -16409,6 +16641,7 @@ function plCardHtml(l){
     ${l.message ? `<p class="pl-msg"><span>${escapeHtml(l.message)}</span></p>` : ""}
     ${l.notes ? `<p class="pl-note-peek"><span>${escapeHtml(l.notes)}</span></p>` : ""}
     ${tel ? `<a class="pl-call" href="tel:${escapeHtml(tel)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>${escapeHtml(l.phone)}</a>` : ""}
+    ${estChipHtml(l)}
     <details class="pl-more">
       <summary>Notes &amp; details</summary>
       <label>Notes<textarea data-pl-notes rows="3" placeholder="Site visit time, quote amount, anything else">${escapeHtml(l.notes || "")}</textarea></label>
@@ -16431,7 +16664,10 @@ function plSettingsHtml(){
     </div>
     <div class="pl-set-biz">
       <b>Your businesses</b>
-      <ul>${(plBiz || []).map(b => `<li><span>${escapeHtml(b.name)}</span><code>${escapeHtml(b.key)}</code></li>`).join("")}</ul>
+      <p>Their details print on every estimate - fill them in once.</p>
+      <div class="pl-biz-list">${(plBiz || []).map(b => `<details class="pl-biz-edit" data-biz-key="${escapeHtml(b.key)}"><summary><b>${escapeHtml(b.name)}</b><code>${escapeHtml(b.key)}</code>${b.gst_number && b.phone ? "" : `<em>details missing</em>`}</summary>
+        <div class="pl-biz-grid">${[["name", "Name on the estimate"], ["legal_name", "Legal name (e.g. ... Ltd)"], ["gst_number", "GST number"], ["phone", "Phone"], ["email", "Email"], ["website", "Website"], ["address", "Address"]].map(([k, t]) => `<label>${t}<input data-bf="${k}" value="${escapeHtml(b[k] || "")}"></label>`).join("")}</div>
+        <button type="button" class="btn gold sm" data-pl-save-biz>Save ${escapeHtml(b.name)}</button></details>`).join("")}</div>
       <div class="pl-set-row"><input type="text" id="pl-new-biz" placeholder="Add one, e.g. Priceless Roofing"><button type="button" class="btn ghost sm" data-pl-add-biz>+ Add business</button></div>
       <p>Each website sends its leads with its key (e.g. <code>business: "roofing"</code>) so they land under the right business.</p>
     </div>
@@ -16570,9 +16806,22 @@ function plBind(root){
   plBound = true;
   plBindDrag(root);
   root.addEventListener("click", async (e) => {
+    const en = e.target.closest("[data-est-new]");
+    if (en) return estStart(en.dataset.estNew);
+    const eo = e.target.closest("[data-est-open]");
+    if (eo){ const x = plEst.find(y => y.id === eo.dataset.estOpen); return estStart(x?.lead_id, x?.id); }
     if (e.target.closest("[data-pl-settings]")){ plSetOpen = !plSetOpen; return renderPlasteringLeads(); }
     if (e.target.closest("[data-pl-save-set]")) return plSaveSettings();
     if (e.target.closest("[data-pl-add-biz]")) return plAddBiz();
+    const sb = e.target.closest("[data-pl-save-biz]");
+    if (sb){
+      const box = sb.closest("[data-biz-key]"), key = box.dataset.bizKey, patch = {};
+      box.querySelectorAll("[data-bf]").forEach(i => { patch[i.dataset.bf] = i.value.trim() || null; });
+      if (!patch.name) return alert("The business needs a name.");
+      if (IS_CONFIGURED){ const { error } = await supabase.from("trade_businesses").update(patch).eq("key", key); if (error) return alert("Couldn't save that. Try again."); }
+      plBiz = plBiz.map(b => b.key === key ? { ...b, ...patch } : b);
+      sb.textContent = "Saved ✓"; setTimeout(() => renderPlasteringLeads(), 700); return;
+    }
     const tb = e.target.closest("[data-pl-test]");
     if (tb){
       if (!IS_CONFIGURED) return alert("Test texts only work on the live CRM.");
