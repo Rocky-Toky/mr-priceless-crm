@@ -381,8 +381,13 @@ function clientProfileCompleteness(c){
 // lead goes straight to the client's own app and they call it; Meta and Google Ads.
 // Retired keys (GHL / Zapier / old CRM demo): ghl_template, crm_login, crm_auto_text,
 // demo_2, demo_3, demo_5, cal_sync_ghl, cal_block_slots, cal_share_max, zapier_setup,
-// ghl_report_connect - never reuse them.
+// ghl_report_connect - never reuse them. Dropped questions (Rocky, 26 Nov 2026):
+// good_lead_2 (budget/timeline), good_lead_sqm, good_lead_6 (after hours).
 const ONBOARDING_SECTIONS = [
+  { section: "Pre Setup", items: [
+    { key: "pre_meta_account", text: "Meta account - if they don't have one already, set up their Meta Business account and ad account before the call." },
+    { key: "pre_google_account", text: "Google Ads account - if they don't have one already, set one up for them under our manager account and send them the invite to accept." },
+  ]},
   { section: "Get Started", items: [
     { key: "welcome_email", text: "Send the welcome email." },
     { key: "client_website", text: "Add their website link.", derivedFrom: "website" },
@@ -391,11 +396,8 @@ const ONBOARDING_SECTIONS = [
   ]},
   { section: "Define What A Good Lead Looks Like For Them", items: [
     { key: "good_lead_1", text: "Ask what they consider a job they're happy to quote for.", answerable: true, fieldLabel: "What Counts As A Good Lead" },
-    { key: "good_lead_2", text: "Confirm their budget and timeline expectations.", answerable: true, fieldLabel: "Budget & Timeline Expectations" },
     { key: "good_lead_3", text: "Confirm their average job value.", answerable: true, fieldLabel: "Average Job Value" },
-    { key: "good_lead_sqm", text: "If it applies to their trade, ask their price per square metre (SQM).", answerable: true, fieldLabel: "Price Per SQM" },
     { key: "good_lead_5", text: "Confirm how far out from their base they're willing to quote.", answerable: true, fieldLabel: "Service Radius" },
-    { key: "good_lead_6", text: "Confirm whether they can quote after hours or on weekends.", answerable: true, fieldLabel: "After-Hours / Weekend Quoting" },
     { key: "good_lead_margin", text: "Ask roughly what margin they make on a typical job, after materials and labour.", answerable: true, fieldLabel: "Rough Margin", targetField: "margin" },
   ]},
   { section: "Meta Access", items: [
@@ -406,7 +408,7 @@ const ONBOARDING_SECTIONS = [
     { key: "meta_card_details", text: "Have them add their card details to the Meta ad account so the ads can run." },
   ]},
   { section: "Google Ads Access", items: [
-    { key: "google_ads_access", text: "Get access to their Google Ads account - they invite us as an admin, or if they don't have one we set it up under our manager account and send them the invite to accept." },
+    { key: "google_ads_access", text: "Get admin access to their Google Ads account (if we set it up for them, check they've accepted the invite)." },
     { key: "google_ads_billing", text: "Have them add their card details in Google Ads billing so the ads can run." },
     { key: "google_business_profile", text: "If they have a Google Business Profile, link it so their ads can show their location and reviews." },
     { key: "google_conversion", text: "Set up conversion tracking on their quote form, so Google knows which clicks become leads." },
@@ -6980,7 +6982,6 @@ const LAUNCH_ESSENTIALS = [
   { key: "good_lead_1", label: "A job they're happy to quote", placeholder: "e.g. Kitchen and bathroom renos over $15k" },
   { key: "good_lead_3", label: "Average job value", placeholder: "e.g. $18,000" },
   { key: "good_lead_5", label: "How far they'll travel", placeholder: "e.g. 40 minutes from Mt Maunganui" },
-  { key: "good_lead_6", label: "After hours or weekend quotes", placeholder: "e.g. Saturday mornings only" },
   { key: "good_lead_margin", label: "Rough margin on a job", placeholder: "e.g. 35%", optional: true },
 ];
 const LAUNCH_MILESTONES = [
@@ -6992,7 +6993,7 @@ const LAUNCH_MILESTONES = [
     { key: "kickoff_booked", label: "Kickoff call booked", dateField: "kickoff_at" },
     { key: "expect_own_calls", label: "They know they call their own leads, fast" },
     { key: "honest_expect_1", label: "Honest expectations set (paid leads, month one)" },
-    { key: "essentials", label: "Lead essentials captured", derived: "essentials", hint: "Fill in the four lead essentials." },
+    { key: "essentials", label: "Lead essentials captured", derived: "essentials", hint: "Fill in the three lead essentials." },
   ]},
   { key: "ads_due", label: "Ads Due", blurb: "Access in, app set up", tasks: [
     { key: "meta_partner_access", label: "Partner access to their Meta ad account", who: "client", ask: "Partner access to your Meta ad account" },
