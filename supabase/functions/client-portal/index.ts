@@ -191,6 +191,21 @@ async function logText(admin: any, row: Record<string, unknown>) {
 const STALE_MS: Record<string, number> = { new_lead: 6 * 3600e3, call_due: 3600e3, visit_today: 12 * 3600e3, digest: 3 * 3600e3, booked: 24 * 3600e3 };
 
 const PUSH_PAUSED = true;
+// Priceless trade leads (sql/122): a text to Rocky's mobile for every new lead.
+async function tradeAlerts(admin: any) {
+  const { data: waiting } = await admin.from("trade_alerts").select("id").eq("status", "pending").order("created_at").limit(50);
+  const ids = (waiting || []).map((r: any) => r.id);
+  if (!ids.length) return 0;
+  const { data: rows } = await admin.from("trade_alerts").update({ status: "sending" }).in("id", ids).eq("status", "pending").select("*");
+  let sent = 0;
+  for (const r of rows || []) {
+    const to = e164(r.to_phone);
+    const err = to ? await sendText(to, r.body, "Rocky") : "That mobile number doesn't look right";
+    if (!err) sent++;
+    await admin.from("trade_alerts").update({ status: err ? "failed" : "sent", error: err ? String(err).slice(0, 300) : null, sent_at: err ? null : new Date().toISOString() }).eq("id", r.id);
+  }
+  return sent;
+}
 async function deliver(admin: any) {
   const keys = await vapidKeys(admin);
   const { data: waiting } = await admin.from("portal_notifications").select("id").eq("status", "pending").order("created_at").limit(200);
@@ -370,7 +385,9 @@ Deno.serve(async (req) => {
   if (cronHeader) {
     const { data: secret } = await admin.from("app_secrets").select("value").eq("name", "portal_cron_secret").maybeSingle();
     if (!secret?.value || secret.value !== cronHeader) return json({ error: "Unauthorized." }, 401);
-    try { return json(await deliver(admin)); } catch (e) { return json({ error: String((e as any)?.message || e) }, 500); }
+    let trade = 0;
+    try { trade = await tradeAlerts(admin); } catch (e) { console.log("trade alerts failed: " + String((e as any)?.message || e).slice(0, 200)); }
+    try { const out: any = await deliver(admin); return json({ ...(out && typeof out === "object" && !(out instanceof Response) ? out : {}), trade_texts: trade }); } catch (e) { return json({ error: String((e as any)?.message || e) }, 500); }
   }
 
   const authed = createClient(SUPABASE_URL, ANON, { auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } });
@@ -395,6 +412,13 @@ Deno.serve(async (req) => {
   if (!allowed || (allowed.access || "full") !== "full") return json({ error: "Unauthorized." }, 401);
 
   try {
+    if (body.action === "trade_test_text") {
+      const { data: st } = await admin.from("trade_settings").select("alert_phone").eq("id", 1).maybeSingle();
+      const to = e164(st?.alert_phone || "");
+      if (!to) return json({ error: "Save your mobile number first." });
+      const err = await sendText(to, "Mr Priceless: test text. New Priceless trade leads will text this number.", "Rocky");
+      return json(err ? { error: err } : { ok: true });
+    }
     if (body.action === "invite") {
       const email = cleanEmail(body.email), name = String(body.name || "").trim().slice(0, 120);
       const phone = String(body.phone || "").replace(/[^\d+]/g, "").slice(0, 20) || null;
