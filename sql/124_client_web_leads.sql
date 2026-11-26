@@ -17,7 +17,8 @@ where id = (select id from clients where name ilike 'a and b concrete%' order by
   and not exists (select 1 from clients where web_form_key = 'ab-concrete');
 
 -- The landing pages call this with the publishable (anon) key.
---   p: { key, name, phone, email, suburb, job, message, page, gclid, fbclid }
+--   p: { key, name, phone, email, suburb, job, budget, timing, message, page, gclid, fbclid }
+-- (budget / timing: the page's tap-to-choose questions; it only sends people who qualify)
 create or replace function public.submit_client_lead(p jsonb)
 returns jsonb
 language plpgsql
@@ -32,6 +33,8 @@ declare
   v_suburb text := nullif(left(btrim(coalesce(p->>'suburb', '')), 80), '');
   v_job text := nullif(left(btrim(coalesce(p->>'job', '')), 80), '');
   v_message text := nullif(left(btrim(coalesce(p->>'message', '')), 2000), '');
+  v_budget text := nullif(left(btrim(coalesce(p->>'budget', '')), 40), '');
+  v_timing text := nullif(left(btrim(coalesce(p->>'timing', '')), 40), '');
   v_page text := nullif(left(btrim(coalesce(p->>'page', '')), 300), '');
   v_gclid text := nullif(left(btrim(coalesce(p->>'gclid', '')), 200), '');
   v_fbclid text := nullif(left(btrim(coalesce(p->>'fbclid', '')), 300), '');
@@ -57,6 +60,8 @@ begin
     return jsonb_build_object('ok', false, 'error', 'too many leads this hour');
   end if;
   if v_job is not null then v_answers := v_answers || jsonb_build_array(jsonb_build_object('q', 'What job', 'a', v_job)); end if;
+  if v_budget is not null then v_answers := v_answers || jsonb_build_array(jsonb_build_object('q', 'Budget', 'a', v_budget)); end if;
+  if v_timing is not null then v_answers := v_answers || jsonb_build_array(jsonb_build_object('q', 'When', 'a', v_timing)); end if;
   if v_suburb is not null then v_answers := v_answers || jsonb_build_array(jsonb_build_object('q', 'Suburb', 'a', v_suburb)); end if;
   if v_message is not null then v_answers := v_answers || jsonb_build_array(jsonb_build_object('q', 'Anything else', 'a', v_message)); end if;
   v_id := gen_random_uuid();
