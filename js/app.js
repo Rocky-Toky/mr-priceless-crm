@@ -12711,15 +12711,15 @@ function todayItems(){
     const c = state.clients.find(x => x.id === e.client_id), name = inboxShortName(c?.name || e.client_name) || "a client";
     const hrs = (now - new Date(e.received_at).getTime()) / 3600e3, owner = personKeyFromEmail(e.inbox_email);
     if (inboxIsCheckin(e)){
-      items.push({ area: "clients", owner, tone: hrs > 2 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
+      items.push({ prio: 4, area: "clients", owner, tone: hrs > 2 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
         title: `Call ${name} - ${e.subject || "check-in call"}`, sub: "A friendly check-in: how the first weeks are going and anything they need.",
         actions: (c?.phone ? btn(`Call ${name}`, `data-action="call-number" data-phone="${escapeHtml(c.phone)}" data-name="${escapeHtml(c.name || "")}"`, "gold") : "") + btn("Called them ✓", `data-td-done="${e.id}"`) });
     } else if (inboxIsReport(e)){
-      items.push({ area: "clients", owner, tone: hrs > 24 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
+      items.push({ prio: 6, area: "clients", owner, tone: hrs > 24 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
         title: `Send ${name}'s fortnightly report`, sub: `Due ${inboxAge(e.received_at)} ago.`,
         actions: go("Make the report", "reporting", "gold") + btn("Sent it ✓", `data-td-done="${e.id}"`) });
     } else {
-      items.push({ area: "clients", owner, tone: hrs > 2 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
+      items.push({ prio: 5, area: "clients", owner, tone: hrs > 2 ? "bad" : "warn", at: new Date(e.received_at).getTime(),
         title: `Reply to ${e.from_name || e.from_email || "them"} at ${name}`, sub: `${e.subject || "(no subject)"} · waiting ${inboxAge(e.received_at)}`,
         actions: `<a class="td-btn gold" href="${inboxGmailLink(e)}" target="_blank" rel="noopener">Reply in Gmail</a>` + btn("No reply needed", `data-td-done="${e.id}"`) });
     }
@@ -12730,7 +12730,7 @@ function todayItems(){
     const mine = state.inboxConnections.find(c => c.user_id === (state.user?.id || "demo"));
     const stale = mine?.last_sync_at && now - new Date(mine.last_sync_at) > INBOX_STALE_MS * 3;
     if (mine && mine.status === "ok" && !stale) return;
-    items.push({ area: "clients", owner: null, tone: "warn", at: now,
+    items.push({ prio: 9, area: "clients", owner: null, tone: "warn", at: now,
       title: mine ? "Your Gmail has stopped checking in" : "Connect your Gmail", sub: "So client emails land on Today. Takes 2 minutes.",
       actions: go(mine ? "Fix it" : "Set it up", "client-inbox", "gold") });
   });
@@ -12738,13 +12738,13 @@ function todayItems(){
   // Meeting tasks that are due now (booking texts, reminder calls, outcomes...).
   safe(() => pmMyTasks(true).forEach(t => {
     const m = t.meeting, who = [m.first_name, m.last_name].filter(Boolean).join(" ") || m.company || "the prospect";
-    items.push({ area: "sales", owner: t.owner, tone: t.state === "late" ? "bad" : "warn", at: t.due,
+    items.push({ prio: 3, area: "sales", owner: t.owner, tone: t.state === "late" ? "bad" : "warn", at: t.due,
       title: `${t.label} - ${who}`, sub: `Meeting ${nzDayStr(new Date(m.starts_at)) === nzDayStr(new Date()) ? "today" : "on " + new Date(m.starts_at).toLocaleDateString("en-NZ", { weekday: "short", day: "numeric", month: "short" })} at ${pmTime(m.starts_at)}`,
       actions: (m.phone && (t.kind === "call" || t.kind === "text") ? `<a class="td-btn gold" href="${t.kind === "text" ? "sms" : "tel"}:${escapeHtml(m.phone)}">${t.kind === "text" ? "Text" : "Call"} ${escapeHtml(m.first_name || "them")}</a>` : "") + go("Open", "meetings") });
   }));
   // Meetings still to happen today.
   safe(() => state.meetings.filter(m => m.status === "scheduled" && nzDayStr(new Date(m.starts_at)) === nzDayStr(new Date()) && Date.parse(m.starts_at) > now).forEach(m => {
-    items.push({ area: "sales", owner: m.closer, tone: "ok", at: Date.parse(m.starts_at),
+    items.push({ prio: 11, area: "sales", owner: m.closer, tone: "ok", at: Date.parse(m.starts_at),
       title: `Meeting with ${[m.first_name, m.last_name].filter(Boolean).join(" ") || "a prospect"} at ${pmTime(m.starts_at)}`, sub: m.company || "",
       actions: (m.meet_link ? `<a class="td-btn" href="${escapeHtml(m.meet_link)}" target="_blank" rel="noopener">Join</a>` : "") + go("Open", "meetings") });
   }));
@@ -12756,7 +12756,7 @@ function todayItems(){
     if (behindAds.length){
       const late = behindAds.filter(x => x.am.overdue).length;
       const names = behindAds.map(x => `${inboxShortName(x.c.name)} ${x.am.live}/${x.am.target}`);
-      items.push({ area: "ads", owner: null, tone: late ? "bad" : "warn", at: now,
+      items.push({ prio: 8, area: "ads", owner: null, tone: late ? "bad" : "warn", at: now,
         title: `${behindAds.length} client${behindAds.length === 1 ? "" : "s"} still need ads live this month`,
         sub: names.slice(0, 6).join(" · ") + (names.length > 6 ? ` · +${names.length - 6} more` : "") + (late ? ` - ${late} behind` : ""),
         actions: go("This month", "ads-month", late ? "gold" : "ghost") });
@@ -12765,19 +12765,19 @@ function todayItems(){
     state.clients.filter(c => !c.is_test && inOnboardingSection(c)).forEach(c => {
       const ls = launchState(c);
       if (!["late", "stalled", "client", "ready"].includes(ls.status.key)) return;
-      items.push({ area: "clients", owner: ls.owner, tone: ["late", "stalled"].includes(ls.status.key) ? "bad" : "warn", at: now,
+      items.push({ prio: 7, area: "clients", owner: ls.owner, tone: ["late", "stalled"].includes(ls.status.key) ? "bad" : "warn", at: now,
         title: `${inboxShortName(c.name)}: ${ls.status.key === "ready" ? "ready to finish onboarding" : ls.status.label.toLowerCase()}`,
         sub: ls.nextTask ? `Next: ${ls.nextTask.label}` : `Onboarding step ${ls.current + 1} of ${LAUNCH_MILESTONES.length}`,
         actions: openClient(c.id, ls.status.key === "ready" ? "Finish onboarding" : "Open") });
     });
     // Stripe: failed / overdue payments (one red row each).
-    stTodayItems().forEach(x => items.push(x));
+    stTodayItems().forEach(x => items.push({ prio: 1, ...x }));
     // Payments: Stripe tells us when one fails or goes overdue (above), so the hand-kept "payment due" rows are gone (Rocky, 14 Nov 2026).
   });
 
   // To-dos due today or overdue.
   safe(() => state.tasks.filter(t => t.status === "open" && t.due_date && t.due_date <= today && !isSalesFollowup(t)).forEach(t => {
-    items.push({ area: "tasks", owner: t.assignee || null, tone: t.due_date < today ? "bad" : "warn", at: now,
+    items.push({ prio: 8, area: "tasks", owner: t.assignee || null, tone: t.due_date < today ? "bad" : "warn", at: now,
       title: t.title || "To-do", sub: t.due_date < today ? `Was due ${new Date(t.due_date + "T00:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}` : "Due today",
       actions: btn("Done ✓", `data-td-task="${t.id}"`) + btn("Open", `data-action="edit-task" data-id="${t.id}"`) });
   }));
@@ -12788,7 +12788,7 @@ function todayItems(){
   safe(() => {
     const n = lsLeads().length;
     if (!n) return;
-    items.push({ area: "leads", owner: null, tone: "warn", at: now,
+    items.push({ prio: 10, area: "leads", owner: null, tone: "warn", at: now,
       title: `${n} lead${n === 1 ? "" : "s"} for you to sort`, sub: "Leads Mr Priceless had - give each back to the client or disqualify it",
       actions: go("Sort them", "lead-sort", "gold") });
   });
@@ -12799,7 +12799,7 @@ function todayItems(){
     if (!due.length) return;
     const fresh = due.filter(l => (l.follow_status || "new") === "new" && now - lqIn(l) < 24 * 3600e3);
     const late = fresh.some(l => now - lqIn(l) > LQ_FAST_MS);
-    items.push({ area: "leads", owner: null, tone: late ? "bad" : "warn", at: now,
+    items.push({ prio: 2, area: "leads", owner: null, tone: late ? "bad" : "warn", at: now,
       title: `${due.length} lead${due.length === 1 ? "" : "s"} waiting for a call`, sub: fresh.length ? `${fresh.length} new enquir${fresh.length === 1 ? "y" : "ies"}${late ? " - past the 3 minutes" : ""}` : "Retries and call-backs that are due",
       actions: go("Open the call queue", "lead-queue", late ? "gold" : "ghost") });
   });
@@ -12809,13 +12809,16 @@ function todayItems(){
     const fresh = (inbLeads || []).filter(l => l.status === "new");
     if (!fresh.length) return;
     const oldest = Math.min(...fresh.map(l => Date.parse(l.created_at) || now));
-    items.push({ area: "sales", owner: null, tone: now - oldest > 3600e3 ? "bad" : "warn", at: oldest,
+    items.push({ prio: 2, area: "sales", owner: null, tone: now - oldest > 3600e3 ? "bad" : "warn", at: oldest,
       title: `${fresh.length} new inbound lead${fresh.length === 1 ? "" : "s"} to call`, sub: "From the Mr Priceless Facebook / Instagram lead forms",
       actions: go("Open inbound leads", "inbound-leads", "gold") });
   });
 
+  // One list in order of priority (Rocky, 26 Nov 2026): money, new leads, meeting
+  // jobs, client calls / emails / reports, onboarding, ads and to-dos, then the rest.
+  // Within the same kind, late ones first, then the longest waiting.
   const rank = { bad: 0, warn: 1, ok: 2 };
-  return items.sort((a, b) => rank[a.tone] - rank[b.tone] || a.at - b.at);
+  return items.sort((a, b) => (a.prio || 9) - (b.prio || 9) || rank[a.tone] - rank[b.tone] || a.at - b.at);
 }
 // How many things were ticked off today (on this computer), for the progress ring.
 const tdDoneKey = () => "mp_today_done_" + localDayStr();
@@ -12912,10 +12915,8 @@ function renderToday(){
       <span class="td-area">${escapeHtml(TODAY_AREAS[x.area] || "")}</span>
       <div class="td-acts">${x.actions || ""}</div>
     </article>`;
-  const groups = [["bad", "Overdue"], ["warn", "Due today"], ["ok", "Later today"]].map(([t, label]) => {
-    const g = list.filter(x => x.tone === t);
-    return g.length ? `<section class="td-group ${t}"><h3>${label}<span>${g.length}</span></h3>${g.map(row).join("")}</section>` : "";
-  }).join("");
+  // One list, most important first - no Overdue / Due today headings (Rocky, 26 Nov 2026).
+  const groups = list.length ? `<section class="td-group td-one">${list.map(row).join("")}</section>` : "";
   tdQuickSync(root);
   // tdDashSync(root); - the dashboard row is off for now (Rocky, 26 Nov 2026); the code stays for later.
   root.querySelector(".td-body").innerHTML = groups || `<div class="td-clear"><div class="td-trophy" aria-hidden="true">★</div><b>All clear</b><span>Nothing's due right now. New things land here the moment they're due.</span></div>`;

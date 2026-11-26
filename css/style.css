@@ -5387,7 +5387,8 @@ body.leads-only .page-tabs{display:none !important;}
 .td-group h3 span{font-size:12px;min-width:22px;text-align:center;padding:1px 7px;border-radius:999px;background:#f1ece0;color:var(--black);}
 .td-group{background:var(--white);border:1px solid var(--line);border-radius:20px;padding:14px 18px 6px;}
 .td-row{display:grid;grid-template-columns:12px minmax(0,1fr) auto auto;align-items:center;gap:14px;padding:13px 0;border-top:1px solid var(--line);}
-.td-group h3 + .td-row{border-top:0;}
+.td-group h3 + .td-row, .td-group > .td-row:first-child{border-top:0;}
+.td-group.td-one{padding-top:6px;}
 .td-dot{width:10px;height:10px;border-radius:50%;background:#c9c2b1;}
 .td-row.bad .td-dot{background:#c2452d;box-shadow:0 0 0 4px #fbeeea;}
 .td-row.warn .td-dot{background:var(--gold);box-shadow:0 0 0 4px #f6efdc;}
