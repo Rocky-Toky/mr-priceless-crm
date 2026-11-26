@@ -12761,15 +12761,7 @@ function todayItems(){
         sub: names.slice(0, 6).join(" · ") + (names.length > 6 ? ` · +${names.length - 6} more` : "") + (late ? ` - ${late} behind` : ""),
         actions: go("This month", "ads-month", late ? "gold" : "ghost") });
     }
-    // Onboarding clients that are behind or waiting on the client.
-    state.clients.filter(c => !c.is_test && inOnboardingSection(c)).forEach(c => {
-      const ls = launchState(c);
-      if (!["late", "stalled", "client", "ready"].includes(ls.status.key)) return;
-      items.push({ prio: 7, area: "clients", owner: ls.owner, tone: ["late", "stalled"].includes(ls.status.key) ? "bad" : "warn", at: now,
-        title: `${inboxShortName(c.name)}: ${ls.status.key === "ready" ? "ready to finish onboarding" : ls.status.label.toLowerCase()}`,
-        sub: ls.nextTask ? `Next: ${ls.nextTask.label}` : `Onboarding step ${ls.current + 1} of ${LAUNCH_MILESTONES.length}`,
-        actions: openClient(c.id, ls.status.key === "ready" ? "Finish onboarding" : "Open") });
-    });
+    // Onboarding clients stay on the Onboarding page only, never on Today (Rocky, 26 Nov 2026).
     // Stripe: failed / overdue payments (one red row each).
     stTodayItems().forEach(x => items.push({ prio: 1, ...x }));
     // Payments: Stripe tells us when one fails or goes overdue (above), so the hand-kept "payment due" rows are gone (Rocky, 14 Nov 2026).
