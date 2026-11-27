@@ -11,6 +11,16 @@ const CFG = self.CRM_CONFIG || {};
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
+// Opening the app: always the latest page from the network, with a plain
+// "you're offline" page if there's no signal. Having a real fetch handler is
+// also what lets Android offer the one-tap "Install app" prompt.
+self.addEventListener("fetch", (e) => {
+  if (e.request.mode !== "navigate") return;
+  e.respondWith(fetch(e.request).catch(() => new Response(
+    '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;background:#09090a;color:#f5efe0;display:grid;place-items:center;min-height:100vh;margin:0;text-align:center;padding:24px"><div><h1 style="font-size:22px">You\'re offline</h1><p>Your leads will show again as soon as you have signal.</p></div>',
+    { headers: { "Content-Type": "text/html" } })));
+});
+
 self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = { title: "Mr Priceless", body: e.data ? e.data.text() : "" }; }
