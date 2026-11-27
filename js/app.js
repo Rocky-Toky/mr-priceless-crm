@@ -12764,6 +12764,29 @@ function todayItems(){
     // Onboarding clients stay on the Onboarding page only, never on Today (Rocky, 26 Nov 2026).
     // Stripe: failed / overdue payments (one red row each).
     stTodayItems().forEach(x => items.push({ prio: 1, ...x }));
+    // Monthly invoices (Rocky, 27 Nov 2026): one row per client whose invoice is due in the
+    // next 2 days or overdue, and one row for clients with no invoice date set. Clients
+    // Stripe charges every month (a live subscription) don't need either.
+    const billable = state.clients.filter(c => !c.is_test && !inOnboardingSection(c) && rcIsBillable(c) && !rcBilling(c).paused && !stCoversClient(c));
+    const soon = rcAddDays(today, 2);
+    billable.filter(c => rcBilling(c).start && rcFee(c) > 0).forEach(c => {
+      const next = rcNextDue(c);
+      if (!next || next.date > soon) return;
+      const days = rcDaysBetween(today, next.date);
+      const draft = rcRecordsOf(c).find(r => !rcIsPaid(r) && r.status !== "void" && r.cycle === next.cycle);
+      items.push({ prio: 1, area: "money", owner: null, tone: days < 0 ? "bad" : "warn", at: Date.parse(next.date + "T00:00:00") || now,
+        title: `Invoice due: ${inboxShortName(c.name)}`,
+        sub: `${rcMoney(rcFee(c) * (1 + RC_GST))} incl. GST · ${days < 0 ? `${-days} day${days === -1 ? "" : "s"} overdue` : days === 0 ? "due today" : days === 1 ? "due tomorrow" : "due in 2 days"} (${rcShort(next.date)})`,
+        actions: btn("Record payment", `data-action="${draft ? "rc-edit" : "rc-create"}" data-id="${draft ? draft.id : c.id}"`, "gold") + go("Money", "receipts") });
+    });
+    const noDate = billable.filter(c => !rcBilling(c).start);
+    if (noDate.length){
+      const names = noDate.map(c => inboxShortName(c.name));
+      items.push({ prio: 1, area: "money", owner: null, tone: "warn", at: now + 30 * 864e5,
+        title: `${noDate.length} client${noDate.length === 1 ? " has" : "s have"} no invoice date set`,
+        sub: "When should they pay each month? " + names.slice(0, 6).join(" · ") + (names.length > 6 ? ` · +${names.length - 6} more` : ""),
+        actions: btn(`Set ${names[0]}'s date`, `data-action="rc-billing" data-id="${noDate[0].id}"`, "gold") });
+    }
     // Payments: Stripe tells us when one fails or goes overdue (above), so the hand-kept "payment due" rows are gone (Rocky, 14 Nov 2026).
   });
 
