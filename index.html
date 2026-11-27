@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
 <!-- Fonts load alongside the page instead of holding it up. -->
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@800,700,500,400&f[]=general-sans@400,500,600,700&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="css/style.css?v=451">
-<link rel="stylesheet" href="css/meetings-tracker.css?v=451">
+<link rel="stylesheet" href="css/style.css?v=452">
+<link rel="stylesheet" href="css/meetings-tracker.css?v=452">
 </head>
 <body>
 <!-- Boot screen: flowing gold waves while the CRM loads (js/waves.js) -->
@@ -1933,7 +1933,7 @@
     <form class="modal-body rc-form" id="rc-billing-form">
       <input type="hidden" id="rc-bill-id">
       <div class="rp-grid rp-grid-2">
-        <div class="field"><label for="rc-bill-start">Started with us</label><input type="date" id="rc-bill-start" required><span class="field-hint">First payment is a month after this, then every 30 days.</span></div>
+        <div class="field"><label for="rc-bill-start">Started with us</label><input type="date" id="rc-bill-start"><span class="field-hint">First payment is a month after this, then every 30 days.</span></div>
         <div class="field"><label for="rc-bill-fee">Monthly fee excl. GST</label><input type="number" id="rc-bill-fee" min="0" step="0.01"><span class="field-hint" id="rc-bill-fee-hint"></span></div>
       </div>
       <div class="rp-grid rp-grid-2">
@@ -1942,6 +1942,7 @@
       </div>
       <div class="field"><label for="rc-bill-address">Their address <span class="rc-opt">optional, printed on the receipt</span></label><textarea id="rc-bill-address" rows="2"></textarea></div>
       <label class="rc-check"><input type="checkbox" id="rc-bill-paused"> Pause billing for this client</label>
+      <label class="rc-check"><input type="checkbox" id="rc-bill-adhoc"> Ad hoc client - pays as they go, no monthly invoice</label>
       <div class="modal-actions">
         <button type="button" class="btn ghost" data-close="rc-billing-modal">Cancel</button>
         <button type="submit" class="btn gold">Save</button>
@@ -3010,17 +3011,17 @@
     </div>
   </div>
 </div>
-<script src="js/config.js?v=451"></script>
-<script src="js/supabaseClient.js?v=451"></script>
-<script src="js/report-pdf.js?v=451"></script>
-<script src="js/plan-pdf.js?v=451"></script>
-<script src="js/workshop-pdf.js?v=451"></script>
-<script src="js/receipt-pdf.js?v=451"></script>
-<script src="js/welcome-pdf.js?v=451"></script>
-<script src="js/builtin-playbooks.js?v=451"></script>
-<script src="js/builtin-email-templates.js?v=451"></script>
-<script src="js/app.js?v=451"></script>
-<script src="js/meetings-tracker.js?v=451"></script>
-<script src="js/todo.js?v=451"></script>
+<script src="js/config.js?v=452"></script>
+<script src="js/supabaseClient.js?v=452"></script>
+<script src="js/report-pdf.js?v=452"></script>
+<script src="js/plan-pdf.js?v=452"></script>
+<script src="js/workshop-pdf.js?v=452"></script>
+<script src="js/receipt-pdf.js?v=452"></script>
+<script src="js/welcome-pdf.js?v=452"></script>
+<script src="js/builtin-playbooks.js?v=452"></script>
+<script src="js/builtin-email-templates.js?v=452"></script>
+<script src="js/app.js?v=452"></script>
+<script src="js/meetings-tracker.js?v=452"></script>
+<script src="js/todo.js?v=452"></script>
 </body>
 </html>

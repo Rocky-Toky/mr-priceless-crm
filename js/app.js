@@ -9493,7 +9493,9 @@ function rcFee(c){
   if (b.fee !== undefined && b.fee !== null && b.fee !== "") return Number(b.fee);
   return clientRetainer(c);
 }
-const rcActive = (c) => rcIsBillable(c) && !rcBilling(c).paused && rcFee(c) > 0;
+// Ad hoc clients (Rocky, 27 Nov 2026 - e.g. Rubios Pro) pay as they go, so no monthly invoice.
+const rcAdhoc = (c) => !!rcBilling(c).adhoc;
+const rcActive = (c) => rcIsBillable(c) && !rcBilling(c).paused && !rcAdhoc(c) && rcFee(c) > 0;
 // Payment n: a month after the start, then every 30 days.
 function rcCycleDate(c, n){
   const start = rcStart(c);
@@ -9684,7 +9686,7 @@ function renderReceipts(){
   // Clients & billing
   $("#rc-clients").innerHTML = clients.length ? clients.map(c => {
     const b = rcBilling(c), fee = rcFee(c), next = rcNextDue(c), ct = rcContact(c);
-    const status = b.paused ? `<span class="rc-chip muted">Paused</span>` : !(fee > 0) ? `<span class="rc-chip late">Fee not set</span>` : next ? `<span class="rc-chip">Next ${escapeHtml(rcShort(next.date))}</span>` : "";
+    const status = b.adhoc ? `<span class="rc-chip muted">Ad hoc</span>` : b.paused ? `<span class="rc-chip muted">Paused</span>` : !(fee > 0) ? `<span class="rc-chip late">Fee not set</span>` : next ? `<span class="rc-chip">Next ${escapeHtml(rcShort(next.date))}</span>` : "";
     return `<article class="rc-client ${b.paused ? "is-paused" : ""}">
       <div class="rc-card-top">${rcAvatar(c)}<div class="rc-card-id"><b>${escapeHtml(c.name)}</b><span>${escapeHtml(ct.email || "No email yet")}</span></div></div>
       <dl class="rc-client-facts">
@@ -9861,6 +9863,7 @@ function openReceiptBilling(clientId){
   $("#rc-bill-email").value = ct.email;
   $("#rc-bill-address").value = b.address || "";
   $("#rc-bill-paused").checked = !!b.paused;
+  $("#rc-bill-adhoc").checked = !!b.adhoc;
   openModal("rc-billing-modal");
 }
 
@@ -10019,6 +10022,11 @@ function setupReceipts(){
       else if (action === "rc-create") openReceiptEditor(id, null);
       else if (action === "rc-edit") openReceiptEditor(null, id);
       else if (action === "rc-billing") openReceiptBilling(id);
+      else if (action === "rc-adhoc"){
+        const c = state.clients.find(x => x.id === id);
+        if (c) await rcSaveClient(c.id, { billing: { ...rcBilling(c), adhoc: true } });
+        if (typeof renderToday === "function") renderToday();
+      }
       else if (action === "rc-email") await openReceiptSend(id);
       else if (action === "rc-cancel-send"){
         if (!confirm("Cancel this scheduled email? The receipt stays as it is.")) return;
@@ -10139,9 +10147,10 @@ function setupReceipts(){
     e.preventDefault();
     const c = state.clients.find(x => x.id === $("#rc-bill-id").value);
     if (!c) return;
-    const fee = $("#rc-bill-fee").value;
+    const fee = $("#rc-bill-fee").value, adhoc = $("#rc-bill-adhoc").checked;
+    if (!adhoc && !$("#rc-bill-start").value){ alert("Pick when they started with us, or tick \"Ad hoc\" if they don't pay monthly."); return; }
     await rcSaveClient(c.id, { billing: { ...rcBilling(c), start: $("#rc-bill-start").value || null, fee: fee === "" ? null : Number(fee),
-      contact: $("#rc-bill-contact").value.trim(), email: $("#rc-bill-email").value.trim(), address: $("#rc-bill-address").value.trim(), paused: $("#rc-bill-paused").checked } });
+      contact: $("#rc-bill-contact").value.trim(), email: $("#rc-bill-email").value.trim(), address: $("#rc-bill-address").value.trim(), paused: $("#rc-bill-paused").checked, adhoc } });
     closeModal("rc-billing-modal");
   });
 }
@@ -12548,6 +12557,10 @@ function stPayersBuild(){
   });
   return [...payers.values()];
 }
+// Has this client paid anything through Stripe since `since` (ms)? Clears their invoice reminder.
+function stPaidSince(c, since){
+  return !!stData && stPayers().some(x => x.client?.id === c.id && x.pays.some(p => ["paid", "succeeded"].includes(p.status) && (Date.parse(p.paid_at || p.created_at) || 0) >= since));
+}
 // Clients whose monthly payment Stripe takes care of (the hand-kept due dates don't nag for them).
 function stCoversClient(c){
   return !!stData && stPayers().some(x => x.client?.id === c.id && x.sub && ["active", "trialing", "past_due", "unpaid"].includes(x.sub.status));
@@ -12767,11 +12780,13 @@ function todayItems(){
     // Monthly invoices (Rocky, 27 Nov 2026): one row per client whose invoice is due in the
     // next 2 days or overdue, and one row for clients with no invoice date set. Clients
     // Stripe charges every month (a live subscription) don't need either.
-    const billable = state.clients.filter(c => !c.is_test && !inOnboardingSection(c) && rcIsBillable(c) && !rcBilling(c).paused && !stCoversClient(c));
+    // A Stripe payment from them clears the reminder by itself (Rocky, 27 Nov 2026).
+    const billable = state.clients.filter(c => !c.is_test && !inOnboardingSection(c) && rcIsBillable(c) && !rcBilling(c).paused && !rcAdhoc(c) && !stCoversClient(c));
     const soon = rcAddDays(today, 2);
     billable.filter(c => rcBilling(c).start && rcFee(c) > 0).forEach(c => {
       const next = rcNextDue(c);
       if (!next || next.date > soon) return;
+      if (stPaidSince(c, (Date.parse(next.date + "T00:00:00") || now) - 7 * 864e5)) return;
       const days = rcDaysBetween(today, next.date);
       const draft = rcRecordsOf(c).find(r => !rcIsPaid(r) && r.status !== "void" && r.cycle === next.cycle);
       items.push({ prio: 1, area: "money", owner: null, tone: days < 0 ? "bad" : "warn", at: Date.parse(next.date + "T00:00:00") || now,
@@ -12779,13 +12794,13 @@ function todayItems(){
         sub: `${rcMoney(rcFee(c) * (1 + RC_GST))} incl. GST · ${days < 0 ? `${-days} day${days === -1 ? "" : "s"} overdue` : days === 0 ? "due today" : days === 1 ? "due tomorrow" : "due in 2 days"} (${rcShort(next.date)})`,
         actions: btn("Record payment", `data-action="${draft ? "rc-edit" : "rc-create"}" data-id="${draft ? draft.id : c.id}"`, "gold") + go("Money", "receipts") });
     });
-    const noDate = billable.filter(c => !rcBilling(c).start);
+    const noDate = billable.filter(c => !rcBilling(c).start && !stPaidSince(c, now - 35 * 864e5));
     if (noDate.length){
       const names = noDate.map(c => inboxShortName(c.name));
       items.push({ prio: 1, area: "money", owner: null, tone: "warn", at: now + 30 * 864e5,
         title: `${noDate.length} client${noDate.length === 1 ? " has" : "s have"} no invoice date set`,
         sub: "When should they pay each month? " + names.slice(0, 6).join(" · ") + (names.length > 6 ? ` · +${names.length - 6} more` : ""),
-        actions: btn(`Set ${names[0]}'s date`, `data-action="rc-billing" data-id="${noDate[0].id}"`, "gold") });
+        actions: btn(`Set ${names[0]}'s date`, `data-action="rc-billing" data-id="${noDate[0].id}"`, "gold") + btn(`${names[0]} is ad hoc`, `data-action="rc-adhoc" data-id="${noDate[0].id}"`) });
     }
     // Payments: Stripe tells us when one fails or goes overdue (above), so the hand-kept "payment due" rows are gone (Rocky, 14 Nov 2026).
   });
