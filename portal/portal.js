@@ -450,11 +450,11 @@ function alertsBannerHtml(){
 // home screen (or they tap × for today). Android with Chrome's install prompt:
 // one tap. iPhone / everything else: a sheet with the steps.
 function installBannerHtml(){
-  if (readOnly() || installed() || !isPhone() || store.get("mpp_install_later") === nzDay()) return "";
+  if (readOnly() || installed() || store.get("mpp_installed") || !isPhone() || store.get("mpp_install_later") === nzDay()) return "";
   return `<div class="pp-installbar">
     <span class="pp-installbar-icon">📲</span>
     <div><b>Put My Leads on your home screen</b><small>Opens like a normal app, in one tap.</small></div>
-    <button type="button" class="pp-btn pp-btn-gold pp-btn-big" data-act="install-start">Add to home screen</button>
+    <button type="button" class="pp-btn pp-btn-gold pp-btn-big" data-act="install-start"${S.installWait && !S.installEvt ? " disabled" : ""}>${S.installEvt && S.installWait ? "Tap to install now" : S.installWait ? "Getting it ready…" : "Add to home screen"}</button>
     <button type="button" class="pp-x" data-act="install-later" aria-label="Not now">×</button>
   </div>`;
 }
@@ -463,8 +463,8 @@ function renderInstallSheet(){
   const notSafari = ios && /CriOS|FxiOS|EdgiOS/i.test(navigator.userAgent);
   const steps = ios ? `<ol class="pp-install">
       ${notSafari ? `<li><b>Open this page in Safari</b><span>Copy the address at the top and paste it into Safari - adding to the home screen works best from there.</span></li>` : ""}
-      <li><b>Tap the Share button</b><span>The square with an arrow pointing up, at the bottom of the screen (top right on an iPad).</span></li>
-      <li><b>Tap "Add to Home Screen"</b><span>Scroll down the list if you can't see it. Then tap Add.</span></li>
+      <li><b>Tap the Share button</b><span>Newer iPhones: tap the three dots (•••) at the bottom right, then Share. Older iPhones: the square with an arrow pointing up, in the middle of the bottom bar (top right on an iPad).</span></li>
+      <li><b>Tap "Add to Home Screen"</b><span>Scroll down the list (or tap More / View More) if you can't see it. Then tap Add.</span></li>
       <li><b>Open "My Leads" from your home screen</b><span>It's the Mr Priceless icon. You'll stay signed in.</span></li>
     </ol>`
     : `<ol class="pp-install">
@@ -1398,8 +1398,18 @@ function bind(){
     else if (act === "alerts-later"){ store.set("mpp_alerts_later", nzDay()); render(); }
     else if (act === "install-later"){ store.set("mpp_install_later", nzDay()); render(); }
     else if (act === "install-start"){
-      if (S.installEvt){ try { S.installEvt.prompt(); await S.installEvt.userChoice; } catch(err){} S.installEvt = null; render(); }
-      else openSheet("install");
+      // Android / Chrome: their own one-tap "Install app" box. Chrome only
+      // offers it once the page has been open a little while, so if it isn't
+      // ready yet, wait for it (the button says "Tap to install now" when it
+      // is) and only show the manual steps if it never comes.
+      if (S.installEvt){
+        const ev = S.installEvt; S.installEvt = null; S.installWait = false;
+        try { ev.prompt(); const r = await ev.userChoice; if (r?.outcome === "accepted") store.set("mpp_installed", "1"); } catch(err){}
+        render();
+      } else if (/Android/i.test(navigator.userAgent) && !isIOS() && !S.installWait){
+        S.installWait = true; render();
+        setTimeout(() => { if (S.installWait && !S.installEvt){ S.installWait = false; render(); openSheet("install"); } }, 35000);
+      } else if (!S.installWait) openSheet("install");
     }
     else if (act === "alerts-on") turnOnAlerts();
     else if (act === "install"){ try { S.installEvt?.prompt(); await S.installEvt?.userChoice; } catch(err){} S.installEvt = null; renderSheet(); }
@@ -1459,7 +1469,8 @@ function bind(){
   document.addEventListener("visibilitychange", back);
   window.addEventListener("focus", back);
   window.addEventListener("popstate", () => { if (S.sheet) shutSheet(); });
-  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); S.installEvt = e; if (S.sheet === "alerts") renderSheet(); });
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); S.installEvt = e; if (S.sheet === "alerts") renderSheet(); else if (S.installWait) render(); });
+  window.addEventListener("appinstalled", () => { store.set("mpp_installed", "1"); S.installEvt = null; S.installWait = false; render(); });
   // A tapped phone alert while the app is open: go to that lead.
   navigator.serviceWorker?.addEventListener?.("message", (e) => { if (e.data?.lead && S.loaded) refreshAfterSave().then(() => openLead(e.data.lead, { ask: e.data.kind === "checkin" })); });
   setInterval(refreshLeads, POLL_MS);
