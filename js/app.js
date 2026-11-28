@@ -1785,7 +1785,7 @@ const MAIN_NAV = [
   { key: "onboarding", label: "Onboarding", delivery: true, icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>',
     pages: [["onboarding", "Onboarding"]] },
   { key: "clients", label: "Clients", delivery: true, icon: '<path d="M20 7h-3a2 2 0 01-2-2V2"/><path d="M9 22V12a2 2 0 012-2h6a2 2 0 012 2v10"/><path d="M9 22H4a2 2 0 01-2-2V4a2 2 0 012-2h9l6 6v3"/>',
-    pages: [["clients", "Clients"], ["ads-month", "This month"], ["portal-usage", "App usage"], ["ad-production", "Ad production", 1], ["reporting", "Reports", 1], ["lead-sort", "Leads to sort", 1], ["lead-calls", "Recorded calls", 1], ["lead-queue", "Call queue", 1], ["portal-texts", "Texts sent", 1]] },
+    pages: [["clients", "Clients"], ["ad-pilot", "Ad pilot"], ["ads-month", "This month"], ["portal-usage", "App usage"], ["ad-production", "Ad production", 1], ["reporting", "Reports", 1], ["lead-sort", "Leads to sort", 1], ["lead-calls", "Recorded calls", 1], ["lead-queue", "Call queue", 1], ["portal-texts", "Texts sent", 1]] },
   { key: "plastering", label: "Priceless leads", icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
     pages: [["plastering-leads", "Priceless Plastering Leads"]] }, // its own menu item again (Rocky, 14 Nov 2026)
   { key: "money", label: "Money", delivery: true, icon: '<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
@@ -12814,6 +12814,17 @@ function todayItems(){
 
   // Missing Facebook leads stay on Clients → App usage only, never on Today (Rocky, 26 Nov 2026).
 
+  // Ad pilot: changes Claude suggested that wait for a tap (one row).
+  safe(() => {
+    if (!delivery) return;
+    if (!piData){ if (!piLoading) piLoad().then(() => { if (state.page === "today") renderToday(); }); return; }
+    const n = piWaitingCount();
+    if (!n) return;
+    items.push({ prio: 3, area: "ads", owner: null, tone: "warn", at: now,
+      title: `${n} ad change${n === 1 ? "" : "s"} waiting for you`, sub: "Claude checked your clients' Meta ads - approve or skip each one",
+      actions: go("Open Ad pilot", "ad-pilot", "gold") });
+  });
+
   // Leads Mr Priceless had, waiting for Rocky to give back or disqualify (one row).
   safe(() => {
     const n = lsLeads().length;
@@ -17131,6 +17142,233 @@ function renderLeadSort(){
     ${groups}`;
 }
 
+// ───────── Ad pilot (Clients → Ad pilot; Rocky, 28 Nov 2026) ─────────
+// Claude looks after every client's Meta ads (supabase/functions/ad-pilot):
+// each morning it reviews each account and suggests changes; here the team
+// approves them (they go straight to Meta), says "not now" with a reason (which
+// Claude reads next time), sets each client's rules and keeps the playbook.
+let piData = null, piLoading = false, piErr = "", piBusy = {}, piOpen = {}, piNoteFor = null;
+const PI_KIND = { pause: "Pause ad", resume: "Turn ad back on", budget: "Change daily budget", flag: "Look at this" };
+const piClients = () => state.clients.filter(c => c.meta_ad_account_id && !c.is_test && !["churned", ARCHIVED_STAGE].includes(c.stage || ""));
+const piMoney = (n) => n == null ? "-" : "$" + Math.round(Number(n)).toLocaleString("en-NZ");
+const piMoney2 = (n) => n == null ? "-" : "$" + Number(n).toLocaleString("en-NZ", { maximumFractionDigits: 2 });
+async function piLoad(){
+  if (piLoading) return;
+  piLoading = true; piErr = "";
+  try {
+    if (!IS_CONFIGURED){ if (!piData) piData = piDemo(); return; }
+    const since = new Date(Date.now() - 30 * 864e5).toISOString();
+    const [st, se, ac, rv, pb] = await Promise.all([
+      supabase.from("ad_pilot_status").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("ad_pilot_settings").select("*"),
+      supabase.from("ad_actions").select("*").gte("created_at", since).order("created_at", { ascending: false }).limit(600),
+      supabase.from("ad_reviews").select("id, created_at, client_id, summary, health, stats, error").gte("created_at", new Date(Date.now() - 4 * 864e5).toISOString()).order("created_at", { ascending: false }).limit(400),
+      supabase.from("ad_playbook").select("*").eq("active", true).order("created_at", { ascending: false }).limit(200),
+    ]);
+    if (ac.error) throw ac.error;
+    const latest = {};
+    (rv.data || []).forEach(r => { if (!latest[r.client_id]) latest[r.client_id] = r; });
+    piData = { status: st.data || {}, settings: Object.fromEntries((se.data || []).map(s => [s.client_id, s])), actions: ac.data || [], reviews: latest, playbook: pb.data || [] };
+  } catch(err){ piErr = "Couldn't load the Ad pilot. Check your connection and try again."; }
+  finally { piLoading = false; }
+}
+function piDemo(){
+  const cs = piClients().length ? piClients() : state.clients.slice(0, 3), now = Date.now(), iso = (h) => new Date(now - h * 3600e3).toISOString();
+  const reviews = {}, actions = [];
+  cs.forEach((c, i) => {
+    const spend7 = [640, 410, 980][i % 3], leads7 = [21, 6, 19][i % 3];
+    reviews[c.id] = { id: "r" + i, created_at: iso(3 + i), client_id: c.id, health: ["good", "bad", "watch"][i % 3],
+      summary: ["Leads are steady at $30 each and two ads are doing most of the work. Moving a little more budget to the winner.", "Cost per lead has doubled this week and one ad has spent $180 with no leads. Pausing it should bring costs back down.", "Spend is ahead of the monthly budget - on track to go about 15% over. Worth trimming the budget a touch."][i % 3],
+      stats: { d7: { spend: spend7, leads: leads7, cpl: Math.round(spend7 / leads7) }, d30: { spend: spend7 * 4.1, leads: leads7 * 4, cpl: Math.round(spend7 * 4.1 / (leads7 * 4)) }, live_ads: [4, 3, 5][i % 3], spent_this_month: spend7 * 3.6, month_pace: [0.98, 0.9, 1.15][i % 3] } };
+  });
+  const c0 = cs[0], c1 = cs[1] || cs[0], c2 = cs[2] || cs[0];
+  actions.push({ id: "a1", created_at: iso(3), client_id: c1.id, kind: "pause", target_type: "ad", target_id: "1", target_name: "Driveway before/after - video", reason: "Spent $182 in 7 days with no leads, while the other two ads in the same ad set got leads at $34.", impact: "Should cut wasted spend by about $25 a day.", risk: "low", status: "suggested" });
+  actions.push({ id: "a2", created_at: iso(3), client_id: c0.id, kind: "budget", target_type: "adset", target_id: "2", target_name: "Auckland - homeowners", current_value: 50, new_value: 60, reason: "This ad set gets leads at $26, well under the $40 target, and isn't spending its full budget fast enough.", impact: "About 2-3 more leads a week at a similar cost.", risk: "low", status: "suggested" });
+  actions.push({ id: "a3", created_at: iso(4), client_id: c2.id, kind: "flag", target_type: "account", target_id: "act", target_name: "Ad account", reason: "One ad was rejected by Meta for 'before and after' images - it needs a new picture.", impact: "Until it's replaced that ad set only has one ad running.", risk: "high", status: "suggested" });
+  actions.push({ id: "a4", created_at: iso(27), client_id: c0.id, kind: "pause", target_type: "ad", target_id: "4", target_name: "Static - free quote", reason: "No leads from $95 in 7 days.", impact: "", risk: "low", status: "applied", auto: true, applied_at: iso(26), decided_by: "Automatic" });
+  actions.push({ id: "a5", created_at: iso(50), client_id: c1.id, kind: "budget", target_type: "adset", target_id: "5", target_name: "Retargeting", current_value: 20, new_value: 24, reason: "Cheap leads.", impact: "", risk: "low", status: "dismissed", note: "Retargeting audience is tiny, leave it", decided_by: "Rocky", decided_at: iso(48) });
+  return { status: { meta_can_manage: false, meta_perms: ["ads_read", "leads_retrieval", "pages_show_list"], checked_at: iso(1) }, settings: { [c0.id]: { client_id: c0.id, auto_on: true, target_cpl: 40, monthly_budget: 2500, max_change_pct: 20 } }, actions, reviews, playbook: [
+    { id: "p1", lesson: "Video ads showing the finished job get leads about 30% cheaper than static images for concreting clients.", source: "claude", client_id: null },
+    { id: "p2", lesson: "Don't touch retargeting ad sets - their audiences are too small to judge on a week of numbers.", source: "team", client_id: null },
+  ] };
+}
+async function piCall(body){
+  if (!IS_CONFIGURED) return { ok: true, demo: true };
+  const { data, error } = await supabase.functions.invoke("ad-pilot", { body });
+  if (error || data?.error) throw new Error(data?.error || error.message);
+  return data;
+}
+function piActionText(a){
+  if (a.kind === "budget") return `${PI_KIND.budget}: ${piMoney2(a.current_value)} → ${piMoney2(a.new_value)} a day`;
+  return PI_KIND[a.kind] || a.kind;
+}
+function piCardHtml(a){
+  const c = state.clients.find(x => x.id === a.client_id);
+  const noting = piNoteFor === a.id, busy = piBusy[a.id];
+  return `<article class="pi-card pi-${a.kind}">
+    <div class="pi-card-top"><span class="pi-client">${escapeHtml(c?.name || "Client")}</span>${a.risk === "low" && a.kind !== "flag" ? `<span class="pi-tag">Small change</span>` : ""}<span class="pi-when">${escapeHtml(timeAgo(a.created_at))}</span></div>
+    <h4>${escapeHtml(piActionText(a))}</h4>
+    ${a.target_name && a.target_type !== "account" ? `<div class="pi-target">${escapeHtml(a.target_type === "ad" ? "Ad" : a.target_type === "adset" ? "Ad set" : "Campaign")}: <b>${escapeHtml(a.target_name)}</b></div>` : ""}
+    <p class="pi-why">${escapeHtml(a.reason || "")}</p>
+    ${a.impact ? `<p class="pi-impact">${escapeHtml(a.impact)}</p>` : ""}
+    ${a.status === "failed" ? `<p class="pi-err">Didn't go through: ${escapeHtml(a.error || "")}</p>` : ""}
+    ${noting ? `<div class="pi-note"><input type="text" id="pi-note-in" placeholder="Why not? (Claude remembers this)" maxlength="300"><button type="button" class="btn gold sm" data-pi="dismiss" data-id="${a.id}">Save</button><button type="button" class="btn ghost sm" data-pi="cancel-note">Back</button></div>`
+      : `<div class="pi-btns">${a.kind === "flag" ? `<button type="button" class="btn gold sm" data-pi="apply" data-id="${a.id}"${busy ? " disabled" : ""}>Got it</button>` : `<button type="button" class="btn gold sm" data-pi="apply" data-id="${a.id}"${busy ? " disabled" : ""}>${busy ? "Doing it…" : a.status === "failed" ? "Try again" : "Approve"}</button>`}<button type="button" class="btn ghost sm" data-pi="note" data-id="${a.id}">Not now</button></div>`}
+  </article>`;
+}
+function piClientHtml(c){
+  const r = piData.reviews[c.id], s = r?.stats || {}, set = piData.settings[c.id] || {}, open = piOpen[c.id], busy = piBusy["c:" + c.id];
+  const d7 = s.d7 || {}, d30 = s.d30 || {};
+  const trend = d7.cpl && d30.cpl ? (d7.cpl > d30.cpl * 1.15 ? `<i class="pi-up">▲ dearer than usual</i>` : d7.cpl < d30.cpl * 0.87 ? `<i class="pi-down">▼ cheaper than usual</i>` : "") : "";
+  const pace = s.month_pace;
+  return `<article class="pi-client-card h-${r?.health || "none"}">
+    <div class="pi-cc-top"><span class="pi-dot" aria-hidden="true"></span><b>${escapeHtml(c.name)}</b>${set.auto_on ? `<span class="pi-tag auto">Auto on</span>` : ""}<span class="pi-when">${r ? "Checked " + escapeHtml(timeAgo(r.created_at)) : "Not checked yet"}</span></div>
+    ${r?.error ? `<p class="pi-err">${escapeHtml(r.error)}</p>` : r?.summary ? `<p class="pi-sum">${escapeHtml(r.summary)}</p>` : `<p class="pi-sum muted">Claude hasn't looked at this account yet. Press Check now.</p>`}
+    <div class="pi-nums">
+      <span><small>Spent, 7 days</small><b>${piMoney(d7.spend)}</b></span>
+      <span><small>Leads, 7 days</small><b>${d7.leads ?? "-"}</b></span>
+      <span><small>Cost per lead</small><b>${piMoney2(d7.cpl)}</b>${trend}</span>
+      <span><small>This month</small><b>${piMoney(s.spent_this_month)}</b>${pace ? `<i class="${pace > 1.1 || pace < 0.85 ? "pi-up" : ""}">${pace > 1.1 ? "ahead of budget" : pace < 0.85 ? "behind budget" : "on budget"}</i>` : set.monthly_budget ? "" : `<i>no budget set</i>`}</span>
+    </div>
+    <div class="pi-cc-btns"><button type="button" class="btn ghost sm" data-pi="review" data-id="${c.id}"${busy ? " disabled" : ""}>${busy ? "Checking… (up to a minute)" : "Check now"}</button><button type="button" class="btn ghost sm" data-pi="settings" data-id="${c.id}">${open ? "Close rules" : "Rules"}</button></div>
+    ${open ? `<form class="pi-set" data-pi-form="${c.id}">
+      <label class="pi-switch"><input type="checkbox" name="auto_on"${set.auto_on ? " checked" : ""}> Let small changes happen by themselves <small>(pausing clearly failed ads, budget moves within the limit)</small></label>
+      <div class="pi-set-grid">
+        <label>Target cost per lead<input type="number" name="target_cpl" min="0" step="1" value="${set.target_cpl ?? ""}" placeholder="e.g. 40"></label>
+        <label>Ad budget per month<input type="number" name="monthly_budget" min="0" step="10" value="${set.monthly_budget ?? ""}" placeholder="e.g. 2500"></label>
+        <label>Highest daily budget<input type="number" name="max_daily_budget" min="0" step="1" value="${set.max_daily_budget ?? ""}" placeholder="no limit"></label>
+        <label>Biggest budget move<select name="max_change_pct">${[10, 15, 20, 25, 30].map(p => `<option value="${p}"${(set.max_change_pct || 20) === p ? " selected" : ""}>${p}%</option>`).join("")}</select></label>
+      </div>
+      <label>Anything Claude should always know about this client<textarea name="notes" rows="2" placeholder="e.g. Only want driveways, not patios. Keep Auckland only.">${escapeHtml(set.notes || "")}</textarea></label>
+      <button type="submit" class="btn gold sm">Save rules</button>
+    </form>` : ""}
+  </article>`;
+}
+function renderAdPilot(){
+  const root = $("#pi-root");
+  if (!root) return;
+  if (!root.dataset.bound){
+    root.dataset.bound = "1";
+    root.addEventListener("click", piClick);
+    root.addEventListener("submit", piSubmit);
+  }
+  if (!piData){
+    root.innerHTML = piErr ? `<p class="pt-empty">${escapeHtml(piErr)} <button type="button" class="btn ghost sm" data-pi="refresh">Try again</button></p>` : mpSkel(5);
+    if (!piLoading && !piErr) piLoad().then(renderAdPilot);
+    return;
+  }
+  const clients = piClients(), st = piData.status || {};
+  const waiting = piData.actions.filter(a => ["suggested", "failed"].includes(a.status) && clients.some(c => c.id === a.client_id))
+    .sort((a, b) => (a.kind === "flag") - (b.kind === "flag") || (a.risk === "low") - (b.risk === "low") || Date.parse(b.created_at) - Date.parse(a.created_at));
+  const week = Date.now() - 7 * 864e5;
+  const done = piData.actions.filter(a => ["applied", "dismissed"].includes(a.status) && Date.parse(a.applied_at || a.decided_at || a.created_at) > Date.now() - 14 * 864e5);
+  const tot = clients.reduce((t, c) => { const d = piData.reviews[c.id]?.stats?.d7; if (d){ t.spend += Number(d.spend) || 0; t.leads += Number(d.leads) || 0; } return t; }, { spend: 0, leads: 0 });
+  const autoWeek = piData.actions.filter(a => a.auto && a.status === "applied" && Date.parse(a.applied_at || a.created_at) > week).length;
+  const order = { bad: 0, watch: 1, good: 2 };
+  const sorted = clients.slice().sort((a, b) => (order[piData.reviews[a.id]?.health] ?? 3) - (order[piData.reviews[b.id]?.health] ?? 3) || a.name.localeCompare(b.name));
+  root.innerHTML = `
+    ${st.meta_can_manage ? "" : `<div class="pi-setup"><div><b>Ad pilot can read your Meta ads but can't change them yet.</b><span>Claude will still check every account and suggest changes. To let approved changes go straight to Meta, give our Meta connection permission to manage ads (steps below), then press Check again.</span>
+      <details><summary>How to switch it on (5 minutes)</summary><ol>
+        <li>Open <b>business.facebook.com</b> → <b>Settings</b> (cog) → <b>Users → System users</b>, and click the system user the CRM uses.</li>
+        <li>Under <b>Assigned assets</b>, check every client's <b>ad account</b> is there with <b>Full control</b> (Manage campaigns). Add any that are missing.</li>
+        <li>Click <b>Generate new token</b>, pick our app, tick <b>ads_management</b> and <b>pages_manage_ads</b> as well as the ones already ticked (ads_read, leads_retrieval, pages_show_list, pages_read_engagement), and generate it.</li>
+        <li>Copy the token. In GitHub → our CRM repo → <b>Settings → Secrets and variables → Actions</b>, update <b>META_SYSTEM_USER_TOKEN</b> with it (or send it to Claude through a secret - never paste it in chat).</li>
+        <li>Come back here and press <b>Check again</b>.</li></ol></details></div>
+      <button type="button" class="btn gold sm" data-pi="access"${piBusy.access ? " disabled" : ""}>${piBusy.access ? "Checking…" : "Check again"}</button></div>`}
+    <div class="pt-stats">
+      <span><b>${waiting.length}</b>waiting for you</span>
+      <span><b>${piMoney(tot.spend)}</b>spent in 7 days</span>
+      <span><b>${tot.leads}</b>leads in 7 days</span>
+      <span><b>${tot.leads ? piMoney2(tot.spend / tot.leads) : "-"}</b>cost per lead</span>
+      <span><b>${autoWeek}</b>done by itself this week</span>
+    </div>
+    <section class="pi-sec"><h3>Waiting for you <em>${waiting.length}</em></h3>
+      ${waiting.length ? `<div class="pi-cards">${waiting.map(piCardHtml).join("")}</div>` : `<p class="pi-empty">Nothing to check right now. Claude reviews every account each morning.</p>`}
+    </section>
+    <section class="pi-sec"><h3>Every client <em>${clients.length}</em><span class="pi-sub">Worst first. Checked every morning around 7am.</span></h3>
+      ${clients.length ? `<div class="pi-clients">${sorted.map(piClientHtml).join("")}</div>` : `<p class="pi-empty">No clients have a Meta ad account ID yet. Add one on a client's page.</p>`}
+    </section>
+    <section class="pi-sec"><details class="pi-fold"><summary>Done lately <em>${done.length}</em></summary>
+      ${done.length ? `<ul class="pi-done">${done.map(a => { const c = state.clients.find(x => x.id === a.client_id); return `<li><span class="pi-dd ${a.status}">${a.status === "dismissed" ? "Not now" : a.auto ? "Auto" : a.kind === "flag" ? "Seen" : "Done"}</span><b>${escapeHtml(c?.name || "")}</b> · ${escapeHtml(piActionText(a))}${a.target_name && a.target_type !== "account" ? ` · ${escapeHtml(a.target_name)}` : ""}${a.note ? ` <i>"${escapeHtml(a.note)}"</i>` : ""}<small>${escapeHtml(a.decided_by || "")} · ${escapeHtml(timeAgo(a.applied_at || a.decided_at || a.created_at))}</small></li>`; }).join("")}</ul>` : `<p class="pi-empty">Nothing yet.</p>`}
+    </details></section>
+    <section class="pi-sec"><details class="pi-fold"><summary>What Claude has learned <em>${piData.playbook.length}</em></summary>
+      <p class="pi-sub">Claude reads these before every review. Add your own rules, or remove any that are wrong.</p>
+      <ul class="pi-lessons">${piData.playbook.map(l => { const c = l.client_id ? state.clients.find(x => x.id === l.client_id) : null; return `<li><span>${escapeHtml(l.lesson)}</span><small>${l.source === "team" ? "Team" : "Claude"}${c ? " · " + escapeHtml(c.name) : ""}</small><button type="button" class="pi-x" data-pi="forget" data-id="${l.id}" title="Remove">×</button></li>`; }).join("")}</ul>
+      <form class="pi-addl" data-pi-lesson><input type="text" name="lesson" maxlength="300" placeholder="Add a rule, e.g. Never run ads on Sundays for EJM"><button type="submit" class="btn ghost sm">Add</button></form>
+    </details></section>`;
+}
+async function piClick(e){
+  const b = e.target.closest("[data-pi]");
+  if (!b) return;
+  const act = b.dataset.pi, id = b.dataset.id;
+  if (act === "refresh"){ piData = null; renderAdPilot(); return; }
+  if (act === "note"){ piNoteFor = id; renderAdPilot(); $("#pi-note-in")?.focus(); return; }
+  if (act === "cancel-note"){ piNoteFor = null; renderAdPilot(); return; }
+  if (act === "settings"){ piOpen[id] = !piOpen[id]; renderAdPilot(); return; }
+  if (act === "dismiss"){
+    const a = piData.actions.find(x => x.id === id), note = ($("#pi-note-in")?.value || "").trim();
+    if (!a) return;
+    Object.assign(a, { status: "dismissed", note: note || null, decided_by: ASSIGNEES[pmMe()]?.label?.split(" ")[0] || "Team", decided_at: new Date().toISOString() });
+    piNoteFor = null; renderAdPilot();
+    if (IS_CONFIGURED){ const { error } = await supabase.from("ad_actions").update({ status: "dismissed", note: a.note, decided_by: a.decided_by, decided_at: a.decided_at }).eq("id", id); if (error) alert("Couldn't save that: " + error.message); }
+    if (typeof renderToday === "function" && state.page === "today") renderToday();
+    return;
+  }
+  if (act === "apply"){
+    const a = piData.actions.find(x => x.id === id);
+    if (!a || piBusy[id]) return;
+    piBusy[id] = true; renderAdPilot();
+    try {
+      await piCall({ action: "apply", id });
+      Object.assign(a, { status: "applied", applied_at: new Date().toISOString(), decided_by: ASSIGNEES[pmMe()]?.label?.split(" ")[0] || "You" });
+      rcToast(a.kind === "flag" ? "Marked as seen." : "Done - it's live on Meta.");
+    } catch(err){ a.status = "failed"; a.error = err?.message || String(err); }
+    finally { delete piBusy[id]; renderAdPilot(); }
+    return;
+  }
+  if (act === "review"){
+    if (piBusy["c:" + id]) return;
+    piBusy["c:" + id] = true; renderAdPilot();
+    try { await piCall({ action: "review", client_id: id }); if (IS_CONFIGURED){ piData = null; await piLoad(); } rcToast("Checked."); }
+    catch(err){ alert("Couldn't check that account: " + (err?.message || err)); }
+    finally { delete piBusy["c:" + id]; renderAdPilot(); }
+    return;
+  }
+  if (act === "access"){
+    piBusy.access = true; renderAdPilot();
+    try { const r = await piCall({ action: "access" }); if (r && !r.demo){ piData.status = { ...piData.status, meta_can_manage: r.can_manage, meta_perms: r.perms }; } rcToast(r?.can_manage ? "All set - approved changes now go straight to Meta." : "Still can't change ads - check the steps."); }
+    catch(err){ alert("Couldn't check: " + (err?.message || err)); }
+    finally { delete piBusy.access; renderAdPilot(); }
+    return;
+  }
+  if (act === "forget"){
+    piData.playbook = piData.playbook.filter(l => l.id !== id); renderAdPilot();
+    if (IS_CONFIGURED) await supabase.from("ad_playbook").update({ active: false }).eq("id", id);
+  }
+}
+async function piSubmit(e){
+  const f = e.target;
+  if (f.matches("[data-pi-form]")){
+    e.preventDefault();
+    const id = f.dataset.piForm, fd = new FormData(f), num = (k) => { const v = String(fd.get(k) || "").trim(); return v === "" ? null : Number(v); };
+    const row = { client_id: id, auto_on: !!fd.get("auto_on"), target_cpl: num("target_cpl"), monthly_budget: num("monthly_budget"), max_daily_budget: num("max_daily_budget"),
+      max_change_pct: Number(fd.get("max_change_pct")) || 20, notes: String(fd.get("notes") || "").trim() || null, updated_at: new Date().toISOString(), updated_by: ASSIGNEES[pmMe()]?.label || null };
+    piData.settings[id] = row; piOpen[id] = false; renderAdPilot();
+    if (IS_CONFIGURED){ const { error } = await supabase.from("ad_pilot_settings").upsert(row); if (error) return alert("Couldn't save the rules: " + error.message); }
+    rcToast("Rules saved.");
+  }
+  if (f.matches("[data-pi-lesson]")){
+    e.preventDefault();
+    const lesson = String(new FormData(f).get("lesson") || "").trim();
+    if (lesson.length < 5) return;
+    let row = { id: uid(), lesson, source: "team", client_id: null, active: true };
+    if (IS_CONFIGURED){ const { data, error } = await supabase.from("ad_playbook").insert({ lesson, source: "team" }).select("*").single(); if (error) return alert("Couldn't add it: " + error.message); row = data; }
+    piData.playbook.unshift(row); renderAdPilot();
+  }
+}
+// For Today: how many suggestions are waiting.
+const piWaitingCount = () => piData ? piData.actions.filter(a => a.status === "suggested" && piClients().some(c => c.id === a.client_id)).length : 0;
+
 // ───────── App usage (Clients → App usage; 24 Nov 2026) ─────────
 // One row per client: who's using their app, who's ringing their leads, who
 // gets texts, and what isn't working. Built from the leads already loaded plus
@@ -17268,6 +17506,7 @@ const RENDERERS = [
   [renderPortalTexts, ["portal-texts"]],
   [renderLeadSort, ["lead-sort"]],
   [renderPortalUsage, ["portal-usage"]],
+  [renderAdPilot, ["ad-pilot"]],
 ];
 let renderBacklog = [], renderBacklogTimer = null;
 function runRenderer(fn){ try { fn(); } catch(err){ console.error(fn.name, err); } }
