@@ -31,6 +31,7 @@ on:
       - "supabase/functions/client-portal/**"
       - "supabase/functions/sync-meta-leads/**"
       - "supabase/functions/sync-stripe/**"
+      - "supabase/functions/ad-pilot/**"
       - "supabase/functions/_shared/**"
       - "sql/056_ghl_connections.sql"
       - "sql/057_nurture_and_jarvis.sql"
@@ -106,6 +107,7 @@ on:
       - "sql/128_paradise_painting_web_leads.sql"
       - "sql/129_rubios_adhoc_billing.sql"
       - "sql/130_care_co_web_leads.sql"
+      - "sql/131_ad_pilot.sql"
       - ".github/workflows/supabase-functions.yml"
   workflow_dispatch:
     inputs:
@@ -159,6 +161,10 @@ on:
         default: ""
       check_meta_pages:
         description: "Type yes to check which client Facebook Pages we can read leads from directly (counts only; details show in the CRM on Clients -> App usage)"
+        required: false
+        default: ""
+      check_ad_pilot:
+        description: "Type yes to check the Ad pilot: can our Meta connection change ads, and how the reviews are going (counts only)"
         required: false
         default: ""
       check_outcomes:
@@ -220,12 +226,13 @@ jobs:
         run: |
           deno test supabase/functions/creative-agent
           deno test --allow-env supabase/functions/client-portal
+          deno test supabase/functions/ad-pilot
       # Tables the functions need, created through the Supabase API with the same
       # token, so nobody has to paste SQL into the dashboard. Safe to re-run.
       - name: Set up the tables the functions use
         if: steps.token.outputs.ok == 'true'
         run: |
-          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql sql/086_precall_tasks.sql sql/087_precall_messages.sql sql/088_lead_tasks.sql sql/089_employee_plan.sql sql/090_team_details.sql sql/091_client_lead_fit.sql sql/092_aircall_calls.sql sql/093_lead_callback_stage.sql sql/094_client_lead_area.sql sql/095_lead_job_scope.sql sql/096_employee_schedule.sql sql/097_client_lead_region.sql sql/098_lead_key_access.sql sql/099_client_visit_is_consult.sql sql/101_creative_jobs.sql sql/102_meeting_expectations_wording.sql sql/103_meeting_demo_wording.sql sql/104_clear_email_templates.sql sql/105_schedule_nz_hours.sql sql/106_client_booking_times.sql sql/107_client_checkin_calls.sql sql/108_client_report_reminders.sql sql/109_client_site_visits_only.sql sql/110_lead_live_updates.sql sql/111_client_lead_contact.sql sql/100_lead_follow_up_only_access.sql sql/112_client_portal.sql sql/113_client_pipeline.sql sql/117_portal_calendars.sql sql/114_plastering_leads.sql sql/115_inbox_no_calendar_notices.sql sql/116_inbound_leads.sql sql/118_stripe.sql sql/119_client_ad_platforms.sql sql/120_portal_reports.sql sql/121_client_meta_pages.sql sql/122_trade_leads.sql sql/123_trade_estimates.sql sql/124_client_web_leads.sql sql/125_rubios_web_leads.sql sql/126_concrete_grind_pro_web_leads.sql sql/127_concrete_grind_pro_key_match.sql sql/128_paradise_painting_web_leads.sql sql/129_rubios_adhoc_billing.sql sql/130_care_co_web_leads.sql; do
+          for f in sql/056_ghl_connections.sql sql/057_nurture_and_jarvis.sql sql/058_client_industry.sql sql/059_deal_date.sql sql/060_team_and_defaults.sql sql/061_deal_source.sql sql/062_scheduled_emails.sql sql/063_margin_and_video.sql sql/064_deal_stage_history.sql sql/065_deal_attended.sql sql/066_security_hardening.sql sql/067_lost_reason_adhoc.sql sql/068_meeting_demo_step.sql sql/070_sit_rate_wording.sql sql/071_remove_lock_in_step.sql sql/072_sit_rate_invite_step.sql sql/073_meeting_pitch_rebuild.sql sql/074_client_inbox.sql sql/075_inbox_by_gmail_script.sql sql/076_payment_reminders.sql sql/077_employees.sql sql/078_lead_follow_up.sql sql/079_lead_details_and_sync.sql sql/080_lead_ad_info.sql sql/081_lead_ghl_outcomes.sql sql/082_precall_meetings.sql sql/083_precall_reschedule_and_watch.sql sql/084_employee_responsibilities.sql sql/085_precall_ghl_sync.sql sql/086_precall_tasks.sql sql/087_precall_messages.sql sql/088_lead_tasks.sql sql/089_employee_plan.sql sql/090_team_details.sql sql/091_client_lead_fit.sql sql/092_aircall_calls.sql sql/093_lead_callback_stage.sql sql/094_client_lead_area.sql sql/095_lead_job_scope.sql sql/096_employee_schedule.sql sql/097_client_lead_region.sql sql/098_lead_key_access.sql sql/099_client_visit_is_consult.sql sql/101_creative_jobs.sql sql/102_meeting_expectations_wording.sql sql/103_meeting_demo_wording.sql sql/104_clear_email_templates.sql sql/105_schedule_nz_hours.sql sql/106_client_booking_times.sql sql/107_client_checkin_calls.sql sql/108_client_report_reminders.sql sql/109_client_site_visits_only.sql sql/110_lead_live_updates.sql sql/111_client_lead_contact.sql sql/100_lead_follow_up_only_access.sql sql/112_client_portal.sql sql/113_client_pipeline.sql sql/117_portal_calendars.sql sql/114_plastering_leads.sql sql/115_inbox_no_calendar_notices.sql sql/116_inbound_leads.sql sql/118_stripe.sql sql/119_client_ad_platforms.sql sql/120_portal_reports.sql sql/121_client_meta_pages.sql sql/122_trade_leads.sql sql/123_trade_estimates.sql sql/124_client_web_leads.sql sql/125_rubios_web_leads.sql sql/126_concrete_grind_pro_web_leads.sql sql/127_concrete_grind_pro_key_match.sql sql/128_paradise_painting_web_leads.sql sql/129_rubios_adhoc_billing.sql sql/130_care_co_web_leads.sql sql/131_ad_pilot.sql; do
             jq -Rs '{query: .}' "$f" > /tmp/q.json
             curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
               -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
@@ -344,7 +351,7 @@ jobs:
       - name: Deploy
         if: steps.token.outputs.ok == 'true'
         run: |
-          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings sync-aircall-calls creative-agent client-portal sync-meta-leads sync-stripe; do
+          for fn in sync-client-ads ghl-report-data jarvis send-scheduled-emails sync-client-inbox sync-ghl-leads precall-meetings sync-aircall-calls creative-agent client-portal sync-meta-leads sync-stripe ad-pilot; do
             supabase functions deploy "$fn" --project-ref "$PROJECT_REF" --yes --no-verify-jwt
           done
       # Run by hand with seed_test_client=yes: makes (or resets) the client
@@ -587,6 +594,24 @@ jobs:
           q "select count(*) as meta_leads, count(*) filter (where created_at > now() - interval '24 hours') as last_24h, count(*) filter (where ghl_opp_id is not null) as linked_to_ghl from client_leads where source = 'meta'" | jq -c '.[0]'
           echo "Why pages can't be read (counts):"
           q "select left(coalesce(error,'-'),120) as why, count(*) from client_meta_pages where not can_read group by 1 order by 2 desc" | jq -c '.[]'
+      # Run by hand with check_ad_pilot=yes: can our Meta connection change ads,
+      # and how the daily reviews are going. Counts and statuses only.
+      - name: Check the Ad pilot
+        if: steps.token.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.check_ad_pilot == 'yes'
+        run: |
+          q() { jq -n --arg q "$1" '{query: $q}' > /tmp/q.json; curl -sS --fail-with-body -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @/tmp/q.json; }
+          secret=$(q "select value from app_secrets where name = 'adpilot_cron_secret'" | jq -r '.[0].value')
+          echo "::add-mask::$secret"
+          echo "Running a review of clients not reviewed in 20 hours:"
+          curl -sS -m 200 -X POST "https://$PROJECT_REF.supabase.co/functions/v1/ad-pilot" \
+            -H "Content-Type: application/json" -H "Authorization: Bearer sb_publishable_2FnHNV8THv1QUrFumCzu4A_WyCD9UH_" \
+            -H "x-cron-secret: $secret" --data '{"action":"review"}' | jq -c '{reviewed, suggested, auto, failed, left, error}'
+          echo "Meta connection:"
+          q "select meta_can_manage, array_to_string(meta_perms, ' ') as permissions, checked_at, left(coalesce(last_error,''),160) as last_error from ad_pilot_status" | jq -c '.[0]'
+          echo "Reviews and suggestions (counts):"
+          q "select (select count(*) from ad_reviews where created_at > now() - interval '1 day' and error is null) as reviews_24h, (select count(*) from ad_reviews where created_at > now() - interval '1 day' and error is not null) as failed_24h, (select count(*) from ad_actions where status='suggested') as waiting, (select count(*) from ad_actions where status='applied') as applied, (select count(*) from ad_actions where status='failed') as failed, (select count(*) from ad_playbook where active) as lessons" | jq -c '.[0]'
+          echo "Why reviews failed (counts):"
+          q "select left(error,120) as why, count(*) from ad_reviews where error is not null and created_at > now() - interval '2 days' group by 1 order by 2 desc limit 5" | jq -c '.[]'
       # Run by hand with check_stripe=yes: copy Stripe payments in now and say how
       # it's going. Counts and statuses only - these logs are public.
       - name: Check the Stripe sync
